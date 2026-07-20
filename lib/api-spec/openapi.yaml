@@ -1159,6 +1159,75 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /google/gmail/messages:
+    get:
+      operationId: listGmailMessages
+      tags: [google]
+      summary: List recent Gmail messages with AI priority classification
+      responses:
+        "200":
+          description: Gmail messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GmailMessageList"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /google/gmail/draft:
+    post:
+      operationId: generateGmailDraft
+      tags: [google]
+      summary: Generate an AI reply draft for a Gmail message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GmailDraftRequest"
+      responses:
+        "200":
+          description: Draft reply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GmailDraftResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /google/gmail/send:
+    post:
+      operationId: sendGmailMessage
+      tags: [google]
+      summary: Send a Gmail reply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GmailSendRequest"
+      responses:
+        "200":
+          description: Sent message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GmailSendResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -1486,6 +1555,9 @@ components:
           type: ["string", "null"]
         attendees:
           type: ["string", "null"]
+        googleEventId:
+          type: ["string", "null"]
+          description: Google Calendar event ID for synced events
         createdAt:
           type: string
           format: date-time
@@ -1517,6 +1589,9 @@ components:
           type: string
         attendees:
           type: string
+        googleEventId:
+          type: string
+          description: Google Calendar event ID to link this local event to a Google event
     EventUpdate:
       type: object
       properties:
@@ -1541,6 +1616,9 @@ components:
           type: string
         attendees:
           type: string
+        googleEventId:
+          type: string
+          description: Google Calendar event ID to link this local event to a Google event
 
     # ── Chores ────────────────────────────────────────────────────────────
     Chore:
@@ -1880,7 +1958,7 @@ components:
 
     GoogleConnectionStatus:
       type: object
-      required: [connected]
+      required: [connected, calendarConnected, gmailConnected]
       properties:
         connected:
           type: boolean
@@ -1888,7 +1966,9 @@ components:
           type: array
           items:
             type: string
-        calendar:
+        calendarConnected:
+          type: boolean
+        gmailConnected:
           type: boolean
 
     GoogleCalendarSyncRequest:
@@ -1966,4 +2046,83 @@ components:
       required: [calendarId]
       properties:
         calendarId:
+          type: string
+
+    GmailMessageList:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/GmailMessage"
+
+    GmailMessage:
+      type: object
+      required: [id, threadId, subject, from, priority]
+      properties:
+        id:
+          type: string
+        threadId:
+          type: string
+        subject:
+          type: string
+        from:
+          type: string
+        snippet:
+          type: string
+        body:
+          type: string
+        internalDate:
+          type: string
+        priority:
+          type: string
+          enum: [urgent, follow-up, fyi, archive]
+        labelIds:
+          type: array
+          items:
+            type: string
+
+    GmailDraftRequest:
+      type: object
+      required: [messageId]
+      properties:
+        messageId:
+          type: string
+        tone:
+          type: string
+
+    GmailDraftResponse:
+      type: object
+      required: [to, subject, draft, messageId]
+      properties:
+        to:
+          type: string
+        subject:
+          type: string
+        draft:
+          type: string
+        messageId:
+          type: string
+
+    GmailSendRequest:
+      type: object
+      required: [to, subject, body]
+      properties:
+        to:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        threadId:
+          type: string
+
+    GmailSendResponse:
+      type: object
+      required: [id, threadId]
+      properties:
+        id:
+          type: string
+        threadId:
           type: string

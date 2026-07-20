@@ -27,7 +27,7 @@ export function LoginPage() {
         </div>
         
         <h1 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4 tracking-tight">
-          Welcome to <span className="text-primary">Aura</span>
+          Welcome to <span className="text-primary">Askolo</span>
         </h1>
         
         <p className="text-muted-foreground text-lg mb-10 max-w-sm font-sans">

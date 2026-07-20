@@ -15,6 +15,8 @@ import { NotesPage } from '@/pages/notes';
 import { ActionsPage } from '@/pages/actions';
 import { AssistantPage } from '@/pages/assistant';
 import { EmailPage } from '@/pages/email';
+import { PrivacyPage } from '@/pages/privacy';
+import { TermsPage } from '@/pages/terms';
 
 const queryClient = new QueryClient();
 
@@ -32,6 +34,8 @@ function Router() {
         <Route path="/actions" component={ActionsPage} />
         <Route path="/assistant" component={AssistantPage} />
         <Route path="/email" component={EmailPage} />
+        <Route path="/privacy" component={PrivacyPage} />
+        <Route path="/terms" component={TermsPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

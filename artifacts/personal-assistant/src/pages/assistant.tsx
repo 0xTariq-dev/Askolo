@@ -33,7 +33,7 @@ export function AssistantPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: "Hi, I'm Aura. Ask me about your day, what to focus on, or how to balance your goals.",
+      content: "Hi, I'm Askolo. Ask me about your day, what to focus on, or how to balance your goals.",
       id: 'welcome',
     },
   ]);
@@ -113,7 +113,7 @@ export function AssistantPage() {
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-display font-bold tracking-tight">Aura Assistant</h1>
+            <h1 className="text-2xl font-display font-bold tracking-tight">Askolo Assistant</h1>
             <p className="text-sm text-muted-foreground">Ask anything about your habits, goals, or day.</p>
           </div>
         </div>
@@ -181,7 +181,7 @@ export function AssistantPage() {
                     <FormItem className="flex-1">
                       <FormControl>
                         <Input
-                          placeholder="Ask Aura something..."
+                          placeholder="Ask Askolo something..."
                           className="h-12 bg-background border-border"
                           {...field}
                           data-testid="assistant-input"

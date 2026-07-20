@@ -26,6 +26,11 @@ export interface Event {
   color?: string | null;
   /** @nullable */
   attendees?: string | null;
+  /**
+     * Google Calendar event ID for synced events
+     * @nullable
+     */
+  googleEventId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

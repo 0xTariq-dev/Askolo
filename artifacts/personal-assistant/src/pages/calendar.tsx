@@ -15,7 +15,6 @@ import {
   MoreVertical,
   Clock,
   MapPin,
-  CheckCircle2,
   Link2,
 } from 'lucide-react';
 import {
@@ -25,6 +24,9 @@ import {
   useDeleteEvent,
   useGetGoogleStatus,
   useSyncGoogleCalendar,
+  useCreateGoogleCalendarEvent,
+  useUpdateGoogleCalendarEvent,
+  useDeleteGoogleCalendarEvent,
   getListEventsQueryKey,
   getGetDashboardSummaryQueryKey,
   Event,
@@ -37,6 +39,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PageTransition } from '@/components/ui/page-transition';
+import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
 const eventSchema = z.object({
@@ -52,11 +55,15 @@ const eventSchema = z.object({
 
 type EventFormValues = z.infer<typeof eventSchema>;
 
+const DEFAULT_COLOR = '#3b82f6';
+
 export function CalendarPage() {
   const qc = useQueryClient();
+  const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const from = format(startOfMonth(currentDate), 'yyyy-MM-dd');
   const to = format(endOfMonth(currentDate), 'yyyy-MM-dd');
@@ -66,7 +73,12 @@ export function CalendarPage() {
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
+  const createGoogleEvent = useCreateGoogleCalendarEvent();
+  const updateGoogleEvent = useUpdateGoogleCalendarEvent();
+  const deleteGoogleEvent = useDeleteGoogleCalendarEvent();
   const syncGoogleCalendar = useSyncGoogleCalendar();
+
+  const calendarConnected = googleStatus?.calendarConnected ?? false;
 
   const form = useHookForm<EventFormValues>({
     resolver: zodResolver(eventSchema),
@@ -112,20 +124,82 @@ export function CalendarPage() {
     setDialogOpen(true);
   };
 
+  const invalidateCalendar = () => {
+    qc.invalidateQueries({ queryKey: getListEventsQueryKey() });
+    qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+  };
+
+  const handleMutationError = (action: string, error: Error) => {
+    toast({
+      variant: 'destructive',
+      title: `Failed to ${action}`,
+      description: error.message || 'Please try again.',
+    });
+    setIsSaving(false);
+  };
+
   const onSubmit = (data: EventFormValues) => {
+    setIsSaving(true);
     const payload = {
       ...data,
       endDate: data.endDate || data.startDate,
+      color: editingEvent?.color || DEFAULT_COLOR,
     };
+
+    const googleEventId = editingEvent?.googleEventId ?? undefined;
+
     if (editingEvent) {
-      updateEvent.mutate(
-        { id: editingEvent.id, data: payload },
-        {
-          onSuccess: () => {
-            qc.invalidateQueries({ queryKey: getListEventsQueryKey() });
-            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-            setDialogOpen(false);
+      if (googleEventId && calendarConnected) {
+        updateGoogleEvent.mutate(
+          { eventId: googleEventId, data: { calendarId: 'primary', ...payload } },
+          {
+            onSuccess: () => {
+              updateEvent.mutate(
+                { id: editingEvent.id, data: payload },
+                {
+                  onSuccess: () => {
+                    invalidateCalendar();
+                    setDialogOpen(false);
+                    setIsSaving(false);
+                  },
+                  onError: (error) => handleMutationError('update local event', error),
+                },
+              );
+            },
+            onError: (error) => handleMutationError('update Google Calendar event', error),
           },
+        );
+      } else {
+        updateEvent.mutate(
+          { id: editingEvent.id, data: payload },
+          {
+            onSuccess: () => {
+              invalidateCalendar();
+              setDialogOpen(false);
+              setIsSaving(false);
+            },
+            onError: (error) => handleMutationError('update event', error),
+          },
+        );
+      }
+    } else if (calendarConnected) {
+      createGoogleEvent.mutate(
+        { data: { calendarId: 'primary', ...payload } },
+        {
+          onSuccess: (created) => {
+            createEvent.mutate(
+              { data: { ...payload, googleEventId: created.googleEventId } },
+              {
+                onSuccess: () => {
+                  invalidateCalendar();
+                  setDialogOpen(false);
+                  setIsSaving(false);
+                },
+                onError: (error) => handleMutationError('save local event', error),
+              },
+            );
+          },
+          onError: (error) => handleMutationError('create Google Calendar event', error),
         },
       );
     } else {
@@ -133,24 +207,43 @@ export function CalendarPage() {
         { data: payload },
         {
           onSuccess: () => {
-            qc.invalidateQueries({ queryKey: getListEventsQueryKey() });
-            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+            invalidateCalendar();
             setDialogOpen(false);
+            setIsSaving(false);
           },
+          onError: (error) => handleMutationError('create event', error),
         },
       );
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('Delete this event?')) {
-      deleteEvent.mutate(
-        { id },
+  const handleDelete = (event: Event) => {
+    if (!confirm('Delete this event?')) return;
+
+    const googleEventId = event.googleEventId ?? undefined;
+
+    if (googleEventId && calendarConnected) {
+      deleteGoogleEvent.mutate(
+        { eventId: googleEventId, data: { calendarId: 'primary' } },
         {
           onSuccess: () => {
-            qc.invalidateQueries({ queryKey: getListEventsQueryKey() });
-            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+            deleteEvent.mutate(
+              { id: event.id },
+              {
+                onSuccess: () => invalidateCalendar(),
+                onError: (error) => handleMutationError('delete local event', error),
+              },
+            );
           },
+          onError: (error) => handleMutationError('delete Google Calendar event', error),
+        },
+      );
+    } else {
+      deleteEvent.mutate(
+        { id: event.id },
+        {
+          onSuccess: () => invalidateCalendar(),
+          onError: (error) => handleMutationError('delete event', error),
         },
       );
     }
@@ -162,10 +255,8 @@ export function CalendarPage() {
     syncGoogleCalendar.mutate(
       { data: { from: start, to: end } },
       {
-        onSuccess: () => {
-          qc.invalidateQueries({ queryKey: getListEventsQueryKey() });
-          qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-        },
+        onSuccess: () => invalidateCalendar(),
+        onError: (error) => handleMutationError('sync Google Calendar', error),
       },
     );
   };
@@ -189,11 +280,11 @@ export function CalendarPage() {
           <Button
             variant="outline"
             onClick={handleSync}
-            disabled={syncGoogleCalendar.isPending || !googleStatus?.connected}
+            disabled={syncGoogleCalendar.isPending || !calendarConnected}
             className="shrink-0"
           >
             <RefreshCw className={cn('h-4 w-4 mr-2', syncGoogleCalendar.isPending && 'animate-spin')} />
-            {googleStatus?.connected ? 'Sync Google' : 'Google not connected'}
+            {calendarConnected ? 'Sync Google' : 'Google not connected'}
           </Button>
           <Button onClick={openAdd} className="shrink-0" data-testid="button-add-event">
             <Plus className="h-4 w-4 mr-2" /> Add Event
@@ -228,7 +319,7 @@ export function CalendarPage() {
               key={event.id}
               event={event}
               onEdit={() => openEdit(event)}
-              onDelete={() => handleDelete(event.id)}
+              onDelete={() => handleDelete(event)}
             />
           ))}
         </div>
@@ -242,7 +333,7 @@ export function CalendarPage() {
             Add events manually or sync with Google Calendar.
           </p>
           <div className="flex justify-center gap-2">
-            {googleStatus?.connected && (
+            {calendarConnected && (
               <Button variant="outline" onClick={handleSync}>
                 <RefreshCw className="h-4 w-4 mr-2" /> Sync Google Calendar
               </Button>
@@ -303,8 +394,8 @@ export function CalendarPage() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? 'Saving...' : editingEvent ? 'Save Changes' : 'Create Event'}
+              <Button type="submit" disabled={isSaving}>
+                {isSaving ? 'Saving...' : editingEvent ? 'Save Changes' : 'Create Event'}
               </Button>
             </DialogFooter>
           </form>
@@ -323,7 +414,7 @@ function EventCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const isGoogle = !!(event as any).googleEventId;
+  const isGoogle = !!event.googleEventId;
   return (
     <Card className="group bg-card/40 hover:bg-card/60 border-border transition-colors">
       <CardContent className="p-4 flex items-start gap-4">

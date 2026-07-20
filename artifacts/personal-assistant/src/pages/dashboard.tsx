@@ -60,6 +60,7 @@ export function DashboardPage() {
   }
 
   const google = summary?.googleConnection;
+  const googleConnected = google?.calendarConnected || google?.gmailConnected;
 
   return (
     <PageTransition className="space-y-8 pb-10 max-w-7xl mx-auto">
@@ -71,33 +72,33 @@ export function DashboardPage() {
       {/* Google status card */}
       <Card className={cn(
         'border-border bg-card/50 backdrop-blur-sm shadow-sm',
-        google?.connected ? 'border-emerald-500/20' : 'border-amber-500/20'
+        googleConnected ? 'border-emerald-500/20' : 'border-amber-500/20'
       )}>
         <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className={cn(
               'h-10 w-10 rounded-full flex items-center justify-center border',
-              google?.connected ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+              googleConnected ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-amber-500/10 border-amber-500/30 text-amber-500'
             )}>
-              {google?.connected ? <Link2 className="h-5 w-5" /> : <Unlink className="h-5 w-5" />}
+              {googleConnected ? <Link2 className="h-5 w-5" /> : <Unlink className="h-5 w-5" />}
             </div>
             <div>
-              <p className="font-medium">Google {google?.connected ? 'connected' : 'not connected'}</p>
+              <p className="font-medium">Google {googleConnected ? 'connected' : 'not connected'}</p>
               <p className="text-xs text-muted-foreground">
-                {google?.connected
-                  ? `Calendar synced. ${google?.calendar ? 'Gmail ready for triage.' : 'Connect Gmail for email triage.'}`
-                  : 'Connect Google Calendar to sync events and Gmail for AI email triage.'}
+                {googleConnected
+                  ? `${google?.calendarConnected ? 'Calendar synced' : ''}${google?.calendarConnected && google?.gmailConnected ? ' • ' : ''}${google?.gmailConnected ? 'Gmail ready' : ''}. Use the links below to open Calendar or Email triage.`
+                  : 'Connect Google Calendar to sync events and enable Gmail for AI email triage.'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Link href="/calendar">
-              <Button variant="outline" size="sm" className="border-border">
+              <Button variant="outline" size="sm" className="border-border" disabled={!google?.calendarConnected}>
                 <CalendarIcon className="h-4 w-4 mr-2" /> Calendar
               </Button>
             </Link>
             <Link href="/email">
-              <Button variant="outline" size="sm" className="border-border">
+              <Button variant="outline" size="sm" className="border-border" disabled={!google?.gmailConnected}>
                 <Mail className="h-4 w-4 mr-2" /> Email
               </Button>
             </Link>

@@ -8,11 +8,26 @@ import {
   deleteGoogleCalendarEvent,
   formatGoogleEventToLocal,
   getGoogleCalendarList,
+  toGoogleCalendarEvent,
+  type LocalEventInput,
 } from "../lib/googleCalendar";
+import {
+  listGmailMessages,
+  getGmailMessage,
+  getGmailThread,
+  sendGmailMessage,
+  getHeader,
+  getBodyText,
+  getReplyThreadText,
+  buildEmailRaw,
+} from "../lib/gmail";
+import { getGoogleConnectionStatus } from "../lib/googleStatus";
+import { openai } from "@workspace/integrations-openai-ai-server";
 
 const router: IRouter = Router();
 
-const SCOPE_SUMMARY = "calendar";
+const CALENDAR_SCOPE = "calendar";
+const GMAIL_SCOPE = "gmail";
 
 async function getOrCreateConnection(userId: string) {
   const [existing] = await db
@@ -33,12 +48,22 @@ router.get("/google/status", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const connection = await getOrCreateConnection(req.user.id);
-  res.json({
-    connected: connection.connected,
-    scopes: connection.scopes || [],
-    calendar: connection.connected && (connection.scopes || []).includes(SCOPE_SUMMARY),
-  });
+  try {
+    const status = await getGoogleConnectionStatus();
+
+    await db
+      .insert(googleConnectionsTable)
+      .values({ userId: req.user.id, connected: status.connected, scopes: status.scopes })
+      .onConflictDoUpdate({
+        target: googleConnectionsTable.userId,
+        set: { connected: status.connected, scopes: status.scopes, updatedAt: new Date() },
+      });
+
+    res.json(status);
+  } catch (err) {
+    req.log.error(err, "Google status check failed");
+    res.json({ connected: false, scopes: [], calendarConnected: false, gmailConnected: false });
+  }
 });
 
 // POST /google/calendar/sync
@@ -78,9 +103,13 @@ router.post("/google/calendar/sync", async (req, res): Promise<void> => {
       }
     }
 
+    const existingConnection = await getOrCreateConnection(req.user.id);
+    const existingScopes = existingConnection.scopes || [];
+    const updatedScopes = Array.from(new Set([...existingScopes, CALENDAR_SCOPE]));
+
     await db
       .update(googleConnectionsTable)
-      .set({ connected: true, scopes: [SCOPE_SUMMARY], updatedAt: new Date() })
+      .set({ connected: true, scopes: updatedScopes, updatedAt: new Date() })
       .where(eq(googleConnectionsTable.userId, req.user.id));
 
     res.json({ synced: mapped.length, calendarId: primary.id });
@@ -96,13 +125,13 @@ router.post("/google/calendar/events", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const { calendarId, ...event } = req.body as any;
+  const { calendarId, ...event } = req.body as LocalEventInput & { calendarId?: string };
   if (!calendarId) {
     res.status(400).json({ error: "calendarId is required" });
     return;
   }
   try {
-    const created = await createGoogleCalendarEvent(calendarId, event);
+    const created = await createGoogleCalendarEvent(calendarId, toGoogleCalendarEvent(event));
     res.status(201).json(formatGoogleEventToLocal(created));
   } catch (err) {
     req.log.error(err, "Google Calendar create event failed");
@@ -116,14 +145,14 @@ router.patch("/google/calendar/events/:id", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const { calendarId, ...event } = req.body as any;
+  const { calendarId, ...event } = req.body as LocalEventInput & { calendarId?: string };
   const eventId = req.params.id;
   if (!calendarId || !eventId) {
     res.status(400).json({ error: "calendarId and eventId are required" });
     return;
   }
   try {
-    const updated = await updateGoogleCalendarEvent(calendarId, eventId, event);
+    const updated = await updateGoogleCalendarEvent(calendarId, eventId, toGoogleCalendarEvent(event));
     res.json(formatGoogleEventToLocal(updated));
   } catch (err) {
     req.log.error(err, "Google Calendar update event failed");
@@ -151,5 +180,134 @@ router.delete("/google/calendar/events/:id", async (req, res): Promise<void> => 
     res.status(500).json({ error: "Failed to delete calendar event" });
   }
 });
+
+// ─── GMAIL ───────────────────────────────────────────────────────────────
+
+// GET /google/gmail/messages
+router.get("/google/gmail/messages", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const list = await listGmailMessages(20);
+    const messages = await Promise.all(
+      (list.messages || []).map(async (m) => {
+        const msg = await getGmailMessage(m.id);
+        const subject = getHeader(msg, "Subject");
+        const from = getHeader(msg, "From");
+        const body = getBodyText(msg);
+        const priority = await classifyEmailPriority(subject, body);
+        return {
+          id: msg.id,
+          threadId: msg.threadId,
+          subject,
+          from,
+          snippet: msg.snippet || "",
+          body,
+          internalDate: msg.internalDate,
+          priority,
+          labelIds: msg.labelIds || [],
+        };
+      }),
+    );
+    res.json({ messages });
+  } catch (err) {
+    req.log.error(err, "Gmail list messages failed");
+    res.status(500).json({ error: "Failed to fetch Gmail messages" });
+  }
+});
+
+// POST /google/gmail/draft
+router.post("/google/gmail/draft", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const { messageId, tone } = req.body as { messageId?: string; tone?: string };
+  if (!messageId) {
+    res.status(400).json({ error: "messageId is required" });
+    return;
+  }
+  try {
+    const msg = await getGmailMessage(messageId);
+    const thread = await getGmailThread(msg.threadId);
+    const threadText = getReplyThreadText(thread);
+    const subject = getHeader(msg, "Subject");
+    const to = getHeader(msg, "From");
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      max_completion_tokens: 1024,
+      messages: [
+        {
+          role: "system",
+          content: `You are a helpful email assistant. Write a reply to the email thread below. The tone should be: ${tone || "professional and concise"}. Do not include any salutation or sign-off that isn't appropriate. Return only the reply body, no subject line or explanation.`,
+        },
+        {
+          role: "user",
+          content: `Subject: ${subject}\n\nThread:\n${threadText}`,
+        },
+      ],
+    });
+
+    const draft = response.choices[0]?.message?.content?.trim() || "";
+    res.json({ to, subject, draft, messageId });
+  } catch (err) {
+    req.log.error(err, "Gmail draft generation failed");
+    res.status(500).json({ error: "Failed to generate reply draft" });
+  }
+});
+
+// POST /google/gmail/send
+router.post("/google/gmail/send", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const { to, subject, body, threadId } = req.body as {
+    to?: string;
+    subject?: string;
+    body?: string;
+    threadId?: string;
+  };
+  if (!to || !subject || !body) {
+    res.status(400).json({ error: "to, subject, and body are required" });
+    return;
+  }
+  try {
+    const payload = buildEmailRaw(to, subject, body, threadId);
+    const sent = await sendGmailMessage(payload);
+    res.json({ id: sent.id, threadId: sent.threadId });
+  } catch (err) {
+    req.log.error(err, "Gmail send failed");
+    res.status(500).json({ error: "Failed to send email" });
+  }
+});
+
+async function classifyEmailPriority(subject: string, body: string): Promise<string> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      max_completion_tokens: 32,
+      messages: [
+        {
+          role: "system",
+          content:
+            'Classify the email into exactly one of these categories: urgent, follow-up, fyi, archive. Return only the single lowercase word, no punctuation.',
+        },
+        {
+          role: "user",
+          content: `Subject: ${subject}\n\nBody: ${body.slice(0, 1200)}`,
+        },
+      ],
+    });
+    const result = response.choices[0]?.message?.content?.trim().toLowerCase() || "fyi";
+    if (["urgent", "follow-up", "fyi", "archive"].includes(result)) return result;
+    return "fyi";
+  } catch {
+    return "fyi";
+  }
+}
 
 export default router;

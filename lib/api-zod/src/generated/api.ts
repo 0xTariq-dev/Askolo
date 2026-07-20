@@ -519,6 +519,7 @@ export const ListEventsResponseItem = zod.object({
   "location": zod.string().nullish(),
   "color": zod.string().nullish(),
   "attendees": zod.string().nullish(),
+  "googleEventId": zod.string().nullish().describe('Google Calendar event ID for synced events'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -541,7 +542,8 @@ export const CreateEventBody = zod.object({
   "allDay": zod.boolean().optional(),
   "location": zod.string().optional(),
   "color": zod.string().optional(),
-  "attendees": zod.string().optional()
+  "attendees": zod.string().optional(),
+  "googleEventId": zod.string().optional().describe('Google Calendar event ID to link this local event to a Google event')
 })
 
 export const CreateEventResponse = zod.object({
@@ -557,6 +559,7 @@ export const CreateEventResponse = zod.object({
   "location": zod.string().nullish(),
   "color": zod.string().nullish(),
   "attendees": zod.string().nullish(),
+  "googleEventId": zod.string().nullish().describe('Google Calendar event ID for synced events'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -582,6 +585,7 @@ export const GetEventResponse = zod.object({
   "location": zod.string().nullish(),
   "color": zod.string().nullish(),
   "attendees": zod.string().nullish(),
+  "googleEventId": zod.string().nullish().describe('Google Calendar event ID for synced events'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -607,7 +611,8 @@ export const UpdateEventBody = zod.object({
   "allDay": zod.boolean().optional(),
   "location": zod.string().optional(),
   "color": zod.string().optional(),
-  "attendees": zod.string().optional()
+  "attendees": zod.string().optional(),
+  "googleEventId": zod.string().optional().describe('Google Calendar event ID to link this local event to a Google event')
 })
 
 export const UpdateEventResponse = zod.object({
@@ -623,6 +628,7 @@ export const UpdateEventResponse = zod.object({
   "location": zod.string().nullish(),
   "color": zod.string().nullish(),
   "attendees": zod.string().nullish(),
+  "googleEventId": zod.string().nullish().describe('Google Calendar event ID for synced events'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -1043,7 +1049,8 @@ export const GetDashboardSummaryResponse = zod.object({
   "googleConnection": zod.object({
   "connected": zod.boolean(),
   "scopes": zod.array(zod.string()).optional(),
-  "calendar": zod.boolean().optional()
+  "calendarConnected": zod.boolean(),
+  "gmailConnected": zod.boolean()
 })
 })
 
@@ -1157,7 +1164,8 @@ export const MeetingExtractResponse = zod.object({
 export const GetGoogleStatusResponse = zod.object({
   "connected": zod.boolean(),
   "scopes": zod.array(zod.string()).optional(),
-  "calendar": zod.boolean().optional()
+  "calendarConnected": zod.boolean(),
+  "gmailConnected": zod.boolean()
 })
 
 
@@ -1251,5 +1259,55 @@ export const DeleteGoogleCalendarEventBody = zod.object({
 })
 
 export const DeleteGoogleCalendarEventResponse = zod.void()
+
+
+/**
+ * @summary List recent Gmail messages with AI priority classification
+ */
+export const ListGmailMessagesResponse = zod.object({
+  "messages": zod.array(zod.object({
+  "id": zod.string(),
+  "threadId": zod.string(),
+  "subject": zod.string(),
+  "from": zod.string(),
+  "snippet": zod.string().optional(),
+  "body": zod.string().optional(),
+  "internalDate": zod.string().optional(),
+  "priority": zod.enum(['urgent', 'follow-up', 'fyi', 'archive']),
+  "labelIds": zod.array(zod.string()).optional()
+}))
+})
+
+
+/**
+ * @summary Generate an AI reply draft for a Gmail message
+ */
+export const GenerateGmailDraftBody = zod.object({
+  "messageId": zod.string(),
+  "tone": zod.string().optional()
+})
+
+export const GenerateGmailDraftResponse = zod.object({
+  "to": zod.string(),
+  "subject": zod.string(),
+  "draft": zod.string(),
+  "messageId": zod.string()
+})
+
+
+/**
+ * @summary Send a Gmail reply
+ */
+export const SendGmailMessageBody = zod.object({
+  "to": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "threadId": zod.string().optional()
+})
+
+export const SendGmailMessageResponse = zod.object({
+  "id": zod.string(),
+  "threadId": zod.string()
+})
 
 

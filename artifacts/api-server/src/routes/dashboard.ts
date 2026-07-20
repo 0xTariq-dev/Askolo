@@ -9,8 +9,8 @@ import {
   eventsTable,
   choresTable,
   actionItemsTable,
-  googleConnectionsTable,
 } from "@workspace/db";
+import { getGoogleConnectionStatus } from "../lib/googleStatus";
 
 const router: IRouter = Router();
 
@@ -26,29 +26,30 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const oneWeekLater = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
 
   // Fetch all in parallel
-  const [habits, goals, todayPlan, upcomingEvents, pendingChores, openActionItems, googleConnection] =
-    await Promise.all([
-      db.select().from(habitsTable).where(eq(habitsTable.userId, userId)),
-      db.select().from(goalsTable).where(eq(goalsTable.userId, userId)),
-      db.select().from(dailyPlansTable).where(and(eq(dailyPlansTable.userId, userId), eq(dailyPlansTable.date, today))),
-      db
-        .select()
-        .from(eventsTable)
-        .where(and(eq(eventsTable.userId, userId), gte(eventsTable.startDate, today)))
-        .orderBy(eventsTable.startDate)
-        .limit(5),
-      db
-        .select()
-        .from(choresTable)
-        .where(and(eq(choresTable.userId, userId), eq(choresTable.completed, false)))
-        .limit(5),
-      db
-        .select()
-        .from(actionItemsTable)
-        .where(and(eq(actionItemsTable.userId, userId), eq(actionItemsTable.completed, false)))
-        .limit(10),
-      db.select().from(googleConnectionsTable).where(eq(googleConnectionsTable.userId, userId)).limit(1),
-    ]);
+  const [habits, goals, todayPlan, upcomingEvents, pendingChores, openActionItems] = await Promise.all([
+    db.select().from(habitsTable).where(eq(habitsTable.userId, userId)),
+    db.select().from(goalsTable).where(eq(goalsTable.userId, userId)),
+    db.select().from(dailyPlansTable).where(and(eq(dailyPlansTable.userId, userId), eq(dailyPlansTable.date, today))),
+    db
+      .select()
+      .from(eventsTable)
+      .where(and(eq(eventsTable.userId, userId), gte(eventsTable.startDate, today)))
+      .orderBy(eventsTable.startDate)
+      .limit(5),
+    db
+      .select()
+      .from(choresTable)
+      .where(and(eq(choresTable.userId, userId), eq(choresTable.completed, false)))
+      .limit(5),
+    db
+      .select()
+      .from(actionItemsTable)
+      .where(and(eq(actionItemsTable.userId, userId), eq(actionItemsTable.completed, false)))
+      .limit(10),
+  ]);
+
+  // Live Google connection status (not stale DB state)
+  const googleConnection = await getGoogleConnectionStatus();
 
   // Get today's completions for habits
   const habitCompletions = await db
@@ -91,7 +92,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     habitsTotal,
     goalsActive,
     goalsCompleted,
-    googleConnection: googleConnection[0] || { connected: false, scopes: [] },
+    googleConnection,
   });
 });
 

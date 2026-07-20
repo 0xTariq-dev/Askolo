@@ -39,6 +39,11 @@ import type {
   Event,
   EventInput,
   EventUpdate,
+  GmailDraftRequest,
+  GmailDraftResponse,
+  GmailMessageList,
+  GmailSendRequest,
+  GmailSendResponse,
   Goal,
   GoalInput,
   GoalUpdate,
@@ -4034,5 +4039,224 @@ export const useDeleteGoogleCalendarEvent = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDeleteGoogleCalendarEventMutationOptions(options));
+    }
+
+export const getListGmailMessagesUrl = () => {
+
+
+
+
+  return `/api/google/gmail/messages`
+}
+
+/**
+ * @summary List recent Gmail messages with AI priority classification
+ */
+export const listGmailMessages = async ( options?: RequestInit): Promise<GmailMessageList> => {
+
+  return customFetch<GmailMessageList>(getListGmailMessagesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGmailMessagesQueryKey = () => {
+    return [
+    `/api/google/gmail/messages`
+    ] as const;
+    }
+
+
+export const getListGmailMessagesQueryOptions = <TData = Awaited<ReturnType<typeof listGmailMessages>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGmailMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGmailMessagesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGmailMessages>>> = ({ signal }) => listGmailMessages({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGmailMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGmailMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof listGmailMessages>>>
+export type ListGmailMessagesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List recent Gmail messages with AI priority classification
+ */
+
+export function useListGmailMessages<TData = Awaited<ReturnType<typeof listGmailMessages>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGmailMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGmailMessagesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGenerateGmailDraftUrl = () => {
+
+
+
+
+  return `/api/google/gmail/draft`
+}
+
+/**
+ * @summary Generate an AI reply draft for a Gmail message
+ */
+export const generateGmailDraft = async (gmailDraftRequest: GmailDraftRequest, options?: RequestInit): Promise<GmailDraftResponse> => {
+
+  return customFetch<GmailDraftResponse>(getGenerateGmailDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(gmailDraftRequest)
+  }
+);}
+
+
+
+
+
+export const getGenerateGmailDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGmailDraft>>, TError,{data: BodyType<GmailDraftRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateGmailDraft>>, TError,{data: BodyType<GmailDraftRequest>}, TContext> => {
+
+const mutationKey = ['generateGmailDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateGmailDraft>>, {data: BodyType<GmailDraftRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateGmailDraft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateGmailDraftMutationResult = NonNullable<Awaited<ReturnType<typeof generateGmailDraft>>>
+    export type GenerateGmailDraftMutationBody = BodyType<GmailDraftRequest>
+    export type GenerateGmailDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate an AI reply draft for a Gmail message
+ */
+export const useGenerateGmailDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGmailDraft>>, TError,{data: BodyType<GmailDraftRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateGmailDraft>>,
+        TError,
+        {data: BodyType<GmailDraftRequest>},
+        TContext
+      > => {
+      return useMutation(getGenerateGmailDraftMutationOptions(options));
+    }
+
+export const getSendGmailMessageUrl = () => {
+
+
+
+
+  return `/api/google/gmail/send`
+}
+
+/**
+ * @summary Send a Gmail reply
+ */
+export const sendGmailMessage = async (gmailSendRequest: GmailSendRequest, options?: RequestInit): Promise<GmailSendResponse> => {
+
+  return customFetch<GmailSendResponse>(getSendGmailMessageUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(gmailSendRequest)
+  }
+);}
+
+
+
+
+
+export const getSendGmailMessageMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendGmailMessage>>, TError,{data: BodyType<GmailSendRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendGmailMessage>>, TError,{data: BodyType<GmailSendRequest>}, TContext> => {
+
+const mutationKey = ['sendGmailMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendGmailMessage>>, {data: BodyType<GmailSendRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendGmailMessage(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendGmailMessageMutationResult = NonNullable<Awaited<ReturnType<typeof sendGmailMessage>>>
+    export type SendGmailMessageMutationBody = BodyType<GmailSendRequest>
+    export type SendGmailMessageMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Send a Gmail reply
+ */
+export const useSendGmailMessage = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendGmailMessage>>, TError,{data: BodyType<GmailSendRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendGmailMessage>>,
+        TError,
+        {data: BodyType<GmailSendRequest>},
+        TContext
+      > => {
+      return useMutation(getSendGmailMessageMutationOptions(options));
     }
 

@@ -18,4 +18,6 @@ export interface EventInput {
   location?: string;
   color?: string;
   attendees?: string;
+  /** Google Calendar event ID to link this local event to a Google event */
+  googleEventId?: string;
 }

@@ -9,5 +9,6 @@
 export interface GoogleConnectionStatus {
   connected: boolean;
   scopes?: string[];
-  calendar?: boolean;
+  calendarConnected: boolean;
+  gmailConnected: boolean;
 }

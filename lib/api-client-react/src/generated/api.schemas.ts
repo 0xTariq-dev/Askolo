@@ -267,6 +267,11 @@ export interface Event {
   color?: string | null;
   /** @nullable */
   attendees?: string | null;
+  /**
+     * Google Calendar event ID for synced events
+     * @nullable
+     */
+  googleEventId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -283,6 +288,8 @@ export interface EventInput {
   location?: string;
   color?: string;
   attendees?: string;
+  /** Google Calendar event ID to link this local event to a Google event */
+  googleEventId?: string;
 }
 
 export interface EventUpdate {
@@ -297,6 +304,8 @@ export interface EventUpdate {
   location?: string;
   color?: string;
   attendees?: string;
+  /** Google Calendar event ID to link this local event to a Google event */
+  googleEventId?: string;
 }
 
 export type ChoreFrequency = typeof ChoreFrequency[keyof typeof ChoreFrequency];
@@ -474,7 +483,8 @@ export interface UpcomingEvent {
 export interface GoogleConnectionStatus {
   connected: boolean;
   scopes?: string[];
-  calendar?: boolean;
+  calendarConnected: boolean;
+  gmailConnected: boolean;
 }
 
 export interface DashboardSummary {
@@ -599,6 +609,56 @@ export interface GoogleCalendarEventInput {
 
 export interface GoogleCalendarEventDeleteRequest {
   calendarId: string;
+}
+
+export type GmailMessagePriority = typeof GmailMessagePriority[keyof typeof GmailMessagePriority];
+
+
+export const GmailMessagePriority = {
+  urgent: 'urgent',
+  'follow-up': 'follow-up',
+  fyi: 'fyi',
+  archive: 'archive',
+} as const;
+
+export interface GmailMessage {
+  id: string;
+  threadId: string;
+  subject: string;
+  from: string;
+  snippet?: string;
+  body?: string;
+  internalDate?: string;
+  priority: GmailMessagePriority;
+  labelIds?: string[];
+}
+
+export interface GmailMessageList {
+  messages: GmailMessage[];
+}
+
+export interface GmailDraftRequest {
+  messageId: string;
+  tone?: string;
+}
+
+export interface GmailDraftResponse {
+  to: string;
+  subject: string;
+  draft: string;
+  messageId: string;
+}
+
+export interface GmailSendRequest {
+  to: string;
+  subject: string;
+  body: string;
+  threadId?: string;
+}
+
+export interface GmailSendResponse {
+  id: string;
+  threadId: string;
 }
 
 /**
