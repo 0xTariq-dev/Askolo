@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 import { format } from 'date-fns';
 import {
   Mail,
@@ -11,6 +12,7 @@ import {
   Clock,
   CheckCircle2,
   Inbox,
+  ArrowRight,
 } from 'lucide-react';
 import {
   useListGmailMessages,
@@ -21,14 +23,15 @@ import {
   type GmailMessage,
 } from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
-import { ReconnectBanner } from '@/components/ui/reconnect-banner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import logoUrl from '/logo.png';
 
 const PRIORITY_ORDER = ['urgent', 'follow-up', 'fyi', 'archive'] as const;
 const PRIORITY_LABELS: Record<string, string> = {
@@ -38,8 +41,12 @@ const PRIORITY_LABELS: Record<string, string> = {
   archive: 'Can Archive',
 };
 
+const GMAIL_CONNECT_URL = '/api/google/gmail/connect';
+
 export function EmailPage() {
   const qc = useQueryClient();
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [filter, setFilter] = useState('all');
   const [selectedMessage, setSelectedMessage] = useState<GmailMessage | null>(null);
   const [draft, setDraft] = useState('');
@@ -52,6 +59,19 @@ export function EmailPage() {
   const sendMessage = useSendGmailMessage();
 
   const messages = messagesData?.messages || [];
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gmail') === 'connected') {
+      toast({ title: 'Gmail connected', description: 'Your Askolo Google app can now read your inbox.' });
+      refetchGoogleStatus();
+      refetch();
+      setLocation('/email', { replace: true });
+    } else if (params.get('gmail') === 'error') {
+      toast({ variant: 'destructive', title: 'Gmail connection failed', description: 'Please try connecting again.' });
+      setLocation('/email', { replace: true });
+    }
+  }, [toast, refetchGoogleStatus, refetch, setLocation]);
 
   const filtered = useMemo(() => {
     if (filter === 'all') return messages;
@@ -112,11 +132,34 @@ export function EmailPage() {
           <p className="text-muted-foreground mt-2 text-lg">AI-powered inbox prioritization and reply drafting.</p>
         </header>
 
-        <ReconnectBanner
-          service="gmail"
-          onRefresh={() => refetchGoogleStatus()}
-          isRefreshing={isCheckingStatus}
-        />
+        <Card className="border border-border/60 bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-8 sm:p-12 text-center">
+            <div className="mx-auto h-20 w-20 rounded-2xl bg-primary/10 border border-white/10 flex items-center justify-center mb-6 shadow-2xl shadow-black/20">
+              <img src={logoUrl} alt="Askolo" className="h-12 w-12 object-contain" />
+            </div>
+            <h2 className="text-2xl font-display font-semibold mb-3">Connect Gmail</h2>
+            <p className="text-muted-foreground max-w-md mx-auto mb-6">
+              Askolo needs access to your Gmail inbox to triage messages and draft replies. The connection uses your{' '}
+              <span className="text-foreground font-medium">Askolo</span> Google app, so the consent screen shows the
+              correct name and logo.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Button size="lg" onClick={() => (window.location.href = GMAIL_CONNECT_URL)} className="group">
+                <Mail className="mr-2 h-5 w-5" />
+                Connect Gmail
+                <ArrowRight className="ml-2 h-4 w-4 opacity-70 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+              <Button variant="outline" size="lg" onClick={() => refetchGoogleStatus()} disabled={isCheckingStatus}>
+                <RefreshCw className={cn('h-4 w-4 mr-2', isCheckingStatus && 'animate-spin')} />
+                Check connection
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-6">
+              Make sure your Google Cloud OAuth consent screen is named "Askolo" and the redirect URI is added before
+              connecting.
+            </p>
+          </CardContent>
+        </Card>
       </PageTransition>
     );
   }

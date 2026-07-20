@@ -1,7 +1,8 @@
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
-import { Hexagon, Sparkles, UserPlus } from 'lucide-react';
+import { Sparkles, UserPlus } from 'lucide-react';
 import { useLocation } from 'wouter';
+import logoUrl from '/logo.png';
 
 export function LoginPage() {
   const [, setLocation] = useLocation();
@@ -23,7 +24,7 @@ export function LoginPage() {
       >
         <div className="h-20 w-20 bg-card border border-white/10 rounded-2xl flex items-center justify-center mb-8 shadow-2xl shadow-black/50 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent opacity-50" />
-          <Hexagon className="h-10 w-10 text-primary fill-primary/20 relative z-10" />
+          <img src={logoUrl} alt="Askolo" className="h-10 w-10 object-contain relative z-10" />
         </div>
 
         <h1 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4 tracking-tight">

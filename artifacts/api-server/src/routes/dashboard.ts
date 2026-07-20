@@ -45,7 +45,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   ]);
 
   // Live Google connection status (not stale DB state)
-  const googleConnection = await getGoogleConnectionStatus();
+  const googleConnection = await getGoogleConnectionStatus(userId);
 
   // Get today's completions for habits
   const habitCompletions = await db

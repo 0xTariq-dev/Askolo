@@ -21,6 +21,14 @@ import {
   getReplyThreadText,
   buildEmailRaw,
 } from "../lib/gmail";
+import {
+  buildGmailAuthUrl,
+  exchangeCodeForTokens,
+  storeGmailTokens,
+  generateOAuthState,
+  getOAuthCallbackCookie,
+  parseOAuthStateCookie,
+} from "../lib/gmailOAuth";
 import { getGoogleConnectionStatus } from "../lib/googleStatus";
 import { openai } from "@workspace/integrations-openai-ai-server";
 
@@ -45,7 +53,7 @@ async function getOrCreateConnection(userId: string) {
 // GET /google/status
 router.get("/google/status", async (req, res): Promise<void> => {
   try {
-    const status = await getGoogleConnectionStatus();
+    const status = await getGoogleConnectionStatus(req.dbUser.id);
 
     await db
       .insert(googleConnectionsTable)
@@ -161,15 +169,52 @@ router.delete("/google/calendar/events/:id", async (req, res): Promise<void> => 
   }
 });
 
+// ─── GMAIL OAUTH ──────────────────────────────────────────────────────────
+
+// GET /google/gmail/connect
+router.get("/google/gmail/connect", async (req, res): Promise<void> => {
+  try {
+    const state = generateOAuthState();
+    const url = buildGmailAuthUrl(state);
+    res.setHeader("Set-Cookie", getOAuthCallbackCookie(state));
+    res.redirect(url);
+  } catch (err) {
+    req.log.error(err, "Gmail connect redirect failed");
+    res.redirect("/email?gmail=error");
+  }
+});
+
+// GET /google/gmail/callback
+router.get("/google/gmail/callback", async (req, res): Promise<void> => {
+  const code = req.query.code as string | undefined;
+  const error = req.query.error as string | undefined;
+  const state = parseOAuthStateCookie(req.headers.cookie);
+
+  if (error || !code || !state) {
+    req.log.warn({ error, hasCode: !!code, hasState: !!state }, "Gmail OAuth callback rejected");
+    res.redirect("/email?gmail=error");
+    return;
+  }
+
+  try {
+    const tokens = await exchangeCodeForTokens(code);
+    await storeGmailTokens(req.dbUser.id, tokens);
+    res.redirect("/email?gmail=connected");
+  } catch (err) {
+    req.log.error(err, "Gmail OAuth callback failed");
+    res.redirect("/email?gmail=error");
+  }
+});
+
 // ─── GMAIL ───────────────────────────────────────────────────────────────
 
 // GET /google/gmail/messages
 router.get("/google/gmail/messages", async (req, res): Promise<void> => {
   try {
-    const list = await listGmailMessages(20);
+    const list = await listGmailMessages(req.dbUser.id, 20);
     const messages = await Promise.all(
       (list.messages || []).map(async (m) => {
-        const msg = await getGmailMessage(m.id);
+        const msg = await getGmailMessage(req.dbUser.id, m.id);
         const subject = getHeader(msg, "Subject");
         const from = getHeader(msg, "From");
         const body = getBodyText(msg);
@@ -202,8 +247,8 @@ router.post("/google/gmail/draft", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const msg = await getGmailMessage(messageId);
-    const thread = await getGmailThread(msg.threadId);
+    const msg = await getGmailMessage(req.dbUser.id, messageId);
+    const thread = await getGmailThread(req.dbUser.id, msg.threadId);
     const threadText = getReplyThreadText(thread);
     const subject = getHeader(msg, "Subject");
     const to = getHeader(msg, "From");
@@ -245,7 +290,7 @@ router.post("/google/gmail/send", async (req, res): Promise<void> => {
   }
   try {
     const payload = buildEmailRaw(to, subject, body, threadId);
-    const sent = await sendGmailMessage(payload);
+    const sent = await sendGmailMessage(req.dbUser.id, payload);
     res.json({ id: sent.id, threadId: sent.threadId });
   } catch (err) {
     req.log.error(err, "Gmail send failed");

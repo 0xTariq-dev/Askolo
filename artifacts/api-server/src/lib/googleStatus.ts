@@ -8,10 +8,10 @@ export interface GoogleConnectionStatus {
   gmailConnected: boolean;
 }
 
-export async function getGoogleConnectionStatus(): Promise<GoogleConnectionStatus> {
+export async function getGoogleConnectionStatus(userId: string): Promise<GoogleConnectionStatus> {
   const [calendarConnected, gmailConnected] = await Promise.all([
     verifyGoogleCalendarConnection(),
-    verifyGmailConnection(),
+    verifyGmailConnection(userId),
   ]);
   const scopes = [
     ...(calendarConnected ? ["calendar"] : []),

@@ -1,7 +1,5 @@
-import { ReplitConnectors } from "@replit/connectors-sdk";
+import { gmailApiRequest } from "./gmailOAuth";
 
-const connectors = new ReplitConnectors();
-const GMAIL_ID = "google-mail";
 const GMAIL_API_PREFIX = "/gmail/v1/users/me";
 
 interface GmailMessageHeader {
@@ -28,20 +26,19 @@ interface GmailMessage {
   internalDate?: string;
 }
 
-export async function listGmailMessages(maxResults = 20) {
-  const res = await connectors.proxy(
-    GMAIL_ID,
+export async function listGmailMessages(userId: string, maxResults = 20) {
+  const res = await gmailApiRequest(
+    userId,
     `${GMAIL_API_PREFIX}/messages?maxResults=${maxResults}&labelIds=INBOX`,
     { method: "GET" },
   );
-  if (!res.ok) throw new Error(`Gmail list failed: ${res.status}`);
   return (await res.json()) as { messages?: Array<{ id: string; threadId: string }> };
 }
 
-export async function verifyGmailConnection(): Promise<boolean> {
+export async function verifyGmailConnection(userId: string): Promise<boolean> {
   try {
-    const res = await connectors.proxy(
-      GMAIL_ID,
+    const res = await gmailApiRequest(
+      userId,
       `${GMAIL_API_PREFIX}/messages?maxResults=1&labelIds=INBOX`,
       { method: "GET" },
     );
@@ -51,33 +48,34 @@ export async function verifyGmailConnection(): Promise<boolean> {
   }
 }
 
-export async function getGmailMessage(messageId: string) {
-  const res = await connectors.proxy(
-    GMAIL_ID,
+export async function getGmailMessage(userId: string, messageId: string) {
+  const res = await gmailApiRequest(
+    userId,
     `${GMAIL_API_PREFIX}/messages/${messageId}?format=full`,
     { method: "GET" },
   );
-  if (!res.ok) throw new Error(`Gmail get failed: ${res.status}`);
   return (await res.json()) as GmailMessage;
 }
 
-export async function getGmailThread(threadId: string) {
-  const res = await connectors.proxy(
-    GMAIL_ID,
+export async function getGmailThread(userId: string, threadId: string) {
+  const res = await gmailApiRequest(
+    userId,
     `${GMAIL_API_PREFIX}/threads/${threadId}?format=full`,
     { method: "GET" },
   );
-  if (!res.ok) throw new Error(`Gmail thread failed: ${res.status}`);
   return (await res.json()) as { messages: GmailMessage[] };
 }
 
-export async function sendGmailMessage(payload: { raw: string; threadId?: string }) {
-  const res = await connectors.proxy(GMAIL_ID, `${GMAIL_API_PREFIX}/messages/send`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error(`Gmail send failed: ${res.status}`);
+export async function sendGmailMessage(userId: string, payload: { raw: string; threadId?: string }) {
+  const res = await gmailApiRequest(
+    userId,
+    `${GMAIL_API_PREFIX}/messages/send`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+    },
+  );
   return (await res.json()) as GmailMessage;
 }
 
@@ -128,7 +126,6 @@ export function base64UrlEncode(str: string) {
 }
 
 export function buildEmailRaw(to: string, subject: string, body: string, threadId?: string) {
-  // Encode body as base64 so the MIME message is 7-bit safe while declaring base64 transfer encoding.
   const encodedBody = Buffer.from(body, "utf-8").toString("base64");
   const mime = [
     `To: ${to}`,
