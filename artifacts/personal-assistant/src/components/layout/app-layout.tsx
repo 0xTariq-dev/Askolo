@@ -41,7 +41,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'User';
   const email = user?.primaryEmailAddress?.emailAddress || '';
-  const avatarUrl = user?.imageUrl || '';
+  const avatarUrl = user?.imageUrl || undefined;
   const initials = user?.firstName?.[0] || 'U';
 
   return (

@@ -114,7 +114,7 @@ export function DashboardPage() {
           service="calendar"
           onRefresh={() => refetchGoogleStatus()}
           isRefreshing={isCheckingStatus}
-          connectUrl="/api/google/gmail/connect?redirectTo=%2Fcalendar"
+          connectUrl="/api/google/gmail/connect?redirectTo=%2Fcalendar&scope=calendar"
         />
       )}
       {google && !google.gmailConnected && (
@@ -122,7 +122,7 @@ export function DashboardPage() {
           service="gmail"
           onRefresh={() => refetchGoogleStatus()}
           isRefreshing={isCheckingStatus}
-          connectUrl="/api/google/gmail/connect?redirectTo=%2Femail"
+          connectUrl="/api/google/gmail/connect?redirectTo=%2Femail&scope=gmail"
         />
       )}
 

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { createHmac, randomUUID } from "crypto";
 import { db, gmailTokensTable } from "@workspace/db";
+import { logger } from "./logger";
 import type { Request } from "express";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -16,9 +17,15 @@ const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 
+export { CALENDAR_SCOPE, GMAIL_SCOPE };
 export const GOOGLE_SCOPES = ["openid", "email", "profile", CALENDAR_SCOPE, GMAIL_SCOPE];
 
 export const GOOGLE_REDIRECT_PATH = "/api/google/gmail/callback";
+
+export function mergeScopes(existing: string, incoming?: string): string {
+  const set = new Set(existing.split(" ").concat(incoming?.split(" ") ?? []).filter(Boolean));
+  return Array.from(set).join(" ");
+}
 
 interface TokenResponse {
   access_token: string;
@@ -58,13 +65,13 @@ export function generateOAuthState() {
   return randomUUID();
 }
 
-export function buildGoogleAuthUrl(redirectUri: string, state: string) {
+export function buildGoogleAuthUrl(redirectUri: string, state: string, scopes?: string[]) {
   const { GOOGLE_CLIENT_ID } = requireConfig();
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: GOOGLE_SCOPES.join(" "),
+    scope: (scopes ?? GOOGLE_SCOPES).join(" "),
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
@@ -123,16 +130,17 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
 export async function storeGoogleTokens(userId: string, tokens: TokenResponse) {
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 
-  // Preserve the existing refresh token if Google does not return a new one
-  // (e.g., re-authorization without a new offline token).
+  // Preserve the existing refresh token and granted scopes if Google does not
+  // return them again (e.g., refresh token reuse or incremental authorization).
   const existing = await db
-    .select({ refreshToken: gmailTokensTable.refreshToken })
+    .select({ refreshToken: gmailTokensTable.refreshToken, scope: gmailTokensTable.scope })
     .from(gmailTokensTable)
     .where(eq(gmailTokensTable.userId, userId))
     .limit(1)
     .then((rows) => rows[0]);
 
   const refreshToken = tokens.refresh_token || existing?.refreshToken || "";
+  const scope = mergeScopes(existing?.scope ?? "", tokens.scope);
 
   await db
     .insert(gmailTokensTable)
@@ -141,7 +149,7 @@ export async function storeGoogleTokens(userId: string, tokens: TokenResponse) {
       accessToken: tokens.access_token,
       refreshToken,
       expiresAt,
-      scope: tokens.scope,
+      scope,
     })
     .onConflictDoUpdate({
       target: gmailTokensTable.userId,
@@ -149,7 +157,7 @@ export async function storeGoogleTokens(userId: string, tokens: TokenResponse) {
         accessToken: tokens.access_token,
         refreshToken,
         expiresAt,
-        scope: tokens.scope,
+        scope,
         updatedAt: new Date(),
       },
     });
@@ -205,7 +213,8 @@ export async function verifyGmailConnection(userId: string): Promise<boolean> {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     return res.ok;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, userId }, "Gmail connection verification failed");
     return false;
   }
 }
@@ -218,7 +227,8 @@ export async function verifyCalendarConnection(userId: string): Promise<boolean>
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     return res.ok;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, userId }, "Calendar connection verification failed");
     return false;
   }
 }

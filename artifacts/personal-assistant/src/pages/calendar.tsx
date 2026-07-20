@@ -359,7 +359,7 @@ export function CalendarPage() {
           service="calendar"
           onRefresh={() => refetchGoogleStatus()}
           isRefreshing={isCheckingStatus}
-          connectUrl="/api/google/gmail/connect?redirectTo=%2Fcalendar"
+          connectUrl="/api/google/gmail/connect?redirectTo=%2Fcalendar&scope=calendar"
         />
       )}
 

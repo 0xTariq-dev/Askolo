@@ -30,6 +30,9 @@ import {
   getOAuthCallbackCookie,
   parseOAuthStateCookie,
   parseOAuthRedirectCookie,
+  GOOGLE_SCOPES,
+  CALENDAR_SCOPE as GOOGLE_CALENDAR_SCOPE,
+  GMAIL_SCOPE as GOOGLE_GMAIL_SCOPE,
 } from "../lib/googleOAuth";
 import { getGoogleConnectionStatus } from "../lib/googleStatus";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -178,10 +181,20 @@ router.get("/google/gmail/connect", async (req, res): Promise<void> => {
     typeof req.query.redirectTo === "string" && req.query.redirectTo.startsWith("/")
       ? req.query.redirectTo
       : "/dashboard";
+  const requestedScope =
+    typeof req.query.scope === "string" ? req.query.scope : "all";
   try {
     const state = generateOAuthState();
     const redirectUri = getRedirectUri(req);
-    const url = buildGoogleAuthUrl(redirectUri, state);
+    let scopes: string[];
+    if (requestedScope === "calendar") {
+      scopes = ["openid", "email", "profile", GOOGLE_CALENDAR_SCOPE];
+    } else if (requestedScope === "gmail") {
+      scopes = ["openid", "email", "profile", GOOGLE_GMAIL_SCOPE];
+    } else {
+      scopes = GOOGLE_SCOPES;
+    }
+    const url = buildGoogleAuthUrl(redirectUri, state, scopes);
     res.setHeader("Set-Cookie", getOAuthCallbackCookie(state, redirectTo));
     res.redirect(url);
   } catch (err) {

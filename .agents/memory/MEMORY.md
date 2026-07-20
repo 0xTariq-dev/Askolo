@@ -1,1 +1,2 @@
 - [Orval codegen dedup](orval-codegen-dedup.md) — after codegen, trim `lib/api-zod/src/index.ts` to a single `generated/api` export to avoid duplicate-name TS2308 errors.
+- [Google OAuth scope preservation](google-oauth-scope-preservation.md) — merge existing scopes with new token responses to avoid losing Calendar/Gmail access on refresh or incremental auth.
