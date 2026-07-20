@@ -13,24 +13,16 @@ const router: IRouter = Router();
 
 // GET /goals
 router.get("/goals", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const goals = await db
     .select()
     .from(goalsTable)
-    .where(eq(goalsTable.userId, req.user.id))
+    .where(eq(goalsTable.userId, req.dbUser.id))
     .orderBy(desc(goalsTable.createdAt));
   res.json(goals);
 });
 
 // POST /goals
 router.post("/goals", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const parsed = CreateGoalBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -38,17 +30,13 @@ router.post("/goals", async (req, res): Promise<void> => {
   }
   const [goal] = await db
     .insert(goalsTable)
-    .values({ ...parsed.data, userId: req.user.id, status: "active", progress: parsed.data.progress ?? 0 })
+    .values({ ...parsed.data, userId: req.dbUser.id, status: "active", progress: parsed.data.progress ?? 0 })
     .returning();
   res.status(201).json(goal);
 });
 
 // GET /goals/:id
 router.get("/goals/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = GetGoalParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -57,7 +45,7 @@ router.get("/goals/:id", async (req, res): Promise<void> => {
   const [goal] = await db
     .select()
     .from(goalsTable)
-    .where(and(eq(goalsTable.id, params.data.id), eq(goalsTable.userId, req.user.id)));
+    .where(and(eq(goalsTable.id, params.data.id), eq(goalsTable.userId, req.dbUser.id)));
   if (!goal) {
     res.status(404).json({ error: "Goal not found" });
     return;
@@ -67,10 +55,6 @@ router.get("/goals/:id", async (req, res): Promise<void> => {
 
 // PATCH /goals/:id
 router.patch("/goals/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = UpdateGoalParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -84,7 +68,7 @@ router.patch("/goals/:id", async (req, res): Promise<void> => {
   const [goal] = await db
     .update(goalsTable)
     .set(parsed.data)
-    .where(and(eq(goalsTable.id, params.data.id), eq(goalsTable.userId, req.user.id)))
+    .where(and(eq(goalsTable.id, params.data.id), eq(goalsTable.userId, req.dbUser.id)))
     .returning();
   if (!goal) {
     res.status(404).json({ error: "Goal not found" });
@@ -95,10 +79,6 @@ router.patch("/goals/:id", async (req, res): Promise<void> => {
 
 // DELETE /goals/:id
 router.delete("/goals/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = DeleteGoalParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -106,7 +86,7 @@ router.delete("/goals/:id", async (req, res): Promise<void> => {
   }
   await db
     .delete(goalsTable)
-    .where(and(eq(goalsTable.id, params.data.id), eq(goalsTable.userId, req.user.id)));
+    .where(and(eq(goalsTable.id, params.data.id), eq(goalsTable.userId, req.dbUser.id)));
   res.sendStatus(204);
 });
 

@@ -13,17 +13,13 @@ const router: IRouter = Router();
 
 // GET /action-items
 router.get("/action-items", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const query = ListActionItemsQueryParams.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: query.error.message });
     return;
   }
 
-  const conditions = [eq(actionItemsTable.userId, req.user.id)];
+  const conditions = [eq(actionItemsTable.userId, req.dbUser.id)];
   if (query.data.completed !== undefined) {
     conditions.push(eq(actionItemsTable.completed, query.data.completed));
   }
@@ -38,10 +34,6 @@ router.get("/action-items", async (req, res): Promise<void> => {
 
 // POST /action-items
 router.post("/action-items", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const parsed = CreateActionItemBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -49,17 +41,13 @@ router.post("/action-items", async (req, res): Promise<void> => {
   }
   const [item] = await db
     .insert(actionItemsTable)
-    .values({ ...parsed.data, userId: req.user.id })
+    .values({ ...parsed.data, userId: req.dbUser.id })
     .returning();
   res.status(201).json(item);
 });
 
 // PATCH /action-items/:id
 router.patch("/action-items/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = UpdateActionItemParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -81,7 +69,7 @@ router.patch("/action-items/:id", async (req, res): Promise<void> => {
   const [item] = await db
     .update(actionItemsTable)
     .set(updateData)
-    .where(and(eq(actionItemsTable.id, params.data.id), eq(actionItemsTable.userId, req.user.id)))
+    .where(and(eq(actionItemsTable.id, params.data.id), eq(actionItemsTable.userId, req.dbUser.id)))
     .returning();
   if (!item) {
     res.status(404).json({ error: "Action item not found" });
@@ -92,10 +80,6 @@ router.patch("/action-items/:id", async (req, res): Promise<void> => {
 
 // DELETE /action-items/:id
 router.delete("/action-items/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = DeleteActionItemParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -103,7 +87,7 @@ router.delete("/action-items/:id", async (req, res): Promise<void> => {
   }
   await db
     .delete(actionItemsTable)
-    .where(and(eq(actionItemsTable.id, params.data.id), eq(actionItemsTable.userId, req.user.id)));
+    .where(and(eq(actionItemsTable.id, params.data.id), eq(actionItemsTable.userId, req.dbUser.id)));
   res.sendStatus(204);
 });
 

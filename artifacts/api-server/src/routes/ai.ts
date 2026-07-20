@@ -19,10 +19,6 @@ interface MeetingActionItem {
 // POST /ai/generate-plan
 // Takes raw notes text and returns a structured daily plan
 router.post("/ai/generate-plan", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
   const { notes, date } = req.body as { notes?: string; date?: string };
   if (!notes || typeof notes !== "string" || notes.trim().length === 0) {
@@ -76,7 +72,7 @@ Rules:
       .filter((item) => typeof item.title === "string" && item.title.trim().length > 0)
       .slice(0, 8)
       .map((item) => ({
-        userId: req.user.id,
+        userId: req.dbUser.id,
         date: today,
         title: String(item.title).trim().slice(0, 120),
         timeBlock: item.timeBlock ? String(item.timeBlock).slice(0, 60) : null,
@@ -99,10 +95,6 @@ Rules:
 // POST /ai/coaching
 // Returns a short daily coaching nudge based on habit + goal data
 router.post("/ai/coaching", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
   const { habits = [], goals = [], habitsCompletedToday = 0, habitsTotal = 0 } = req.body as {
     habits?: Array<{ name: string; currentStreak: number; completedToday: boolean }>;
@@ -151,10 +143,6 @@ Active goals: ${goalSummary || "none yet"}.`,
 // POST /ai/assistant
 // Chat with a personal AI assistant that has context about the user's life
 router.post("/ai/assistant", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
   const { messages = [], context } = req.body as {
     messages?: Array<{ role: "user" | "assistant"; content: string }>;
@@ -213,10 +201,6 @@ Context:
 // POST /ai/voice-to-plan
 // Convert a voice transcript into a structured daily plan and persist it
 router.post("/ai/voice-to-plan", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
   const { transcript, date } = req.body as { transcript?: string; date?: string };
   if (!transcript || typeof transcript !== "string" || transcript.trim().length === 0) {
@@ -267,7 +251,7 @@ Rules:
       .filter((item) => typeof item.title === "string" && item.title.trim().length > 0)
       .slice(0, 8)
       .map((item) => ({
-        userId: req.user.id,
+        userId: req.dbUser.id,
         date: targetDate,
         title: String(item.title).trim().slice(0, 120),
         timeBlock: item.timeBlock ? String(item.timeBlock).slice(0, 60) : null,
@@ -290,10 +274,6 @@ Rules:
 // POST /ai/meeting-extract
 // Extract summary, decisions, and action items from meeting notes; persist action items
 router.post("/ai/meeting-extract", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
   const { notes } = req.body as { notes?: string };
   if (!notes || typeof notes !== "string" || notes.trim().length === 0) {
@@ -347,7 +327,7 @@ Rules:
 
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     const toInsert = actionItems.map((a) => ({
-      userId: req.user.id,
+      userId: req.dbUser.id,
       title: String(a.title).trim().slice(0, 200),
       sourceType: "meeting" as const,
       dueDate: a.dueDate && dateRegex.test(a.dueDate) ? a.dueDate : null,

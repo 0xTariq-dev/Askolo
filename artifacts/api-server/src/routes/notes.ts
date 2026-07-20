@@ -13,24 +13,16 @@ const router: IRouter = Router();
 
 // GET /notes
 router.get("/notes", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const notes = await db
     .select()
     .from(notesTable)
-    .where(eq(notesTable.userId, req.user.id))
+    .where(eq(notesTable.userId, req.dbUser.id))
     .orderBy(desc(notesTable.updatedAt));
   res.json(notes);
 });
 
 // POST /notes
 router.post("/notes", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const parsed = CreateNoteBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -38,17 +30,13 @@ router.post("/notes", async (req, res): Promise<void> => {
   }
   const [note] = await db
     .insert(notesTable)
-    .values({ ...parsed.data, userId: req.user.id })
+    .values({ ...parsed.data, userId: req.dbUser.id })
     .returning();
   res.status(201).json(note);
 });
 
 // GET /notes/:id
 router.get("/notes/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = GetNoteParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -57,7 +45,7 @@ router.get("/notes/:id", async (req, res): Promise<void> => {
   const [note] = await db
     .select()
     .from(notesTable)
-    .where(and(eq(notesTable.id, params.data.id), eq(notesTable.userId, req.user.id)));
+    .where(and(eq(notesTable.id, params.data.id), eq(notesTable.userId, req.dbUser.id)));
   if (!note) {
     res.status(404).json({ error: "Note not found" });
     return;
@@ -67,10 +55,6 @@ router.get("/notes/:id", async (req, res): Promise<void> => {
 
 // PATCH /notes/:id
 router.patch("/notes/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = UpdateNoteParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -84,7 +68,7 @@ router.patch("/notes/:id", async (req, res): Promise<void> => {
   const [note] = await db
     .update(notesTable)
     .set(parsed.data)
-    .where(and(eq(notesTable.id, params.data.id), eq(notesTable.userId, req.user.id)))
+    .where(and(eq(notesTable.id, params.data.id), eq(notesTable.userId, req.dbUser.id)))
     .returning();
   if (!note) {
     res.status(404).json({ error: "Note not found" });
@@ -95,10 +79,6 @@ router.patch("/notes/:id", async (req, res): Promise<void> => {
 
 // DELETE /notes/:id
 router.delete("/notes/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = DeleteNoteParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -106,7 +86,7 @@ router.delete("/notes/:id", async (req, res): Promise<void> => {
   }
   await db
     .delete(notesTable)
-    .where(and(eq(notesTable.id, params.data.id), eq(notesTable.userId, req.user.id)));
+    .where(and(eq(notesTable.id, params.data.id), eq(notesTable.userId, req.dbUser.id)));
   res.sendStatus(204);
 });
 

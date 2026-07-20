@@ -44,16 +44,12 @@ async function getOrCreateConnection(userId: string) {
 
 // GET /google/status
 router.get("/google/status", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   try {
     const status = await getGoogleConnectionStatus();
 
     await db
       .insert(googleConnectionsTable)
-      .values({ userId: req.user.id, connected: status.connected, scopes: status.scopes })
+      .values({ userId: req.dbUser.id, connected: status.connected, scopes: status.scopes })
       .onConflictDoUpdate({
         target: googleConnectionsTable.userId,
         set: { connected: status.connected, scopes: status.scopes, updatedAt: new Date() },
@@ -68,10 +64,6 @@ router.get("/google/status", async (req, res): Promise<void> => {
 
 // POST /google/calendar/sync
 router.post("/google/calendar/sync", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const { from, to } = req.body as { from?: string; to?: string };
   if (!from || !to) {
     res.status(400).json({ error: "from and to are required" });
@@ -95,22 +87,22 @@ router.post("/google/calendar/sync", async (req, res): Promise<void> => {
       const [existing] = await db
         .select({ id: eventsTable.id })
         .from(eventsTable)
-        .where(and(eq(eventsTable.userId, req.user.id), eq(eventsTable.googleEventId, event.googleEventId)));
+        .where(and(eq(eventsTable.userId, req.dbUser.id), eq(eventsTable.googleEventId, event.googleEventId)));
       if (existing) {
         await db.update(eventsTable).set(event).where(eq(eventsTable.id, existing.id));
       } else {
-        await db.insert(eventsTable).values({ ...event, userId: req.user.id, color: "#3b82f6" });
+        await db.insert(eventsTable).values({ ...event, userId: req.dbUser.id, color: "#3b82f6" });
       }
     }
 
-    const existingConnection = await getOrCreateConnection(req.user.id);
+    const existingConnection = await getOrCreateConnection(req.dbUser.id);
     const existingScopes = existingConnection.scopes || [];
     const updatedScopes = Array.from(new Set([...existingScopes, CALENDAR_SCOPE]));
 
     await db
       .update(googleConnectionsTable)
       .set({ connected: true, scopes: updatedScopes, updatedAt: new Date() })
-      .where(eq(googleConnectionsTable.userId, req.user.id));
+      .where(eq(googleConnectionsTable.userId, req.dbUser.id));
 
     res.json({ synced: mapped.length, calendarId: primary.id });
   } catch (err) {
@@ -121,10 +113,6 @@ router.post("/google/calendar/sync", async (req, res): Promise<void> => {
 
 // POST /google/calendar/events
 router.post("/google/calendar/events", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const { calendarId, ...event } = req.body as LocalEventInput & { calendarId?: string };
   if (!calendarId) {
     res.status(400).json({ error: "calendarId is required" });
@@ -141,10 +129,6 @@ router.post("/google/calendar/events", async (req, res): Promise<void> => {
 
 // PATCH /google/calendar/events/:id
 router.patch("/google/calendar/events/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const { calendarId, ...event } = req.body as LocalEventInput & { calendarId?: string };
   const eventId = req.params.id;
   if (!calendarId || !eventId) {
@@ -162,10 +146,6 @@ router.patch("/google/calendar/events/:id", async (req, res): Promise<void> => {
 
 // DELETE /google/calendar/events/:id
 router.delete("/google/calendar/events/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const { calendarId } = req.body as { calendarId?: string };
   const eventId = req.params.id;
   if (!calendarId || !eventId) {
@@ -185,10 +165,6 @@ router.delete("/google/calendar/events/:id", async (req, res): Promise<void> => 
 
 // GET /google/gmail/messages
 router.get("/google/gmail/messages", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   try {
     const list = await listGmailMessages(20);
     const messages = await Promise.all(
@@ -220,10 +196,6 @@ router.get("/google/gmail/messages", async (req, res): Promise<void> => {
 
 // POST /google/gmail/draft
 router.post("/google/gmail/draft", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const { messageId, tone } = req.body as { messageId?: string; tone?: string };
   if (!messageId) {
     res.status(400).json({ error: "messageId is required" });
@@ -261,10 +233,6 @@ router.post("/google/gmail/draft", async (req, res): Promise<void> => {
 
 // POST /google/gmail/send
 router.post("/google/gmail/send", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const { to, subject, body, threadId } = req.body as {
     to?: string;
     subject?: string;

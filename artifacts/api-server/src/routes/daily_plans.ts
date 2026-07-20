@@ -13,17 +13,13 @@ const router: IRouter = Router();
 
 // GET /daily-plans
 router.get("/daily-plans", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const query = ListDailyPlansQueryParams.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: query.error.message });
     return;
   }
 
-  const conditions = [eq(dailyPlansTable.userId, req.user.id)];
+  const conditions = [eq(dailyPlansTable.userId, req.dbUser.id)];
   if (query.data.date) {
     conditions.push(eq(dailyPlansTable.date, query.data.date));
   }
@@ -38,10 +34,6 @@ router.get("/daily-plans", async (req, res): Promise<void> => {
 
 // POST /daily-plans
 router.post("/daily-plans", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const parsed = CreateDailyPlanBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -49,17 +41,13 @@ router.post("/daily-plans", async (req, res): Promise<void> => {
   }
   const [plan] = await db
     .insert(dailyPlansTable)
-    .values({ ...parsed.data, userId: req.user.id, priority: parsed.data.priority ?? "medium" })
+    .values({ ...parsed.data, userId: req.dbUser.id, priority: parsed.data.priority ?? "medium" })
     .returning();
   res.status(201).json(plan);
 });
 
 // PATCH /daily-plans/:id
 router.patch("/daily-plans/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = UpdateDailyPlanParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -73,7 +61,7 @@ router.patch("/daily-plans/:id", async (req, res): Promise<void> => {
   const [plan] = await db
     .update(dailyPlansTable)
     .set(parsed.data)
-    .where(and(eq(dailyPlansTable.id, params.data.id), eq(dailyPlansTable.userId, req.user.id)))
+    .where(and(eq(dailyPlansTable.id, params.data.id), eq(dailyPlansTable.userId, req.dbUser.id)))
     .returning();
   if (!plan) {
     res.status(404).json({ error: "Daily plan not found" });
@@ -84,10 +72,6 @@ router.patch("/daily-plans/:id", async (req, res): Promise<void> => {
 
 // DELETE /daily-plans/:id
 router.delete("/daily-plans/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = DeleteDailyPlanParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -95,7 +79,7 @@ router.delete("/daily-plans/:id", async (req, res): Promise<void> => {
   }
   await db
     .delete(dailyPlansTable)
-    .where(and(eq(dailyPlansTable.id, params.data.id), eq(dailyPlansTable.userId, req.user.id)));
+    .where(and(eq(dailyPlansTable.id, params.data.id), eq(dailyPlansTable.userId, req.dbUser.id)));
   res.sendStatus(204);
 });
 

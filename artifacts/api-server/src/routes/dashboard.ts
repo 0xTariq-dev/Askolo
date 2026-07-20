@@ -16,12 +16,8 @@ const router: IRouter = Router();
 
 // GET /dashboard/summary
 router.get("/dashboard/summary", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
-  const userId = req.user.id;
+  const userId = req.dbUser.id;
   const today = new Date().toISOString().split("T")[0];
   const oneWeekLater = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
 

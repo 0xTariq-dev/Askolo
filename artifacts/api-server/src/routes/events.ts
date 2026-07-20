@@ -14,17 +14,13 @@ const router: IRouter = Router();
 
 // GET /events
 router.get("/events", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const query = ListEventsQueryParams.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: query.error.message });
     return;
   }
 
-  const conditions = [eq(eventsTable.userId, req.user.id)];
+  const conditions = [eq(eventsTable.userId, req.dbUser.id)];
   if (query.data.from) conditions.push(gte(eventsTable.startDate, query.data.from));
   if (query.data.to) conditions.push(lte(eventsTable.startDate, query.data.to));
 
@@ -38,10 +34,6 @@ router.get("/events", async (req, res): Promise<void> => {
 
 // POST /events
 router.post("/events", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const parsed = CreateEventBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -49,17 +41,13 @@ router.post("/events", async (req, res): Promise<void> => {
   }
   const [event] = await db
     .insert(eventsTable)
-    .values({ ...parsed.data, userId: req.user.id, allDay: parsed.data.allDay ?? false })
+    .values({ ...parsed.data, userId: req.dbUser.id, allDay: parsed.data.allDay ?? false })
     .returning();
   res.status(201).json(event);
 });
 
 // GET /events/:id
 router.get("/events/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = GetEventParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -68,7 +56,7 @@ router.get("/events/:id", async (req, res): Promise<void> => {
   const [event] = await db
     .select()
     .from(eventsTable)
-    .where(and(eq(eventsTable.id, params.data.id), eq(eventsTable.userId, req.user.id)));
+    .where(and(eq(eventsTable.id, params.data.id), eq(eventsTable.userId, req.dbUser.id)));
   if (!event) {
     res.status(404).json({ error: "Event not found" });
     return;
@@ -78,10 +66,6 @@ router.get("/events/:id", async (req, res): Promise<void> => {
 
 // PATCH /events/:id
 router.patch("/events/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = UpdateEventParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -95,7 +79,7 @@ router.patch("/events/:id", async (req, res): Promise<void> => {
   const [event] = await db
     .update(eventsTable)
     .set(parsed.data)
-    .where(and(eq(eventsTable.id, params.data.id), eq(eventsTable.userId, req.user.id)))
+    .where(and(eq(eventsTable.id, params.data.id), eq(eventsTable.userId, req.dbUser.id)))
     .returning();
   if (!event) {
     res.status(404).json({ error: "Event not found" });
@@ -106,10 +90,6 @@ router.patch("/events/:id", async (req, res): Promise<void> => {
 
 // DELETE /events/:id
 router.delete("/events/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = DeleteEventParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -117,7 +97,7 @@ router.delete("/events/:id", async (req, res): Promise<void> => {
   }
   await db
     .delete(eventsTable)
-    .where(and(eq(eventsTable.id, params.data.id), eq(eventsTable.userId, req.user.id)));
+    .where(and(eq(eventsTable.id, params.data.id), eq(eventsTable.userId, req.dbUser.id)));
   res.sendStatus(204);
 });
 

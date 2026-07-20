@@ -1,21 +1,19 @@
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { useAuth } from '@workspace/replit-auth-web';
-import { LoginPage } from '@/pages/login';
-import { 
-  LayoutDashboard, 
-  CheckCircle2, 
-  Target, 
-  ListTodo, 
-  Calendar, 
-  ClipboardList, 
-  StickyNote, 
-  Zap, 
+import { useUser, useClerk } from '@clerk/react';
+import {
+  LayoutDashboard,
+  CheckCircle2,
+  Target,
+  ListTodo,
+  Calendar,
+  ClipboardList,
+  StickyNote,
+  Zap,
   Sparkles,
   Mail,
   LogOut,
-  Loader2,
-  Hexagon
+  Hexagon,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -34,21 +32,17 @@ const navItems = [
   { href: '/email', label: 'Email', icon: Mail },
 ];
 
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { user, isLoading, isAuthenticated, logout } = useAuth();
+  const { user } = useUser();
+  const { signOut } = useClerk();
   const [location] = useLocation();
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated || !user) {
-    return <LoginPage />;
-  }
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'User';
+  const email = user?.primaryEmailAddress?.emailAddress || '';
+  const avatarUrl = user?.imageUrl || '';
+  const initials = user?.firstName?.[0] || 'U';
 
   return (
     <div className="min-h-screen w-full flex bg-background text-foreground">
@@ -58,21 +52,23 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <Hexagon className="h-6 w-6 text-primary mr-2 fill-primary/20" />
           <span className="font-display font-bold text-xl tracking-tight text-sidebar-foreground">Askolo</span>
         </div>
-        
+
         <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
             const Icon = item.icon;
             return (
               <Link key={item.href} href={item.href}>
-                <div className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 cursor-pointer text-sm font-medium",
-                  isActive 
-                    ? "bg-sidebar-primary/10 text-sidebar-primary" 
-                    : "text-sidebar-foreground/70 hover:bg-white/5 hover:text-sidebar-foreground"
-                )}
-                data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}>
-                  <Icon className={cn("h-4 w-4", isActive ? "text-sidebar-primary" : "text-sidebar-foreground/70")} />
+                <div
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 cursor-pointer text-sm font-medium',
+                    isActive
+                      ? 'bg-sidebar-primary/10 text-sidebar-primary'
+                      : 'text-sidebar-foreground/70 hover:bg-white/5 hover:text-sidebar-foreground',
+                  )}
+                  data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+                >
+                  <Icon className={cn('h-4 w-4', isActive ? 'text-sidebar-primary' : 'text-sidebar-foreground/70')} />
                   {item.label}
                 </div>
               </Link>
@@ -83,20 +79,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <div className="p-4 border-t border-border bg-sidebar">
           <div className="flex items-center gap-3 mb-4 px-2">
             <Avatar className="h-9 w-9 border border-border">
-              <AvatarImage src={user.profileImageUrl || ''} />
+              <AvatarImage src={avatarUrl} />
               <AvatarFallback className="bg-sidebar-primary/20 text-sidebar-primary">
-                {user.firstName?.[0] || 'U'}
+                {initials}
               </AvatarFallback>
             </Avatar>
             <div className="flex flex-col flex-1 overflow-hidden">
-              <span className="text-sm font-medium truncate text-sidebar-foreground">{user.firstName} {user.lastName}</span>
-              <span className="text-xs text-sidebar-foreground/60 truncate">{user.email}</span>
+              <span className="text-sm font-medium truncate text-sidebar-foreground">{displayName}</span>
+              <span className="text-xs text-sidebar-foreground/60 truncate">{email}</span>
             </div>
           </div>
-          <Button 
-            variant="outline" 
-            className="w-full justify-start text-sidebar-foreground/70 border-border hover:bg-white/5 hover:text-sidebar-foreground" 
-            onClick={logout}
+          <Button
+            variant="outline"
+            className="w-full justify-start text-sidebar-foreground/70 border-border hover:bg-white/5 hover:text-sidebar-foreground"
+            onClick={() => signOut({ redirectUrl: basePath || '/' })}
             data-testid="button-logout"
           >
             <LogOut className="h-4 w-4 mr-2" />

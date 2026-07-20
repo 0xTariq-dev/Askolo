@@ -77,14 +77,10 @@ async function recalculateStreak(habitId: number): Promise<{ current: number; lo
 
 // GET /habits
 router.get("/habits", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const habits = await db
     .select()
     .from(habitsTable)
-    .where(eq(habitsTable.userId, req.user.id))
+    .where(eq(habitsTable.userId, req.dbUser.id))
     .orderBy(desc(habitsTable.createdAt));
 
   const today = new Date().toISOString().split("T")[0];
@@ -104,10 +100,6 @@ router.get("/habits", async (req, res): Promise<void> => {
 
 // POST /habits
 router.post("/habits", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const parsed = CreateHabitBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -115,17 +107,13 @@ router.post("/habits", async (req, res): Promise<void> => {
   }
   const [habit] = await db
     .insert(habitsTable)
-    .values({ ...parsed.data, userId: req.user.id })
+    .values({ ...parsed.data, userId: req.dbUser.id })
     .returning();
   res.status(201).json({ ...habit, completedToday: false });
 });
 
 // GET /habits/:id
 router.get("/habits/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = GetHabitParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -134,7 +122,7 @@ router.get("/habits/:id", async (req, res): Promise<void> => {
   const [habit] = await db
     .select()
     .from(habitsTable)
-    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.user.id)));
+    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.dbUser.id)));
   if (!habit) {
     res.status(404).json({ error: "Habit not found" });
     return;
@@ -149,10 +137,6 @@ router.get("/habits/:id", async (req, res): Promise<void> => {
 
 // PATCH /habits/:id
 router.patch("/habits/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = UpdateHabitParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -166,7 +150,7 @@ router.patch("/habits/:id", async (req, res): Promise<void> => {
   const [habit] = await db
     .update(habitsTable)
     .set(parsed.data)
-    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.user.id)))
+    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.dbUser.id)))
     .returning();
   if (!habit) {
     res.status(404).json({ error: "Habit not found" });
@@ -182,10 +166,6 @@ router.patch("/habits/:id", async (req, res): Promise<void> => {
 
 // DELETE /habits/:id
 router.delete("/habits/:id", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = DeleteHabitParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -193,16 +173,12 @@ router.delete("/habits/:id", async (req, res): Promise<void> => {
   }
   await db
     .delete(habitsTable)
-    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.user.id)));
+    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.dbUser.id)));
   res.sendStatus(204);
 });
 
 // GET /habits/:id/completions
 router.get("/habits/:id/completions", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = GetHabitCompletionsParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -212,7 +188,7 @@ router.get("/habits/:id/completions", async (req, res): Promise<void> => {
   const [habit] = await db
     .select()
     .from(habitsTable)
-    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.user.id)));
+    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.dbUser.id)));
   if (!habit) {
     res.status(404).json({ error: "Habit not found" });
     return;
@@ -227,10 +203,6 @@ router.get("/habits/:id/completions", async (req, res): Promise<void> => {
 
 // POST /habits/:id/completions
 router.post("/habits/:id/completions", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = CompleteHabitParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -246,7 +218,7 @@ router.post("/habits/:id/completions", async (req, res): Promise<void> => {
   const [habit] = await db
     .select()
     .from(habitsTable)
-    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.user.id)));
+    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.dbUser.id)));
   if (!habit) {
     res.status(404).json({ error: "Habit not found" });
     return;
@@ -279,10 +251,6 @@ router.post("/habits/:id/completions", async (req, res): Promise<void> => {
 
 // DELETE /habits/:id/completions/:date
 router.delete("/habits/:id/completions/:date", async (req, res): Promise<void> => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const params = UncompleteHabitParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -293,7 +261,7 @@ router.delete("/habits/:id/completions/:date", async (req, res): Promise<void> =
   const [habit] = await db
     .select()
     .from(habitsTable)
-    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.user.id)));
+    .where(and(eq(habitsTable.id, params.data.id), eq(habitsTable.userId, req.dbUser.id)));
   if (!habit) {
     res.status(404).json({ error: "Habit not found" });
     return;
