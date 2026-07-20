@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, addMonths, subMonths, formatDistanceToNow } from 'date-fns';
 import { z } from 'zod';
 import { useForm as useHookForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -57,6 +57,8 @@ type EventFormValues = z.infer<typeof eventSchema>;
 
 const DEFAULT_COLOR = '#3b82f6';
 
+const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 export function CalendarPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -64,6 +66,9 @@ export function CalendarPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  // tick every 30s so relative time label stays fresh
+  const [, setTick] = useState(0);
 
   const from = format(startOfMonth(currentDate), 'yyyy-MM-dd');
   const to = format(endOfMonth(currentDate), 'yyyy-MM-dd');
@@ -124,10 +129,10 @@ export function CalendarPage() {
     setDialogOpen(true);
   };
 
-  const invalidateCalendar = () => {
+  const invalidateCalendar = useCallback(() => {
     qc.invalidateQueries({ queryKey: getListEventsQueryKey() });
     qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-  };
+  }, [qc]);
 
   const handleMutationError = (action: string, error: Error) => {
     toast({
@@ -137,6 +142,9 @@ export function CalendarPage() {
     });
     setIsSaving(false);
   };
+
+  // Keep a stable ref so the auto-sync interval can call the latest version
+  const syncRef = useRef<(() => void) | null>(null);
 
   const onSubmit = (data: EventFormValues) => {
     setIsSaving(true);
@@ -249,17 +257,43 @@ export function CalendarPage() {
     }
   };
 
-  const handleSync = () => {
+  const handleSync = useCallback(() => {
     const start = new Date(Date.now() - 30 * 86400000).toISOString();
     const end = new Date(Date.now() + 30 * 86400000).toISOString();
     syncGoogleCalendar.mutate(
       { data: { from: start, to: end } },
       {
-        onSuccess: () => invalidateCalendar(),
+        onSuccess: () => {
+          invalidateCalendar();
+          setLastSyncedAt(new Date());
+        },
         onError: (error) => handleMutationError('sync Google Calendar', error),
       },
     );
-  };
+  }, [syncGoogleCalendar, invalidateCalendar]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep ref in sync so the interval always sees the latest handler
+  syncRef.current = handleSync;
+
+  // Auto-sync on mount + every 5 minutes while the page is open
+  useEffect(() => {
+    if (!calendarConnected) return;
+
+    // Run immediately on mount (or when connection becomes available)
+    syncRef.current?.();
+
+    const id = setInterval(() => {
+      syncRef.current?.();
+    }, AUTO_SYNC_INTERVAL_MS);
+
+    return () => clearInterval(id);
+  }, [calendarConnected]);
+
+  // Refresh the "X minutes ago" label every 30 s
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const sortedEvents = events?.slice().sort((a, b) => {
     const aStr = `${a.startDate}T${a.startTime || '00:00'}`;
@@ -276,19 +310,30 @@ export function CalendarPage() {
             Local events and synced Google Calendar in one view.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handleSync}
-            disabled={syncGoogleCalendar.isPending || !calendarConnected}
-            className="shrink-0"
-          >
-            <RefreshCw className={cn('h-4 w-4 mr-2', syncGoogleCalendar.isPending && 'animate-spin')} />
-            {calendarConnected ? 'Sync Google' : 'Google not connected'}
-          </Button>
-          <Button onClick={openAdd} className="shrink-0" data-testid="button-add-event">
-            <Plus className="h-4 w-4 mr-2" /> Add Event
-          </Button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleSync}
+              disabled={syncGoogleCalendar.isPending || !calendarConnected}
+              className="shrink-0"
+            >
+              <RefreshCw className={cn('h-4 w-4 mr-2', syncGoogleCalendar.isPending && 'animate-spin')} />
+              {calendarConnected ? 'Sync Google' : 'Google not connected'}
+            </Button>
+            <Button onClick={openAdd} className="shrink-0" data-testid="button-add-event">
+              <Plus className="h-4 w-4 mr-2" /> Add Event
+            </Button>
+          </div>
+          {calendarConnected && (
+            <p className="text-xs text-muted-foreground">
+              {syncGoogleCalendar.isPending
+                ? 'Syncing…'
+                : lastSyncedAt
+                  ? `Last synced ${formatDistanceToNow(lastSyncedAt, { addSuffix: true })}`
+                  : 'Not yet synced this session'}
+            </p>
+          )}
         </div>
       </header>
 
