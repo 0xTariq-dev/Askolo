@@ -22,6 +22,7 @@ import { EmailPage } from '@/pages/email';
 import { PrivacyPage } from '@/pages/privacy';
 import { TermsPage } from '@/pages/terms';
 import { LoginPage } from '@/pages/login';
+import { LandingPage } from '@/pages/landing';
 
 const queryClient = new QueryClient();
 
@@ -175,7 +176,7 @@ function ProtectedRoutes() {
   return (
     <AppLayout>
       <Switch>
-        <Route path="/" component={DashboardPage} />
+        <Route path="/dashboard" component={DashboardPage} />
         <Route path="/habits" component={HabitsPage} />
         <Route path="/goals" component={GoalsPage} />
         <Route path="/plan" component={PlanPage} />
@@ -185,8 +186,6 @@ function ProtectedRoutes() {
         <Route path="/actions" component={ActionsPage} />
         <Route path="/assistant" component={AssistantPage} />
         <Route path="/email" component={EmailPage} />
-        <Route path="/privacy" component={PrivacyPage} />
-        <Route path="/terms" component={TermsPage} />
       </Switch>
     </AppLayout>
   );
@@ -223,11 +222,16 @@ function ClerkProviderWithRoutes() {
         <ClerkQueryClientCacheInvalidator />
         <TooltipProvider>
           <Switch>
+            {/* Public pages */}
+            <Route path="/" component={LandingPage} />
+            <Route path="/privacy" component={PrivacyPage} />
+            <Route path="/terms" component={TermsPage} />
             {/* REQUIRED — /sign-in/*? and /sign-up/*? must match exactly.
                 The /*? optional wildcard is the only wouter syntax that
                 handles Clerk's OAuth sub-paths. */}
             <Route path="/sign-in/*?" component={SignInPage} />
             <Route path="/sign-up/*?" component={SignUpPage} />
+            {/* Protected app routes */}
             <Route component={ProtectedRoutes} />
           </Switch>
           <Toaster />

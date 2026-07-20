@@ -122,12 +122,24 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
 
 export async function storeGoogleTokens(userId: string, tokens: TokenResponse) {
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
+
+  // Preserve the existing refresh token if Google does not return a new one
+  // (e.g., re-authorization without a new offline token).
+  const existing = await db
+    .select({ refreshToken: gmailTokensTable.refreshToken })
+    .from(gmailTokensTable)
+    .where(eq(gmailTokensTable.userId, userId))
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  const refreshToken = tokens.refresh_token || existing?.refreshToken || "";
+
   await db
     .insert(gmailTokensTable)
     .values({
       userId,
       accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? "",
+      refreshToken,
       expiresAt,
       scope: tokens.scope,
     })
@@ -135,7 +147,7 @@ export async function storeGoogleTokens(userId: string, tokens: TokenResponse) {
       target: gmailTokensTable.userId,
       set: {
         accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token ?? "",
+        refreshToken,
         expiresAt,
         scope: tokens.scope,
         updatedAt: new Date(),
@@ -240,10 +252,20 @@ export async function calendarApiRequest(userId: string, path: string, init: Req
   return googleApiRequest(userId, CALENDAR_API_BASE, path, init);
 }
 
-export function getOAuthCallbackCookie(state: string) {
+export function getOAuthCallbackCookie(state: string, redirectTo?: string) {
   const signature = signState(state);
   const value = `${state}.${signature}`;
-  return `google_oauth_state=${encodeURIComponent(value)}; Path=/api/google/gmail; HttpOnly; Secure; SameSite=None; Max-Age=600`;
+  const cookies = [
+    `google_oauth_state=${encodeURIComponent(value)}; Path=/api/google/gmail; HttpOnly; Secure; SameSite=None; Max-Age=600`,
+  ];
+  if (redirectTo) {
+    const redirectSignature = signState(redirectTo);
+    const redirectValue = `${redirectTo}.${redirectSignature}`;
+    cookies.push(
+      `google_oauth_redirect=${encodeURIComponent(redirectValue)}; Path=/api/google/gmail; HttpOnly; Secure; SameSite=None; Max-Age=600`,
+    );
+  }
+  return cookies;
 }
 
 export function parseOAuthStateCookie(cookieHeader?: string) {
@@ -255,4 +277,17 @@ export function parseOAuthStateCookie(cookieHeader?: string) {
   if (!state || !signature) return null;
   if (!verifyState(state, signature)) return null;
   return state;
+}
+
+export function parseOAuthRedirectCookie(cookieHeader?: string) {
+  if (!cookieHeader) return "/dashboard";
+  const match = cookieHeader.match(/(?:^|;\s*)google_oauth_redirect=([^;]+)/);
+  if (!match) return "/dashboard";
+  const value = decodeURIComponent(match[1]);
+  const [redirectTo, signature] = value.split(".");
+  if (!redirectTo || !signature) return "/dashboard";
+  if (!verifyState(redirectTo, signature)) return "/dashboard";
+  // Only allow relative paths to avoid open redirects.
+  if (!redirectTo.startsWith("/")) return "/dashboard";
+  return redirectTo;
 }

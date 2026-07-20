@@ -13,14 +13,14 @@ import {
   Sparkles,
   Mail,
   LogOut,
-  Hexagon,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import logoUrl from '/logo.png';
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/assistant', label: 'Assistant', icon: Sparkles },
   { href: '/habits', label: 'Habits', icon: CheckCircle2 },
   { href: '/goals', label: 'Goals', icon: Target },
@@ -49,8 +49,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside className="w-64 border-r border-border bg-sidebar flex flex-col hidden md:flex shrink-0 z-10 relative">
         <div className="h-16 flex items-center px-6 border-b border-border">
-          <Hexagon className="h-6 w-6 text-primary mr-2 fill-primary/20" />
-          <span className="font-display font-bold text-xl tracking-tight text-sidebar-foreground">Askolo</span>
+          <Link href="/dashboard" className="flex items-center gap-2 group">
+            <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
+            <span className="font-display font-bold text-xl tracking-tight text-sidebar-foreground">Askolo</span>
+          </Link>
         </div>
 
         <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
@@ -105,8 +107,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
         {/* Mobile Header */}
         <header className="h-16 flex items-center px-4 border-b border-border bg-card md:hidden shrink-0 z-10 relative">
-          <Hexagon className="h-6 w-6 text-primary mr-2 fill-primary/20" />
-          <span className="font-display font-bold text-xl tracking-tight">Askolo</span>
+          <Link href="/dashboard" className="flex items-center gap-2 group">
+            <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
+            <span className="font-display font-bold text-xl tracking-tight group-hover:text-primary transition-colors">Askolo</span>
+          </Link>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-background relative">

@@ -1,10 +1,11 @@
-# [Project name]
+# Askolo
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Askolo is a beautifully designed personal and family assistant that helps you manage habits, goals, daily plans, calendar, chores, notes, action items, and an AI coach — all in one place. It optionally connects to Google Calendar and Gmail so you can plan your day and triage messages without leaving the app.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/personal-assistant run dev` — run the web app (requires `PORT` and `BASE_PATH` env vars)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port from `PORT`, default 8080 in dev)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -14,32 +15,49 @@ _Replace the heading above with the project's name, and this line with one sente
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
+- Web: React, Vite, Tailwind CSS v4, shadcn/ui, Framer Motion, Wouter, Clerk
+- API: Express 5, esbuild
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Build: esbuild (CJS bundle for API), Vite (for web)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- API routes: `artifacts/api-server/src/routes/`
+- Google OAuth & API helpers: `artifacts/api-server/src/lib/googleOAuth.ts`, `googleCalendar.ts`, `gmail.ts`, `googleStatus.ts`
+- Web pages: `artifacts/personal-assistant/src/pages/`
+- Shared layouts: `artifacts/personal-assistant/src/components/layout/`
+- DB schema: `lib/db/src/schema/`
+- API client hooks: `lib/api-client-react/src/generated/`
+- Public assets (logo, favicon): `artifacts/personal-assistant/public/`
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- **Clerk for auth:** Replit-managed Clerk handles sign-in/up; the API verifies the session token cookie.
+- **Google services via custom OAuth app:** Calendar and Gmail use the user's own Google Cloud OAuth app and store a single token per user in `gmail_tokens`.
+- **Dynamic redirect URI:** OAuth redirect URIs are built from the request host so dev and production share the same code.
+- **SPA path routing:** The app is a Vite SPA; route paths are absolute and match the artifact preview path (`/`).
+- **Optional Google integrations:** Calendar and Gmail are opt-in; the app works without them.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Askolo gives users a calm, focused home for daily life management: track habits, set goals, build a daily plan, view and manage calendar events, keep household chores, take notes, manage action items, and get AI coaching. Optional Google Calendar and Gmail integrations sync events and messages so users can plan and triage email without switching apps.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- The app name is **Askolo** everywhere.
+- The logo/icon is the uploaded image at `artifacts/personal-assistant/public/logo.png` and should be used consistently across the app, landing page, and Clerk sign-in UI.
+- The public home page (`/`) shows a landing page with a "Go to Dashboard" CTA for signed-in users; it does not auto-redirect.
+- The dashboard lives at `/dashboard` and is linked from the sidebar and app logo.
+- Privacy Policy and Terms of Service are public pages and should describe the custom Google OAuth app usage.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The web dev server requires both `PORT` and `BASE_PATH` env vars to start. The managed workflow sets these; local manual builds need them too, e.g. `PORT=18131 BASE_PATH=/ pnpm --filter @workspace/personal-assistant run build`.
+- Google refresh tokens are only returned on the first offline authorization; `storeGoogleTokens` preserves the existing refresh token when Google does not reissue one.
+- The OAuth callback redirects to the originating page (via a signed `redirectTo` cookie) so Calendar and Email pages show the correct post-connect toast.
 
 ## Pointers
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

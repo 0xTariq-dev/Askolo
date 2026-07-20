@@ -1,10 +1,12 @@
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent } from '@/components/ui/card';
+import { PublicLayout } from '@/components/layout/public-layout';
 
 export function TermsPage() {
   return (
-    <PageTransition className="max-w-3xl mx-auto pb-10">
-      <header className="mb-8">
+    <PublicLayout>
+      <PageTransition className="max-w-3xl mx-auto pb-10">
+        <header className="mb-8">
         <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Terms of Service</h1>
         <p className="text-muted-foreground mt-2">Last updated: {new Date().toLocaleDateString()}</p>
       </header>
@@ -75,7 +77,8 @@ export function TermsPage() {
             <p>If you have questions about these Terms of Service, please contact the Askolo team.</p>
           </section>
         </CardContent>
-      </Card>
-    </PageTransition>
+        </Card>
+      </PageTransition>
+    </PublicLayout>
   );
 }

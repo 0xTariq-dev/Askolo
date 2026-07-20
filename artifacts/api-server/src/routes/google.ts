@@ -29,6 +29,7 @@ import {
   getRedirectUri,
   getOAuthCallbackCookie,
   parseOAuthStateCookie,
+  parseOAuthRedirectCookie,
 } from "../lib/googleOAuth";
 import { getGoogleConnectionStatus } from "../lib/googleStatus";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -173,15 +174,19 @@ router.delete("/google/calendar/events/:id", async (req, res): Promise<void> => 
 
 // GET /google/gmail/connect
 router.get("/google/gmail/connect", async (req, res): Promise<void> => {
+  const redirectTo =
+    typeof req.query.redirectTo === "string" && req.query.redirectTo.startsWith("/")
+      ? req.query.redirectTo
+      : "/dashboard";
   try {
     const state = generateOAuthState();
     const redirectUri = getRedirectUri(req);
     const url = buildGoogleAuthUrl(redirectUri, state);
-    res.setHeader("Set-Cookie", getOAuthCallbackCookie(state));
+    res.setHeader("Set-Cookie", getOAuthCallbackCookie(state, redirectTo));
     res.redirect(url);
   } catch (err) {
     req.log.error(err, "Google connect redirect failed");
-    res.redirect("/email?google=error");
+    res.redirect(`${redirectTo}?google=error`);
   }
 });
 
@@ -190,10 +195,11 @@ router.get("/google/gmail/callback", async (req, res): Promise<void> => {
   const code = req.query.code as string | undefined;
   const error = req.query.error as string | undefined;
   const state = parseOAuthStateCookie(req.headers.cookie);
+  const redirectTo = parseOAuthRedirectCookie(req.headers.cookie);
 
   if (error || !code || !state) {
     req.log.warn({ error, hasCode: !!code, hasState: !!state }, "Google OAuth callback rejected");
-    res.redirect("/email?google=error");
+    res.redirect(`${redirectTo}?google=error`);
     return;
   }
 
@@ -201,10 +207,10 @@ router.get("/google/gmail/callback", async (req, res): Promise<void> => {
     const redirectUri = getRedirectUri(req);
     const tokens = await exchangeCodeForTokens(code, redirectUri);
     await storeGoogleTokens(req.dbUser.id, tokens);
-    res.redirect("/email?google=connected");
+    res.redirect(`${redirectTo}?google=connected`);
   } catch (err) {
     req.log.error(err, "Google OAuth callback failed");
-    res.redirect("/email?google=error");
+    res.redirect(`${redirectTo}?google=error`);
   }
 });
 

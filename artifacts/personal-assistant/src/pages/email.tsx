@@ -41,7 +41,7 @@ const PRIORITY_LABELS: Record<string, string> = {
   archive: 'Can Archive',
 };
 
-const GOOGLE_CONNECT_URL = '/api/google/gmail/connect';
+const GOOGLE_CONNECT_URL = '/api/google/gmail/connect?redirectTo=%2Femail';
 
 export function EmailPage() {
   const qc = useQueryClient();

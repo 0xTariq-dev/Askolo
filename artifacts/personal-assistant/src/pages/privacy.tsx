@@ -1,10 +1,12 @@
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent } from '@/components/ui/card';
+import { PublicLayout } from '@/components/layout/public-layout';
 
 export function PrivacyPage() {
   return (
-    <PageTransition className="max-w-3xl mx-auto pb-10">
-      <header className="mb-8">
+    <PublicLayout>
+      <PageTransition className="max-w-3xl mx-auto pb-10">
+        <header className="mb-8">
         <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Privacy Policy</h1>
         <p className="text-muted-foreground mt-2">Last updated: {new Date().toLocaleDateString()}</p>
       </header>
@@ -33,8 +35,8 @@ export function PrivacyPage() {
             <h2 className="text-lg font-semibold mb-2">3. Data storage and security</h2>
             <p>
               Your data is stored securely in our infrastructure. We use industry-standard encryption for data in transit and
-              at rest. Access to Google services is handled through OAuth tokens that are refreshed and stored securely by the
-              platform's connectors infrastructure.
+              at rest. Access to Google services is handled through OAuth tokens that are refreshed and stored securely by Askolo
+              using your own Google Cloud OAuth app.
             </p>
           </section>
 
@@ -59,7 +61,8 @@ export function PrivacyPage() {
             <p>If you have questions about this Privacy Policy, please contact the Askolo team.</p>
           </section>
         </CardContent>
-      </Card>
-    </PageTransition>
+        </Card>
+      </PageTransition>
+    </PublicLayout>
   );
 }

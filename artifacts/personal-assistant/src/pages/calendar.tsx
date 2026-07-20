@@ -41,6 +41,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useToast } from '@/hooks/use-toast';
+import { useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
 
 const eventSchema = z.object({
@@ -85,6 +86,7 @@ export function CalendarPage() {
   const syncGoogleCalendar = useSyncGoogleCalendar();
 
   const calendarConnected = googleStatus?.calendarConnected ?? false;
+  const [, setLocation] = useLocation();
 
   const form = useHookForm<EventFormValues>({
     resolver: zodResolver(eventSchema),
@@ -296,6 +298,19 @@ export function CalendarPage() {
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google') === 'connected') {
+      toast({ title: 'Google connected', description: 'Calendar access is now enabled.' });
+      refetchGoogleStatus();
+      invalidateCalendar();
+      setLocation('/calendar', { replace: true });
+    } else if (params.get('google') === 'error') {
+      toast({ variant: 'destructive', title: 'Google connection failed', description: 'Please try connecting again.' });
+      setLocation('/calendar', { replace: true });
+    }
+  }, [toast, refetchGoogleStatus, invalidateCalendar, setLocation]);
+
   const sortedEvents = events?.slice().sort((a, b) => {
     const aStr = `${a.startDate}T${a.startTime || '00:00'}`;
     const bStr = `${b.startDate}T${b.startTime || '00:00'}`;
@@ -344,7 +359,7 @@ export function CalendarPage() {
           service="calendar"
           onRefresh={() => refetchGoogleStatus()}
           isRefreshing={isCheckingStatus}
-          connectUrl="/api/google/gmail/connect"
+          connectUrl="/api/google/gmail/connect?redirectTo=%2Fcalendar"
         />
       )}
 
