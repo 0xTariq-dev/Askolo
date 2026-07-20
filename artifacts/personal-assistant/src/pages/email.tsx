@@ -21,6 +21,7 @@ import {
   type GmailMessage,
 } from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
+import { ReconnectBanner } from '@/components/ui/reconnect-banner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,7 +46,7 @@ export function EmailPage() {
   const [tone, setTone] = useState('professional');
   const [replyOpen, setReplyOpen] = useState(false);
 
-  const { data: googleStatus } = useGetGoogleStatus();
+  const { data: googleStatus, refetch: refetchGoogleStatus, isFetching: isCheckingStatus } = useGetGoogleStatus();
   const { data: messagesData, isLoading, error, refetch } = useListGmailMessages();
   const generateDraft = useGenerateGmailDraft();
   const sendMessage = useSendGmailMessage();
@@ -111,20 +112,11 @@ export function EmailPage() {
           <p className="text-muted-foreground mt-2 text-lg">AI-powered inbox prioritization and reply drafting.</p>
         </header>
 
-        <Card className="border-border bg-card/50 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Mail className="h-5 w-5 text-primary" />
-              Gmail not connected
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-muted-foreground">
-              Email triage requires access to Gmail. Connect your Gmail account via Replit integrations to enable AI priority
-              grouping and reply drafting.
-            </p>
-          </CardContent>
-        </Card>
+        <ReconnectBanner
+          service="gmail"
+          onRefresh={() => refetchGoogleStatus()}
+          isRefreshing={isCheckingStatus}
+        />
       </PageTransition>
     );
   }

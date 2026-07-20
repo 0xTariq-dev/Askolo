@@ -17,6 +17,7 @@ import {
   MapPin,
   Link2,
 } from 'lucide-react';
+import { ReconnectBanner } from '@/components/ui/reconnect-banner';
 import {
   useListEvents,
   useCreateEvent,
@@ -74,7 +75,7 @@ export function CalendarPage() {
   const to = format(endOfMonth(currentDate), 'yyyy-MM-dd');
 
   const { data: events, isLoading } = useListEvents({ from, to });
-  const { data: googleStatus } = useGetGoogleStatus();
+  const { data: googleStatus, refetch: refetchGoogleStatus, isFetching: isCheckingStatus } = useGetGoogleStatus();
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -316,6 +317,7 @@ export function CalendarPage() {
               variant="outline"
               onClick={handleSync}
               disabled={syncGoogleCalendar.isPending || !calendarConnected}
+              title={!calendarConnected ? 'Google Calendar is not connected — sync is unavailable' : undefined}
               className="shrink-0"
             >
               <RefreshCw className={cn('h-4 w-4 mr-2', syncGoogleCalendar.isPending && 'animate-spin')} />
@@ -336,6 +338,14 @@ export function CalendarPage() {
           )}
         </div>
       </header>
+
+      {!calendarConnected && (
+        <ReconnectBanner
+          service="calendar"
+          onRefresh={() => refetchGoogleStatus()}
+          isRefreshing={isCheckingStatus}
+        />
+      )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

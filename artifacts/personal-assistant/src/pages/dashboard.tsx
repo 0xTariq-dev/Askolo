@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useGetDashboardSummary } from '@workspace/api-client-react';
+import { useGetDashboardSummary, useGetGoogleStatus } from '@workspace/api-client-react';
 import { 
   CheckCircle2, 
   Target, 
@@ -21,9 +21,11 @@ import { Link } from 'wouter';
 import { format, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { PageTransition } from '@/components/ui/page-transition';
+import { ReconnectBanner } from '@/components/ui/reconnect-banner';
 
 export function DashboardPage() {
   const { data: summary, isLoading } = useGetDashboardSummary();
+  const { refetch: refetchGoogleStatus, isFetching: isCheckingStatus } = useGetGoogleStatus();
   const [coaching, setCoaching] = useState<string | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(true);
 
@@ -105,6 +107,22 @@ export function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Per-service reconnect banners — only shown when a service is individually disconnected */}
+      {google && !google.calendarConnected && (
+        <ReconnectBanner
+          service="calendar"
+          onRefresh={() => refetchGoogleStatus()}
+          isRefreshing={isCheckingStatus}
+        />
+      )}
+      {google && !google.gmailConnected && (
+        <ReconnectBanner
+          service="gmail"
+          onRefresh={() => refetchGoogleStatus()}
+          isRefreshing={isCheckingStatus}
+        />
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
