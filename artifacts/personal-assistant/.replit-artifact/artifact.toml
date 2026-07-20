@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "AI Personal Assistant"
+version = "1.0.0"
+id = "artifacts/personal-assistant"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18131
+
+[services.development]
+run = "pnpm --filter @workspace/personal-assistant run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/personal-assistant", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/personal-assistant/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18131"
+BASE_PATH = "/"

@@ -3,20 +3,38 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: AI Personal Assistant API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: habits
+    description: Habit tracking
+  - name: goals
+    description: Goal management
+  - name: dailyPlans
+    description: Daily planning
+  - name: events
+    description: Calendar events
+  - name: chores
+    description: Chore management
+  - name: notes
+    description: Notes
+  - name: actionItems
+    description: Action items
+  - name: dashboard
+    description: Dashboard summaries
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,7 +42,936 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect on success or failure.
+
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+            default: /
+      responses:
+        '302':
+          description: Redirect to OIDC logout.
+
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
+  # ─── HABITS ───────────────────────────────────────────────────────────────
+  /habits:
+    get:
+      operationId: listHabits
+      tags: [habits]
+      summary: List all habits for the current user
+      responses:
+        "200":
+          description: List of habits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Habit"
+    post:
+      operationId: createHabit
+      tags: [habits]
+      summary: Create a new habit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HabitInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Habit"
+
+  /habits/{id}:
+    get:
+      operationId: getHabit
+      tags: [habits]
+      summary: Get a habit by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Habit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Habit"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateHabit
+      tags: [habits]
+      summary: Update a habit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HabitUpdate"
+      responses:
+        "200":
+          description: Updated habit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Habit"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteHabit
+      tags: [habits]
+      summary: Delete a habit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /habits/{id}/completions:
+    get:
+      operationId: getHabitCompletions
+      tags: [habits]
+      summary: Get completion history for a habit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Completions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HabitCompletion"
+    post:
+      operationId: completeHabit
+      tags: [habits]
+      summary: Mark a habit as complete for a date
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HabitCompletionInput"
+      responses:
+        "201":
+          description: Completion recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HabitCompletion"
+
+  /habits/{id}/completions/{date}:
+    delete:
+      operationId: uncompleteHabit
+      tags: [habits]
+      summary: Remove a habit completion for a specific date
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Removed
+
+  # ─── GOALS ────────────────────────────────────────────────────────────────
+  /goals:
+    get:
+      operationId: listGoals
+      tags: [goals]
+      summary: List all goals
+      responses:
+        "200":
+          description: List of goals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Goal"
+    post:
+      operationId: createGoal
+      tags: [goals]
+      summary: Create a new goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoalInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Goal"
+
+  /goals/{id}:
+    get:
+      operationId: getGoal
+      tags: [goals]
+      summary: Get a goal by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Goal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Goal"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateGoal
+      tags: [goals]
+      summary: Update a goal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoalUpdate"
+      responses:
+        "200":
+          description: Updated goal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Goal"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteGoal
+      tags: [goals]
+      summary: Delete a goal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # ─── DAILY PLANS ──────────────────────────────────────────────────────────
+  /daily-plans:
+    get:
+      operationId: listDailyPlans
+      tags: [dailyPlans]
+      summary: List daily plans (optionally filter by date)
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of daily plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DailyPlan"
+    post:
+      operationId: createDailyPlan
+      tags: [dailyPlans]
+      summary: Create a new daily plan item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DailyPlanInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyPlan"
+
+  /daily-plans/{id}:
+    patch:
+      operationId: updateDailyPlan
+      tags: [dailyPlans]
+      summary: Update a daily plan item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DailyPlanUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyPlan"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteDailyPlan
+      tags: [dailyPlans]
+      summary: Delete a daily plan item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # ─── EVENTS ───────────────────────────────────────────────────────────────
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List calendar events
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+    post:
+      operationId: createEvent
+      tags: [events]
+      summary: Create a calendar event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+
+  /events/{id}:
+    get:
+      operationId: getEvent
+      tags: [events]
+      summary: Get an event by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateEvent
+      tags: [events]
+      summary: Update an event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventUpdate"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteEvent
+      tags: [events]
+      summary: Delete an event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # ─── CHORES ───────────────────────────────────────────────────────────────
+  /chores:
+    get:
+      operationId: listChores
+      tags: [chores]
+      summary: List all chores
+      responses:
+        "200":
+          description: List of chores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chore"
+    post:
+      operationId: createChore
+      tags: [chores]
+      summary: Create a new chore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChoreInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chore"
+
+  /chores/{id}:
+    get:
+      operationId: getChore
+      tags: [chores]
+      summary: Get a chore by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Chore
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chore"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateChore
+      tags: [chores]
+      summary: Update a chore
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChoreUpdate"
+      responses:
+        "200":
+          description: Updated chore
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chore"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteChore
+      tags: [chores]
+      summary: Delete a chore
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /chores/{id}/complete:
+    post:
+      operationId: completeChore
+      tags: [chores]
+      summary: Mark a chore as completed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChoreCompleteInput"
+      responses:
+        "200":
+          description: Chore marked complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chore"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  # ─── NOTES ────────────────────────────────────────────────────────────────
+  /notes:
+    get:
+      operationId: listNotes
+      tags: [notes]
+      summary: List all notes
+      responses:
+        "200":
+          description: List of notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Note"
+    post:
+      operationId: createNote
+      tags: [notes]
+      summary: Create a new note
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+
+  /notes/{id}:
+    get:
+      operationId: getNote
+      tags: [notes]
+      summary: Get a note by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateNote
+      tags: [notes]
+      summary: Update a note
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteUpdate"
+      responses:
+        "200":
+          description: Updated note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteNote
+      tags: [notes]
+      summary: Delete a note
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # ─── ACTION ITEMS ─────────────────────────────────────────────────────────
+  /action-items:
+    get:
+      operationId: listActionItems
+      tags: [actionItems]
+      summary: List all action items
+      parameters:
+        - name: completed
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of action items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActionItem"
+    post:
+      operationId: createActionItem
+      tags: [actionItems]
+      summary: Create an action item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActionItemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionItem"
+
+  /action-items/{id}:
+    patch:
+      operationId: updateActionItem
+      tags: [actionItems]
+      summary: Update an action item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActionItemUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionItem"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteActionItem
+      tags: [actionItems]
+      summary: Delete an action item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # ─── DASHBOARD ─────────────────────────────────────────────────────────────
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get aggregated dashboard data
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
 components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +981,602 @@ components:
       required:
         - status
 
+    # ── Auth ─────────────────────────────────────────────────────────────
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    # ── Habits ───────────────────────────────────────────────────────────
+    Habit:
+      type: object
+      required: [id, userId, name, frequency, currentStreak, longestStreak, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        frequency:
+          type: string
+          enum: [daily, weekly]
+        color:
+          type: ["string", "null"]
+        icon:
+          type: ["string", "null"]
+        currentStreak:
+          type: integer
+        longestStreak:
+          type: integer
+        completedToday:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    HabitInput:
+      type: object
+      required: [name, frequency]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        frequency:
+          type: string
+          enum: [daily, weekly]
+        color:
+          type: string
+        icon:
+          type: string
+    HabitUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        frequency:
+          type: string
+          enum: [daily, weekly]
+        color:
+          type: string
+        icon:
+          type: string
+    HabitCompletion:
+      type: object
+      required: [id, habitId, date, createdAt]
+      properties:
+        id:
+          type: integer
+        habitId:
+          type: integer
+        date:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    HabitCompletionInput:
+      type: object
+      required: [date]
+      properties:
+        date:
+          type: string
+
+    # ── Goals ────────────────────────────────────────────────────────────
+    Goal:
+      type: object
+      required: [id, userId, title, status, progress, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        targetDate:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, completed, paused]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        category:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    GoalInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        targetDate:
+          type: string
+        category:
+          type: string
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+    GoalUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        targetDate:
+          type: string
+        status:
+          type: string
+          enum: [active, completed, paused]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        category:
+          type: string
+
+    # ── Daily Plans ───────────────────────────────────────────────────────
+    DailyPlan:
+      type: object
+      required: [id, userId, date, title, priority, completed, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        date:
+          type: string
+        title:
+          type: string
+        timeBlock:
+          type: ["string", "null"]
+        priority:
+          type: string
+          enum: [high, medium, low]
+        completed:
+          type: boolean
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DailyPlanInput:
+      type: object
+      required: [date, title]
+      properties:
+        date:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        timeBlock:
+          type: string
+        priority:
+          type: string
+          enum: [high, medium, low]
+        notes:
+          type: string
+    DailyPlanUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        timeBlock:
+          type: string
+        priority:
+          type: string
+          enum: [high, medium, low]
+        completed:
+          type: boolean
+        notes:
+          type: string
+
+    # ── Events ────────────────────────────────────────────────────────────
+    Event:
+      type: object
+      required: [id, userId, title, startDate, allDay, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        startDate:
+          type: string
+        startTime:
+          type: ["string", "null"]
+        endDate:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
+        allDay:
+          type: boolean
+        location:
+          type: ["string", "null"]
+        color:
+          type: ["string", "null"]
+        attendees:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    EventInput:
+      type: object
+      required: [title, startDate]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        startDate:
+          type: string
+        startTime:
+          type: string
+        endDate:
+          type: string
+        endTime:
+          type: string
+        allDay:
+          type: boolean
+        location:
+          type: string
+        color:
+          type: string
+        attendees:
+          type: string
+    EventUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        startDate:
+          type: string
+        startTime:
+          type: string
+        endDate:
+          type: string
+        endTime:
+          type: string
+        allDay:
+          type: boolean
+        location:
+          type: string
+        color:
+          type: string
+        attendees:
+          type: string
+
+    # ── Chores ────────────────────────────────────────────────────────────
+    Chore:
+      type: object
+      required: [id, userId, title, frequency, completed, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        assignedTo:
+          type: ["string", "null"]
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly, once]
+        dueDate:
+          type: ["string", "null"]
+        completed:
+          type: boolean
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ChoreInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        assignedTo:
+          type: string
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly, once]
+        dueDate:
+          type: string
+    ChoreUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        assignedTo:
+          type: string
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly, once]
+        dueDate:
+          type: string
+        completed:
+          type: boolean
+    ChoreCompleteInput:
+      type: object
+      properties:
+        completedAt:
+          type: string
+          format: date-time
+
+    # ── Notes ─────────────────────────────────────────────────────────────
+    Note:
+      type: object
+      required: [id, userId, title, content, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        tags:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    NoteInput:
+      type: object
+      required: [title, content]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        content:
+          type: string
+        tags:
+          type: string
+    NoteUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        content:
+          type: string
+        tags:
+          type: string
+
+    # ── Action Items ──────────────────────────────────────────────────────
+    ActionItem:
+      type: object
+      required: [id, userId, title, completed, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        title:
+          type: string
+        sourceType:
+          type: ["string", "null"]
+          enum: [meeting, manual, "null"]
+        sourceId:
+          type: ["integer", "null"]
+        dueDate:
+          type: ["string", "null"]
+        completed:
+          type: boolean
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ActionItemInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        sourceType:
+          type: string
+          enum: [meeting, manual]
+        sourceId:
+          type: integer
+        dueDate:
+          type: string
+    ActionItemUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        dueDate:
+          type: string
+        completed:
+          type: boolean
+        completedAt:
+          type: string
+          format: date-time
+
+    # ── Dashboard ─────────────────────────────────────────────────────────
+    HabitStreak:
+      type: object
+      required: [id, name, currentStreak, longestStreak, completedToday, color, icon]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        currentStreak:
+          type: integer
+        longestStreak:
+          type: integer
+        completedToday:
+          type: boolean
+        color:
+          type: ["string", "null"]
+        icon:
+          type: ["string", "null"]
+    UpcomingEvent:
+      type: object
+      required: [id, title, startDate, allDay]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        startDate:
+          type: string
+        startTime:
+          type: ["string", "null"]
+        allDay:
+          type: boolean
+        color:
+          type: ["string", "null"]
+    DashboardSummary:
+      type: object
+      required: [habits, goals, todayPlan, upcomingEvents, pendingChores, openActionItems, habitsCompletedToday, habitsTotal, goalsActive, goalsCompleted]
+      properties:
+        habits:
+          type: array
+          items:
+            $ref: "#/components/schemas/HabitStreak"
+        goals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Goal"
+        todayPlan:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyPlan"
+        upcomingEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpcomingEvent"
+        pendingChores:
+          type: array
+          items:
+            $ref: "#/components/schemas/Chore"
+        openActionItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActionItem"
+        habitsCompletedToday:
+          type: integer
+        habitsTotal:
+          type: integer
+        goalsActive:
+          type: integer
+        goalsCompleted:
+          type: integer
