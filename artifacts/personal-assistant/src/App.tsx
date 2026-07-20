@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ClerkProvider, SignIn, SignUp, useAuth, useClerk } from '@clerk/react';
+import { AuthenticateWithRedirectCallback, ClerkProvider, SignIn, SignUp, useAuth, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
@@ -113,6 +113,7 @@ function SignInPage() {
           routing="path"
           path={`${basePath}/sign-in`}
           signUpUrl={`${basePath}/sign-up`}
+          fallbackRedirectUrl={`${basePath}/dashboard`}
         />
       </div>
     </div>
@@ -129,8 +130,22 @@ function SignUpPage() {
           routing="path"
           path={`${basePath}/sign-up`}
           signInUrl={`${basePath}/sign-in`}
+          fallbackRedirectUrl={`${basePath}/dashboard`}
         />
       </div>
+    </div>
+  );
+}
+
+function SsoCallbackPage() {
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-background px-4">
+      <AuthenticateWithRedirectCallback
+        signInUrl={`${basePath}/sign-in`}
+        signUpUrl={`${basePath}/sign-up`}
+        signInFallbackRedirectUrl={`${basePath}/dashboard`}
+        signUpFallbackRedirectUrl={`${basePath}/dashboard`}
+      />
     </div>
   );
 }
@@ -231,6 +246,8 @@ function ClerkProviderWithRoutes() {
                 handles Clerk's OAuth sub-paths. */}
             <Route path="/sign-in/*?" component={SignInPage} />
             <Route path="/sign-up/*?" component={SignUpPage} />
+            {/* Clerk OAuth callback route */}
+            <Route path="/sso-callback" component={SsoCallbackPage} />
             {/* Protected app routes */}
             <Route component={ProtectedRoutes} />
           </Switch>

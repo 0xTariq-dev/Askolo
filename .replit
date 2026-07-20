@@ -28,6 +28,7 @@ GOOGLE_REDIRECT_URI = "https://5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvh
 
 [userenv.production]
 GOOGLE_REDIRECT_URI = "https://askolo.replit.dev/api/google/gmail/callback"
+VITE_CLERK_PROXY_URL = "/api/__clerk"
 
 [nix]
 channel = "stable-25_05"
