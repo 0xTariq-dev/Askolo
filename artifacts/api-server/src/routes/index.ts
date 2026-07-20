@@ -9,6 +9,7 @@ import choresRouter from "./chores";
 import notesRouter from "./notes";
 import actionItemsRouter from "./action_items";
 import dashboardRouter from "./dashboard";
+import aiRouter from "./ai";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(choresRouter);
 router.use(notesRouter);
 router.use(actionItemsRouter);
 router.use(dashboardRouter);
+router.use(aiRouter);
 
 export default router;

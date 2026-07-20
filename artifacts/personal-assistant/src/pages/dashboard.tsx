@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useGetDashboardSummary } from '@workspace/api-client-react';
 import { 
@@ -8,7 +9,8 @@ import {
   ClipboardList, 
   Zap,
   Flame,
-  ArrowRight
+  ArrowRight,
+  Sparkles
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +20,27 @@ import { PageTransition } from '@/components/ui/page-transition';
 
 export function DashboardPage() {
   const { data: summary, isLoading } = useGetDashboardSummary();
+  const [coaching, setCoaching] = useState<string | null>(null);
+  const [coachingLoading, setCoachingLoading] = useState(true);
+
+  useEffect(() => {
+    if (!summary) return;
+    fetch('/api/ai/coaching', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        habits: summary.habits,
+        goals: summary.goals,
+        habitsCompletedToday: summary.habitsCompletedToday,
+        habitsTotal: summary.habitsTotal,
+      }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.message) setCoaching(data.message); })
+      .catch(() => {})
+      .finally(() => setCoachingLoading(false));
+  }, [summary?.habitsCompletedToday, summary?.habitsTotal]);
 
   if (isLoading) {
     return (
@@ -70,6 +93,34 @@ export function DashboardPage() {
           bg="bg-purple-500/10"
         />
       </div>
+
+      {/* Coaching Card */}
+      {coachingLoading ? (
+        <Card className="border-border bg-card/50 backdrop-blur-sm shadow-sm animate-pulse">
+           <CardContent className="p-6 flex gap-4 items-center">
+              <div className="h-10 w-10 rounded-full bg-white/5"></div>
+              <div className="space-y-2 flex-1">
+                <div className="h-4 w-32 bg-white/5 rounded-md"></div>
+                <div className="h-3 w-3/4 bg-white/5 rounded-md"></div>
+              </div>
+           </CardContent>
+        </Card>
+      ) : coaching ? (
+        <Card className="border-primary/20 bg-primary/5 backdrop-blur-sm shadow-sm relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none group-hover:opacity-20 transition-opacity">
+            <Sparkles className="w-32 h-32 text-primary" />
+          </div>
+          <CardContent className="p-6 flex items-start gap-4 relative z-10">
+            <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0 border border-primary/30">
+              <Sparkles className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="font-display font-medium text-primary mb-1 text-lg">Your Daily Insight</h3>
+              <p className="text-sm text-foreground/90 leading-relaxed max-w-4xl">{coaching}</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Plan & Actions */}
