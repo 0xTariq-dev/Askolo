@@ -12,6 +12,7 @@ import {
   StickyNote, 
   Zap, 
   Sparkles,
+  Mail,
   LogOut,
   Loader2,
   Hexagon
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/chores', label: 'Chores', icon: ClipboardList },
   { href: '/notes', label: 'Notes', icon: StickyNote },
   { href: '/actions', label: 'Actions', icon: Zap },
+  { href: '/email', label: 'Email', icon: Mail },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {

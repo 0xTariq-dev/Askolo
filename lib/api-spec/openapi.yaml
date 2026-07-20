@@ -1033,6 +1033,132 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  # ─── GOOGLE SERVICES ────────────────────────────────────────────────────────
+  /google/status:
+    get:
+      operationId: getGoogleStatus
+      tags: [google]
+      summary: Check whether Google services are connected and which scopes are granted
+      responses:
+        "200":
+          description: Google connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleConnectionStatus"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /google/calendar/sync:
+    post:
+      operationId: syncGoogleCalendar
+      tags: [google]
+      summary: Sync Google Calendar events into the local Aura calendar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleCalendarSyncRequest"
+      responses:
+        "200":
+          description: Sync summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleCalendarSyncResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /google/calendar/events:
+    post:
+      operationId: createGoogleCalendarEvent
+      tags: [google]
+      summary: Create a new event in the user's Google Calendar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleCalendarEventInput"
+      responses:
+        "201":
+          description: Created Google Calendar event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleCalendarEvent"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /google/calendar/events/{eventId}:
+    patch:
+      operationId: updateGoogleCalendarEvent
+      tags: [google]
+      summary: Update a Google Calendar event
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleCalendarEventInput"
+      responses:
+        "200":
+          description: Updated Google Calendar event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleCalendarEvent"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteGoogleCalendarEvent
+      tags: [google]
+      summary: Delete a Google Calendar event
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleCalendarEventDeleteRequest"
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -1624,7 +1750,7 @@ components:
           type: ["string", "null"]
     DashboardSummary:
       type: object
-      required: [habits, goals, todayPlan, upcomingEvents, pendingChores, openActionItems, habitsCompletedToday, habitsTotal, goalsActive, goalsCompleted]
+      required: [habits, goals, todayPlan, upcomingEvents, pendingChores, openActionItems, habitsCompletedToday, habitsTotal, goalsActive, goalsCompleted, googleConnection]
       properties:
         habits:
           type: array
@@ -1658,6 +1784,8 @@ components:
           type: integer
         goalsCompleted:
           type: integer
+        googleConnection:
+          $ref: "#/components/schemas/GoogleConnectionStatus"
 
     AssistantChatMessage:
       type: object
@@ -1749,3 +1877,93 @@ components:
         notes:
           type: string
           minLength: 1
+
+    GoogleConnectionStatus:
+      type: object
+      required: [connected]
+      properties:
+        connected:
+          type: boolean
+        scopes:
+          type: array
+          items:
+            type: string
+        calendar:
+          type: boolean
+
+    GoogleCalendarSyncRequest:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          description: ISO date or date-time for the start of the range
+        to:
+          type: string
+          description: ISO date or date-time for the end of the range
+
+    GoogleCalendarSyncResponse:
+      type: object
+      required: [synced, calendarId]
+      properties:
+        synced:
+          type: integer
+        calendarId:
+          type: string
+
+    GoogleCalendarEvent:
+      type: object
+      required: [title, startDate, allDay]
+      properties:
+        googleEventId:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        startDate:
+          type: string
+        startTime:
+          type: ["string", "null"]
+        endDate:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
+        allDay:
+          type: boolean
+        location:
+          type: ["string", "null"]
+        attendees:
+          type: ["string", "null"]
+
+    GoogleCalendarEventInput:
+      type: object
+      required: [calendarId, title, startDate, allDay]
+      properties:
+        calendarId:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        startDate:
+          type: string
+        startTime:
+          type: ["string", "null"]
+        endDate:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
+        allDay:
+          type: boolean
+        location:
+          type: ["string", "null"]
+        attendees:
+          type: ["string", "null"]
+
+    GoogleCalendarEventDeleteRequest:
+      type: object
+      required: [calendarId]
+      properties:
+        calendarId:
+          type: string

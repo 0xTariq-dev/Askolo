@@ -10,12 +10,16 @@ import {
   Zap,
   Flame,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Link2,
+  Unlink,
+  Mail
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import { format, isToday } from 'date-fns';
+import { cn } from '@/lib/utils';
 import { PageTransition } from '@/components/ui/page-transition';
 
 export function DashboardPage() {
@@ -55,12 +59,51 @@ export function DashboardPage() {
     );
   }
 
+  const google = summary?.googleConnection;
+
   return (
     <PageTransition className="space-y-8 pb-10 max-w-7xl mx-auto">
       <header>
         <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Good morning.</h1>
         <p className="text-muted-foreground mt-2 text-lg">Here is your focus for today, {format(new Date(), 'EEEE, MMMM d')}.</p>
       </header>
+
+      {/* Google status card */}
+      <Card className={cn(
+        'border-border bg-card/50 backdrop-blur-sm shadow-sm',
+        google?.connected ? 'border-emerald-500/20' : 'border-amber-500/20'
+      )}>
+        <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              'h-10 w-10 rounded-full flex items-center justify-center border',
+              google?.connected ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+            )}>
+              {google?.connected ? <Link2 className="h-5 w-5" /> : <Unlink className="h-5 w-5" />}
+            </div>
+            <div>
+              <p className="font-medium">Google {google?.connected ? 'connected' : 'not connected'}</p>
+              <p className="text-xs text-muted-foreground">
+                {google?.connected
+                  ? `Calendar synced. ${google?.calendar ? 'Gmail ready for triage.' : 'Connect Gmail for email triage.'}`
+                  : 'Connect Google Calendar to sync events and Gmail for AI email triage.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/calendar">
+              <Button variant="outline" size="sm" className="border-border">
+                <CalendarIcon className="h-4 w-4 mr-2" /> Calendar
+              </Button>
+            </Link>
+            <Link href="/email">
+              <Button variant="outline" size="sm" className="border-border">
+                <Mail className="h-4 w-4 mr-2" /> Email
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -1039,7 +1039,12 @@ export const GetDashboardSummaryResponse = zod.object({
   "habitsCompletedToday": zod.number(),
   "habitsTotal": zod.number(),
   "goalsActive": zod.number(),
-  "goalsCompleted": zod.number()
+  "goalsCompleted": zod.number(),
+  "googleConnection": zod.object({
+  "connected": zod.boolean(),
+  "scopes": zod.array(zod.string()).optional(),
+  "calendar": zod.boolean().optional()
+})
 })
 
 
@@ -1144,5 +1149,107 @@ export const MeetingExtractResponse = zod.object({
   "dueDate": zod.string().nullish()
 }))
 })
+
+
+/**
+ * @summary Check whether Google services are connected and which scopes are granted
+ */
+export const GetGoogleStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "scopes": zod.array(zod.string()).optional(),
+  "calendar": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Sync Google Calendar events into the local Aura calendar
+ */
+export const SyncGoogleCalendarBody = zod.object({
+  "from": zod.string().describe('ISO date or date-time for the start of the range'),
+  "to": zod.string().describe('ISO date or date-time for the end of the range')
+})
+
+export const SyncGoogleCalendarResponse = zod.object({
+  "synced": zod.number(),
+  "calendarId": zod.string()
+})
+
+
+/**
+ * @summary Create a new event in the user's Google Calendar
+ */
+export const CreateGoogleCalendarEventBody = zod.object({
+  "calendarId": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "startDate": zod.string(),
+  "startTime": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "endTime": zod.string().nullish(),
+  "allDay": zod.boolean(),
+  "location": zod.string().nullish(),
+  "attendees": zod.string().nullish()
+})
+
+export const CreateGoogleCalendarEventResponse = zod.object({
+  "googleEventId": zod.string().optional(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "startDate": zod.string(),
+  "startTime": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "endTime": zod.string().nullish(),
+  "allDay": zod.boolean(),
+  "location": zod.string().nullish(),
+  "attendees": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a Google Calendar event
+ */
+export const UpdateGoogleCalendarEventParams = zod.object({
+  "eventId": zod.coerce.string()
+})
+
+export const UpdateGoogleCalendarEventBody = zod.object({
+  "calendarId": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "startDate": zod.string(),
+  "startTime": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "endTime": zod.string().nullish(),
+  "allDay": zod.boolean(),
+  "location": zod.string().nullish(),
+  "attendees": zod.string().nullish()
+})
+
+export const UpdateGoogleCalendarEventResponse = zod.object({
+  "googleEventId": zod.string().optional(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "startDate": zod.string(),
+  "startTime": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "endTime": zod.string().nullish(),
+  "allDay": zod.boolean(),
+  "location": zod.string().nullish(),
+  "attendees": zod.string().nullish()
+})
+
+
+/**
+ * @summary Delete a Google Calendar event
+ */
+export const DeleteGoogleCalendarEventParams = zod.object({
+  "eventId": zod.coerce.string()
+})
+
+export const DeleteGoogleCalendarEventBody = zod.object({
+  "calendarId": zod.string()
+})
+
+export const DeleteGoogleCalendarEventResponse = zod.void()
 
 

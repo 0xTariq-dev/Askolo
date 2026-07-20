@@ -42,6 +42,12 @@ import type {
   Goal,
   GoalInput,
   GoalUpdate,
+  GoogleCalendarEvent,
+  GoogleCalendarEventDeleteRequest,
+  GoogleCalendarEventInput,
+  GoogleCalendarSyncRequest,
+  GoogleCalendarSyncResponse,
+  GoogleConnectionStatus,
   Habit,
   HabitCompletion,
   HabitCompletionInput,
@@ -3665,5 +3671,368 @@ export const useMeetingExtract = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getMeetingExtractMutationOptions(options));
+    }
+
+export const getGetGoogleStatusUrl = () => {
+
+
+
+
+  return `/api/google/status`
+}
+
+/**
+ * @summary Check whether Google services are connected and which scopes are granted
+ */
+export const getGoogleStatus = async ( options?: RequestInit): Promise<GoogleConnectionStatus> => {
+
+  return customFetch<GoogleConnectionStatus>(getGetGoogleStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGoogleStatusQueryKey = () => {
+    return [
+    `/api/google/status`
+    ] as const;
+    }
+
+
+export const getGetGoogleStatusQueryOptions = <TData = Awaited<ReturnType<typeof getGoogleStatus>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGoogleStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGoogleStatus>>> = ({ signal }) => getGoogleStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGoogleStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGoogleStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getGoogleStatus>>>
+export type GetGoogleStatusQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Check whether Google services are connected and which scopes are granted
+ */
+
+export function useGetGoogleStatus<TData = Awaited<ReturnType<typeof getGoogleStatus>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGoogleStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSyncGoogleCalendarUrl = () => {
+
+
+
+
+  return `/api/google/calendar/sync`
+}
+
+/**
+ * @summary Sync Google Calendar events into the local Aura calendar
+ */
+export const syncGoogleCalendar = async (googleCalendarSyncRequest: GoogleCalendarSyncRequest, options?: RequestInit): Promise<GoogleCalendarSyncResponse> => {
+
+  return customFetch<GoogleCalendarSyncResponse>(getSyncGoogleCalendarUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(googleCalendarSyncRequest)
+  }
+);}
+
+
+
+
+
+export const getSyncGoogleCalendarMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncGoogleCalendar>>, TError,{data: BodyType<GoogleCalendarSyncRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncGoogleCalendar>>, TError,{data: BodyType<GoogleCalendarSyncRequest>}, TContext> => {
+
+const mutationKey = ['syncGoogleCalendar'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncGoogleCalendar>>, {data: BodyType<GoogleCalendarSyncRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  syncGoogleCalendar(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncGoogleCalendarMutationResult = NonNullable<Awaited<ReturnType<typeof syncGoogleCalendar>>>
+    export type SyncGoogleCalendarMutationBody = BodyType<GoogleCalendarSyncRequest>
+    export type SyncGoogleCalendarMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Sync Google Calendar events into the local Aura calendar
+ */
+export const useSyncGoogleCalendar = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncGoogleCalendar>>, TError,{data: BodyType<GoogleCalendarSyncRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncGoogleCalendar>>,
+        TError,
+        {data: BodyType<GoogleCalendarSyncRequest>},
+        TContext
+      > => {
+      return useMutation(getSyncGoogleCalendarMutationOptions(options));
+    }
+
+export const getCreateGoogleCalendarEventUrl = () => {
+
+
+
+
+  return `/api/google/calendar/events`
+}
+
+/**
+ * @summary Create a new event in the user's Google Calendar
+ */
+export const createGoogleCalendarEvent = async (googleCalendarEventInput: GoogleCalendarEventInput, options?: RequestInit): Promise<GoogleCalendarEvent> => {
+
+  return customFetch<GoogleCalendarEvent>(getCreateGoogleCalendarEventUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(googleCalendarEventInput)
+  }
+);}
+
+
+
+
+
+export const getCreateGoogleCalendarEventMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGoogleCalendarEvent>>, TError,{data: BodyType<GoogleCalendarEventInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createGoogleCalendarEvent>>, TError,{data: BodyType<GoogleCalendarEventInput>}, TContext> => {
+
+const mutationKey = ['createGoogleCalendarEvent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createGoogleCalendarEvent>>, {data: BodyType<GoogleCalendarEventInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createGoogleCalendarEvent(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateGoogleCalendarEventMutationResult = NonNullable<Awaited<ReturnType<typeof createGoogleCalendarEvent>>>
+    export type CreateGoogleCalendarEventMutationBody = BodyType<GoogleCalendarEventInput>
+    export type CreateGoogleCalendarEventMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a new event in the user's Google Calendar
+ */
+export const useCreateGoogleCalendarEvent = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGoogleCalendarEvent>>, TError,{data: BodyType<GoogleCalendarEventInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createGoogleCalendarEvent>>,
+        TError,
+        {data: BodyType<GoogleCalendarEventInput>},
+        TContext
+      > => {
+      return useMutation(getCreateGoogleCalendarEventMutationOptions(options));
+    }
+
+export const getUpdateGoogleCalendarEventUrl = (eventId: string,) => {
+
+
+
+
+  return `/api/google/calendar/events/${eventId}`
+}
+
+/**
+ * @summary Update a Google Calendar event
+ */
+export const updateGoogleCalendarEvent = async (eventId: string,
+    googleCalendarEventInput: GoogleCalendarEventInput, options?: RequestInit): Promise<GoogleCalendarEvent> => {
+
+  return customFetch<GoogleCalendarEvent>(getUpdateGoogleCalendarEventUrl(eventId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(googleCalendarEventInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateGoogleCalendarEventMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateGoogleCalendarEvent>>, TError,{eventId: string;data: BodyType<GoogleCalendarEventInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateGoogleCalendarEvent>>, TError,{eventId: string;data: BodyType<GoogleCalendarEventInput>}, TContext> => {
+
+const mutationKey = ['updateGoogleCalendarEvent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateGoogleCalendarEvent>>, {eventId: string;data: BodyType<GoogleCalendarEventInput>}> = (props) => {
+          const {eventId,data} = props ?? {};
+
+          return  updateGoogleCalendarEvent(eventId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateGoogleCalendarEventMutationResult = NonNullable<Awaited<ReturnType<typeof updateGoogleCalendarEvent>>>
+    export type UpdateGoogleCalendarEventMutationBody = BodyType<GoogleCalendarEventInput>
+    export type UpdateGoogleCalendarEventMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update a Google Calendar event
+ */
+export const useUpdateGoogleCalendarEvent = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateGoogleCalendarEvent>>, TError,{eventId: string;data: BodyType<GoogleCalendarEventInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateGoogleCalendarEvent>>,
+        TError,
+        {eventId: string;data: BodyType<GoogleCalendarEventInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateGoogleCalendarEventMutationOptions(options));
+    }
+
+export const getDeleteGoogleCalendarEventUrl = (eventId: string,) => {
+
+
+
+
+  return `/api/google/calendar/events/${eventId}`
+}
+
+/**
+ * @summary Delete a Google Calendar event
+ */
+export const deleteGoogleCalendarEvent = async (eventId: string,
+    googleCalendarEventDeleteRequest: GoogleCalendarEventDeleteRequest, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteGoogleCalendarEventUrl(eventId),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(googleCalendarEventDeleteRequest)
+  }
+);}
+
+
+
+
+
+export const getDeleteGoogleCalendarEventMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGoogleCalendarEvent>>, TError,{eventId: string;data: BodyType<GoogleCalendarEventDeleteRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteGoogleCalendarEvent>>, TError,{eventId: string;data: BodyType<GoogleCalendarEventDeleteRequest>}, TContext> => {
+
+const mutationKey = ['deleteGoogleCalendarEvent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGoogleCalendarEvent>>, {eventId: string;data: BodyType<GoogleCalendarEventDeleteRequest>}> = (props) => {
+          const {eventId,data} = props ?? {};
+
+          return  deleteGoogleCalendarEvent(eventId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteGoogleCalendarEventMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGoogleCalendarEvent>>>
+    export type DeleteGoogleCalendarEventMutationBody = BodyType<GoogleCalendarEventDeleteRequest>
+    export type DeleteGoogleCalendarEventMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a Google Calendar event
+ */
+export const useDeleteGoogleCalendarEvent = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGoogleCalendarEvent>>, TError,{eventId: string;data: BodyType<GoogleCalendarEventDeleteRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteGoogleCalendarEvent>>,
+        TError,
+        {eventId: string;data: BodyType<GoogleCalendarEventDeleteRequest>},
+        TContext
+      > => {
+      return useMutation(getDeleteGoogleCalendarEventMutationOptions(options));
     }
 

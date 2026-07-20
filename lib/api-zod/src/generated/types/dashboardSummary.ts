@@ -9,6 +9,7 @@ import type { ActionItem } from './actionItem';
 import type { Chore } from './chore';
 import type { DailyPlan } from './dailyPlan';
 import type { Goal } from './goal';
+import type { GoogleConnectionStatus } from './googleConnectionStatus';
 import type { HabitStreak } from './habitStreak';
 import type { UpcomingEvent } from './upcomingEvent';
 
@@ -23,4 +24,5 @@ export interface DashboardSummary {
   habitsTotal: number;
   goalsActive: number;
   goalsCompleted: number;
+  googleConnection: GoogleConnectionStatus;
 }

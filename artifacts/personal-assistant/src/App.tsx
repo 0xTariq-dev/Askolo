@@ -14,6 +14,7 @@ import { ChoresPage } from '@/pages/chores';
 import { NotesPage } from '@/pages/notes';
 import { ActionsPage } from '@/pages/actions';
 import { AssistantPage } from '@/pages/assistant';
+import { EmailPage } from '@/pages/email';
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ function Router() {
         <Route path="/notes" component={NotesPage} />
         <Route path="/actions" component={ActionsPage} />
         <Route path="/assistant" component={AssistantPage} />
+        <Route path="/email" component={EmailPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

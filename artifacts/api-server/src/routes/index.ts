@@ -10,6 +10,7 @@ import notesRouter from "./notes";
 import actionItemsRouter from "./action_items";
 import dashboardRouter from "./dashboard";
 import aiRouter from "./ai";
+import googleRouter from "./google";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(notesRouter);
 router.use(actionItemsRouter);
 router.use(dashboardRouter);
 router.use(aiRouter);
+router.use(googleRouter);
 
 export default router;

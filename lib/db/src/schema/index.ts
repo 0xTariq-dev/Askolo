@@ -8,3 +8,4 @@ export * from "./notes";
 export * from "./action_items";
 export * from "./conversations";
 export * from "./messages";
+export * from "./google_connections";

@@ -15,6 +15,7 @@ export const eventsTable = pgTable("events", {
   location: text("location"),
   color: text("color"),
   attendees: text("attendees"),
+  googleEventId: text("google_event_id"), // for synced Google Calendar events
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

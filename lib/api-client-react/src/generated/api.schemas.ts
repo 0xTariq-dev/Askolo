@@ -471,6 +471,12 @@ export interface UpcomingEvent {
   color?: string | null;
 }
 
+export interface GoogleConnectionStatus {
+  connected: boolean;
+  scopes?: string[];
+  calendar?: boolean;
+}
+
 export interface DashboardSummary {
   habits: HabitStreak[];
   goals: Goal[];
@@ -482,6 +488,7 @@ export interface DashboardSummary {
   habitsTotal: number;
   goalsActive: number;
   goalsCompleted: number;
+  googleConnection: GoogleConnectionStatus;
 }
 
 export type AssistantChatMessageRole = typeof AssistantChatMessageRole[keyof typeof AssistantChatMessageRole];
@@ -538,6 +545,60 @@ export interface MeetingExtractResponse {
 export interface MeetingExtractBody {
   /** @minLength 1 */
   notes: string;
+}
+
+export interface GoogleCalendarSyncRequest {
+  /** ISO date or date-time for the start of the range */
+  from: string;
+  /** ISO date or date-time for the end of the range */
+  to: string;
+}
+
+export interface GoogleCalendarSyncResponse {
+  synced: number;
+  calendarId: string;
+}
+
+export interface GoogleCalendarEvent {
+  googleEventId?: string;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  startDate: string;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  endTime?: string | null;
+  allDay: boolean;
+  /** @nullable */
+  location?: string | null;
+  /** @nullable */
+  attendees?: string | null;
+}
+
+export interface GoogleCalendarEventInput {
+  calendarId: string;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  startDate: string;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  endTime?: string | null;
+  allDay: boolean;
+  /** @nullable */
+  location?: string | null;
+  /** @nullable */
+  attendees?: string | null;
+}
+
+export interface GoogleCalendarEventDeleteRequest {
+  calendarId: string;
 }
 
 /**
