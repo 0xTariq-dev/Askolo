@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Wp4DU6vX036SAAfQAseyk"
+uri = "file://screenshots/email-connect.jpg"
+type = "image"
+title = "Gmail connect page preview"
