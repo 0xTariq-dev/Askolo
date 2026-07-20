@@ -13,6 +13,7 @@ import { CalendarPage } from '@/pages/calendar';
 import { ChoresPage } from '@/pages/chores';
 import { NotesPage } from '@/pages/notes';
 import { ActionsPage } from '@/pages/actions';
+import { AssistantPage } from '@/pages/assistant';
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ function Router() {
         <Route path="/chores" component={ChoresPage} />
         <Route path="/notes" component={NotesPage} />
         <Route path="/actions" component={ActionsPage} />
+        <Route path="/assistant" component={AssistantPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

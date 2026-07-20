@@ -23,6 +23,8 @@ import type {
   ActionItem,
   ActionItemInput,
   ActionItemUpdate,
+  AssistantChatBody,
+  AssistantChatResponse,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
   Chore,
@@ -52,11 +54,15 @@ import type {
   ListEventsParams,
   LogoutBrowserSessionParams,
   LogoutSuccess,
+  MeetingExtractBody,
+  MeetingExtractResponse,
   MobileTokenExchangeRequest,
   MobileTokenExchangeSuccess,
   Note,
   NoteInput,
-  NoteUpdate
+  NoteUpdate,
+  VoiceToPlanBody,
+  VoiceToPlanResponse
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -3447,4 +3453,217 @@ export function useGetDashboardSummary<TData = Awaited<ReturnType<typeof getDash
 
 
 
+
+export const getAssistantChatUrl = () => {
+
+
+
+
+  return `/api/ai/assistant`
+}
+
+/**
+ * @summary Chat with the personal AI assistant
+ */
+export const assistantChat = async (assistantChatBody: AssistantChatBody, options?: RequestInit): Promise<AssistantChatResponse> => {
+
+  return customFetch<AssistantChatResponse>(getAssistantChatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(assistantChatBody)
+  }
+);}
+
+
+
+
+
+export const getAssistantChatMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assistantChat>>, TError,{data: BodyType<AssistantChatBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof assistantChat>>, TError,{data: BodyType<AssistantChatBody>}, TContext> => {
+
+const mutationKey = ['assistantChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof assistantChat>>, {data: BodyType<AssistantChatBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  assistantChat(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AssistantChatMutationResult = NonNullable<Awaited<ReturnType<typeof assistantChat>>>
+    export type AssistantChatMutationBody = BodyType<AssistantChatBody>
+    export type AssistantChatMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Chat with the personal AI assistant
+ */
+export const useAssistantChat = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assistantChat>>, TError,{data: BodyType<AssistantChatBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof assistantChat>>,
+        TError,
+        {data: BodyType<AssistantChatBody>},
+        TContext
+      > => {
+      return useMutation(getAssistantChatMutationOptions(options));
+    }
+
+export const getVoiceToPlanUrl = () => {
+
+
+
+
+  return `/api/ai/voice-to-plan`
+}
+
+/**
+ * @summary Convert a voice transcript into structured daily plan items
+ */
+export const voiceToPlan = async (voiceToPlanBody: VoiceToPlanBody, options?: RequestInit): Promise<VoiceToPlanResponse> => {
+
+  return customFetch<VoiceToPlanResponse>(getVoiceToPlanUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(voiceToPlanBody)
+  }
+);}
+
+
+
+
+
+export const getVoiceToPlanMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voiceToPlan>>, TError,{data: BodyType<VoiceToPlanBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof voiceToPlan>>, TError,{data: BodyType<VoiceToPlanBody>}, TContext> => {
+
+const mutationKey = ['voiceToPlan'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof voiceToPlan>>, {data: BodyType<VoiceToPlanBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  voiceToPlan(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VoiceToPlanMutationResult = NonNullable<Awaited<ReturnType<typeof voiceToPlan>>>
+    export type VoiceToPlanMutationBody = BodyType<VoiceToPlanBody>
+    export type VoiceToPlanMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Convert a voice transcript into structured daily plan items
+ */
+export const useVoiceToPlan = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voiceToPlan>>, TError,{data: BodyType<VoiceToPlanBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof voiceToPlan>>,
+        TError,
+        {data: BodyType<VoiceToPlanBody>},
+        TContext
+      > => {
+      return useMutation(getVoiceToPlanMutationOptions(options));
+    }
+
+export const getMeetingExtractUrl = () => {
+
+
+
+
+  return `/api/ai/meeting-extract`
+}
+
+/**
+ * @summary Extract summary, decisions, and action items from meeting notes
+ */
+export const meetingExtract = async (meetingExtractBody: MeetingExtractBody, options?: RequestInit): Promise<MeetingExtractResponse> => {
+
+  return customFetch<MeetingExtractResponse>(getMeetingExtractUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(meetingExtractBody)
+  }
+);}
+
+
+
+
+
+export const getMeetingExtractMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof meetingExtract>>, TError,{data: BodyType<MeetingExtractBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof meetingExtract>>, TError,{data: BodyType<MeetingExtractBody>}, TContext> => {
+
+const mutationKey = ['meetingExtract'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof meetingExtract>>, {data: BodyType<MeetingExtractBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  meetingExtract(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MeetingExtractMutationResult = NonNullable<Awaited<ReturnType<typeof meetingExtract>>>
+    export type MeetingExtractMutationBody = BodyType<MeetingExtractBody>
+    export type MeetingExtractMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Extract summary, decisions, and action items from meeting notes
+ */
+export const useMeetingExtract = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof meetingExtract>>, TError,{data: BodyType<MeetingExtractBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof meetingExtract>>,
+        TError,
+        {data: BodyType<MeetingExtractBody>},
+        TContext
+      > => {
+      return useMutation(getMeetingExtractMutationOptions(options));
+    }
 

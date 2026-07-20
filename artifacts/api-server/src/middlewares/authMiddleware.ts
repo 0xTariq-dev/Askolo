@@ -1,4 +1,3 @@
-import type { AuthUser } from '@workspace/api-zod';
 import { type NextFunction, type Request, type Response } from 'express';
 import * as oidc from 'openid-client';
 
@@ -13,7 +12,13 @@ import {
 
 declare global {
   namespace Express {
-    interface User extends AuthUser {}
+    interface User {
+      id: string;
+      email: string | null;
+      firstName: string | null;
+      lastName: string | null;
+      profileImageUrl: string | null;
+    }
 
     interface Request {
       isAuthenticated(): this is AuthedRequest;

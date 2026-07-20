@@ -13,7 +13,9 @@ import {
   LayoutList,
   AlertCircle,
   Calendar,
-  ListTodo
+  ListTodo,
+  Mic,
+  MicOff
 } from 'lucide-react';
 
 import {
@@ -21,6 +23,7 @@ import {
   useCreateDailyPlan,
   useUpdateDailyPlan,
   useDeleteDailyPlan,
+  useVoiceToPlan,
   getListDailyPlansQueryKey,
   getGetDashboardSummaryQueryKey,
   DailyPlan
@@ -62,6 +65,10 @@ export function PlanPage() {
 
   const [notes, setNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const recognitionRef = useRef<any>(null);
+  const voiceToPlan = useVoiceToPlan();
 
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -96,6 +103,51 @@ export function PlanPage() {
       console.error(e);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const startListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => {
+      let final = '';
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) final += transcript + ' ';
+        else interim += transcript;
+      }
+      if (final) setTranscript((prev) => prev + final);
+      setNotes((prev) => prev + final + interim);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+    setTranscript('');
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+    if (transcript.trim()) {
+      voiceToPlan.mutate(
+        { data: { transcript: transcript.trim(), date: dateStr } },
+        {
+          onSuccess: () => {
+            qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
+            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          },
+        },
+      );
     }
   };
 
@@ -230,14 +282,30 @@ export function PlanPage() {
                 <AlertCircle className="h-3.5 w-3.5" />
                 AI will extract tasks, estimate priorities, and suggest time blocks.
               </span>
-              <Button 
-                onClick={generateWithAI} 
-                disabled={!notes.trim() || isGenerating}
-                className="bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30"
-              >
-                {isGenerating ? 'Thinking...' : 'Generate Plan with AI'}
-                <Sparkles className="h-4 w-4 ml-2" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={isListening ? stopListening : startListening}
+                  disabled={voiceToPlan.isPending}
+                  className={cn(
+                    'border-border',
+                    isListening && 'bg-rose-500/10 text-rose-500 border-rose-500/30 animate-pulse',
+                  )}
+                  title={isListening ? 'Stop recording' : 'Record voice note'}
+                  data-testid="button-voice-record"
+                >
+                  {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </Button>
+                <Button 
+                  onClick={generateWithAI} 
+                  disabled={!notes.trim() || isGenerating || isListening}
+                  className="bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30"
+                >
+                  {isGenerating ? 'Thinking...' : 'Generate Plan with AI'}
+                  <Sparkles className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

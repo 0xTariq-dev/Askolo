@@ -1043,3 +1043,106 @@ export const GetDashboardSummaryResponse = zod.object({
 })
 
 
+/**
+ * @summary Chat with the personal AI assistant
+ */
+export const assistantChatBodyContextGoalsItemProgressMin = 0;
+export const assistantChatBodyContextGoalsItemProgressMax = 100;
+
+
+
+export const AssistantChatBody = zod.object({
+  "messages": zod.array(zod.object({
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string()
+})),
+  "context": zod.object({
+  "habits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "currentStreak": zod.number(),
+  "longestStreak": zod.number(),
+  "completedToday": zod.boolean(),
+  "color": zod.string().nullable(),
+  "icon": zod.string().nullable()
+})).optional(),
+  "goals": zod.array(zod.object({
+  "id": zod.number(),
+  "userId": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "targetDate": zod.string().nullish(),
+  "status": zod.enum(['active', 'completed', 'paused']),
+  "progress": zod.number().min(assistantChatBodyContextGoalsItemProgressMin).max(assistantChatBodyContextGoalsItemProgressMax),
+  "category": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})).optional(),
+  "todayPlan": zod.array(zod.object({
+  "id": zod.number(),
+  "userId": zod.string(),
+  "date": zod.string(),
+  "title": zod.string(),
+  "timeBlock": zod.string().nullish(),
+  "priority": zod.enum(['high', 'medium', 'low']),
+  "completed": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})).optional()
+}).optional()
+})
+
+export const AssistantChatResponse = zod.object({
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Convert a voice transcript into structured daily plan items
+ */
+
+
+
+export const VoiceToPlanBody = zod.object({
+  "transcript": zod.string().min(1),
+  "date": zod.string().optional()
+})
+
+export const VoiceToPlanResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "userId": zod.string(),
+  "date": zod.string(),
+  "title": zod.string(),
+  "timeBlock": zod.string().nullish(),
+  "priority": zod.enum(['high', 'medium', 'low']),
+  "completed": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})),
+  "date": zod.string()
+})
+
+
+/**
+ * @summary Extract summary, decisions, and action items from meeting notes
+ */
+
+
+
+export const MeetingExtractBody = zod.object({
+  "notes": zod.string().min(1)
+})
+
+export const MeetingExtractResponse = zod.object({
+  "summary": zod.string(),
+  "decisions": zod.array(zod.string()),
+  "actionItems": zod.array(zod.object({
+  "title": zod.string(),
+  "dueDate": zod.string().nullish()
+}))
+})
+
+

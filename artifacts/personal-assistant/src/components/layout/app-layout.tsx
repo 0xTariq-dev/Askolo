@@ -11,6 +11,7 @@ import {
   ClipboardList, 
   StickyNote, 
   Zap, 
+  Sparkles,
   LogOut,
   Loader2,
   Hexagon
@@ -21,6 +22,7 @@ import { Button } from '@/components/ui/button';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/assistant', label: 'Assistant', icon: Sparkles },
   { href: '/habits', label: 'Habits', icon: CheckCircle2 },
   { href: '/goals', label: 'Goals', icon: Target },
   { href: '/plan', label: 'Daily Plan', icon: ListTodo },

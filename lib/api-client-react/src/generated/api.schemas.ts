@@ -484,6 +484,62 @@ export interface DashboardSummary {
   goalsCompleted: number;
 }
 
+export type AssistantChatMessageRole = typeof AssistantChatMessageRole[keyof typeof AssistantChatMessageRole];
+
+
+export const AssistantChatMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface AssistantChatMessage {
+  role: AssistantChatMessageRole;
+  content: string;
+}
+
+export interface AssistantChatContext {
+  habits?: HabitStreak[];
+  goals?: Goal[];
+  todayPlan?: DailyPlan[];
+}
+
+export interface AssistantChatBody {
+  messages: AssistantChatMessage[];
+  context?: AssistantChatContext;
+}
+
+export interface AssistantChatResponse {
+  message: string;
+}
+
+export interface VoiceToPlanBody {
+  /** @minLength 1 */
+  transcript: string;
+  date?: string;
+}
+
+export interface VoiceToPlanResponse {
+  items: DailyPlan[];
+  date: string;
+}
+
+export interface MeetingExtractActionItem {
+  title: string;
+  /** @nullable */
+  dueDate?: string | null;
+}
+
+export interface MeetingExtractResponse {
+  summary: string;
+  decisions: string[];
+  actionItems: MeetingExtractActionItem[];
+}
+
+export interface MeetingExtractBody {
+  /** @minLength 1 */
+  notes: string;
+}
+
 /**
  * Opaque session token — `Bearer <sid>`.
  */

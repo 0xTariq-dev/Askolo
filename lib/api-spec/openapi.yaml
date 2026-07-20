@@ -28,6 +28,8 @@ tags:
     description: Action items
   - name: dashboard
     description: Dashboard summaries
+  - name: ai
+    description: AI assistant and intelligence endpoints
 
 paths:
   /healthz:
@@ -955,6 +957,82 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardSummary"
 
+  # ─── AI ASSISTANT & INTELLIGENCE ───────────────────────────────────────────
+  /ai/assistant:
+    post:
+      operationId: assistantChat
+      tags: [ai]
+      summary: Chat with the personal AI assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantChatBody"
+      responses:
+        "200":
+          description: Assistant response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantChatResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /ai/voice-to-plan:
+    post:
+      operationId: voiceToPlan
+      tags: [ai]
+      summary: Convert a voice transcript into structured daily plan items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoiceToPlanBody"
+      responses:
+        "200":
+          description: Created plan items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceToPlanResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /ai/meeting-extract:
+    post:
+      operationId: meetingExtract
+      tags: [ai]
+      summary: Extract summary, decisions, and action items from meeting notes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeetingExtractBody"
+      responses:
+        "200":
+          description: Extracted meeting intelligence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingExtractResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -1580,3 +1658,94 @@ components:
           type: integer
         goalsCompleted:
           type: integer
+
+    AssistantChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+    AssistantChatContext:
+      type: object
+      properties:
+        habits:
+          type: array
+          items:
+            $ref: '#/components/schemas/HabitStreak'
+        goals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Goal'
+        todayPlan:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyPlan'
+    AssistantChatBody:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantChatMessage'
+        context:
+          $ref: '#/components/schemas/AssistantChatContext'
+    AssistantChatResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    VoiceToPlanBody:
+      type: object
+      required: [transcript]
+      properties:
+        transcript:
+          type: string
+          minLength: 1
+        date:
+          type: string
+    VoiceToPlanResponse:
+      type: object
+      required: [items, date]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyPlan'
+        date:
+          type: string
+
+    MeetingExtractActionItem:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        dueDate:
+          type: ["string", "null"]
+    MeetingExtractResponse:
+      type: object
+      required: [summary, decisions, actionItems]
+      properties:
+        summary:
+          type: string
+        decisions:
+          type: array
+          items:
+            type: string
+        actionItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/MeetingExtractActionItem'
+    MeetingExtractBody:
+      type: object
+      required: [notes]
+      properties:
+        notes:
+          type: string
+          minLength: 1

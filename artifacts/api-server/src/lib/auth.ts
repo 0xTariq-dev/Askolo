@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import type { AuthUser } from '@workspace/api-zod';
 import { db, sessionsTable } from '@workspace/db';
 import { eq } from 'drizzle-orm';
 import { type Request, type Response } from 'express';
@@ -10,7 +9,13 @@ export const SESSION_COOKIE = 'sid';
 export const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
 
 export interface SessionData {
-  user: AuthUser;
+  user: {
+    id: string;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    profileImageUrl: string | null;
+  };
   access_token: string;
   refresh_token?: string;
   expires_at?: number;
