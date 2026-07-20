@@ -1,4 +1,4 @@
-import { gmailApiRequest } from "./gmailOAuth";
+import { gmailApiRequest } from "./googleOAuth";
 
 const GMAIL_API_PREFIX = "/gmail/v1/users/me";
 

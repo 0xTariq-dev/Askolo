@@ -1,5 +1,4 @@
-import { verifyGoogleCalendarConnection } from "./googleCalendar";
-import { verifyGmailConnection } from "./gmail";
+import { verifyCalendarConnection, verifyGmailConnection } from "./googleOAuth";
 
 export interface GoogleConnectionStatus {
   connected: boolean;
@@ -10,7 +9,7 @@ export interface GoogleConnectionStatus {
 
 export async function getGoogleConnectionStatus(userId: string): Promise<GoogleConnectionStatus> {
   const [calendarConnected, gmailConnected] = await Promise.all([
-    verifyGoogleCalendarConnection(),
+    verifyCalendarConnection(userId),
     verifyGmailConnection(userId),
   ]);
   const scopes = [

@@ -1,4 +1,4 @@
-import { RefreshCw, WifiOff } from 'lucide-react';
+import { RefreshCw, WifiOff, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -6,6 +6,7 @@ interface ReconnectBannerProps {
   service: 'calendar' | 'gmail';
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  connectUrl?: string;
   className?: string;
 }
 
@@ -23,6 +24,7 @@ export function ReconnectBanner({
   service,
   onRefresh,
   isRefreshing,
+  connectUrl,
   className,
 }: ReconnectBannerProps) {
   const label = SERVICE_LABELS[service];
@@ -45,24 +47,35 @@ export function ReconnectBanner({
           </p>
           <p className="mt-0.5 text-xs text-amber-400/80">{description}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            To restore access, reconnect the{' '}
-            <span className="font-medium">{label}</span> integration in your Replit
-            workspace, then click&nbsp;<span className="font-medium">Check connection</span> below.
+            Click <span className="font-medium">Connect</span> to approve the Google app, then click{' '}
+            <span className="font-medium">Check connection</span>.
           </p>
         </div>
       </div>
-      {onRefresh && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className="shrink-0 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5 mr-1.5', isRefreshing && 'animate-spin')} />
-          {isRefreshing ? 'Checking…' : 'Check connection'}
-        </Button>
-      )}
+      <div className="flex items-center gap-2 shrink-0">
+        {connectUrl && (
+          <Button
+            size="sm"
+            onClick={() => (window.location.href = connectUrl)}
+            className="bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 hover:text-amber-300"
+          >
+            <Link2 className="h-3.5 w-3.5 mr-1.5" />
+            Connect
+          </Button>
+        )}
+        {onRefresh && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5 mr-1.5', isRefreshing && 'animate-spin')} />
+            {isRefreshing ? 'Checking…' : 'Check connection'}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

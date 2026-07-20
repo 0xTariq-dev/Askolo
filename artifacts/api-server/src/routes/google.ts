@@ -22,13 +22,14 @@ import {
   buildEmailRaw,
 } from "../lib/gmail";
 import {
-  buildGmailAuthUrl,
+  buildGoogleAuthUrl,
   exchangeCodeForTokens,
-  storeGmailTokens,
+  storeGoogleTokens,
   generateOAuthState,
+  getRedirectUri,
   getOAuthCallbackCookie,
   parseOAuthStateCookie,
-} from "../lib/gmailOAuth";
+} from "../lib/googleOAuth";
 import { getGoogleConnectionStatus } from "../lib/googleStatus";
 import { openai } from "@workspace/integrations-openai-ai-server";
 
@@ -79,17 +80,16 @@ router.post("/google/calendar/sync", async (req, res): Promise<void> => {
   }
 
   try {
-    const calendarList = await getGoogleCalendarList();
+    const calendarList = await getGoogleCalendarList(req.dbUser.id);
     const primary = calendarList.items?.find((c) => c.primary) || calendarList.items?.[0];
     if (!primary) {
       res.status(404).json({ error: "No calendar found" });
       return;
     }
 
-    const googleEvents = await listGoogleCalendarEvents(primary.id, from, to);
+    const googleEvents = await listGoogleCalendarEvents(req.dbUser.id, primary.id, from, to);
     const mapped = (googleEvents.items || []).map(formatGoogleEventToLocal);
 
-    // Upsert events into local events table by googleEventId
     for (const event of mapped) {
       if (!event.googleEventId) continue;
       const [existing] = await db
@@ -127,7 +127,7 @@ router.post("/google/calendar/events", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const created = await createGoogleCalendarEvent(calendarId, toGoogleCalendarEvent(event));
+    const created = await createGoogleCalendarEvent(req.dbUser.id, calendarId, toGoogleCalendarEvent(event));
     res.status(201).json(formatGoogleEventToLocal(created));
   } catch (err) {
     req.log.error(err, "Google Calendar create event failed");
@@ -144,7 +144,7 @@ router.patch("/google/calendar/events/:id", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const updated = await updateGoogleCalendarEvent(calendarId, eventId, toGoogleCalendarEvent(event));
+    const updated = await updateGoogleCalendarEvent(req.dbUser.id, calendarId, eventId, toGoogleCalendarEvent(event));
     res.json(formatGoogleEventToLocal(updated));
   } catch (err) {
     req.log.error(err, "Google Calendar update event failed");
@@ -161,7 +161,7 @@ router.delete("/google/calendar/events/:id", async (req, res): Promise<void> => 
     return;
   }
   try {
-    await deleteGoogleCalendarEvent(calendarId, eventId);
+    await deleteGoogleCalendarEvent(req.dbUser.id, calendarId, eventId);
     res.sendStatus(204);
   } catch (err) {
     req.log.error(err, "Google Calendar delete event failed");
@@ -169,18 +169,19 @@ router.delete("/google/calendar/events/:id", async (req, res): Promise<void> => 
   }
 });
 
-// ─── GMAIL OAUTH ──────────────────────────────────────────────────────────
+// ─── GOOGLE OAUTH ─────────────────────────────────────────────────────────
 
 // GET /google/gmail/connect
 router.get("/google/gmail/connect", async (req, res): Promise<void> => {
   try {
     const state = generateOAuthState();
-    const url = buildGmailAuthUrl(state);
+    const redirectUri = getRedirectUri(req);
+    const url = buildGoogleAuthUrl(redirectUri, state);
     res.setHeader("Set-Cookie", getOAuthCallbackCookie(state));
     res.redirect(url);
   } catch (err) {
-    req.log.error(err, "Gmail connect redirect failed");
-    res.redirect("/email?gmail=error");
+    req.log.error(err, "Google connect redirect failed");
+    res.redirect("/email?google=error");
   }
 });
 
@@ -191,18 +192,19 @@ router.get("/google/gmail/callback", async (req, res): Promise<void> => {
   const state = parseOAuthStateCookie(req.headers.cookie);
 
   if (error || !code || !state) {
-    req.log.warn({ error, hasCode: !!code, hasState: !!state }, "Gmail OAuth callback rejected");
-    res.redirect("/email?gmail=error");
+    req.log.warn({ error, hasCode: !!code, hasState: !!state }, "Google OAuth callback rejected");
+    res.redirect("/email?google=error");
     return;
   }
 
   try {
-    const tokens = await exchangeCodeForTokens(code);
-    await storeGmailTokens(req.dbUser.id, tokens);
-    res.redirect("/email?gmail=connected");
+    const redirectUri = getRedirectUri(req);
+    const tokens = await exchangeCodeForTokens(code, redirectUri);
+    await storeGoogleTokens(req.dbUser.id, tokens);
+    res.redirect("/email?google=connected");
   } catch (err) {
-    req.log.error(err, "Gmail OAuth callback failed");
-    res.redirect("/email?gmail=error");
+    req.log.error(err, "Google OAuth callback failed");
+    res.redirect("/email?google=error");
   }
 });
 

@@ -41,7 +41,7 @@ const PRIORITY_LABELS: Record<string, string> = {
   archive: 'Can Archive',
 };
 
-const GMAIL_CONNECT_URL = '/api/google/gmail/connect';
+const GOOGLE_CONNECT_URL = '/api/google/gmail/connect';
 
 export function EmailPage() {
   const qc = useQueryClient();
@@ -62,13 +62,13 @@ export function EmailPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('gmail') === 'connected') {
-      toast({ title: 'Gmail connected', description: 'Your Askolo Google app can now read your inbox.' });
+    if (params.get('google') === 'connected') {
+      toast({ title: 'Google connected', description: 'Gmail and Calendar access is now enabled.' });
       refetchGoogleStatus();
       refetch();
       setLocation('/email', { replace: true });
-    } else if (params.get('gmail') === 'error') {
-      toast({ variant: 'destructive', title: 'Gmail connection failed', description: 'Please try connecting again.' });
+    } else if (params.get('google') === 'error') {
+      toast({ variant: 'destructive', title: 'Google connection failed', description: 'Please try connecting again.' });
       setLocation('/email', { replace: true });
     }
   }, [toast, refetchGoogleStatus, refetch, setLocation]);
@@ -144,7 +144,7 @@ export function EmailPage() {
               correct name and logo.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Button size="lg" onClick={() => (window.location.href = GMAIL_CONNECT_URL)} className="group">
+              <Button size="lg" onClick={() => (window.location.href = GOOGLE_CONNECT_URL)} className="group">
                 <Mail className="mr-2 h-5 w-5" />
                 Connect Gmail
                 <ArrowRight className="ml-2 h-4 w-4 opacity-70 group-hover:translate-x-0.5 transition-transform" />

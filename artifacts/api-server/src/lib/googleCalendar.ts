@@ -1,8 +1,4 @@
-import { ReplitConnectors } from "@replit/connectors-sdk";
-
-const connectors = new ReplitConnectors();
-
-const GOOGLE_CALENDAR_ID = "google-calendar";
+import { calendarApiRequest } from "./googleOAuth";
 
 interface GoogleCalendarEvent {
   id: string;
@@ -22,53 +18,55 @@ interface GoogleCalendarEvent {
   attendees?: Array<{ email?: string }>;
 }
 
-export async function getGoogleCalendarList() {
-  const res = await connectors.proxy(GOOGLE_CALENDAR_ID, "/users/me/calendarList", { method: "GET" });
-  if (!res.ok) throw new Error(`Calendar list failed: ${res.status}`);
+export async function getGoogleCalendarList(userId: string) {
+  const res = await calendarApiRequest(userId, "/users/me/calendarList", { method: "GET" });
   return (await res.json()) as { items?: Array<{ id: string; summary: string; primary?: boolean }> };
 }
 
-export async function verifyGoogleCalendarConnection(): Promise<boolean> {
+export async function verifyGoogleCalendarConnection(userId: string): Promise<boolean> {
   try {
-    const res = await connectors.proxy(GOOGLE_CALENDAR_ID, "/users/me/calendarList", { method: "GET" });
+    const res = await calendarApiRequest(userId, "/users/me/calendarList", { method: "GET" });
     return res.ok;
   } catch {
     return false;
   }
 }
 
-export async function listGoogleCalendarEvents(calendarId: string, timeMin: string, timeMax: string) {
+export async function listGoogleCalendarEvents(userId: string, calendarId: string, timeMin: string, timeMax: string) {
   const encodedId = encodeURIComponent(calendarId);
   const params = new URLSearchParams({ timeMin, timeMax, singleEvents: "true", orderBy: "startTime" });
-  const res = await connectors.proxy(
-    GOOGLE_CALENDAR_ID,
+  const res = await calendarApiRequest(
+    userId,
     `/calendars/${encodedId}/events?${params.toString()}`,
     { method: "GET" },
   );
-  if (!res.ok) throw new Error(`Events fetch failed: ${res.status}`);
   return (await res.json()) as { items?: GoogleCalendarEvent[] };
 }
 
-export async function createGoogleCalendarEvent(calendarId: string, event: Partial<GoogleCalendarEvent>) {
+export async function createGoogleCalendarEvent(
+  userId: string,
+  calendarId: string,
+  event: Partial<GoogleCalendarEvent>,
+) {
   const encodedId = encodeURIComponent(calendarId);
-  const res = await connectors.proxy(GOOGLE_CALENDAR_ID, `/calendars/${encodedId}/events`, {
+  const res = await calendarApiRequest(userId, `/calendars/${encodedId}/events`, {
     method: "POST",
     body: JSON.stringify(event),
     headers: { "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error(`Event create failed: ${res.status}`);
   return (await res.json()) as GoogleCalendarEvent;
 }
 
 export async function updateGoogleCalendarEvent(
+  userId: string,
   calendarId: string,
   eventId: string,
   event: Partial<GoogleCalendarEvent>,
 ) {
   const encodedCalendarId = encodeURIComponent(calendarId);
   const encodedEventId = encodeURIComponent(eventId);
-  const res = await connectors.proxy(
-    GOOGLE_CALENDAR_ID,
+  const res = await calendarApiRequest(
+    userId,
     `/calendars/${encodedCalendarId}/events/${encodedEventId}`,
     {
       method: "PATCH",
@@ -76,25 +74,21 @@ export async function updateGoogleCalendarEvent(
       headers: { "Content-Type": "application/json" },
     },
   );
-  if (!res.ok) throw new Error(`Event update failed: ${res.status}`);
   return (await res.json()) as GoogleCalendarEvent;
 }
 
-export async function deleteGoogleCalendarEvent(calendarId: string, eventId: string) {
+export async function deleteGoogleCalendarEvent(userId: string, calendarId: string, eventId: string) {
   const encodedCalendarId = encodeURIComponent(calendarId);
   const encodedEventId = encodeURIComponent(eventId);
-  const res = await connectors.proxy(
-    GOOGLE_CALENDAR_ID,
+  const res = await calendarApiRequest(
+    userId,
     `/calendars/${encodedCalendarId}/events/${encodedEventId}`,
     { method: "DELETE" },
   );
-  if (!res.ok) throw new Error(`Event delete failed: ${res.status}`);
   return res.ok;
 }
 
 export function formatGoogleEventToLocal(event: GoogleCalendarEvent) {
-  const start = event.start?.dateTime || event.start?.date;
-  const end = event.end?.dateTime || event.end?.date;
   const startDate = event.start?.date || (event.start?.dateTime ? event.start.dateTime.slice(0, 10) : "");
   const startTime = event.start?.dateTime ? event.start.dateTime.slice(11, 16) : undefined;
   const endDate = event.end?.date || (event.end?.dateTime ? event.end.dateTime.slice(0, 10) : undefined);

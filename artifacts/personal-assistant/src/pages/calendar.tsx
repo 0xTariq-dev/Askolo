@@ -344,6 +344,7 @@ export function CalendarPage() {
           service="calendar"
           onRefresh={() => refetchGoogleStatus()}
           isRefreshing={isCheckingStatus}
+          connectUrl="/api/google/gmail/connect"
         />
       )}
 
