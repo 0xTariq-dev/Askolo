@@ -46,26 +46,27 @@
         --primary-30: rgba(234, 179, 8, 0.3);
         --border: rgba(255, 255, 255, 0.1);
         --card-bg: rgba(255, 255, 255, 0.04);
+        --blue: #3b82f6;
+        --red: #ef4444;
+        --emerald: #10b981;
       }
+      * { box-sizing: border-box; }
       .static-fallback {
         min-height: 100vh;
         background: var(--bg);
         color: var(--fg);
-        font-family: Inter, sans-serif;
+        font-family: Inter, system-ui, -apple-system, sans-serif;
         display: flex;
         flex-direction: column;
         line-height: 1.6;
       }
       .static-fallback a { color: inherit; text-decoration: none; }
-      .static-fallback header,
-      .static-fallback footer {
-        border: 0 solid var(--border);
+      .container { max-width: 72rem; margin: 0 auto; padding: 0 1rem; }
+      .header {
+        border-bottom: 1px solid var(--border);
         background: rgba(11, 17, 32, 0.8);
         backdrop-filter: blur(8px);
       }
-      .static-fallback header { border-bottom-width: 1px; }
-      .static-fallback footer { border-top-width: 1px; padding: 2rem 0; }
-      .container { max-width: 72rem; margin: 0 auto; padding: 0 1rem; }
       .header-content {
         height: 4rem;
         display: flex;
@@ -79,9 +80,10 @@
         font-weight: 700;
         font-size: 1.25rem;
         letter-spacing: -0.025em;
+        color: var(--fg);
       }
       .logo img { height: 2rem; width: auto; }
-      .nav { display: flex; align-items: center; gap: 1rem; }
+      .nav { display: flex; align-items: center; gap: 0.75rem; }
       .nav a { color: var(--muted); font-size: 0.875rem; }
       .nav a:hover { color: var(--fg); }
       .btn {
@@ -98,18 +100,32 @@
       main { flex: 1; }
       .hero {
         text-align: center;
-        padding: 4rem 1rem;
+        padding: 4rem 1rem 5rem;
+        background: linear-gradient(to bottom, rgba(234, 179, 8, 0.05), transparent);
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.375rem 0.75rem;
+        border-radius: 9999px;
+        background: var(--primary-15);
+        border: 1px solid var(--primary-30);
+        color: var(--primary);
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-bottom: 2rem;
       }
       .hero-logo {
         height: 6rem;
         width: auto;
-        margin-bottom: 2rem;
+        margin-bottom: 1.5rem;
       }
       .hero h1 {
         font-size: 3rem;
         line-height: 1.1;
         font-weight: 700;
-        margin: 0 0 1.5rem;
+        margin: 0 0 1.25rem;
         letter-spacing: -0.02em;
       }
       .hero .primary { color: var(--primary); }
@@ -118,12 +134,22 @@
         font-size: 1.125rem;
         max-width: 42rem;
         margin: 0 auto 2rem;
+        line-height: 1.6;
       }
       .hero-buttons {
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
         gap: 1rem;
+      }
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1.5rem;
+        margin-top: 2.5rem;
+        font-size: 0.75rem;
+        color: var(--muted);
       }
       .features {
         padding: 4rem 1rem;
@@ -180,7 +206,56 @@
         font-size: 1rem;
         font-weight: 700;
       }
-      .google-section { padding: 4rem 1rem; }
+      .how-it-works {
+        padding: 4rem 1rem;
+      }
+      .how-it-works h2 {
+        text-align: center;
+        font-size: 1.875rem;
+        font-weight: 700;
+        margin-bottom: 0.75rem;
+      }
+      .how-it-works .sub {
+        text-align: center;
+        color: var(--muted);
+        max-width: 36rem;
+        margin: 0 auto 3rem;
+      }
+      .steps-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+      @media (min-width: 768px) {
+        .steps-grid { grid-template-columns: repeat(3, 1fr); }
+      }
+      .step-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+      }
+      .step-number {
+        height: 2.5rem;
+        width: 2.5rem;
+        border-radius: 9999px;
+        background: var(--primary-15);
+        border: 1px solid var(--primary-30);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--primary);
+        font-weight: 700;
+        margin-bottom: 1rem;
+      }
+      .step-card h3 { font-weight: 600; margin: 0 0 0.5rem; }
+      .step-card p { color: var(--muted); font-size: 0.875rem; margin: 0; }
+      .google-section {
+        padding: 4rem 1rem;
+        background: rgba(255, 255, 255, 0.02);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
       .google-section h2 {
         text-align: center;
         font-size: 1.875rem;
@@ -207,7 +282,7 @@
         border-radius: 0.75rem;
         padding: 1.5rem;
       }
-      .google-card h3 { font-weight: 600; margin: 0 0 0.75rem; }
+      .google-card h3 { font-weight: 600; margin: 0 0 0.75rem; display: flex; align-items: center; gap: 0.75rem; }
       .google-card p {
         color: var(--muted);
         font-size: 0.875rem;
@@ -219,6 +294,9 @@
         margin: 0;
         padding-left: 1.25rem;
       }
+      .google-card li { margin-bottom: 0.5rem; }
+      .icon-blue { color: var(--blue); }
+      .icon-red { color: var(--red); }
       .notice {
         display: flex;
         gap: 0.75rem;
@@ -230,9 +308,16 @@
         color: var(--muted);
         margin-top: 2rem;
       }
+      .notice a { color: var(--primary); text-decoration: underline; }
       .cta { text-align: center; padding: 4rem 1rem; }
       .cta h2 { font-size: 1.875rem; font-weight: 700; margin-bottom: 0.75rem; }
       .cta p { color: var(--muted); margin-bottom: 2rem; }
+      .footer {
+        border-top: 1px solid var(--border);
+        background: rgba(11, 17, 32, 0.8);
+        backdrop-filter: blur(8px);
+        padding: 2rem 0;
+      }
       .footer-content {
         display: flex;
         flex-direction: column;
@@ -251,12 +336,18 @@
       @media (min-width: 640px) {
         .sm-hidden { display: inline; }
       }
+      @media (min-width: 768px) {
+        .hero h1 { font-size: 4rem; }
+      }
+      @media (min-width: 1024px) {
+        .hero h1 { font-size: 4.5rem; }
+      }
     </style>
   </head>
   <body>
     <div id="root">
       <div class="static-fallback">
-        <header>
+        <header class="header">
           <div class="container header-content">
             <a href="/" class="logo">
               <img src="/logo.png" alt="Askolo" />
@@ -274,67 +365,98 @@
         <main>
           <section class="hero">
             <div class="container">
+              <div class="badge">✦ Your personal and family assistant</div>
               <img src="/logo.png" alt="Askolo" class="hero-logo" />
               <h1>
                 Meet <span class="primary">Askolo</span>
               </h1>
               <p>
-                Your beautifully designed mission control for habits, goals, daily plans, and family life. Askolo brings
-                everything together in one calm, focused place.
+                Askolo is your beautifully designed mission control for habits, goals, daily plans, calendar, chores, notes, and action items. One calm, focused place to manage your life — with an AI coach that helps you stay on track.
               </p>
               <div class="hero-buttons">
                 <a href="/sign-up" class="btn btn-primary">Get Started Free</a>
                 <a href="/sign-in" class="btn btn-ghost">Sign In</a>
+              </div>
+              <div class="hero-meta">
+                <span>🔒 Private by default</span>
+                <span>🛡 Google integrations are optional</span>
+                <span>⭐ Built for individuals and families</span>
               </div>
             </div>
           </section>
 
           <section class="features">
             <div class="container">
-              <h2>Everything you need to stay on track</h2>
+              <h2>Everything you need to stay organized</h2>
               <p class="sub">
-                Askolo combines personal productivity tools with an AI assistant so you can focus on what matters.
+                Askolo combines personal productivity tools with an AI assistant so you can focus on what matters most.
               </p>
               <div class="features-grid">
                 <div class="feature-card">
                   <div class="feature-icon">✓</div>
                   <h3>Habits</h3>
-                  <p>Build streaks and track daily routines that stick.</p>
+                  <p>Build streaks and track daily routines that stick with simple check-ins.</p>
                 </div>
                 <div class="feature-card">
                   <div class="feature-icon">◎</div>
                   <h3>Goals</h3>
-                  <p>Set long-term goals and break them into actionable steps.</p>
+                  <p>Set long-term goals, add milestones, and watch your progress over time.</p>
                 </div>
                 <div class="feature-card">
                   <div class="feature-icon">☰</div>
                   <h3>Daily Plan</h3>
-                  <p>Plan your day with focused time blocks and priorities.</p>
+                  <p>Plan each day with focused time blocks and clear priorities.</p>
                 </div>
                 <div class="feature-card">
                   <div class="feature-icon">◈</div>
                   <h3>Calendar</h3>
-                  <p>See local events and synced Google Calendar in one view.</p>
+                  <p>See local events and synced Google Calendar in one clean view.</p>
                 </div>
                 <div class="feature-card">
                   <div class="feature-icon">☐</div>
                   <h3>Chores</h3>
-                  <p>Keep household tasks organized and recurring.</p>
+                  <p>Keep household tasks organized, recurring, and fairly assigned.</p>
                 </div>
                 <div class="feature-card">
                   <div class="feature-icon">▭</div>
                   <h3>Notes</h3>
-                  <p>Capture thoughts, ideas, and reference material.</p>
+                  <p>Capture thoughts, ideas, and reference material in one place.</p>
                 </div>
                 <div class="feature-card">
                   <div class="feature-icon">⚡</div>
                   <h3>Actions</h3>
-                  <p>Track action items and deadlines across your life.</p>
+                  <p>Track action items, deadlines, and follow-ups across your life.</p>
                 </div>
                 <div class="feature-card">
                   <div class="feature-icon">✦</div>
                   <h3>AI Coach</h3>
-                  <p>Get personalized insights and suggestions from your AI assistant.</p>
+                  <p>Get personalized insights and suggestions from your built-in assistant.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="how-it-works">
+            <div class="container">
+              <h2>How Askolo works</h2>
+              <p class="sub">
+                A simple workflow that keeps your life organized without overwhelming you.
+              </p>
+              <div class="steps-grid">
+                <div class="step-card">
+                  <div class="step-number">1</div>
+                  <h3>Set your priorities</h3>
+                  <p>Add habits, goals, and daily plans that reflect what matters most to you.</p>
+                </div>
+                <div class="step-card">
+                  <div class="step-number">2</div>
+                  <h3>Connect your calendar</h3>
+                  <p>Optionally link Google Calendar and Gmail so everything stays in sync.</p>
+                </div>
+                <div class="step-card">
+                  <div class="step-number">3</div>
+                  <h3>Askolo keeps you on track</h3>
+                  <p>Your AI assistant surfaces reminders, drafts replies, and helps you focus.</p>
                 </div>
               </div>
             </div>
@@ -344,12 +466,11 @@
             <div class="container">
               <h2>Optional Google integrations</h2>
               <p class="sub">
-                Askolo can connect to your Google account to keep your calendar and email in sync. These integrations are
-                completely optional, and you are in control of your data.
+                Askolo can connect to your Google account to keep your calendar and email in sync. These integrations are completely optional, and you are always in control of your data.
               </p>
               <div class="google-grid">
                 <div class="google-card">
-                  <h3>Google Calendar</h3>
+                  <h3><span class="icon-blue">◈</span> Google Calendar</h3>
                   <p>Askolo asks for Calendar access so you can:</p>
                   <ul>
                     <li>Sync your Google events into your Askolo calendar</li>
@@ -358,7 +479,7 @@
                   </ul>
                 </div>
                 <div class="google-card">
-                  <h3>Gmail</h3>
+                  <h3><span class="icon-red">✉</span> Gmail</h3>
                   <p>Askolo asks for Gmail access so you can:</p>
                   <ul>
                     <li>Triage your inbox with AI-powered priority labels</li>
@@ -370,9 +491,8 @@
               <div class="notice">
                 <span>🛡</span>
                 <p>
-                  The consent screen shows <strong>Askolo</strong> because the app uses your own Google Cloud OAuth app. You
-                  can revoke access at any time in your
-                  <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" style="color: var(--primary);">Google account settings</a>.
+                  The Google consent screen shows <strong>Askolo</strong> because the app uses its own Google Cloud OAuth project. You can revoke access at any time in your
+                  <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google account settings</a>.
                 </p>
               </div>
             </div>
@@ -381,13 +501,13 @@
           <section class="cta">
             <div class="container">
               <h2>Ready to get organized?</h2>
-              <p>Join Askolo and start building better habits, clearer goals, and calmer days.</p>
+              <p>Join Askolo and start building better habits, clearer goals, and calmer days — all in one place.</p>
               <a href="/sign-up" class="btn btn-primary">Get Started Free</a>
             </div>
           </section>
         </main>
 
-        <footer>
+        <footer class="footer">
           <div class="container footer-content">
             <div class="logo">
               <img src="/logo.png" alt="Askolo" style="height: 1.25rem; opacity: 0.8;" />
