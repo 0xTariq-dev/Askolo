@@ -1,6 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { format, startOfMonth, endOfMonth, addMonths, subMonths, formatDistanceToNow } from 'date-fns';
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  addMonths,
+  subMonths,
+  addWeeks,
+  subWeeks,
+  addDays,
+  subDays,
+  formatDistanceToNow,
+} from 'date-fns';
 import { z } from 'zod';
 import { useForm as useHookForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,12 +23,6 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
-  Trash2,
-  Edit2,
-  MoreVertical,
-  Clock,
-  MapPin,
-  Link2,
 } from 'lucide-react';
 import {
   useListEvents,
@@ -27,22 +34,27 @@ import {
   useCreateGoogleCalendarEvent,
   useUpdateGoogleCalendarEvent,
   useDeleteGoogleCalendarEvent,
+  useListHabits,
+  useListDailyPlans,
   getListEventsQueryKey,
   getGetDashboardSummaryQueryKey,
-  Event,
+  type Event,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
+import { MonthGrid } from '@/components/calendar/month-grid';
+import { WeekGrid } from '@/components/calendar/week-grid';
+import { DayGrid } from '@/components/calendar/day-grid';
+import type { CalendarView } from '@/components/calendar/types';
 
+// ─── Form schema ────────────────────────────────────────────────────────────
 const eventSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional(),
@@ -57,25 +69,84 @@ const eventSchema = z.object({
 type EventFormValues = z.infer<typeof eventSchema>;
 
 const DEFAULT_COLOR = '#3b82f6';
+const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
-const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+// ─── Date range helpers ──────────────────────────────────────────────────────
+function getViewRange(date: Date, view: CalendarView): { from: string; to: string } {
+  switch (view) {
+    case 'month': {
+      const ms = startOfMonth(date);
+      const me = endOfMonth(date);
+      // Include the partial weeks shown in the grid
+      return {
+        from: format(startOfWeek(ms, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+        to: format(endOfWeek(me, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+      };
+    }
+    case 'week': {
+      return {
+        from: format(startOfWeek(date, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+        to: format(endOfWeek(date, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+      };
+    }
+    case 'day':
+      return {
+        from: format(date, 'yyyy-MM-dd'),
+        to: format(date, 'yyyy-MM-dd'),
+      };
+  }
+}
 
+function navigatePrev(date: Date, view: CalendarView): Date {
+  if (view === 'month') return subMonths(date, 1);
+  if (view === 'week') return subWeeks(date, 1);
+  return subDays(date, 1);
+}
+
+function navigateNext(date: Date, view: CalendarView): Date {
+  if (view === 'month') return addMonths(date, 1);
+  if (view === 'week') return addWeeks(date, 1);
+  return addDays(date, 1);
+}
+
+function headerLabel(date: Date, view: CalendarView): string {
+  if (view === 'month') return format(date, 'MMMM yyyy');
+  if (view === 'week') {
+    const ws = startOfWeek(date, { weekStartsOn: 1 });
+    const we = endOfWeek(date, { weekStartsOn: 1 });
+    if (format(ws, 'MMM yyyy') === format(we, 'MMM yyyy')) {
+      return `${format(ws, 'MMM d')} – ${format(we, 'd, yyyy')}`;
+    }
+    return `${format(ws, 'MMM d')} – ${format(we, 'MMM d, yyyy')}`;
+  }
+  return format(date, 'EEEE, MMMM d, yyyy');
+}
+
+// ─── Page ───────────────────────────────────────────────────────────────────
 export function CalendarPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setView] = useState<CalendarView>('month');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-  // tick every 30s so relative time label stays fresh
   const [, setTick] = useState(0);
+  const [, setLocation] = useLocation();
 
-  const from = format(startOfMonth(currentDate), 'yyyy-MM-dd');
-  const to = format(endOfMonth(currentDate), 'yyyy-MM-dd');
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const { from, to } = getViewRange(currentDate, view);
 
-  const { data: events, isLoading } = useListEvents({ from, to });
-  const { data: googleStatus, refetch: refetchGoogleStatus, isFetching: isCheckingStatus } = useGetGoogleStatus();
+  // ── Data ──────────────────────────────────────────────────────────────────
+  const { data: events = [], isLoading } = useListEvents({ from, to });
+  const { data: googleStatus, refetch: refetchGoogleStatus } = useGetGoogleStatus();
+  const { data: habits = [] } = useListHabits();
+  const { data: allPlans = [] } = useListDailyPlans();
+
+  const calendarConnected = googleStatus?.calendarConnected ?? false;
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -84,15 +155,13 @@ export function CalendarPage() {
   const deleteGoogleEvent = useDeleteGoogleCalendarEvent();
   const syncGoogleCalendar = useSyncGoogleCalendar();
 
-  const calendarConnected = googleStatus?.calendarConnected ?? false;
-  const [, setLocation] = useLocation();
-
+  // ── Form ──────────────────────────────────────────────────────────────────
   const form = useHookForm<EventFormValues>({
     resolver: zodResolver(eventSchema),
     defaultValues: {
       title: '',
       description: '',
-      startDate: format(new Date(), 'yyyy-MM-dd'),
+      startDate: todayStr,
       startTime: '',
       endDate: '',
       endTime: '',
@@ -101,12 +170,12 @@ export function CalendarPage() {
     },
   });
 
-  const openAdd = () => {
+  const openAdd = (date?: Date) => {
     setEditingEvent(null);
     form.reset({
       title: '',
       description: '',
-      startDate: format(currentDate, 'yyyy-MM-dd'),
+      startDate: format(date ?? currentDate, 'yyyy-MM-dd'),
       startTime: '',
       endDate: '',
       endTime: '',
@@ -137,25 +206,15 @@ export function CalendarPage() {
   }, [qc]);
 
   const handleMutationError = (action: string, error: Error) => {
-    toast({
-      variant: 'destructive',
-      title: `Failed to ${action}`,
-      description: error.message || 'Please try again.',
-    });
+    toast({ variant: 'destructive', title: `Failed to ${action}`, description: error.message || 'Please try again.' });
     setIsSaving(false);
   };
 
-  // Keep a stable ref so the auto-sync interval can call the latest version
   const syncRef = useRef<(() => void) | null>(null);
 
   const onSubmit = (data: EventFormValues) => {
     setIsSaving(true);
-    const payload = {
-      ...data,
-      endDate: data.endDate || data.startDate,
-      color: editingEvent?.color || DEFAULT_COLOR,
-    };
-
+    const payload = { ...data, endDate: data.endDate || data.startDate, color: editingEvent?.color || DEFAULT_COLOR };
     const googleEventId = editingEvent?.googleEventId ?? undefined;
 
     if (editingEvent) {
@@ -167,28 +226,20 @@ export function CalendarPage() {
               updateEvent.mutate(
                 { id: editingEvent.id, data: payload },
                 {
-                  onSuccess: () => {
-                    invalidateCalendar();
-                    setDialogOpen(false);
-                    setIsSaving(false);
-                  },
-                  onError: (error) => handleMutationError('update local event', error),
+                  onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
+                  onError: (e) => handleMutationError('update local event', e),
                 },
               );
             },
-            onError: (error) => handleMutationError('update Google Calendar event', error),
+            onError: (e) => handleMutationError('update Google Calendar event', e),
           },
         );
       } else {
         updateEvent.mutate(
           { id: editingEvent.id, data: payload },
           {
-            onSuccess: () => {
-              invalidateCalendar();
-              setDialogOpen(false);
-              setIsSaving(false);
-            },
-            onError: (error) => handleMutationError('update event', error),
+            onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
+            onError: (e) => handleMutationError('update event', e),
           },
         );
       }
@@ -200,28 +251,20 @@ export function CalendarPage() {
             createEvent.mutate(
               { data: { ...payload, googleEventId: created.googleEventId } },
               {
-                onSuccess: () => {
-                  invalidateCalendar();
-                  setDialogOpen(false);
-                  setIsSaving(false);
-                },
-                onError: (error) => handleMutationError('save local event', error),
+                onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
+                onError: (e) => handleMutationError('save local event', e),
               },
             );
           },
-          onError: (error) => handleMutationError('create Google Calendar event', error),
+          onError: (e) => handleMutationError('create Google Calendar event', e),
         },
       );
     } else {
       createEvent.mutate(
         { data: payload },
         {
-          onSuccess: () => {
-            invalidateCalendar();
-            setDialogOpen(false);
-            setIsSaving(false);
-          },
-          onError: (error) => handleMutationError('create event', error),
+          onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
+          onError: (e) => handleMutationError('create event', e),
         },
       );
     }
@@ -229,33 +272,25 @@ export function CalendarPage() {
 
   const handleDelete = (event: Event) => {
     if (!confirm('Delete this event?')) return;
-
     const googleEventId = event.googleEventId ?? undefined;
-
     if (googleEventId && calendarConnected) {
       deleteGoogleEvent.mutate(
         { eventId: googleEventId, data: { calendarId: 'primary' } },
         {
           onSuccess: () => {
-            deleteEvent.mutate(
-              { id: event.id },
-              {
-                onSuccess: () => invalidateCalendar(),
-                onError: (error) => handleMutationError('delete local event', error),
-              },
-            );
+            deleteEvent.mutate({ id: event.id }, {
+              onSuccess: () => invalidateCalendar(),
+              onError: (e) => handleMutationError('delete local event', e),
+            });
           },
-          onError: (error) => handleMutationError('delete Google Calendar event', error),
+          onError: (e) => handleMutationError('delete Google Calendar event', e),
         },
       );
     } else {
-      deleteEvent.mutate(
-        { id: event.id },
-        {
-          onSuccess: () => invalidateCalendar(),
-          onError: (error) => handleMutationError('delete event', error),
-        },
-      );
+      deleteEvent.mutate({ id: event.id }, {
+        onSuccess: () => invalidateCalendar(),
+        onError: (e) => handleMutationError('delete event', e),
+      });
     }
   };
 
@@ -265,33 +300,21 @@ export function CalendarPage() {
     syncGoogleCalendar.mutate(
       { data: { from: start, to: end } },
       {
-        onSuccess: () => {
-          invalidateCalendar();
-          setLastSyncedAt(new Date());
-        },
-        onError: (error) => handleMutationError('sync Google Calendar', error),
+        onSuccess: () => { invalidateCalendar(); setLastSyncedAt(new Date()); },
+        onError: (e) => handleMutationError('sync Google Calendar', e),
       },
     );
   }, [syncGoogleCalendar, invalidateCalendar]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep ref in sync so the interval always sees the latest handler
   syncRef.current = handleSync;
 
-  // Auto-sync on mount + every 5 minutes while the page is open
   useEffect(() => {
     if (!calendarConnected) return;
-
-    // Run immediately on mount (or when connection becomes available)
     syncRef.current?.();
-
-    const id = setInterval(() => {
-      syncRef.current?.();
-    }, AUTO_SYNC_INTERVAL_MS);
-
+    const id = setInterval(() => syncRef.current?.(), AUTO_SYNC_INTERVAL_MS);
     return () => clearInterval(id);
   }, [calendarConnected]);
 
-  // Refresh the "X minutes ago" label every 30 s
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(id);
@@ -310,22 +333,35 @@ export function CalendarPage() {
     }
   }, [toast, refetchGoogleStatus, invalidateCalendar, setLocation]);
 
-  const sortedEvents = events?.slice().sort((a, b) => {
-    const aStr = `${a.startDate}T${a.startTime || '00:00'}`;
-    const bStr = `${b.startDate}T${b.startTime || '00:00'}`;
-    return aStr.localeCompare(bStr);
-  });
+  // ── Shape data for child components ───────────────────────────────────────
+  const habitItems = habits.map((h) => ({
+    id: h.id,
+    name: h.name,
+    color: h.color,
+    completedToday: h.completedToday ?? false,
+  }));
 
+  const planItems = allPlans.map((p) => ({
+    id: p.id,
+    date: p.date,
+    title: p.title,
+    completed: p.completed,
+    priority: p.priority,
+  }));
+
+  // Filter plans to current view range for child components
+  const visiblePlans = planItems.filter((p) => p.date >= from && p.date <= to);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <PageTransition className="space-y-8 max-w-5xl mx-auto pb-10">
-      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <PageTransition className="flex flex-col h-full max-w-6xl mx-auto pb-4 gap-0">
+      {/* ── Page header ─────────────────────────────────────────────────── */}
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-4 shrink-0">
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Family Calendar</h1>
-          <p className="text-muted-foreground mt-2 text-lg">
-            Local events and synced Google Calendar in one view.
-          </p>
+          <p className="text-muted-foreground mt-1 text-base">Local events and synced Google Calendar in one view.</p>
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-col items-end gap-2 shrink-0">
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -337,7 +373,7 @@ export function CalendarPage() {
               <RefreshCw className={cn('h-4 w-4 mr-2', syncGoogleCalendar.isPending && 'animate-spin')} />
               {calendarConnected ? 'Sync Google' : 'Google not connected'}
             </Button>
-            <Button onClick={openAdd} className="shrink-0" data-testid="button-add-event">
+            <Button onClick={() => openAdd()} className="shrink-0" data-testid="button-add-event">
               <Plus className="h-4 w-4 mr-2" /> Add Event
             </Button>
           </div>
@@ -353,59 +389,90 @@ export function CalendarPage() {
         </div>
       </header>
 
-      <div className="flex items-center justify-between">
+      {/* ── Calendar toolbar ─────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-3 shrink-0 gap-3 flex-wrap">
+        {/* Prev / label / Next */}
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setCurrentDate(subMonths(currentDate, 1))}>
+          <Button variant="outline" size="icon" onClick={() => setCurrentDate((d) => navigatePrev(d, view))}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <h2 className="text-xl font-display font-semibold min-w-[160px] text-center">
-            {format(currentDate, 'MMMM yyyy')}
+          <h2 className="text-lg font-display font-semibold min-w-[200px] text-center">
+            {headerLabel(currentDate, view)}
           </h2>
-          <Button variant="outline" size="icon" onClick={() => setCurrentDate(addMonths(currentDate, 1))}>
+          <Button variant="outline" size="icon" onClick={() => setCurrentDate((d) => navigateNext(d, view))}>
             <ChevronRight className="h-4 w-4" />
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentDate(new Date())}
+            className="text-xs text-muted-foreground ml-1"
+          >
+            Today
+          </Button>
+        </div>
+
+        {/* View switcher */}
+        <div className="flex items-center rounded-lg border border-border overflow-hidden">
+          {(['month', 'week', 'day'] as CalendarView[]).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={cn(
+                'px-3 py-1.5 text-sm font-medium capitalize transition-colors',
+                view === v
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+            >
+              {v}
+            </button>
+          ))}
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-3">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-20 bg-card rounded-xl animate-pulse" />
-          ))}
-        </div>
-      ) : sortedEvents && sortedEvents.length > 0 ? (
-        <div className="space-y-3">
-          {sortedEvents.map((event) => (
-            <EventCard
-              key={event.id}
-              event={event}
-              onEdit={() => openEdit(event)}
-              onDelete={() => handleDelete(event)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-20 bg-card/50 rounded-2xl border border-dashed border-border/60 backdrop-blur-sm">
-          <div className="h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CalendarIcon className="h-8 w-8 text-primary" />
+      {/* ── Calendar body ────────────────────────────────────────────────── */}
+      <div className="flex-1 min-h-0 border border-border/50 rounded-xl overflow-hidden bg-card/30">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="space-y-3 w-full p-6">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-16 bg-card rounded-xl animate-pulse" />
+              ))}
+            </div>
           </div>
-          <h2 className="text-xl font-display font-semibold mb-2">No events this month</h2>
-          <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-            Add events manually or sync with Google Calendar.
-          </p>
-          <div className="flex justify-center gap-2">
-            {calendarConnected && (
-              <Button variant="outline" onClick={handleSync}>
-                <RefreshCw className="h-4 w-4 mr-2" /> Sync Google Calendar
-              </Button>
-            )}
-            <Button onClick={openAdd}>
-              <Plus className="h-4 w-4 mr-2" /> Add Event
-            </Button>
-          </div>
-        </div>
-      )}
+        ) : events.length === 0 && view === 'month' ? (
+          <EmptyState calendarConnected={calendarConnected} onSync={handleSync} onAdd={() => openAdd()} isPending={syncGoogleCalendar.isPending} />
+        ) : view === 'month' ? (
+          <MonthGrid
+            currentDate={currentDate}
+            events={events}
+            plans={visiblePlans}
+            habits={habitItems}
+            todayStr={todayStr}
+            onEventClick={openEdit}
+            onDayClick={(day) => { setCurrentDate(day); setView('day'); }}
+          />
+        ) : view === 'week' ? (
+          <WeekGrid
+            currentDate={currentDate}
+            events={events}
+            plans={visiblePlans}
+            todayStr={todayStr}
+            onEventClick={openEdit}
+          />
+        ) : (
+          <DayGrid
+            currentDate={currentDate}
+            events={events}
+            plans={visiblePlans}
+            todayStr={todayStr}
+            onEventClick={openEdit}
+          />
+        )}
+      </div>
 
+      {/* ── CRUD dialog ─────────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
@@ -451,10 +518,22 @@ export function CalendarPage() {
               <input id="allDay" type="checkbox" {...form.register('allDay')} className="accent-primary" />
               <Label htmlFor="allDay" className="mb-0">All day event</Label>
             </div>
+
+            {/* Delete button for existing events */}
+            {editingEvent && (
+              <div className="pt-2 border-t border-border/50">
+                <button
+                  type="button"
+                  onClick={() => { setDialogOpen(false); handleDelete(editingEvent); }}
+                  className="text-sm text-destructive hover:underline"
+                >
+                  Delete this event
+                </button>
+              </div>
+            )}
+
             <DialogFooter className="pt-4">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancel
-              </Button>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={isSaving}>
                 {isSaving ? 'Saving...' : editingEvent ? 'Save Changes' : 'Create Event'}
               </Button>
@@ -466,63 +545,39 @@ export function CalendarPage() {
   );
 }
 
-function EventCard({
-  event,
-  onEdit,
-  onDelete,
+// ─── Empty state ─────────────────────────────────────────────────────────────
+function EmptyState({
+  calendarConnected,
+  onSync,
+  onAdd,
+  isPending,
 }: {
-  event: Event;
-  onEdit: () => void;
-  onDelete: () => void;
+  calendarConnected: boolean;
+  onSync: () => void;
+  onAdd: () => void;
+  isPending: boolean;
 }) {
-  const isGoogle = !!event.googleEventId;
   return (
-    <Card className="group bg-card/40 hover:bg-card/60 border-border transition-colors">
-      <CardContent className="p-4 flex items-start gap-4">
-        <div
-          className="h-12 w-12 rounded-xl flex flex-col items-center justify-center border border-white/10 shrink-0"
-          style={{ backgroundColor: event.color || 'hsl(var(--primary))' }}
-        >
-          <span className="text-xs font-bold uppercase text-white/90">{format(new Date(event.startDate), 'MMM')}</span>
-          <span className="text-lg font-bold leading-none text-white">{format(new Date(event.startDate), 'd')}</span>
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center py-16">
+        <div className="h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+          <CalendarIcon className="h-8 w-8 text-primary" />
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-medium truncate">{event.title}</h3>
-            {isGoogle && (
-              <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
-                <Link2 className="h-3 w-3" /> Google
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
-            {event.allDay ? (
-              <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> All day</span>
-            ) : (
-              <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {event.startTime || '—'} {event.endTime ? `– ${event.endTime}` : ''}</span>
-            )}
-            {event.location && (
-              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {event.location}</span>
-            )}
-          </div>
-          {event.description && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{event.description}</p>}
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-              <MoreVertical className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-xl font-display font-semibold mb-2">No events this period</h2>
+        <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+          Add events manually or sync with Google Calendar.
+        </p>
+        <div className="flex justify-center gap-2">
+          {calendarConnected && (
+            <Button variant="outline" onClick={onSync} disabled={isPending}>
+              <RefreshCw className={cn('h-4 w-4 mr-2', isPending && 'animate-spin')} /> Sync Google Calendar
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem onClick={onEdit}>
-              <Edit2 className="h-4 w-4 mr-2" /> Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-              <Trash2 className="h-4 w-4 mr-2" /> Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </CardContent>
-    </Card>
+          )}
+          <Button onClick={onAdd}>
+            <Plus className="h-4 w-4 mr-2" /> Add Event
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
