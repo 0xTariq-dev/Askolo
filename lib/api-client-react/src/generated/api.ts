@@ -63,6 +63,7 @@ import type {
   ListActionItemsParams,
   ListDailyPlansParams,
   ListEventsParams,
+  ListHabitCompletionsParams,
   LogoutBrowserSessionParams,
   LogoutSuccess,
   MeetingExtractBody,
@@ -798,6 +799,90 @@ export const useCreateHabit = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateHabitMutationOptions(options));
     }
+
+export const getListHabitCompletionsUrl = (params?: ListHabitCompletionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/habits/completions?${stringifiedParams}` : `/api/habits/completions`
+}
+
+/**
+ * @summary Get all habit completions for the current user within a date range
+ */
+export const listHabitCompletions = async (params?: ListHabitCompletionsParams, options?: RequestInit): Promise<HabitCompletion[]> => {
+
+  return customFetch<HabitCompletion[]>(getListHabitCompletionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListHabitCompletionsQueryKey = (params?: ListHabitCompletionsParams,) => {
+    return [
+    `/api/habits/completions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListHabitCompletionsQueryOptions = <TData = Awaited<ReturnType<typeof listHabitCompletions>>, TError = ErrorType<unknown>>(params?: ListHabitCompletionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listHabitCompletions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListHabitCompletionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listHabitCompletions>>> = ({ signal }) => listHabitCompletions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listHabitCompletions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListHabitCompletionsQueryResult = NonNullable<Awaited<ReturnType<typeof listHabitCompletions>>>
+export type ListHabitCompletionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get all habit completions for the current user within a date range
+ */
+
+export function useListHabitCompletions<TData = Awaited<ReturnType<typeof listHabitCompletions>>, TError = ErrorType<unknown>>(
+ params?: ListHabitCompletionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listHabitCompletions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListHabitCompletionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetHabitUrl = (id: number,) => {
 

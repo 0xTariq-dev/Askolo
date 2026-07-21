@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, lte } from "drizzle-orm";
 import { db, habitsTable, habitCompletionsTable } from "@workspace/db";
 import {
   CreateHabitBody,
@@ -11,6 +11,7 @@ import {
   CompleteHabitParams,
   CompleteHabitBody,
   UncompleteHabitParams,
+  ListHabitCompletionsQueryParams,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -110,6 +111,34 @@ router.post("/habits", async (req, res): Promise<void> => {
     .values({ ...parsed.data, userId: req.dbUser.id })
     .returning();
   res.status(201).json({ ...habit, completedToday: false });
+});
+
+// GET /habits/completions — bulk completions for all user habits within a date range
+// NOTE: must be registered BEFORE /habits/:id so "completions" is not parsed as an id
+router.get("/habits/completions", async (req, res): Promise<void> => {
+  const query = ListHabitCompletionsQueryParams.safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: query.error.message });
+    return;
+  }
+
+  const conditions = [eq(habitsTable.userId, req.dbUser.id)];
+  if (query.data.from) conditions.push(gte(habitCompletionsTable.date, query.data.from));
+  if (query.data.to) conditions.push(lte(habitCompletionsTable.date, query.data.to));
+
+  const completions = await db
+    .select({
+      id: habitCompletionsTable.id,
+      habitId: habitCompletionsTable.habitId,
+      date: habitCompletionsTable.date,
+      createdAt: habitCompletionsTable.createdAt,
+    })
+    .from(habitCompletionsTable)
+    .innerJoin(habitsTable, eq(habitCompletionsTable.habitId, habitsTable.id))
+    .where(and(...conditions))
+    .orderBy(habitCompletionsTable.date);
+
+  res.json(completions);
 });
 
 // GET /habits/:id

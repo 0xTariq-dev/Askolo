@@ -158,6 +158,23 @@ export const CreateHabitResponse = zod.object({
 
 
 /**
+ * @summary Get all habit completions for the current user within a date range
+ */
+export const ListHabitCompletionsQueryParams = zod.object({
+  "from": zod.coerce.string().optional(),
+  "to": zod.coerce.string().optional()
+})
+
+export const ListHabitCompletionsResponseItem = zod.object({
+  "id": zod.number(),
+  "habitId": zod.number(),
+  "date": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListHabitCompletionsResponse = zod.array(ListHabitCompletionsResponseItem)
+
+
+/**
  * @summary Get a habit by ID
  */
 export const GetHabitParams = zod.object({

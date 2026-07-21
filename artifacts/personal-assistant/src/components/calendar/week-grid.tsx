@@ -1,10 +1,10 @@
 import { useRef, useEffect } from 'react';
-import { format, eachDayOfInterval, startOfWeek, endOfWeek, isToday } from 'date-fns';
+import { format, eachDayOfInterval, startOfWeek, endOfWeek } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { EventChip } from './event-chip';
 import { layoutEvents } from './types';
 import type { Event } from '@workspace/api-client-react';
-import type { DailyPlan } from './types';
+import type { DailyPlan, Habit } from './types';
 
 const PX_PER_HOUR = 64;
 const TOTAL_HEIGHT = PX_PER_HOUR * 24;
@@ -14,33 +14,40 @@ interface WeekGridProps {
   currentDate: Date;
   events: Event[];
   plans: DailyPlan[];
+  habits: Habit[];
+  completionsByDate: Map<string, Set<number>>;
   todayStr: string;
   onEventClick: (event: Event) => void;
 }
 
-export function WeekGrid({ currentDate, events, plans, todayStr, onEventClick }: WeekGridProps) {
+export function WeekGrid({
+  currentDate,
+  events,
+  plans,
+  habits,
+  completionsByDate,
+  todayStr,
+  onEventClick,
+}: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-  // Scroll to 8am on mount
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = PX_PER_HOUR * 7;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = PX_PER_HOUR * 7;
   }, []);
 
-  // Current time indicator
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const nowTop = (nowMinutes / 60) * PX_PER_HOUR;
+  const hasHabits = habits.length > 0;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Day headers */}
       <div className="flex border-b border-border/50 shrink-0">
-        <div className="w-14 shrink-0" /> {/* time gutter */}
+        <div className="w-14 shrink-0" />
         {days.map((day) => {
           const dateStr = format(day, 'yyyy-MM-dd');
           const isTodayCell = dateStr === todayStr;
@@ -49,7 +56,8 @@ export function WeekGrid({ currentDate, events, plans, todayStr, onEventClick }:
             return e.allDay && e.startDate <= dateStr && end >= dateStr;
           });
           const dayPlans = plans.filter((p) => p.date === dateStr);
-          const hasAllDay = dayAllDay.length > 0 || dayPlans.length > 0;
+          const completed = completionsByDate.get(dateStr) ?? new Set<number>();
+          const hasAllDayContent = dayAllDay.length > 0 || dayPlans.length > 0 || hasHabits;
 
           return (
             <div key={dateStr} className="flex-1 min-w-0 border-l border-border/30">
@@ -65,8 +73,9 @@ export function WeekGrid({ currentDate, events, plans, todayStr, onEventClick }:
                   {format(day, 'd')}
                 </span>
               </div>
-              {/* All-day strip */}
-              {hasAllDay && (
+
+              {/* All-day + habit strip */}
+              {hasAllDayContent && (
                 <div className="px-1 pb-1 space-y-0.5 border-t border-border/30">
                   {dayAllDay.map((e) => (
                     <EventChip key={e.id} event={e} onClick={() => onEventClick(e)} />
@@ -84,6 +93,22 @@ export function WeekGrid({ currentDate, events, plans, todayStr, onEventClick }:
                       {p.title}
                     </div>
                   ))}
+                  {/* Habit dots */}
+                  {hasHabits && (
+                    <div className="flex items-center gap-0.5 pt-0.5 flex-wrap">
+                      {habits.slice(0, 6).map((h) => {
+                        const done = completed.has(h.id);
+                        return (
+                          <div
+                            key={h.id}
+                            className={cn('h-1.5 w-1.5 rounded-full shrink-0', done ? 'opacity-100' : 'opacity-20')}
+                            style={{ backgroundColor: h.color || '#3b82f6' }}
+                            title={`${h.name}${done ? ' ✓' : ''}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -115,9 +140,7 @@ export function WeekGrid({ currentDate, events, plans, todayStr, onEventClick }:
           {days.map((day) => {
             const dateStr = format(day, 'yyyy-MM-dd');
             const isTodayCell = dateStr === todayStr;
-            const dayEvents = events.filter(
-              (e) => !e.allDay && e.startDate === dateStr && e.startTime,
-            );
+            const dayEvents = events.filter((e) => !e.allDay && e.startDate === dateStr && e.startTime);
             const positioned = layoutEvents(dayEvents);
 
             return (
@@ -125,15 +148,9 @@ export function WeekGrid({ currentDate, events, plans, todayStr, onEventClick }:
                 key={dateStr}
                 className={cn('flex-1 min-w-0 relative border-l border-border/30', isTodayCell && 'bg-primary/3')}
               >
-                {/* Hour lines */}
                 {HOURS.map((h) => (
-                  <div
-                    key={h}
-                    className="absolute left-0 right-0 border-t border-border/20"
-                    style={{ top: h * PX_PER_HOUR }}
-                  />
+                  <div key={h} className="absolute left-0 right-0 border-t border-border/20" style={{ top: h * PX_PER_HOUR }} />
                 ))}
-                {/* Half-hour lines */}
                 {HOURS.map((h) => (
                   <div
                     key={`${h}-half`}
@@ -142,18 +159,13 @@ export function WeekGrid({ currentDate, events, plans, todayStr, onEventClick }:
                   />
                 ))}
 
-                {/* Current time indicator */}
                 {isTodayCell && (
-                  <div
-                    className="absolute left-0 right-0 z-10 flex items-center"
-                    style={{ top: nowTop }}
-                  >
+                  <div className="absolute left-0 right-0 z-10 flex items-center" style={{ top: nowTop }}>
                     <div className="h-2 w-2 rounded-full bg-primary -ml-1 shrink-0" />
                     <div className="flex-1 h-px bg-primary" />
                   </div>
                 )}
 
-                {/* Timed events */}
                 {positioned.map(({ event, startMinute, endMinute, column, totalColumns }) => {
                   const colW = 100 / totalColumns;
                   return (

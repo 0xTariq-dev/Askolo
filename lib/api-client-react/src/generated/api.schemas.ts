@@ -720,6 +720,17 @@ export type LogoutBrowserSessionParams = {
 returnTo?: string;
 };
 
+export type ListHabitCompletionsParams = {
+/**
+ * Start date (yyyy-MM-dd), inclusive
+ */
+from?: string;
+/**
+ * End date (yyyy-MM-dd), inclusive
+ */
+to?: string;
+};
+
 export type ListDailyPlansParams = {
 date?: string;
 };

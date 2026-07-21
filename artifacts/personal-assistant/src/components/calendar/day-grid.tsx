@@ -1,10 +1,10 @@
 import { useRef, useEffect } from 'react';
-import { format, isToday } from 'date-fns';
+import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { EventChip } from './event-chip';
 import { layoutEvents } from './types';
 import type { Event } from '@workspace/api-client-react';
-import type { DailyPlan } from './types';
+import type { DailyPlan, Habit } from './types';
 
 const PX_PER_HOUR = 64;
 const TOTAL_HEIGHT = PX_PER_HOUR * 24;
@@ -14,25 +14,31 @@ interface DayGridProps {
   currentDate: Date;
   events: Event[];
   plans: DailyPlan[];
+  habits: Habit[];
+  completionsByDate: Map<string, Set<number>>;
   todayStr: string;
   onEventClick: (event: Event) => void;
 }
 
-export function DayGrid({ currentDate, events, plans, todayStr, onEventClick }: DayGridProps) {
+export function DayGrid({
+  currentDate,
+  events,
+  plans,
+  habits,
+  completionsByDate,
+  todayStr,
+  onEventClick,
+}: DayGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const dateStr = format(currentDate, 'yyyy-MM-dd');
   const isTodayCell = dateStr === todayStr;
 
-  // Scroll to 8am on mount
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = PX_PER_HOUR * 7;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = PX_PER_HOUR * 7;
   }, []);
 
   const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const nowTop = (nowMinutes / 60) * PX_PER_HOUR;
+  const nowTop = ((now.getHours() * 60 + now.getMinutes()) / 60) * PX_PER_HOUR;
 
   const allDayEvents = events.filter((e) => {
     const end = e.endDate || e.startDate;
@@ -41,16 +47,16 @@ export function DayGrid({ currentDate, events, plans, todayStr, onEventClick }: 
   const dayPlans = plans.filter((p) => p.date === dateStr);
   const timedEvents = events.filter((e) => !e.allDay && e.startDate === dateStr && e.startTime);
   const positioned = layoutEvents(timedEvents);
-  const hasAllDay = allDayEvents.length > 0 || dayPlans.length > 0;
+
+  const completed = completionsByDate.get(dateStr) ?? new Set<number>();
+  const hasHabits = habits.length > 0;
+  const hasAllDay = allDayEvents.length > 0 || dayPlans.length > 0 || hasHabits;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Day header */}
       <div
-        className={cn(
-          'flex items-center gap-3 px-4 py-3 border-b border-border/50 shrink-0',
-          isTodayCell && 'text-primary',
-        )}
+        className={cn('flex items-center gap-3 px-4 py-3 border-b border-border/50 shrink-0', isTodayCell && 'text-primary')}
       >
         <div
           className={cn(
@@ -66,7 +72,7 @@ export function DayGrid({ currentDate, events, plans, todayStr, onEventClick }: 
         </div>
       </div>
 
-      {/* All-day strip */}
+      {/* All-day + habit strip */}
       {hasAllDay && (
         <div className="px-4 py-2 border-b border-border/40 space-y-1">
           <p className="text-xs text-muted-foreground mb-1">All day</p>
@@ -86,6 +92,29 @@ export function DayGrid({ currentDate, events, plans, todayStr, onEventClick }: 
               {p.completed ? <s className="opacity-60">{p.title}</s> : p.title}
             </div>
           ))}
+          {/* Habit dots */}
+          {hasHabits && (
+            <div className="flex items-center gap-1 flex-wrap pt-1">
+              {habits.map((h) => {
+                const done = completed.has(h.id);
+                return (
+                  <div
+                    key={h.id}
+                    className="flex items-center gap-1"
+                    title={`${h.name}${done ? ' ✓' : ''}`}
+                  >
+                    <div
+                      className={cn('h-2 w-2 rounded-full shrink-0', done ? 'opacity-100' : 'opacity-25')}
+                      style={{ backgroundColor: h.color || '#3b82f6' }}
+                    />
+                    <span className={cn('text-xs', done ? 'text-foreground' : 'text-muted-foreground/50 line-through')}>
+                      {h.name}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -111,13 +140,8 @@ export function DayGrid({ currentDate, events, plans, todayStr, onEventClick }: 
 
           {/* Single day column */}
           <div className="flex-1 relative">
-            {/* Hour lines */}
             {HOURS.map((h) => (
-              <div
-                key={h}
-                className="absolute left-0 right-0 border-t border-border/25"
-                style={{ top: h * PX_PER_HOUR }}
-              />
+              <div key={h} className="absolute left-0 right-0 border-t border-border/25" style={{ top: h * PX_PER_HOUR }} />
             ))}
             {HOURS.map((h) => (
               <div
@@ -127,18 +151,13 @@ export function DayGrid({ currentDate, events, plans, todayStr, onEventClick }: 
               />
             ))}
 
-            {/* Current time indicator */}
             {isTodayCell && (
-              <div
-                className="absolute left-0 right-0 z-10 flex items-center"
-                style={{ top: nowTop }}
-              >
+              <div className="absolute left-0 right-0 z-10 flex items-center" style={{ top: nowTop }}>
                 <div className="h-2 w-2 rounded-full bg-primary -ml-1 shrink-0" />
                 <div className="flex-1 h-px bg-primary" />
               </div>
             )}
 
-            {/* Timed events */}
             {positioned.map(({ event, startMinute, endMinute, column, totalColumns }) => {
               const colW = 100 / totalColumns;
               return (

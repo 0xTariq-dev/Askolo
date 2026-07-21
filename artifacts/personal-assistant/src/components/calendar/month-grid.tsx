@@ -1,4 +1,4 @@
-import { format, isSameMonth, isToday, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, isSameMonth, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { EventChip } from './event-chip';
 import type { Event } from '@workspace/api-client-react';
@@ -6,27 +6,39 @@ import type { DailyPlan, Habit } from './types';
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MAX_CHIPS = 3;
+const MAX_HABIT_DOTS = 6;
 
 interface MonthGridProps {
   currentDate: Date;
   events: Event[];
   plans: DailyPlan[];
   habits: Habit[];
+  completionsByDate: Map<string, Set<number>>;
   todayStr: string;
   onEventClick: (event: Event) => void;
   onDayClick: (date: Date) => void;
 }
 
-export function MonthGrid({ currentDate, events, plans, habits, todayStr, onEventClick, onDayClick }: MonthGridProps) {
+export function MonthGrid({
+  currentDate,
+  events,
+  plans,
+  habits,
+  completionsByDate,
+  todayStr,
+  onEventClick,
+  onDayClick,
+}: MonthGridProps) {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
   const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
   const cells = eachDayOfInterval({ start: gridStart, end: gridEnd });
+  const hasHabits = habits.length > 0;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Day of week header */}
+      {/* Day-of-week header */}
       <div className="grid grid-cols-7 border-b border-border/50">
         {WEEK_DAYS.map((d) => (
           <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">
@@ -42,24 +54,23 @@ export function MonthGrid({ currentDate, events, plans, habits, todayStr, onEven
           const isCurrentMonth = isSameMonth(day, currentDate);
           const isTodayCell = dateStr === todayStr;
 
-          // Events that start or span this day
+          // Events spanning this day
           const dayEvents = events.filter((e) => {
             const end = e.endDate || e.startDate;
             return e.startDate <= dateStr && end >= dateStr;
           });
           const allDayEvents = dayEvents.filter((e) => e.allDay);
-          const timedEvents = dayEvents.filter((e) => !e.allDay).sort((a, b) =>
-            (a.startTime || '00:00').localeCompare(b.startTime || '00:00'),
-          );
+          const timedEvents = dayEvents
+            .filter((e) => !e.allDay)
+            .sort((a, b) => (a.startTime || '00:00').localeCompare(b.startTime || '00:00'));
           const orderedEvents = [...allDayEvents, ...timedEvents];
           const visible = orderedEvents.slice(0, MAX_CHIPS);
           const overflow = orderedEvents.length - MAX_CHIPS;
 
-          // Daily plan items for this day
           const dayPlans = plans.filter((p) => p.date === dateStr);
 
-          // Habit indicators (only meaningful for today — show completion status)
-          const showHabits = isTodayCell && habits.length > 0;
+          // Habit completion dots — all days
+          const completed = completionsByDate.get(dateStr) ?? new Set<number>();
 
           return (
             <div
@@ -99,17 +110,23 @@ export function MonthGrid({ currentDate, events, plans, habits, todayStr, onEven
                 )}
               </div>
 
-              {/* Habit dots (today only) */}
-              {showHabits && (
+              {/* Habit completion dots */}
+              {hasHabits && (
                 <div className="flex items-center gap-0.5 mt-auto pt-0.5 flex-wrap">
-                  {habits.slice(0, 6).map((h) => (
-                    <div
-                      key={h.id}
-                      className={cn('h-1.5 w-1.5 rounded-full shrink-0', h.completedToday ? 'opacity-100' : 'opacity-30')}
-                      style={{ backgroundColor: h.color || '#3b82f6' }}
-                      title={`${h.name}${h.completedToday ? ' ✓' : ''}`}
-                    />
-                  ))}
+                  {habits.slice(0, MAX_HABIT_DOTS).map((h) => {
+                    const done = completed.has(h.id);
+                    return (
+                      <div
+                        key={h.id}
+                        className={cn(
+                          'h-1.5 w-1.5 rounded-full shrink-0 transition-opacity',
+                          done ? 'opacity-100' : 'opacity-20',
+                        )}
+                        style={{ backgroundColor: h.color || '#3b82f6' }}
+                        title={`${h.name}${done ? ' ✓' : ''}`}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -121,11 +138,16 @@ export function MonthGrid({ currentDate, events, plans, habits, todayStr, onEven
 }
 
 function PlanChip({ plan }: { plan: DailyPlan }) {
-  const priorityColor = plan.priority === 'high' ? '#ef4444' : plan.priority === 'medium' ? '#f59e0b' : '#6b7280';
+  const priorityColor =
+    plan.priority === 'high' ? '#ef4444' : plan.priority === 'medium' ? '#f59e0b' : '#6b7280';
   return (
     <div
       className="w-full text-left text-xs px-1.5 py-0.5 rounded truncate"
-      style={{ backgroundColor: priorityColor + '20', color: priorityColor, borderLeft: `2px solid ${priorityColor}` }}
+      style={{
+        backgroundColor: priorityColor + '20',
+        color: priorityColor,
+        borderLeft: `2px solid ${priorityColor}`,
+      }}
       title={plan.title}
     >
       {plan.completed ? <s className="opacity-60">{plan.title}</s> : plan.title}

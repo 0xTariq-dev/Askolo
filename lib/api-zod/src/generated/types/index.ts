@@ -75,6 +75,7 @@ export * from './healthStatus';
 export * from './listActionItemsParams';
 export * from './listDailyPlansParams';
 export * from './listEventsParams';
+export * from './listHabitCompletionsParams';
 export * from './logoutBrowserSessionParams';
 export * from './logoutSuccess';
 export * from './meetingExtractActionItem';

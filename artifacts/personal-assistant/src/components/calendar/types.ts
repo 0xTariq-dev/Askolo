@@ -14,7 +14,6 @@ export interface Habit {
   id: number;
   name: string;
   color: string | null | undefined;
-  completedToday: boolean; // treat undefined as false
 }
 
 /** An event with computed layout columns for overlap resolution */

@@ -36,6 +36,7 @@ import {
   useDeleteGoogleCalendarEvent,
   useListHabits,
   useListDailyPlans,
+  useListHabitCompletions,
   getListEventsQueryKey,
   getGetDashboardSummaryQueryKey,
   type Event,
@@ -143,6 +144,7 @@ export function CalendarPage() {
   const { data: googleStatus, refetch: refetchGoogleStatus } = useGetGoogleStatus();
   const { data: habits = [] } = useListHabits();
   const { data: allPlans = [] } = useListDailyPlans();
+  const { data: rawCompletions = [] } = useListHabitCompletions({ from, to });
 
   const calendarConnected = googleStatus?.calendarConnected ?? false;
 
@@ -338,8 +340,14 @@ export function CalendarPage() {
     id: h.id,
     name: h.name,
     color: h.color,
-    completedToday: h.completedToday ?? false,
   }));
+
+  // Build completions lookup: dateStr → Set<habitId>
+  const completionsByDate = new Map<string, Set<number>>();
+  for (const c of rawCompletions) {
+    if (!completionsByDate.has(c.date)) completionsByDate.set(c.date, new Set());
+    completionsByDate.get(c.date)!.add(c.habitId);
+  }
 
   const planItems = allPlans.map((p) => ({
     id: p.id,
@@ -449,6 +457,7 @@ export function CalendarPage() {
             events={events}
             plans={visiblePlans}
             habits={habitItems}
+            completionsByDate={completionsByDate}
             todayStr={todayStr}
             onEventClick={openEdit}
             onDayClick={(day) => { setCurrentDate(day); setView('day'); }}
@@ -458,6 +467,8 @@ export function CalendarPage() {
             currentDate={currentDate}
             events={events}
             plans={visiblePlans}
+            habits={habitItems}
+            completionsByDate={completionsByDate}
             todayStr={todayStr}
             onEventClick={openEdit}
           />
@@ -466,6 +477,8 @@ export function CalendarPage() {
             currentDate={currentDate}
             events={events}
             plans={visiblePlans}
+            habits={habitItems}
+            completionsByDate={completionsByDate}
             todayStr={todayStr}
             onEventClick={openEdit}
           />
