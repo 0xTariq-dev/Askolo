@@ -126,12 +126,12 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-background relative">
           {children}
-          <footer className="mt-10 pt-6 border-t border-border/50 text-xs text-muted-foreground flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center">
-            <span>© {new Date().getFullYear()} Askolo</span>
-            <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
-            <Link href="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
-          </footer>
         </div>
+        <footer className="shrink-0 py-4 px-4 md:px-8 border-t border-border/50 text-xs text-muted-foreground flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center bg-background">
+          <span>© {new Date().getFullYear()} Askolo</span>
+          <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
+        </footer>
       </main>
 
       {/* Persistent AI assistant sidebar */}
