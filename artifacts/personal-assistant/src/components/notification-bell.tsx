@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Bell, Info, AlertTriangle, Zap, X, CheckCheck } from 'lucide-react';
+import { Bell, Info, AlertTriangle, Zap, X, CheckCheck, VolumeX } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { formatDistanceToNow } from 'date-fns';
 import { useNotifications, type AppNotification } from '@/contexts/notification-context';
@@ -14,7 +14,7 @@ function typeIcon(type: AppNotification['type']) {
 }
 
 export function NotificationBell({ className }: { className?: string }) {
-  const { notifications, unreadCount, markAllRead, clearAll, markRead } = useNotifications();
+  const { notifications, unreadCount, markAllRead, clearAll, markRead, suppressNotification } = useNotifications();
   const [, setLocation] = useLocation();
   const popoverOpenRef = useRef(false);
 
@@ -86,17 +86,29 @@ export function NotificationBell({ className }: { className?: string }) {
                     {n.title}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.body}</p>
-                  {n.action && (
-                    <button
-                      onClick={() => {
-                        markRead(n.id);
-                        setLocation(n.action!.href);
-                      }}
-                      className="mt-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                    >
-                      {n.action.label} →
-                    </button>
-                  )}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                    {n.action && (
+                      <button
+                        onClick={() => {
+                          markRead(n.id);
+                          setLocation(n.action!.href);
+                        }}
+                        className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                      >
+                        {n.action.label} →
+                      </button>
+                    )}
+                    {n.suppressKey && (
+                      <button
+                        onClick={() => {
+                          if (n.suppressKey) suppressNotification(n.id, n.suppressKey);
+                        }}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                      >
+                        <VolumeX className="h-3 w-3" /> Don't remind me
+                      </button>
+                    )}
+                  </div>
                   <p className="text-[10px] text-muted-foreground/60 mt-1">
                     {formatDistanceToNow(n.timestamp, { addSuffix: true })}
                   </p>

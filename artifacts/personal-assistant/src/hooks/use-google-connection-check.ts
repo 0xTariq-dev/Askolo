@@ -36,6 +36,7 @@ export function useGoogleConnectionCheck() {
         title: 'Google Calendar not connected',
         body: 'Connect Calendar on your Profile page to sync events and get smarter scheduling.',
         action: { label: 'Go to Profile', href: '/profile' },
+        suppressKey: 'google-connection:calendar',
       });
     }
     if (!data.gmailConnected) {
@@ -44,6 +45,7 @@ export function useGoogleConnectionCheck() {
         title: 'Gmail not connected',
         body: 'Connect Gmail on your Profile page to enable email triage and AI reply drafting.',
         action: { label: 'Go to Profile', href: '/profile' },
+        suppressKey: 'google-connection:gmail',
       });
     }
   }, [data, addNotification, alreadyInSession]);
