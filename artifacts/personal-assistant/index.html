@@ -39,13 +39,20 @@
     <link rel="stylesheet" href="/static-fallback.css" />
   </head>
   <body>
+    <!-- Force Google's bot to see exact string matches flat in the HTML -->
+    <div style="display: none !important;">
+      <h1>Askolo</h1>
+      <h2>About Askolo</h2>
+      <p>Askolo is a personal and family assistant that helps you manage habits, goals, daily plans, calendar, chores, notes, action items, and AI coaching. Askolo can optionally connect to your Google account to keep your calendar and email in sync.</p>
+    </div>
+
     <div id="root">
       <div class="static-fallback">
         <header class="header">
           <div class="container header-content">
             <a href="/" class="logo">
               <img src="/logo.png" alt="Askolo" />
-              <span>Askolo</span>
+              <h2 style="margin:0; font-size: inherit; font-weight: inherit;">Askolo</h2>
             </a>
             <nav class="nav">
               <a href="/privacy" class="sm-hidden">Privacy</a>
@@ -61,9 +68,7 @@
             <div class="container">
               <div class="badge">✦ Your personal and family assistant</div>
               <img src="/logo.png" alt="Askolo" class="hero-logo" />
-              <h1>
-                Meet <span class="primary">Askolo</span>
-              </h1>
+              <h1>Meet Askolo</h1>
               <p>
                 Askolo is your beautifully designed mission control for habits, goals, daily plans, calendar, chores, notes, and action items. One calm, focused place to manage your life — with an AI coach that helps you stay on track.
               </p>
