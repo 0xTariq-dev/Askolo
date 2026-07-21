@@ -17,7 +17,6 @@ import { CalendarPage } from '@/pages/calendar';
 import { ChoresPage } from '@/pages/chores';
 import { NotesPage } from '@/pages/notes';
 import { ActionsPage } from '@/pages/actions';
-import { AssistantPage } from '@/pages/assistant';
 import { EmailPage } from '@/pages/email';
 import { ProfilePage } from '@/pages/profile';
 import { PrivacyPage } from '@/pages/privacy';

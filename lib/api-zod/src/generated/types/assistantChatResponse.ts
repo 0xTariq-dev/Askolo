@@ -5,7 +5,9 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantNotification } from './assistantNotification';
 
 export interface AssistantChatResponse {
   message: string;
+  notification?: AssistantNotification;
 }

@@ -17,7 +17,6 @@ import {
   MapPin,
   Link2,
 } from 'lucide-react';
-import { ReconnectBanner } from '@/components/ui/reconnect-banner';
 import {
   useListEvents,
   useCreateEvent,
@@ -353,15 +352,6 @@ export function CalendarPage() {
           )}
         </div>
       </header>
-
-      {!calendarConnected && (
-        <ReconnectBanner
-          service="calendar"
-          onRefresh={() => refetchGoogleStatus()}
-          isRefreshing={isCheckingStatus}
-          connectUrl="/api/google/gmail/connect?redirectTo=%2Fcalendar&scope=calendar"
-        />
-      )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

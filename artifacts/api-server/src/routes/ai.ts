@@ -197,7 +197,11 @@ Context:
 - Active goals: ${goalSummary || "none set yet"}
 - Today's plan: ${planSummary || "nothing planned yet"}
 - Upcoming events (next 7 days): ${eventSummary || "no events"}
-- Recent emails: ${emailSummary || "no emails or Gmail not connected"}`;
+- Recent emails: ${emailSummary || "no emails or Gmail not connected"}
+
+NOTIFICATIONS: When you want to surface a reminder or important alert (e.g. an upcoming deadline, an overdue habit, or an important email), append a JSON block on its own line at the very end of your response using this exact format:
+[NOTIFY:{"type":"info","title":"Short title","body":"One-sentence explanation","action":{"label":"Button label","href":"/relevant-route"}}]
+The "action" field is optional. Valid types: "info", "warning", "action". Only emit a notification when there is something genuinely urgent or worth highlighting — not on every response.`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -209,8 +213,25 @@ Context:
       ],
     });
 
-    const message = response.choices[0]?.message?.content?.trim() ?? "";
-    res.json({ message });
+    let raw = response.choices[0]?.message?.content?.trim() ?? "";
+
+    // Parse optional notification block from end of response.
+    type NotificationPayload = {
+      type?: string;
+      title?: string;
+      body?: string;
+      action?: { label?: string; href?: string };
+    };
+    let notification: NotificationPayload | undefined;
+    const notifyMatch = raw.match(/\[NOTIFY:(\{.*?\})\]\s*$/s);
+    if (notifyMatch) {
+      try {
+        notification = JSON.parse(notifyMatch[1]);
+      } catch { /* ignore malformed blocks */ }
+      raw = raw.slice(0, notifyMatch.index).trim();
+    }
+
+    res.json({ message: raw, ...(notification ? { notification } : {}) });
   } catch (err) {
     req.log.error(err, "AI assistant chat failed");
     res.status(500).json({ error: "Failed to get assistant response" });

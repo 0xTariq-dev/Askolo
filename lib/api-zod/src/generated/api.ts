@@ -1119,7 +1119,16 @@ export const AssistantChatBody = zod.object({
 })
 
 export const AssistantChatResponse = zod.object({
-  "message": zod.string()
+  "message": zod.string(),
+  "notification": zod.object({
+  "type": zod.enum(['info', 'warning', 'action']).optional(),
+  "title": zod.string().optional(),
+  "body": zod.string().optional(),
+  "action": zod.object({
+  "label": zod.string().optional(),
+  "href": zod.string().optional()
+}).optional()
+}).optional()
 })
 
 

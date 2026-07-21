@@ -17,12 +17,14 @@ import {
   useAssistantChat,
   useGetDashboardSummary,
   useListGmailMessages,
+  type AssistantEmailSummaryPriority,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
+import { useNotifications } from '@/contexts/notification-context';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -30,6 +32,7 @@ type MessageForm = z.infer<typeof messageSchema>;
 export function AssistantSidebar() {
   const { isOpen, isFull, messages, setMessages, toggle, close, toggleFull } =
     useAssistantState();
+  const { addNotification } = useNotifications();
   const chat = useAssistantChat();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isThinking, setIsThinking] = useState(false);
@@ -79,19 +82,12 @@ export function AssistantSidebar() {
             completed: p.completed,
             priority: p.priority,
           })) as any,
-          upcomingEvents: calendarConnected
-            ? summary.upcomingEvents.map((e) => ({
-                title: e.title,
-                startDate: e.startDate,
-                startTime: e.startTime ?? null,
-                allDay: e.allDay,
-              }))
-            : [],
+          upcomingEvents: calendarConnected ? summary.upcomingEvents : [],
           recentEmails: gmailConnected
             ? (emailData?.messages ?? []).slice(0, 10).map((m) => ({
                 subject: m.subject,
                 from: m.from,
-                priority: m.priority as string,
+                priority: m.priority as AssistantEmailSummaryPriority,
               }))
             : [],
         }
@@ -106,6 +102,18 @@ export function AssistantSidebar() {
               ...prev,
               { role: 'assistant', content: res.message, id: `a-${Date.now()}` },
             ]);
+          }
+          if (res?.notification) {
+            const notifAction = res.notification.action;
+            addNotification({
+              type: (res.notification.type as any) ?? 'info',
+              title: res.notification.title ?? 'Reminder',
+              body: res.notification.body ?? '',
+              action:
+                notifAction?.label && notifAction?.href
+                  ? { label: notifAction.label, href: notifAction.href }
+                  : undefined,
+            });
           }
         },
         onError: () => {

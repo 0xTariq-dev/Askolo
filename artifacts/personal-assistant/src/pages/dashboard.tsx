@@ -21,11 +21,10 @@ import { Link } from 'wouter';
 import { format, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { PageTransition } from '@/components/ui/page-transition';
-import { ReconnectBanner } from '@/components/ui/reconnect-banner';
 
 export function DashboardPage() {
   const { data: summary, isLoading } = useGetDashboardSummary();
-  const { refetch: refetchGoogleStatus, isFetching: isCheckingStatus } = useGetGoogleStatus();
+  useGetGoogleStatus(); // keep data warm so googleConnection.calendarConnected is populated
   const [coaching, setCoaching] = useState<string | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(true);
 
@@ -107,24 +106,6 @@ export function DashboardPage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Per-service reconnect banners — only shown when a service is individually disconnected */}
-      {google && !google.calendarConnected && (
-        <ReconnectBanner
-          service="calendar"
-          onRefresh={() => refetchGoogleStatus()}
-          isRefreshing={isCheckingStatus}
-          connectUrl="/api/google/gmail/connect?redirectTo=%2Fcalendar&scope=calendar"
-        />
-      )}
-      {google && !google.gmailConnected && (
-        <ReconnectBanner
-          service="gmail"
-          onRefresh={() => refetchGoogleStatus()}
-          isRefreshing={isCheckingStatus}
-          connectUrl="/api/google/gmail/connect?redirectTo=%2Femail&scope=gmail"
-        />
-      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

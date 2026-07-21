@@ -1918,12 +1918,32 @@ components:
             $ref: '#/components/schemas/AssistantChatMessage'
         context:
           $ref: '#/components/schemas/AssistantChatContext'
+    AssistantNotification:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [info, warning, action]
+        title:
+          type: string
+        body:
+          type: string
+        action:
+          type: object
+          properties:
+            label:
+              type: string
+            href:
+              type: string
+
     AssistantChatResponse:
       type: object
       required: [message]
       properties:
         message:
           type: string
+        notification:
+          $ref: '#/components/schemas/AssistantNotification'
 
     VoiceToPlanBody:
       type: object

@@ -543,8 +543,30 @@ export interface AssistantChatBody {
   context?: AssistantChatContext;
 }
 
+export type AssistantNotificationType = typeof AssistantNotificationType[keyof typeof AssistantNotificationType];
+
+
+export const AssistantNotificationType = {
+  info: 'info',
+  warning: 'warning',
+  action: 'action',
+} as const;
+
+export type AssistantNotificationAction = {
+  label?: string;
+  href?: string;
+};
+
+export interface AssistantNotification {
+  type?: AssistantNotificationType;
+  title?: string;
+  body?: string;
+  action?: AssistantNotificationAction;
+}
+
 export interface AssistantChatResponse {
   message: string;
+  notification?: AssistantNotification;
 }
 
 export interface VoiceToPlanBody {
