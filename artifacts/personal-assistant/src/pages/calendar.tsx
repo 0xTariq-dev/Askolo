@@ -172,13 +172,13 @@ export function CalendarPage() {
     },
   });
 
-  const openAdd = (date?: Date) => {
+  const openAdd = (date?: Date, time?: string) => {
     setEditingEvent(null);
     form.reset({
       title: '',
       description: '',
       startDate: format(date ?? currentDate, 'yyyy-MM-dd'),
-      startTime: '',
+      startTime: time ?? '',
       endDate: '',
       endTime: '',
       allDay: false,
@@ -471,6 +471,7 @@ export function CalendarPage() {
             completionsByDate={completionsByDate}
             todayStr={todayStr}
             onEventClick={openEdit}
+            onSlotClick={(date, time) => openAdd(date, time)}
           />
         ) : (
           <DayGrid
@@ -481,6 +482,7 @@ export function CalendarPage() {
             completionsByDate={completionsByDate}
             todayStr={todayStr}
             onEventClick={openEdit}
+            onSlotClick={(date, time) => openAdd(date, time)}
           />
         )}
       </div>

@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { EventChip } from './event-chip';
 import { layoutEvents } from './types';
+import { snapTimeFromY } from './snap-time';
 import type { Event } from '@workspace/api-client-react';
 import type { DailyPlan, Habit } from './types';
 
@@ -18,6 +19,7 @@ interface DayGridProps {
   completionsByDate: Map<string, Set<number>>;
   todayStr: string;
   onEventClick: (event: Event) => void;
+  onSlotClick?: (date: Date, time: string) => void;
 }
 
 export function DayGrid({
@@ -28,6 +30,7 @@ export function DayGrid({
   completionsByDate,
   todayStr,
   onEventClick,
+  onSlotClick,
 }: DayGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const dateStr = format(currentDate, 'yyyy-MM-dd');
@@ -139,7 +142,15 @@ export function DayGrid({
           </div>
 
           {/* Single day column */}
-          <div className="flex-1 relative">
+          <div
+            className={cn('flex-1 relative', onSlotClick && 'cursor-pointer')}
+            onClick={(e) => {
+              if (!onSlotClick) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const y = e.clientY - rect.top;
+              onSlotClick(currentDate, snapTimeFromY(y, TOTAL_HEIGHT));
+            }}
+          >
             {HOURS.map((h) => (
               <div key={h} className="absolute left-0 right-0 border-t border-border/25" style={{ top: h * PX_PER_HOUR }} />
             ))}
@@ -170,6 +181,7 @@ export function DayGrid({
                     left: `${column * colW}%`,
                     width: `${colW}%`,
                   }}
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <EventChip event={event} onClick={() => onEventClick(event)} variant="block" className="h-full" />
                 </div>

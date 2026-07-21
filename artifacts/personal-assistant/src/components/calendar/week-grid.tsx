@@ -3,6 +3,7 @@ import { format, eachDayOfInterval, startOfWeek, endOfWeek } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { EventChip } from './event-chip';
 import { layoutEvents } from './types';
+import { snapTimeFromY } from './snap-time';
 import type { Event } from '@workspace/api-client-react';
 import type { DailyPlan, Habit } from './types';
 
@@ -18,6 +19,7 @@ interface WeekGridProps {
   completionsByDate: Map<string, Set<number>>;
   todayStr: string;
   onEventClick: (event: Event) => void;
+  onSlotClick?: (date: Date, time: string) => void;
 }
 
 export function WeekGrid({
@@ -28,6 +30,7 @@ export function WeekGrid({
   completionsByDate,
   todayStr,
   onEventClick,
+  onSlotClick,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
@@ -146,7 +149,13 @@ export function WeekGrid({
             return (
               <div
                 key={dateStr}
-                className={cn('flex-1 min-w-0 relative border-l border-border/30', isTodayCell && 'bg-primary/3')}
+                className={cn('flex-1 min-w-0 relative border-l border-border/30', isTodayCell && 'bg-primary/3', onSlotClick && 'cursor-pointer')}
+                onClick={(e) => {
+                  if (!onSlotClick) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const y = e.clientY - rect.top;
+                  onSlotClick(day, snapTimeFromY(y, TOTAL_HEIGHT));
+                }}
               >
                 {HOURS.map((h) => (
                   <div key={h} className="absolute left-0 right-0 border-t border-border/20" style={{ top: h * PX_PER_HOUR }} />
@@ -178,6 +187,7 @@ export function WeekGrid({
                         left: `${column * colW}%`,
                         width: `${colW}%`,
                       }}
+                      onClick={(e) => e.stopPropagation()}
                     >
                       <EventChip event={event} onClick={() => onEventClick(event)} variant="block" className="h-full" />
                     </div>
