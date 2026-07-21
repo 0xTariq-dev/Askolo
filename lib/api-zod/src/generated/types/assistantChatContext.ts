@@ -5,12 +5,16 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantEmailSummary } from './assistantEmailSummary';
 import type { DailyPlan } from './dailyPlan';
 import type { Goal } from './goal';
 import type { HabitStreak } from './habitStreak';
+import type { UpcomingEvent } from './upcomingEvent';
 
 export interface AssistantChatContext {
   habits?: HabitStreak[];
   goals?: Goal[];
   todayPlan?: DailyPlan[];
+  upcomingEvents?: UpcomingEvent[];
+  recentEmails?: AssistantEmailSummary[];
 }

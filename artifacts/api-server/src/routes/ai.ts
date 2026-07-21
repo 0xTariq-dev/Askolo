@@ -150,6 +150,8 @@ router.post("/ai/assistant", async (req, res): Promise<void> => {
       habits?: Array<{ name: string; currentStreak: number; completedToday: boolean }>;
       goals?: Array<{ title: string; status: string; progress: number }>;
       todayPlan?: Array<{ title: string; completed: boolean; priority: string }>;
+      upcomingEvents?: Array<{ title: string; startDate: string; startTime?: string | null; allDay: boolean }>;
+      recentEmails?: Array<{ subject: string; from: string; priority: string }>;
     };
   };
 
@@ -173,12 +175,29 @@ router.post("/ai/assistant", async (req, res): Promise<void> => {
     .map((p) => `${p.title}${p.completed ? " [done]" : ""} (${p.priority})`)
     .join("; ");
 
-  const systemPrompt = `You are Aura, a warm, focused personal assistant for the user. You know their habits, goals, and today's plan. Use this context to give specific, actionable advice. Keep responses concise and helpful. No emojis. If they ask what to focus on, consider their overdue goals, incomplete habits, and today's plan. If they ask you to decide between options, help them reason through it. If you don't know something, say so.
+  const eventSummary = (context?.upcomingEvents || [])
+    .slice(0, 7)
+    .map((e) => {
+      const when = e.allDay ? e.startDate : `${e.startDate}${e.startTime ? " at " + e.startTime : ""}`;
+      return `${e.title} (${when})`;
+    })
+    .join("; ");
+
+  const emailSummary = (context?.recentEmails || [])
+    .slice(0, 10)
+    .map((e) => `[${e.priority}] "${e.subject}" from ${e.from}`)
+    .join("; ");
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const systemPrompt = `You are Askolo, a warm, focused personal assistant. Today is ${today}. You have full context about the user's habits, goals, schedule, and emails. Use this context to give specific, actionable advice. Keep responses concise. No emojis. If asked what to focus on, consider their overdue goals, incomplete habits, and today's plan. If asked about their schedule or emails, reference the actual data. If you don't know something, say so.
 
 Context:
 - Habits: ${habitSummary || "none tracked yet"}
 - Active goals: ${goalSummary || "none set yet"}
-- Today's plan: ${planSummary || "nothing planned yet"}`;
+- Today's plan: ${planSummary || "nothing planned yet"}
+- Upcoming events (next 7 days): ${eventSummary || "no events"}
+- Recent emails: ${emailSummary || "no emails or Gmail not connected"}`;
 
   try {
     const response = await openai.chat.completions.create({

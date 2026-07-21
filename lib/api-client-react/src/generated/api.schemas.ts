@@ -514,10 +514,28 @@ export interface AssistantChatMessage {
   content: string;
 }
 
+export type AssistantEmailSummaryPriority = typeof AssistantEmailSummaryPriority[keyof typeof AssistantEmailSummaryPriority];
+
+
+export const AssistantEmailSummaryPriority = {
+  urgent: 'urgent',
+  'follow-up': 'follow-up',
+  fyi: 'fyi',
+  archive: 'archive',
+} as const;
+
+export interface AssistantEmailSummary {
+  subject: string;
+  from: string;
+  priority: AssistantEmailSummaryPriority;
+}
+
 export interface AssistantChatContext {
   habits?: HabitStreak[];
   goals?: Goal[];
   todayPlan?: DailyPlan[];
+  upcomingEvents?: UpcomingEvent[];
+  recentEmails?: AssistantEmailSummary[];
 }
 
 export interface AssistantChatBody {

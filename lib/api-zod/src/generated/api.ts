@@ -1101,6 +1101,19 @@ export const AssistantChatBody = zod.object({
   "notes": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+})).optional(),
+  "upcomingEvents": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "startDate": zod.string(),
+  "startTime": zod.string().nullish(),
+  "allDay": zod.boolean(),
+  "color": zod.string().nullish()
+})).optional(),
+  "recentEmails": zod.array(zod.object({
+  "subject": zod.string(),
+  "from": zod.string(),
+  "priority": zod.enum(['urgent', 'follow-up', 'fyi', 'archive'])
 })).optional()
 }).optional()
 })

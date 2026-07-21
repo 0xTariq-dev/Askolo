@@ -1874,6 +1874,17 @@ components:
           enum: [user, assistant]
         content:
           type: string
+    AssistantEmailSummary:
+      type: object
+      required: [subject, from, priority]
+      properties:
+        subject:
+          type: string
+        from:
+          type: string
+        priority:
+          type: string
+          enum: [urgent, follow-up, fyi, archive]
     AssistantChatContext:
       type: object
       properties:
@@ -1889,6 +1900,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DailyPlan'
+        upcomingEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/UpcomingEvent'
+        recentEmails:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantEmailSummary'
     AssistantChatBody:
       type: object
       required: [messages]

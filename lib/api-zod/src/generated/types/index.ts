@@ -16,6 +16,8 @@ export * from './assistantChatContext';
 export * from './assistantChatMessage';
 export * from './assistantChatMessageRole';
 export * from './assistantChatResponse';
+export * from './assistantEmailSummary';
+export * from './assistantEmailSummaryPriority';
 export * from './authorizationSessionHeaderParameter';
 export * from './authUser';
 export * from './authUserEnvelope';

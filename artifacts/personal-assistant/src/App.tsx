@@ -199,7 +199,7 @@ function ProtectedRoutes() {
         <Route path="/chores" component={ChoresPage} />
         <Route path="/notes" component={NotesPage} />
         <Route path="/actions" component={ActionsPage} />
-        <Route path="/assistant" component={AssistantPage} />
+        <Route path="/assistant"><Redirect to="/dashboard" /></Route>
         <Route path="/email" component={EmailPage} />
       </Switch>
     </AppLayout>
