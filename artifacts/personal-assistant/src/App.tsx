@@ -19,6 +19,7 @@ import { NotesPage } from '@/pages/notes';
 import { ActionsPage } from '@/pages/actions';
 import { AssistantPage } from '@/pages/assistant';
 import { EmailPage } from '@/pages/email';
+import { ProfilePage } from '@/pages/profile';
 import { PrivacyPage } from '@/pages/privacy';
 import { TermsPage } from '@/pages/terms';
 import { LoginPage } from '@/pages/login';
@@ -201,6 +202,7 @@ function ProtectedRoutes() {
         <Route path="/actions" component={ActionsPage} />
         <Route path="/assistant"><Redirect to="/dashboard" /></Route>
         <Route path="/email" component={EmailPage} />
+        <Route path="/profile" component={ProfilePage} />
       </Switch>
     </AppLayout>
   );

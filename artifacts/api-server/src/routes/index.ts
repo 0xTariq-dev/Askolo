@@ -11,6 +11,7 @@ import actionItemsRouter from './action_items';
 import dashboardRouter from './dashboard';
 import aiRouter from './ai';
 import googleRouter from './google';
+import userRouter from './user';
 
 const router: IRouter = Router();
 
@@ -29,5 +30,6 @@ router.use(actionItemsRouter);
 router.use(dashboardRouter);
 router.use(aiRouter);
 router.use(googleRouter);
+router.use(userRouter);
 
 export default router;

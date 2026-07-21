@@ -12,6 +12,7 @@ import {
   Zap,
   Mail,
   LogOut,
+  UserCircle,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -80,7 +81,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="p-4 border-t border-border bg-sidebar">
-            <div className="flex items-center gap-3 mb-4 px-2">
+            <Link href="/profile" className="flex items-center gap-3 mb-4 px-2 rounded-md py-1.5 hover:bg-white/5 transition-colors group cursor-pointer">
               <Avatar className="h-9 w-9 border border-border">
                 <AvatarImage src={avatarUrl} />
                 <AvatarFallback className="bg-sidebar-primary/20 text-sidebar-primary">
@@ -88,10 +89,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col flex-1 overflow-hidden">
-                <span className="text-sm font-medium truncate text-sidebar-foreground">{displayName}</span>
+                <span className="text-sm font-medium truncate text-sidebar-foreground group-hover:text-sidebar-primary transition-colors">{displayName}</span>
                 <span className="text-xs text-sidebar-foreground/60 truncate">{email}</span>
               </div>
-            </div>
+              <UserCircle className="h-4 w-4 text-sidebar-foreground/40 group-hover:text-sidebar-primary transition-colors shrink-0" />
+            </Link>
             <Button
               variant="outline"
               className="w-full justify-start text-sidebar-foreground/70 border-border hover:bg-white/5 hover:text-sidebar-foreground"

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, googleConnectionsTable, eventsTable } from "@workspace/db";
+import { db, googleConnectionsTable, eventsTable, gmailTokensTable } from "@workspace/db";
 import {
   listGoogleCalendarEvents,
   createGoogleCalendarEvent,
@@ -224,6 +224,74 @@ router.get("/google/gmail/callback", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error(err, "Google OAuth callback failed");
     res.redirect(`${redirectTo}?google=error`);
+  }
+});
+
+// DELETE /google/disconnect
+// Removes a specific Google service scope (calendar | gmail) from the stored token.
+router.delete("/google/disconnect", async (req, res): Promise<void> => {
+  const requestedScope =
+    typeof req.query.scope === "string" ? req.query.scope : null;
+
+  if (requestedScope !== "calendar" && requestedScope !== "gmail") {
+    res.status(400).json({ error: "scope must be 'calendar' or 'gmail'" });
+    return;
+  }
+
+  const targetScope = requestedScope === "calendar" ? GOOGLE_CALENDAR_SCOPE : GOOGLE_GMAIL_SCOPE;
+
+  try {
+    const [row] = await db
+      .select({ scope: gmailTokensTable.scope })
+      .from(gmailTokensTable)
+      .where(eq(gmailTokensTable.userId, req.dbUser.id))
+      .limit(1);
+
+    if (!row) {
+      // Nothing to disconnect.
+      res.sendStatus(204);
+      return;
+    }
+
+    const remaining = row.scope
+      .split(" ")
+      .filter((s) => s && s !== targetScope)
+      .join(" ");
+
+    const hasCalendar = remaining.includes(GOOGLE_CALENDAR_SCOPE);
+    const hasGmail = remaining.includes(GOOGLE_GMAIL_SCOPE);
+
+    if (!hasCalendar && !hasGmail) {
+      // No Google service scopes left — remove the token row entirely.
+      await db.delete(gmailTokensTable).where(eq(gmailTokensTable.userId, req.dbUser.id));
+    } else {
+      await db
+        .update(gmailTokensTable)
+        .set({ scope: remaining, updatedAt: new Date() })
+        .where(eq(gmailTokensTable.userId, req.dbUser.id));
+    }
+
+    // Refresh google_connections to reflect the new state.
+    const newScopes = [
+      ...(hasCalendar ? ["calendar"] : []),
+      ...(hasGmail ? ["gmail"] : []),
+    ];
+    await db
+      .insert(googleConnectionsTable)
+      .values({
+        userId: req.dbUser.id,
+        connected: newScopes.length > 0,
+        scopes: newScopes,
+      })
+      .onConflictDoUpdate({
+        target: googleConnectionsTable.userId,
+        set: { connected: newScopes.length > 0, scopes: newScopes, updatedAt: new Date() },
+      });
+
+    res.sendStatus(204);
+  } catch (err) {
+    req.log.error(err, "Google disconnect failed");
+    res.status(500).json({ error: "Failed to disconnect Google service" });
   }
 });
 
