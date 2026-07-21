@@ -14,7 +14,7 @@ const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GMAIL_API_BASE = "https://gmail.googleapis.com";
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 
-const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 
 export { CALENDAR_SCOPE, GMAIL_SCOPE };
@@ -212,6 +212,10 @@ export async function verifyGmailConnection(userId: string): Promise<boolean> {
     const res = await fetch(`${GMAIL_API_BASE}/gmail/v1/users/me/messages?maxResults=1&labelIds=INBOX`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "(unreadable)");
+      logger.warn({ userId, status: res.status, body }, "Gmail verification request returned non-OK");
+    }
     return res.ok;
   } catch (err) {
     logger.warn({ err, userId }, "Gmail connection verification failed");
@@ -226,6 +230,10 @@ export async function verifyCalendarConnection(userId: string): Promise<boolean>
     const res = await fetch(`${CALENDAR_API_BASE}/users/me/calendarList`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "(unreadable)");
+      logger.warn({ userId, status: res.status, body }, "Calendar verification request returned non-OK");
+    }
     return res.ok;
   } catch (err) {
     logger.warn({ err, userId }, "Calendar connection verification failed");
