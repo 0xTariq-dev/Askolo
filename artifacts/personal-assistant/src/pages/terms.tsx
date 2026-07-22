@@ -1,8 +1,15 @@
+import { useEffect } from 'react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent } from '@/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
 
 export function TermsPage() {
+  useEffect(() => {
+    document.title = 'Terms of Service — Askolo';
+    document.querySelector('meta[name="description"]')
+      ?.setAttribute('content', 'Read the Askolo Terms of Service to understand your rights and responsibilities when using the Askolo personal assistant app.');
+  }, []);
+
   return (
     <PublicLayout>
       <PageTransition className="max-w-3xl mx-auto pb-10">

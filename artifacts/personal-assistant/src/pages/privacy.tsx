@@ -1,8 +1,15 @@
+import { useEffect } from 'react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent } from '@/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
 
 export function PrivacyPage() {
+  useEffect(() => {
+    document.title = 'Privacy Policy — Askolo';
+    document.querySelector('meta[name="description"]')
+      ?.setAttribute('content', 'Read the Askolo Privacy Policy to understand how we collect, use, and protect your personal data.');
+  }, []);
+
   return (
     <PublicLayout>
       <PageTransition className="max-w-3xl mx-auto pb-10">
