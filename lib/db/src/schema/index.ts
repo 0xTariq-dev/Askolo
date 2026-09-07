@@ -10,3 +10,4 @@ export * from "./conversations";
 export * from "./messages";
 export * from "./google_connections";
 export * from "./gmail_tokens";
+export * from "./ai_credits";

@@ -96,6 +96,7 @@ export function useVoiceTranscription({
   const cancelRequestedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const durationStopRequestedRef = useRef(false);
+  const recordingStartedAtRef = useRef<number | null>(null);
 
   const updateState = (next: VoiceState) => {
     stateRef.current = next;
@@ -185,6 +186,10 @@ export function useVoiceTranscription({
       };
       recorder.onstop = async () => {
         const canceled = cancelRequestedRef.current || sessionRef.current !== sessionId;
+        const recordedDurationMs = Math.min(
+          maxRecordingMs,
+          Math.max(1, Date.now() - (recordingStartedAtRef.current ?? Date.now())),
+        );
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType });
         cleanupMediaStream();
         if (canceled) return;
@@ -213,6 +218,7 @@ export function useVoiceTranscription({
                 audioBase64,
                 mimeType: (blob.type || mimeType).split(';')[0] as
                   'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
+                durationMs: recordedDurationMs,
               },
             },
             {
@@ -246,6 +252,7 @@ export function useVoiceTranscription({
         }
       };
 
+      recordingStartedAtRef.current = Date.now();
       recorder.start(1000);
       updateState('listening');
       setStatus('Speak naturally. Your transcript will be reviewable before submission.');

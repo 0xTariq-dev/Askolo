@@ -2060,7 +2060,7 @@ components:
 
     AudioTranscriptionBody:
       type: object
-      required: [audioBase64, mimeType]
+      required: [audioBase64, mimeType, durationMs]
       properties:
         audioBase64:
           type: string
@@ -2069,6 +2069,10 @@ components:
         mimeType:
           type: string
           enum: [audio/webm, audio/mp4, audio/m4a, audio/wav, audio/ogg, audio/mpeg]
+        durationMs:
+          type: integer
+          minimum: 1
+          maximum: 120000
     AudioTranscriptionResponse:
       type: object
       required: [transcript]

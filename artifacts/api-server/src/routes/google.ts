@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { createHash } from "node:crypto";
 import { eq, and } from "drizzle-orm";
 import { db, googleConnectionsTable, eventsTable, gmailTokensTable } from "@workspace/db";
 import {
@@ -36,11 +37,22 @@ import {
 } from "../lib/googleOAuth";
 import { getGoogleConnectionStatus } from "../lib/googleStatus";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import {
+  CreditLedgerError,
+  CreditLimitError,
+  deriveScopedIdempotencyKey,
+  withPricedCreditReservation,
+} from "../lib/ai-credit-ledger";
 
 const router: IRouter = Router();
 
 const CALENDAR_SCOPE = "calendar";
 const GMAIL_SCOPE = "gmail";
+const MAX_GMAIL_AI_THREAD_CHARS = 20_000;
+
+function gmailFingerprint(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 async function getOrCreateConnection(userId: string) {
   const [existing] = await db
@@ -307,7 +319,13 @@ router.get("/google/gmail/messages", async (req, res): Promise<void> => {
         const subject = getHeader(msg, "Subject");
         const from = getHeader(msg, "From");
         const body = getBodyText(msg);
-        const priority = await classifyEmailPriority(subject, body);
+        const priority = await classifyEmailPriority(
+          req.dbUser.id,
+          req.get("Idempotency-Key")?.trim() || String(req.id),
+          msg.id,
+          subject,
+          body,
+        );
         return {
           id: msg.id,
           threadId: msg.threadId,
@@ -335,31 +353,62 @@ router.post("/google/gmail/draft", async (req, res): Promise<void> => {
     res.status(400).json({ error: "messageId is required" });
     return;
   }
+  if (tone && tone.length > 100) {
+    res.status(400).json({ error: "tone is too long" });
+    return;
+  }
   try {
     const msg = await getGmailMessage(req.dbUser.id, messageId);
     const thread = await getGmailThread(req.dbUser.id, msg.threadId);
-    const threadText = getReplyThreadText(thread);
+    const threadText = getReplyThreadText(thread).slice(0, MAX_GMAIL_AI_THREAD_CHARS);
     const subject = getHeader(msg, "Subject");
     const to = getHeader(msg, "From");
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
-      max_completion_tokens: 1024,
-      messages: [
-        {
-          role: "system",
-          content: `You are a helpful email assistant. Write a reply to the email thread below. The tone should be: ${tone || "professional and concise"}. Do not include any salutation or sign-off that isn't appropriate. Return only the reply body, no subject line or explanation.`,
-        },
-        {
-          role: "user",
-          content: `Subject: ${subject}\n\nThread:\n${threadText}`,
-        },
-      ],
-    });
+    const requestFingerprint = gmailFingerprint(`${messageId}:${tone ?? ""}:${threadText}`);
+    const requestKey = req.get("Idempotency-Key")?.trim();
+    if (requestKey && !/^[A-Za-z0-9._:-]{8,160}$/.test(requestKey)) {
+      res.status(400).json({ error: "Invalid Idempotency-Key header." });
+      return;
+    }
+    const idempotencyKey = `${requestKey || `auto:${requestFingerprint}`}:gmail-draft`.slice(0, 200);
+    const response = await withPricedCreditReservation(
+      {
+        userId: req.dbUser.id,
+        pricingKey: "model.gmail-draft",
+        units: 1,
+        idempotencyKey,
+        requestFingerprint,
+        expiresInSeconds: 120,
+        metadata: { operation: "gmail-draft" },
+      },
+      async () => openai.chat.completions.create({
+        model: "gpt-5.6-luna",
+        max_completion_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content: `You are a helpful email assistant. Write a reply to the email thread below. The tone should be: ${tone || "professional and concise"}. Do not include any salutation or sign-off that isn't appropriate. Return only the reply body, no subject line or explanation.`,
+          },
+          {
+            role: "user",
+            content: `Subject: ${subject}\n\nThread:\n${threadText}`,
+          },
+        ],
+      }),
+      { evidence: { operation: "gmail-draft" } },
+    );
 
     const draft = response.choices[0]?.message?.content?.trim() || "";
     res.json({ to, subject, draft, messageId });
   } catch (err) {
+    if (err instanceof CreditLimitError) {
+      res.status(402).json({ error: err.message, code: err.code, balance: err.balance });
+      return;
+    }
+    if (err instanceof CreditLedgerError) {
+      res.status(409).json({ error: err.message, code: "AI_CREDIT_LEDGER_CONFLICT" });
+      return;
+    }
     req.log.error(err, "Gmail draft generation failed");
     res.status(500).json({ error: "Failed to generate reply draft" });
   }
@@ -387,23 +436,43 @@ router.post("/google/gmail/send", async (req, res): Promise<void> => {
   }
 });
 
-async function classifyEmailPriority(subject: string, body: string): Promise<string> {
+async function classifyEmailPriority(
+  userId: string,
+  requestKey: string,
+  messageId: string,
+  subject: string,
+  body: string,
+): Promise<string> {
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
-      max_completion_tokens: 32,
-      messages: [
-        {
-          role: "system",
-          content:
-            'Classify the email into exactly one of these categories: urgent, follow-up, fyi, archive. Return only the single lowercase word, no punctuation.',
-        },
-        {
-          role: "user",
-          content: `Subject: ${subject}\n\nBody: ${body.slice(0, 1200)}`,
-        },
-      ],
-    });
+    const requestFingerprint = gmailFingerprint(`${messageId}:${subject}:${body.slice(0, 1200)}`);
+    const idempotencyKey = deriveScopedIdempotencyKey(requestKey, "email-priority", messageId);
+    const response = await withPricedCreditReservation(
+      {
+        userId,
+        pricingKey: "model.email-priority",
+        units: 1,
+        idempotencyKey,
+        requestFingerprint,
+        expiresInSeconds: 60,
+        metadata: { operation: "email-priority" },
+      },
+      async () => openai.chat.completions.create({
+        model: "gpt-5.6-luna",
+        max_completion_tokens: 32,
+        messages: [
+          {
+            role: "system",
+            content:
+              'Classify the email into exactly one of these categories: urgent, follow-up, fyi, archive. Return only the single lowercase word, no punctuation.',
+          },
+          {
+            role: "user",
+            content: `Subject: ${subject}\n\nBody: ${body.slice(0, 1200)}`,
+          },
+        ],
+      }),
+      { evidence: { operation: "email-priority" } },
+    );
     const result = response.choices[0]?.message?.content?.trim().toLowerCase() || "fyi";
     if (["urgent", "follow-up", "fyi", "archive"].includes(result)) return result;
     return "fyi";

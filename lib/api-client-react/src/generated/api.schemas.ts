@@ -599,6 +599,11 @@ export interface AudioTranscriptionBody {
      */
   audioBase64: string;
   mimeType: AudioTranscriptionBodyMimeType;
+  /**
+     * @minimum 1
+     * @maximum 120000
+     */
+  durationMs: number;
 }
 
 export interface AudioTranscriptionResponse {

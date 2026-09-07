@@ -1,11 +1,20 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { createHash } from "node:crypto";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import {
+  convertToWav,
   detectAudioFormat,
-  ensureCompatibleFormat,
   speechToText,
 } from "@workspace/integrations-openai-ai-server/audio";
 import { db, dailyPlansTable, actionItemsTable } from "@workspace/db";
+import {
+  CreditLedgerError,
+  CreditLimitError,
+  estimateCredits,
+  getCreditBalance,
+  withPricedCreditReservation,
+  type CreditPricingKey,
+} from "../lib/ai-credit-ledger";
 
 const router: IRouter = Router();
 
@@ -14,6 +23,7 @@ const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const AUDIO_TRANSCRIPTION_WINDOW_MS = 10 * 60 * 1000;
 const AUDIO_TRANSCRIPTION_MAX_REQUESTS = 5;
 const AUDIO_TRANSCRIPTION_TIMEOUT_MS = 45_000;
+const MAX_AUDIO_DURATION_MS = 2 * 60 * 1000;
 const maxAudioBase64Length = Math.ceil(MAX_AUDIO_BYTES / 3) * 4 + 16;
 const audioTranscriptionRateLimits = new Map<string, { count: number; windowStartedAt: number }>();
 
@@ -36,6 +46,143 @@ function isIsoDate(value: unknown): value is string {
 function isStrictBase64(value: string): boolean {
   return value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
 }
+
+function readPcmWavDurationMs(buffer: Buffer): number {
+  if (
+    buffer.length < 44 ||
+    buffer.toString("ascii", 0, 4) !== "RIFF" ||
+    buffer.toString("ascii", 8, 12) !== "WAVE"
+  ) {
+    throw new Error("INVALID_NORMALIZED_WAV");
+  }
+  let byteRate = 0;
+  let dataBytes = 0;
+  let offset = 12;
+  while (offset + 8 <= buffer.length) {
+    const chunkId = buffer.toString("ascii", offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    const dataStart = offset + 8;
+    if (chunkId === "fmt " && chunkSize >= 12 && dataStart + 12 <= buffer.length) {
+      byteRate = buffer.readUInt32LE(dataStart + 8);
+    } else if (chunkId === "data") {
+      dataBytes = Math.min(chunkSize, Math.max(0, buffer.length - dataStart));
+    }
+    if (byteRate > 0 && dataBytes > 0) break;
+    offset = dataStart + chunkSize + (chunkSize % 2);
+  }
+  const durationMs = Math.ceil((dataBytes / byteRate) * 1000);
+  if (!Number.isSafeInteger(durationMs) || durationMs <= 0 || durationMs > MAX_AUDIO_DURATION_MS) {
+    throw new Error("INVALID_AUDIO_DURATION");
+  }
+  return durationMs;
+}
+
+function fingerprint(value: string | Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function requestIdempotencyKey(
+  req: Pick<Request, "get">,
+  operation: string,
+  requestFingerprint: string,
+): string {
+  const header = req.get("Idempotency-Key")?.trim();
+  if (header && !/^[A-Za-z0-9._:-]{8,160}$/.test(header)) {
+    throw new CreditLedgerError("Idempotency-Key must be 8-160 safe characters");
+  }
+  return `${header || `auto:${requestFingerprint}`}:${operation}`.slice(0, 200);
+}
+
+async function billModelCall<T>(
+  req: Request,
+  pricingKey: Extract<CreditPricingKey, `model.${string}`>,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const operation = pricingKey.slice("model.".length);
+  const requestFingerprint = fingerprint(`${operation}:${JSON.stringify(req.body)}`);
+  const idempotencyKey = requestIdempotencyKey(req, operation, requestFingerprint);
+  return withPricedCreditReservation(
+    {
+      userId: req.dbUser.id,
+      pricingKey,
+      units: 1,
+      idempotencyKey,
+      requestFingerprint,
+      expiresInSeconds: 120,
+      metadata: { operation },
+    },
+    async () => callback(),
+    { evidence: { operation } },
+  );
+}
+
+function respondToCreditError(
+  req: Request,
+  res: Response,
+  error: unknown,
+): boolean {
+  if (error instanceof CreditLimitError) {
+    res.status(402).json({
+      error: error.message,
+      code: error.code,
+      balance: error.balance,
+    });
+    return true;
+  }
+  if (error instanceof CreditLedgerError) {
+    req.log.warn({ err: error, requestId: req.id, userId: req.dbUser.id }, "AI credit validation failed");
+    res.status(409).json({ error: error.message, code: "AI_CREDIT_LEDGER_CONFLICT" });
+    return true;
+  }
+  return false;
+}
+
+// Returns accounting state without exposing prompts, transcripts, or provider payloads.
+router.get("/ai/credits", async (req, res): Promise<void> => {
+  const balance = await getCreditBalance(req.dbUser.id);
+  res.json({ balance, enforcement: "strict" });
+});
+
+router.get("/ai/credits/estimate", async (req, res): Promise<void> => {
+  const pricingKey = typeof req.query.pricingKey === "string" ? req.query.pricingKey : "";
+  const units = typeof req.query.units === "string" ? Number(req.query.units) : 1;
+  const publicKeys = new Set<CreditPricingKey>([
+    "model.generate-plan",
+    "model.coaching",
+    "model.assistant",
+    "model.voice-to-plan",
+    "model.meeting-extract",
+    "model.gmail-draft",
+    "model.email-priority",
+    "transcription.recorded",
+    "transcription.realtime",
+    "voice.managed-session",
+    "tool.read",
+    "tool.write",
+    "tool.external",
+  ]);
+  if (!publicKeys.has(pricingKey as CreditPricingKey)) {
+    res.status(400).json({ error: "Unknown AI credit pricing key." });
+    return;
+  }
+  try {
+    const estimate = estimateCredits(pricingKey as CreditPricingKey, units);
+    const balance = await getCreditBalance(req.dbUser.id);
+    res.json({
+      pricingKey,
+      units: estimate.units,
+      estimatedCredits: estimate.estimatedCredits,
+      unit: estimate.pricing.unit,
+      creditsPerUnit: estimate.pricing.creditsPerUnit,
+      hardCapCredits: estimate.pricing.maximumCredits,
+      availableCredits: balance.availableCredits,
+      canReserve: balance.availableCredits >= estimate.estimatedCredits,
+    });
+  } catch (error) {
+    if (respondToCreditError(req, res, error)) return;
+    res.status(400).json({ error: "Invalid usage estimate." });
+  }
+});
 
 function consumeAudioRateLimit(key: string): number | null {
   const now = Date.now();
@@ -86,11 +233,15 @@ router.post("/ai/generate-plan", async (req, res): Promise<void> => {
     res.status(400).json({ error: "notes is required" });
     return;
   }
+  if (notes.length > 20_000) {
+    res.status(413).json({ error: "Notes are too long for AI planning." });
+    return;
+  }
 
   const today = date || new Date().toISOString().split("T")[0];
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await billModelCall(req, "model.generate-plan", () => openai.chat.completions.create({
       model: "gpt-5.6-luna",
       max_completion_tokens: 2048,
       messages: [
@@ -116,7 +267,7 @@ Rules:
           content: `Today is ${today}. Here are my rough notes/intentions for today:\n\n${notes.trim()}`,
         },
       ],
-    });
+    }));
 
     const content = response.choices[0]?.message?.content ?? "[]";
     let items: PlanItem[];
@@ -148,6 +299,7 @@ Rules:
 
     res.json({ items: created, date: today });
   } catch (err) {
+    if (respondToCreditError(req, res, err)) return;
     req.log.error(err, "AI plan generation failed");
     res.status(500).json({ error: "Failed to generate plan" });
   }
@@ -163,6 +315,10 @@ router.post("/ai/coaching", async (req, res): Promise<void> => {
     habitsCompletedToday?: number;
     habitsTotal?: number;
   };
+  if (JSON.stringify(req.body).length > 50_000 || habits.length > 100 || goals.length > 100) {
+    res.status(413).json({ error: "Coaching context is too large." });
+    return;
+  }
 
   try {
     const habitSummary = habits
@@ -176,7 +332,7 @@ router.post("/ai/coaching", async (req, res): Promise<void> => {
       .map((g) => `${g.title} (${g.progress}% complete)`)
       .join(", ");
 
-    const response = await openai.chat.completions.create({
+    const response = await billModelCall(req, "model.coaching", () => openai.chat.completions.create({
       model: "gpt-5.6-luna",
       max_completion_tokens: 200,
       messages: [
@@ -191,11 +347,12 @@ Active habits: ${habitSummary || "none yet"}.
 Active goals: ${goalSummary || "none yet"}.`,
         },
       ],
-    });
+    }));
 
     const message = response.choices[0]?.message?.content?.trim() ?? "";
     res.json({ message });
   } catch (err) {
+    if (respondToCreditError(req, res, err)) return;
     req.log.error(err, "AI coaching generation failed");
     res.status(500).json({ error: "Failed to generate coaching message" });
   }
@@ -218,6 +375,19 @@ router.post("/ai/assistant", async (req, res): Promise<void> => {
 
   if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
     res.status(400).json({ error: "messages must end with a user message" });
+    return;
+  }
+  const messageCharacters = messages.reduce(
+    (total, message) => total + (typeof message.content === "string" ? message.content.length : 0),
+    0,
+  );
+  if (
+    messages.length > 40 ||
+    messageCharacters > 60_000 ||
+    messages.some((message) => !message.content || message.content.length > 20_000) ||
+    JSON.stringify(context ?? {}).length > 60_000
+  ) {
+    res.status(413).json({ error: "Assistant context is too large." });
     return;
   }
 
@@ -265,14 +435,14 @@ NOTIFICATIONS: When you want to surface a reminder or important alert (e.g. an u
 The "action" field is optional. Valid types: "info", "warning", "action". Only emit a notification when there is something genuinely urgent or worth highlighting — not on every response.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await billModelCall(req, "model.assistant", () => openai.chat.completions.create({
       model: "gpt-5.6-luna",
       max_completion_tokens: 1024,
       messages: [
         { role: "system", content: systemPrompt },
         ...messages.map((m) => ({ role: m.role, content: m.content })),
       ],
-    });
+    }));
 
     let raw = response.choices[0]?.message?.content?.trim() ?? "";
 
@@ -294,6 +464,7 @@ The "action" field is optional. Valid types: "info", "warning", "action". Only e
 
     res.json({ message: raw, ...(notification ? { notification } : {}) });
   } catch (err) {
+    if (respondToCreditError(req, res, err)) return;
     req.log.error(err, "AI assistant chat failed");
     res.status(500).json({ error: "Failed to get assistant response" });
   }
@@ -316,9 +487,11 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
   const body = req.body as {
     audioBase64?: unknown;
     mimeType?: unknown;
+    durationMs?: unknown;
   };
   const audioBase64 = body?.audioBase64;
   const mimeType = body?.mimeType;
+  const durationMs = body?.durationMs;
 
   if (
     typeof audioBase64 !== "string" ||
@@ -332,6 +505,16 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
 
   if (typeof mimeType !== "string") {
     res.status(400).json({ error: "Audio format is required." });
+    return;
+  }
+  if (
+    durationMs !== undefined &&
+    (typeof durationMs !== "number" ||
+      !Number.isSafeInteger(durationMs) ||
+      durationMs <= 0 ||
+      durationMs > MAX_AUDIO_DURATION_MS)
+  ) {
+    res.status(400).json({ error: "Audio duration is invalid." });
     return;
   }
 
@@ -370,12 +553,43 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
 
   const controller = new AbortController();
   try {
-    const compatible = await ensureCompatibleFormat(audioBuffer);
-    const transcript = (await withTimeout(
-      speechToText(compatible.buffer, compatible.format, controller.signal),
-      AUDIO_TRANSCRIPTION_TIMEOUT_MS,
-      controller,
-    )).trim();
+    // Normalize on the server and derive duration from PCM headers. The client
+    // duration is only a tamper/error check and never controls billing.
+    const normalizedAudio = await convertToWav(audioBuffer);
+    const validatedDurationMs = readPcmWavDurationMs(normalizedAudio);
+    if (
+      typeof durationMs === "number" &&
+      Math.abs(durationMs - validatedDurationMs) > Math.max(3_000, Math.ceil(validatedDurationMs * 0.1))
+    ) {
+      res.status(400).json({ error: "Audio duration does not match the recording." });
+      return;
+    }
+    const estimatedCredits = Math.max(1, Math.ceil(validatedDurationMs / 1000));
+    const requestFingerprint = fingerprint(normalizedAudio);
+    const idempotencyKey = requestIdempotencyKey(req, "transcribe-audio", requestFingerprint);
+    const transcript = await withPricedCreditReservation(
+      {
+        userId: req.dbUser.id,
+        pricingKey: "transcription.recorded",
+        units: estimatedCredits,
+        expiresInSeconds: Math.ceil(AUDIO_TRANSCRIPTION_TIMEOUT_MS / 1000) + 15,
+        idempotencyKey,
+        requestFingerprint,
+        metadata: { route: "transcribe-audio", audioFormat: detectedFormat },
+      },
+      async () => {
+        return (await withTimeout(
+          speechToText(normalizedAudio, "wav", controller.signal),
+          AUDIO_TRANSCRIPTION_TIMEOUT_MS,
+          controller,
+        )).trim();
+      },
+      {
+        actualUnits: estimatedCredits,
+        connectedDurationMs: validatedDurationMs,
+        evidence: { route: "transcribe-audio", audioFormat: detectedFormat },
+      },
+    );
 
     if (!transcript) {
       res.status(422).json({ error: "No speech was detected in the recording." });
@@ -390,6 +604,7 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
     }, "Voice transcription completed");
     res.json({ transcript });
   } catch (err) {
+    if (respondToCreditError(req, res, err)) return;
     const timedOut = err instanceof Error && err.message === "VOICE_TRANSCRIPTION_TIMEOUT";
     req.log.error({
       err,
@@ -415,11 +630,15 @@ router.post("/ai/voice-to-plan", async (req, res): Promise<void> => {
     res.status(400).json({ error: "transcript is required" });
     return;
   }
+  if (transcript.length > MAX_VOICE_TRANSCRIPT_LENGTH) {
+    res.status(413).json({ error: "Voice transcript is too long." });
+    return;
+  }
 
   const targetDate = date || new Date().toISOString().split("T")[0];
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await billModelCall(req, "model.voice-to-plan", () => openai.chat.completions.create({
       model: "gpt-5.6-luna",
       max_completion_tokens: 2048,
       messages: [
@@ -443,7 +662,7 @@ Rules:
           content: `Voice note for ${targetDate}:\n\n${transcript.trim()}`,
         },
       ],
-    });
+    }));
 
     const content = response.choices[0]?.message?.content ?? "[]";
     let items: PlanItem[];
@@ -474,6 +693,7 @@ Rules:
 
     res.json({ items: created, date: targetDate });
   } catch (err) {
+    if (respondToCreditError(req, res, err)) return;
     req.log.error(err, "AI voice-to-plan failed");
     res.status(500).json({ error: "Failed to convert voice note to plan" });
   }
@@ -488,9 +708,13 @@ router.post("/ai/meeting-extract", async (req, res): Promise<void> => {
     res.status(400).json({ error: "notes is required" });
     return;
   }
+  if (notes.length > 20_000) {
+    res.status(413).json({ error: "Meeting notes are too long." });
+    return;
+  }
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await billModelCall(req, "model.meeting-extract", () => openai.chat.completions.create({
       model: "gpt-5.6-luna",
       max_completion_tokens: 2048,
       messages: [
@@ -514,7 +738,7 @@ Rules:
           content: `Meeting notes:\n\n${notes.trim()}`,
         },
       ],
-    });
+    }));
 
     const content = response.choices[0]?.message?.content ?? "{}";
     let extracted: { summary?: string; decisions?: string[]; actionItems?: MeetingActionItem[] };
@@ -552,6 +776,7 @@ Rules:
       actionItems: createdActionItems,
     });
   } catch (err) {
+    if (respondToCreditError(req, res, err)) return;
     req.log.error(err, "AI meeting extract failed");
     res.status(500).json({ error: "Failed to extract meeting intelligence" });
   }

@@ -7,9 +7,8 @@
  */
 import * as zodBase from 'zod';
 
-// The generator emits zod.int(), while this workspace currently uses Zod 3.
-// Keep the generated schema surface stable without requiring a runtime-wide
-// Zod upgrade.
+// Orval emits zod.int(), while this workspace currently uses Zod 3.
+// Keep generated schemas compatible without forcing a runtime-wide upgrade.
 const zod = {
   ...zodBase,
   int: () => zodBase.number().int(),
@@ -1190,11 +1189,14 @@ export const VoiceToPlanResponse = zod.object({
  */
 export const transcribeAudioBodyAudioBase64Max = 11184812;
 
+export const transcribeAudioBodyDurationMsMax = 120000;
+
 
 
 export const TranscribeAudioBody = zod.object({
   "audioBase64": zod.string().min(1).max(transcribeAudioBodyAudioBase64Max),
-  "mimeType": zod.enum(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/wav', 'audio/ogg', 'audio/mpeg'])
+  "mimeType": zod.enum(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/wav', 'audio/ogg', 'audio/mpeg']),
+  "durationMs": zod.int().min(1).max(transcribeAudioBodyDurationMsMax)
 })
 
 
