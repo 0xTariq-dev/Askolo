@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { RealtimeTranscriptionTokenRegion } from './realtimeTranscriptionTokenRegion';
-import type { VoiceRetention } from './voiceRetention';
 
 export interface RealtimeTranscriptionToken {
   token: string;
@@ -14,7 +13,6 @@ export interface RealtimeTranscriptionToken {
   maxSessionDurationSeconds: number;
   region: RealtimeTranscriptionTokenRegion;
   websocketUrl: string;
-  retention: VoiceRetention;
   speechModel: string;
   redaction: string;
 }

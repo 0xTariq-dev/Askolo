@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUser, useClerk } from '@clerk/react';
 import { useLocation } from 'wouter';
 import {
@@ -15,8 +16,14 @@ import {
   Trash2,
   PlugZap,
   Unplug,
+  ShieldCheck,
 } from 'lucide-react';
-import { useGetGoogleStatus } from '@workspace/api-client-react';
+import {
+  useGetGoogleStatus,
+  useGetTranscriptionPreferences,
+  useUpdateTranscriptionPreferences,
+  getGetTranscriptionPreferencesQueryKey,
+} from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,9 +59,12 @@ export function ProfilePage() {
   const { signOut } = useClerk();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: googleStatus, refetch: refetchGoogle, isFetching: checkingGoogle } =
     useGetGoogleStatus();
+  const { data: voicePreferences } = useGetTranscriptionPreferences();
+  const updateVoiceConsent = useUpdateTranscriptionPreferences();
 
   // Identity edit state
   const [firstName, setFirstName] = useState('');
@@ -177,6 +187,18 @@ export function ProfilePage() {
       toast({ title: 'Failed to delete account', variant: 'destructive' });
       setDeletingAccount(false);
     }
+  };
+
+  const revokeVoiceConsent = () => {
+    updateVoiceConsent.mutate(
+      { data: { consent: false } },
+      {
+        onSuccess: (updated) => {
+          toast({ title: 'Voice consent revoked' });
+          queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+        },
+      },
+    );
   };
 
   const calendarConnected = googleStatus?.calendarConnected ?? false;
@@ -410,6 +432,37 @@ export function ProfilePage() {
             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <Loader2 className="h-3 w-3 animate-spin" /> Checking connections…
             </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Voice & AI privacy ─────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-4 w-4 text-primary" /> Voice &amp; AI privacy
+          </CardTitle>
+          <CardDescription>Review or revoke permission for voice transcription.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">
+              {voicePreferences?.consentGiven ? 'Voice transcription is enabled' : 'Voice transcription is not enabled'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Recordings are deleted after transcription, are not used to train models, and PII is redacted from AI interactions.
+            </p>
+          </div>
+          {voicePreferences?.consentGiven && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={revokeVoiceConsent}
+              disabled={updateVoiceConsent.isPending}
+              className="shrink-0"
+            >
+              {updateVoiceConsent.isPending ? 'Updating…' : 'Revoke consent'}
+            </Button>
           )}
         </CardContent>
       </Card>

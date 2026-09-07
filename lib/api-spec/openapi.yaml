@@ -1105,10 +1105,10 @@ paths:
     get:
       operationId: getTranscriptionPreferences
       tags: [ai]
-      summary: Get voice-data retention preferences
+      summary: Get voice transcription consent
       responses:
         "200":
-          description: Voice-data retention settings
+          description: Voice transcription consent state
           content:
             application/json:
               schema:
@@ -1116,7 +1116,7 @@ paths:
     patch:
       operationId: updateTranscriptionPreferences
       tags: [ai]
-      summary: Update voice-data retention preferences
+      summary: Update voice transcription consent
       requestBody:
         required: true
         content:
@@ -1125,105 +1125,17 @@ paths:
               $ref: "#/components/schemas/TranscriptionPreferencesUpdate"
       responses:
         "200":
-          description: Updated voice-data retention setting
+          description: Updated voice transcription consent
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TranscriptionPreferencesUpdateResponse"
         "400":
-          description: Invalid retention setting
+          description: Invalid consent decision
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-
-  /ai/voice-recordings:
-    get:
-      operationId: listVoiceRecordings
-      tags: [ai]
-      summary: List retained voice recordings for the current user
-      parameters:
-        - name: date
-          in: query
-          required: false
-          schema:
-            type: string
-            pattern: '^\d{4}-\d{2}-\d{2}$'
-      responses:
-        "200":
-          description: Retained voice recordings
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/VoiceRecording"
-
-  /ai/voice-recordings/{id}:
-    delete:
-      operationId: deleteVoiceRecording
-      tags: [ai]
-      summary: Delete a retained voice recording
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "204":
-          description: Recording deleted
-        "404":
-          description: Recording not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /ai/voice-recordings/{id}/audio:
-    get:
-      operationId: getVoiceRecordingAudio
-      tags: [ai]
-      summary: Stream a retained voice recording owned by the current user
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Audio bytes
-          content:
-            audio/*:
-              schema:
-                type: string
-                format: binary
-        "404":
-          description: Recording not found
-
-  /ai/voice-recordings/{id}/retry:
-    post:
-      operationId: retryVoiceRecording
-      tags: [ai]
-      summary: Retry transcription for a retained recording
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Updated transcription
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AudioTranscriptionResponse"
-        "404":
-          description: Recording not found
-        "422":
-          description: No speech was detected
 
   /ai/realtime-token:
     post:
@@ -2219,14 +2131,9 @@ components:
         language:
           type: string
           maxLength: 20
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
-        planDate:
-          type: string
-          pattern: '^\d{4}-\d{2}-\d{2}$'
     AudioTranscriptionResponse:
       type: object
-      required: [transcript, confidence, reviewSignals, retention, deletion, recording]
+      required: [transcript, confidence, reviewSignals, deletion]
       properties:
         transcript:
           type: string
@@ -2240,18 +2147,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TranscriptionReviewSignal'
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
         deletion:
           $ref: '#/components/schemas/TranscriptionDeletionMarker'
-        recording:
-          allOf:
-            - $ref: '#/components/schemas/VoiceRecording'
-          nullable: true
-
-    VoiceRetention:
-      type: string
-      enum: [delete_immediately, until_review, keep_24_hours]
 
     TranscriptionReviewSignal:
       type: object
@@ -2279,34 +2176,17 @@ components:
       properties:
         rawAudio:
           type: string
-          enum: [not_stored, stored_until_expiry]
+          enum: [not_stored]
         providerTranscript:
           type: string
           enum: [deleted]
         marker:
           type: string
 
-    TranscriptionPreferenceOption:
-      type: object
-      required: [value, label, description]
-      properties:
-        value:
-          $ref: '#/components/schemas/VoiceRetention'
-        label:
-          type: string
-        description:
-          type: string
-
     TranscriptionPreferences:
       type: object
-      required: [retention, options, consentGiven]
+      required: [consentGiven]
       properties:
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
-        options:
-          type: array
-          items:
-            $ref: '#/components/schemas/TranscriptionPreferenceOption'
         consentGiven:
           type: boolean
         consentVersion:
@@ -2314,48 +2194,23 @@ components:
 
     TranscriptionPreferencesUpdate:
       type: object
+      required: [consent]
       properties:
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
         consent:
           type: boolean
 
     TranscriptionPreferencesUpdateResponse:
       type: object
-      required: [retention, consentGiven]
+      required: [consentGiven]
       properties:
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
         consentGiven:
           type: boolean
         consentVersion:
           type: ["string", "null"]
 
-    VoiceRecording:
-      type: object
-      required: [id, planDate, mimeType, durationMs, transcript, audioUrl, createdAt, expiresAt]
-      properties:
-        id:
-          type: integer
-        planDate:
-          type: string
-        mimeType:
-          type: string
-        durationMs:
-          type: integer
-        transcript:
-          type: string
-        audioUrl:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        expiresAt:
-          type: ["string", "null"]
-
     RealtimeTranscriptionToken:
       type: object
-      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, retention, speechModel, redaction]
+      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, speechModel, redaction]
       properties:
         token:
           type: string
@@ -2369,8 +2224,6 @@ components:
         websocketUrl:
           type: string
           format: uri
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
         speechModel:
           type: string
         redaction:

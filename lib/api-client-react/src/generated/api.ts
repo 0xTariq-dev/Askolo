@@ -3985,7 +3985,7 @@ export const getGetTranscriptionPreferencesUrl = () => {
 }
 
 /**
- * @summary Get voice-data retention preferences
+ * @summary Get voice transcription consent
  */
 export const getTranscriptionPreferences = async ( options?: Parameters<typeof customFetch>[1]): Promise<TranscriptionPreferences> => {
 
@@ -4032,7 +4032,7 @@ export type GetTranscriptionPreferencesQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Get voice-data retention preferences
+ * @summary Get voice transcription consent
  */
 
 export function useGetTranscriptionPreferences<TData = Awaited<ReturnType<typeof getTranscriptionPreferences>>, TError = ErrorType<unknown>>(
@@ -4062,7 +4062,7 @@ export const getUpdateTranscriptionPreferencesUrl = () => {
 }
 
 /**
- * @summary Update voice-data retention preferences
+ * @summary Update voice transcription consent
  */
 export const updateTranscriptionPreferences = async (transcriptionPreferencesUpdate: TranscriptionPreferencesUpdate, options?: Parameters<typeof customFetch>[1]): Promise<TranscriptionPreferencesUpdateResponse> => {
 
@@ -4120,7 +4120,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateTranscriptionPreferencesMutationVariables = {data: BodyType<TranscriptionPreferencesUpdate>}
 
     /**
- * @summary Update voice-data retention preferences
+ * @summary Update voice transcription consent
  */
 export const useUpdateTranscriptionPreferences = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTranscriptionPreferences>>, TError,UpdateTranscriptionPreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

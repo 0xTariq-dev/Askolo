@@ -1,16 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createHash } from "node:crypto";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   db,
   dailyPlansTable,
   actionItemsTable,
   voicePreferencesTable,
-  voiceRecordingsTable,
-  voiceRetentionValues,
-  type VoiceRetention,
-  type VoiceRecording,
 } from "@workspace/db";
 import {
   CreditLedgerError,
@@ -26,12 +22,6 @@ import {
   transcribeRecordedAudio,
   type AssemblyAiTranscript,
 } from "../lib/assemblyai";
-import {
-  createPrivateAudioPath,
-  deletePrivateAudio,
-  downloadPrivateAudio,
-  uploadPrivateAudio,
-} from "../lib/privateAudioStorage";
 
 const router: IRouter = Router();
 
@@ -53,7 +43,6 @@ const supportedAudioMimeTypes = new Set([
   "audio/mpeg",
 ]);
 
-const DEFAULT_VOICE_RETENTION: VoiceRetention = "delete_immediately";
 const VOICE_CONSENT_VERSION = "voice-consent-2026-09-07-v1";
 const LOW_CONFIDENCE_THRESHOLD = 0.78;
 
@@ -198,45 +187,6 @@ function consumeAudioRateLimit(key: string): number | null {
 
   existing.count += 1;
   return null;
-}
-
-async function getVoiceRetention(userId: string): Promise<VoiceRetention> {
-  const [preference] = await db
-    .select({ retention: voicePreferencesTable.retention })
-    .from(voicePreferencesTable)
-    .where(eq(voicePreferencesTable.userId, userId))
-    .limit(1);
-  return preference?.retention ?? DEFAULT_VOICE_RETENTION;
-}
-
-async function cleanupExpiredVoiceRecordings(userId: string): Promise<void> {
-  const now = new Date();
-  const expired = await db
-    .select()
-    .from(voiceRecordingsTable)
-    .where(eq(voiceRecordingsTable.userId, userId));
-  for (const recording of expired) {
-    if (!recording.expiresAt || recording.expiresAt > now) continue;
-    await db.delete(voiceRecordingsTable).where(eq(voiceRecordingsTable.id, recording.id));
-    await deletePrivateAudio(recording.objectPath).catch(() => undefined);
-  }
-}
-
-function serializeVoiceRecording(recording: VoiceRecording) {
-  return {
-    id: recording.id,
-    planDate: recording.planDate,
-    mimeType: recording.mimeType,
-    durationMs: recording.durationMs,
-    transcript: recording.transcript,
-    audioUrl: `/api/ai/voice-recordings/${recording.id}/audio`,
-    createdAt: recording.createdAt.toISOString(),
-    expiresAt: recording.expiresAt?.toISOString() ?? null,
-  };
-}
-
-function isVoiceRetention(value: unknown): value is VoiceRetention {
-  return typeof value === "string" && (voiceRetentionValues as readonly string[]).includes(value);
 }
 
 function createReviewSignals(transcript: AssemblyAiTranscript) {
@@ -544,19 +494,11 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
     mimeType?: unknown;
     durationMs?: unknown;
     language?: unknown;
-    retention?: unknown;
-    planDate?: unknown;
   };
   const audioBase64 = body?.audioBase64;
   const mimeType = body?.mimeType;
   const durationMs = body?.durationMs;
   const language = typeof body?.language === "string" ? body.language.slice(0, 20) : "en-US";
-  const retention = isVoiceRetention(body?.retention)
-    ? body.retention
-    : await getVoiceRetention(req.dbUser.id);
-  const planDate = isIsoDate(body?.planDate)
-    ? body.planDate
-    : new Date().toISOString().slice(0, 10);
 
   if (
     typeof audioBase64 !== "string" ||
@@ -622,7 +564,6 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
         metadata: {
           route: "transcribe-audio",
           audioFormat: normalizedMimeType,
-          retention,
           provider: "assemblyai",
           region: "us",
         },
@@ -652,39 +593,6 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
       return;
     }
 
-    let recording: ReturnType<typeof serializeVoiceRecording> | null = null;
-    if (retention !== "delete_immediately") {
-      try {
-        const objectPath = createPrivateAudioPath(req.dbUser.id);
-        await uploadPrivateAudio({
-          objectPath,
-          audio: audioBuffer,
-          contentType: normalizedMimeType,
-        });
-        const [savedRecording] = await db
-          .insert(voiceRecordingsTable)
-          .values({
-            userId: req.dbUser.id,
-            planDate,
-            objectPath,
-            mimeType: normalizedMimeType,
-            durationMs: durationMs as number,
-            transcript: spokenText,
-            expiresAt: retention === "keep_24_hours"
-              ? new Date(Date.now() + 24 * 60 * 60 * 1000)
-              : null,
-          })
-          .returning();
-        if (savedRecording) recording = serializeVoiceRecording(savedRecording);
-      } catch (storageError) {
-        req.log.error({
-          requestId: req.id,
-          userId: req.dbUser.id,
-          error: storageError instanceof Error ? storageError.message : "unknown",
-        }, "Retained voice recording could not be stored");
-      }
-    }
-
     req.log.info({
       requestId: req.id,
       userId: req.dbUser.id,
@@ -692,23 +600,16 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
       durationMs: Date.now() - startedAt,
       provider: "assemblyai",
       region: "us",
-      retention,
     }, "Voice transcription completed");
     res.json({
       transcript: spokenText,
       confidence: typeof transcript.confidence === "number" ? transcript.confidence : null,
       reviewSignals: createReviewSignals(transcript),
-      retention,
       deletion: {
-        rawAudio: recording ? "stored_until_expiry" : "not_stored",
+        rawAudio: "not_stored",
         providerTranscript: "deleted",
-        marker: retention === "delete_immediately"
-          ? "Audio and provider transcript deleted after transcription."
-          : recording
-            ? "Audio is stored privately until the selected retention period."
-            : "Audio storage was unavailable; provider transcript deleted after transcription.",
+        marker: "Audio and provider transcript deleted after transcription.",
       },
-      recording,
     });
   } catch (err) {
     if (respondToCreditError(req, res, err)) return;
@@ -721,43 +622,49 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
 });
 
 router.get("/ai/transcription-preferences", async (req, res): Promise<void> => {
+  const [preference] = await db
+    .select({
+      consentAt: voicePreferencesTable.consentAt,
+      consentVersion: voicePreferencesTable.consentVersion,
+    })
+    .from(voicePreferencesTable)
+    .where(eq(voicePreferencesTable.userId, req.dbUser.id))
+    .limit(1);
   res.json({
-    retention: await getVoiceRetention(req.dbUser.id),
-    options: [
-      {
-        value: "delete_immediately",
-        label: "Delete after transcription",
-        description: "Recommended. Raw audio is never stored and the provider transcript is deleted after processing.",
-      },
-      {
-        value: "until_review",
-        label: "Keep until review",
-        description: "Keep the reviewed text in this session only; raw audio is never stored.",
-      },
-      {
-        value: "keep_24_hours",
-        label: "Keep for 24 hours",
-        description: "Keep the reviewed text in this session for up to 24 hours; raw audio is never stored.",
-      },
-    ],
+    consentGiven: Boolean(preference?.consentAt),
+    consentVersion: preference?.consentVersion ?? null,
   });
 });
 
 router.patch("/ai/transcription-preferences", async (req, res): Promise<void> => {
-  const retention = (req.body as { retention?: unknown })?.retention;
-  if (!isVoiceRetention(retention)) {
-    res.status(400).json({ error: "A valid voice-data retention choice is required." });
+  const consent = (req.body as { consent?: unknown })?.consent;
+  if (typeof consent !== "boolean") {
+    res.status(400).json({ error: "A consent decision is required." });
     return;
   }
   const [preference] = await db
     .insert(voicePreferencesTable)
-    .values({ userId: req.dbUser.id, retention })
+    .values({
+      userId: req.dbUser.id,
+      consentAt: consent ? new Date() : null,
+      consentVersion: consent ? VOICE_CONSENT_VERSION : null,
+    })
     .onConflictDoUpdate({
       target: voicePreferencesTable.userId,
-      set: { retention, updatedAt: new Date() },
+      set: {
+        consentAt: consent ? new Date() : null,
+        consentVersion: consent ? VOICE_CONSENT_VERSION : null,
+        updatedAt: new Date(),
+      },
     })
-    .returning({ retention: voicePreferencesTable.retention });
-  res.json({ retention: preference?.retention ?? retention });
+    .returning({
+      consentAt: voicePreferencesTable.consentAt,
+      consentVersion: voicePreferencesTable.consentVersion,
+    });
+  res.json({
+    consentGiven: Boolean(preference?.consentAt),
+    consentVersion: preference?.consentVersion ?? null,
+  });
 });
 
 router.post("/ai/realtime-token", async (req, res): Promise<void> => {
@@ -765,7 +672,6 @@ router.post("/ai/realtime-token", async (req, res): Promise<void> => {
     const token = await createRealtimeToken();
     res.json({
       ...token,
-      retention: await getVoiceRetention(req.dbUser.id),
       speechModel: "universal-3-5-pro",
       redaction: "provider_pii_redaction",
     });
