@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays } from 'date-fns';
 import { z } from 'zod';
@@ -23,7 +23,7 @@ import {
   useCreateDailyPlan,
   useUpdateDailyPlan,
   useDeleteDailyPlan,
-  useVoiceToPlan,
+  useTranscribeAudio,
   getListDailyPlansQueryKey,
   getGetDashboardSummaryQueryKey,
   DailyPlan
@@ -52,6 +52,67 @@ const planSchema = z.object({
 
 type PlanFormValues = z.infer<typeof planSchema>;
 
+const MAX_RECORDING_MS = 2 * 60 * 1000;
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+
+type VoiceState = 'idle' | 'starting' | 'listening' | 'processing' | 'review' | 'error';
+type VoiceMode = 'live' | 'recorded';
+
+function normalizeSpeech(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function removeRepeatedTail(value: string): string {
+  const words = normalizeSpeech(value).split(' ').filter(Boolean);
+  const maxRepeatedWords = Math.min(12, Math.floor(words.length / 2));
+
+  for (let size = maxRepeatedWords; size >= 5; size -= 1) {
+    const previous = words.slice(words.length - size * 2, words.length - size);
+    const last = words.slice(words.length - size);
+    if (previous.length === size && previous.join(' ') === last.join(' ')) {
+      return words.slice(0, words.length - size).join(' ');
+    }
+  }
+
+  return words.join(' ');
+}
+
+function mergeVoiceText(base: string, spoken: string): string {
+  const cleanBase = normalizeSpeech(base);
+  const cleanSpoken = removeRepeatedTail(spoken);
+  if (!cleanSpoken) return cleanBase;
+  return cleanBase ? `${cleanBase} ${cleanSpoken}` : cleanSpoken;
+}
+
+function formatRecordingTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const remainder = (seconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${remainder}`;
+}
+
+function getRecorderMimeType(): string | null {
+  if (typeof MediaRecorder === 'undefined') return null;
+  const supportedTypes = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/mpeg',
+  ];
+  return supportedTypes.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
 export function PlanPage() {
   const qc = useQueryClient();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -65,10 +126,23 @@ export function PlanPage() {
 
   const [notes, setNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isListening, setIsListening] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [voiceMode, setVoiceMode] = useState<VoiceMode | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState('');
+  const [voiceError, setVoiceError] = useState('');
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [transcript, setTranscript] = useState('');
   const recognitionRef = useRef<any>(null);
-  const voiceToPlan = useVoiceToPlan();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const liveSegmentsRef = useRef<Array<{ text: string; isFinal: boolean }>>([]);
+  const voiceBaseNotesRef = useRef('');
+  const voiceSessionRef = useRef(0);
+  const cancelRequestedRef = useRef(false);
+  const stopRequestedRef = useRef(false);
+  const durationStopRequestedRef = useRef(false);
+  const transcribeAudio = useTranscribeAudio();
 
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -95,61 +169,308 @@ export function PlanPage() {
       
       if (res.ok) {
         setNotes('');
+        setTranscript('');
+        setVoiceState('idle');
+        setVoiceMode(null);
+        setVoiceStatus('');
+        setVoiceError('');
         // Refetch the plan for the currently selected date specifically
         await qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
         await qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+      } else {
+        const payload = await res.json().catch(() => null);
+        setVoiceError(payload?.error || 'The plan could not be generated. Try again.');
       }
-    } catch (e) {
-      console.error(e);
+    } catch {
+      setVoiceError('The plan could not be generated. Check your connection and try again.');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const startListening = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert('Voice input is not supported in this browser.');
+  const cleanupMediaStream = () => {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+  };
+
+  const refreshLiveTranscript = () => {
+    const finalText = removeRepeatedTail(
+      liveSegmentsRef.current.filter((segment) => segment.isFinal).map((segment) => segment.text).join(' '),
+    );
+    const interimText = normalizeSpeech(
+      liveSegmentsRef.current.filter((segment) => !segment.isFinal).map((segment) => segment.text).join(' '),
+    );
+    setTranscript(finalText);
+    setNotes(mergeVoiceText(voiceBaseNotesRef.current, [finalText, interimText].filter(Boolean).join(' ')));
+  };
+
+  const finishLiveReview = (sessionId: number) => {
+    if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) return;
+    const finalText = removeRepeatedTail(
+      liveSegmentsRef.current.filter((segment) => segment.isFinal).map((segment) => segment.text).join(' '),
+    );
+
+    if (!finalText) {
+      setVoiceState('error');
+      setVoiceError('No speech was detected. Try again or type your plan instead.');
+      setVoiceStatus('');
       return;
     }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-    recognition.onresult = (event: any) => {
-      let final = '';
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) final += transcript + ' ';
-        else interim += transcript;
+
+    setTranscript(finalText);
+    setNotes(mergeVoiceText(voiceBaseNotesRef.current, finalText));
+    setVoiceState('review');
+    setVoiceStatus('Review the transcript above before generating your plan.');
+  };
+
+  const startRecordedSession = async (sessionId: number) => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceState('error');
+      setVoiceError('This browser cannot record audio. You can type your plan instead.');
+      setVoiceStatus('');
+      return;
+    }
+
+    const mimeType = getRecorderMimeType();
+    if (!mimeType) {
+      setVoiceState('error');
+      setVoiceError('This browser has no supported audio recording format.');
+      setVoiceStatus('');
+      return;
+    }
+
+    setVoiceMode('recorded');
+    setVoiceState('starting');
+    setVoiceStatus('Requesting microphone permission…');
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
       }
-      if (final) setTranscript((prev) => prev + final);
-      setNotes((prev) => prev + final + interim);
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        cleanupMediaStream();
+        setVoiceState('error');
+        setVoiceError('The browser could not record this voice note. Try again or type your plan.');
+        setVoiceStatus('');
+      };
+      recorder.onstop = async () => {
+        const canceled = cancelRequestedRef.current || voiceSessionRef.current !== sessionId;
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType });
+        cleanupMediaStream();
+        if (canceled) return;
+
+        if (blob.size === 0) {
+          setVoiceState('error');
+          setVoiceError('No audio was recorded. Check microphone permission and try again.');
+          setVoiceStatus('');
+          return;
+        }
+        if (blob.size > MAX_AUDIO_BYTES) {
+          setVoiceState('error');
+          setVoiceError('This recording is too large. Keep voice notes under 2 minutes.');
+          setVoiceStatus('');
+          return;
+        }
+
+        setVoiceState('processing');
+        setVoiceStatus('Transcribing your recording…');
+        try {
+          const audioBase64 = await blobToBase64(blob);
+          if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) return;
+          transcribeAudio.mutate(
+            {
+              data: {
+                audioBase64,
+                mimeType: (blob.type || mimeType).split(';')[0],
+              },
+            },
+            {
+              onSuccess: (data) => {
+                if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) return;
+                const spokenText = removeRepeatedTail(data.transcript);
+                if (!spokenText) {
+                  setVoiceState('error');
+                  setVoiceError('No speech was detected. Try again or type your plan instead.');
+                  setVoiceStatus('');
+                  return;
+                }
+                setTranscript(spokenText);
+                setNotes(mergeVoiceText(voiceBaseNotesRef.current, spokenText));
+                setVoiceState('review');
+                setVoiceStatus('Review the transcript above before generating your plan.');
+              },
+              onError: (error) => {
+                if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) return;
+                const message = error instanceof Error ? error.message : '';
+                setVoiceState('error');
+                setVoiceError(message || 'Voice transcription failed. Try again or type your plan instead.');
+                setVoiceStatus('');
+              },
+            },
+          );
+        } catch {
+          setVoiceState('error');
+          setVoiceError('The recording could not be prepared. Try again or type your plan instead.');
+          setVoiceStatus('');
+        }
+      };
+
+      recorder.start(1000);
+      setVoiceState('listening');
+      setVoiceStatus('Speak naturally. Your transcript will be reviewable before submission.');
+    } catch (error) {
+      const denied = error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
+      setVoiceState('error');
+      setVoiceError(
+        denied
+          ? 'Microphone permission was denied. Allow microphone access or type your plan instead.'
+          : 'The microphone could not be started. Check your browser permissions and try again.',
+      );
+      setVoiceStatus('');
+    }
+  };
+
+  const startListening = async () => {
+    if (voiceState === 'starting' || voiceState === 'listening' || voiceState === 'processing') return;
+
+    const sessionId = voiceSessionRef.current + 1;
+    voiceSessionRef.current = sessionId;
+    voiceBaseNotesRef.current = notes;
+    cancelRequestedRef.current = false;
+    stopRequestedRef.current = false;
+    durationStopRequestedRef.current = false;
+    liveSegmentsRef.current = [];
+    audioChunksRef.current = [];
     setTranscript('');
+    setRecordingSeconds(0);
+    setVoiceError('');
+    setVoiceStatus('');
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      await startRecordedSession(sessionId);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.onresult = (event: any) => {
+        if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        for (let index = 0; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          liveSegmentsRef.current[index] = {
+            text: result[0]?.transcript ?? '',
+            isFinal: Boolean(result.isFinal),
+          };
+        }
+        refreshLiveTranscript();
+      };
+      recognition.onerror = (event: any) => {
+        if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        const recoverable = event.error === 'network' || event.error === 'service-not-allowed' || event.error === 'audio-capture';
+        if (recoverable && !stopRequestedRef.current) {
+          recognition.abort();
+          const fallbackSessionId = voiceSessionRef.current + 1;
+          voiceSessionRef.current = fallbackSessionId;
+          void startRecordedSession(fallbackSessionId);
+          return;
+        }
+        if (event.error === 'no-speech') {
+          setVoiceStatus('No speech detected yet. Keep speaking or stop to review.');
+          return;
+        }
+        if (event.error === 'not-allowed') {
+          setVoiceState('error');
+          setVoiceError('Microphone permission was denied. Allow microphone access or type your plan instead.');
+          setVoiceStatus('');
+          return;
+        }
+        setVoiceState('error');
+        setVoiceError('Live transcription stopped unexpectedly. Try again or type your plan instead.');
+        setVoiceStatus('');
+      };
+      recognition.onend = () => {
+        if (voiceSessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        recognitionRef.current = null;
+        finishLiveReview(sessionId);
+      };
+      recognitionRef.current = recognition;
+      setVoiceMode('live');
+      setVoiceState('listening');
+      setVoiceStatus('Speak naturally. Your transcript will be reviewable before submission.');
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      await startRecordedSession(sessionId);
+    }
   };
 
   const stopListening = () => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-    if (transcript.trim()) {
-      voiceToPlan.mutate(
-        { data: { transcript: transcript.trim(), date: dateStr } },
-        {
-          onSuccess: () => {
-            qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          },
-        },
-      );
+    if (voiceState !== 'listening') return;
+    stopRequestedRef.current = true;
+    setVoiceStatus('Finishing your recording…');
+
+    if (voiceMode === 'live') {
+      setVoiceState('processing');
+      recognitionRef.current?.stop();
+      return;
     }
+
+    mediaRecorderRef.current?.stop();
   };
+
+  const cancelVoice = () => {
+    cancelRequestedRef.current = true;
+    voiceSessionRef.current += 1;
+    recognitionRef.current?.abort();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    cleanupMediaStream();
+    setNotes(voiceBaseNotesRef.current);
+    setTranscript('');
+    setVoiceState('idle');
+    setVoiceMode(null);
+    setVoiceStatus('Voice input canceled.');
+    setVoiceError('');
+    setRecordingSeconds(0);
+  };
+
+  useEffect(() => {
+    if (voiceState !== 'listening') return;
+    const timer = window.setInterval(() => {
+      setRecordingSeconds((current) => {
+        const next = current + 1;
+        if (next >= MAX_RECORDING_MS / 1000 && !durationStopRequestedRef.current) {
+          durationStopRequestedRef.current = true;
+          window.setTimeout(stopListening, 0);
+        }
+        return next;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [voiceState]);
+
+  useEffect(() => () => {
+    recognitionRef.current?.abort();
+    cleanupMediaStream();
+  }, []);
 
   const openAdd = () => {
     form.reset({
@@ -205,6 +526,8 @@ export function PlanPage() {
     const pScore = { high: 0, medium: 1, low: 2 };
     return pScore[a.priority] - pScore[b.priority];
   }) : [];
+  const voiceIsBusy = voiceState === 'starting' || voiceState === 'listening' || voiceState === 'processing';
+  const isListening = voiceState === 'listening';
 
   return (
     <PageTransition className="h-full flex flex-col max-w-7xl mx-auto">

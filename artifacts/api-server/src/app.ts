@@ -37,7 +37,9 @@ app.use(
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 app.use(cors({ credentials: true, origin: true }));
-app.use(express.json());
+// Voice fallback uploads are sent as base64 JSON. Keep the global parser
+// bounded while allowing the route to enforce its smaller decoded-audio cap.
+app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Resolve the publishable key from the incoming request host so the same

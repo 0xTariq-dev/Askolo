@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface ChoreCompleteInput {
-  completedAt?: Date;
+export interface AudioTranscriptionResponse {
+  /** @minLength 1 */
+  transcript: string;
 }

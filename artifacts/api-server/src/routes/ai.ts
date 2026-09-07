@@ -1,8 +1,21 @@
 import { Router, type IRouter } from "express";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import {
+  detectAudioFormat,
+  ensureCompatibleFormat,
+  openai,
+  speechToText,
+} from "@workspace/integrations-openai-ai-server";
 import { db, dailyPlansTable, actionItemsTable } from "@workspace/db";
 
 const router: IRouter = Router();
+
+const MAX_VOICE_TRANSCRIPT_LENGTH = 20_000;
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+const AUDIO_TRANSCRIPTION_WINDOW_MS = 10 * 60 * 1000;
+const AUDIO_TRANSCRIPTION_MAX_REQUESTS = 5;
+const AUDIO_TRANSCRIPTION_TIMEOUT_MS = 45_000;
+const maxAudioBase64Length = Math.ceil(MAX_AUDIO_BYTES / 3) * 4 + 16;
+const audioTranscriptionRateLimits = new Map<string, { count: number; windowStartedAt: number }>();
 
 interface PlanItem {
   title: string;
@@ -14,6 +27,54 @@ interface PlanItem {
 interface MeetingActionItem {
   title: string;
   dueDate?: string | null;
+}
+
+function isIsoDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isStrictBase64(value: string): boolean {
+  return value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
+}
+
+function consumeAudioRateLimit(key: string): number | null {
+  const now = Date.now();
+  const existing = audioTranscriptionRateLimits.get(key);
+  if (!existing || now - existing.windowStartedAt >= AUDIO_TRANSCRIPTION_WINDOW_MS) {
+    audioTranscriptionRateLimits.set(key, { count: 1, windowStartedAt: now });
+    return null;
+  }
+
+  if (existing.count >= AUDIO_TRANSCRIPTION_MAX_REQUESTS) {
+    return Math.ceil((AUDIO_TRANSCRIPTION_WINDOW_MS - (now - existing.windowStartedAt)) / 1000);
+  }
+
+  existing.count += 1;
+  return null;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  controller: AbortController,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error("VOICE_TRANSCRIPTION_TIMEOUT"));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 // POST /ai/generate-plan
@@ -235,6 +296,113 @@ The "action" field is optional. Valid types: "info", "warning", "action". Only e
   } catch (err) {
     req.log.error(err, "AI assistant chat failed");
     res.status(500).json({ error: "Failed to get assistant response" });
+  }
+});
+
+// POST /ai/transcribe-audio
+// Transcribe a short, user-recorded voice note for client-side review.
+router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
+  const startedAt = Date.now();
+  const userRetryAfter = consumeAudioRateLimit(`user:${req.dbUser.id}`);
+  const ipRetryAfter = consumeAudioRateLimit(`ip:${req.ip ?? "unknown"}`);
+  const retryAfter = Math.max(userRetryAfter ?? 0, ipRetryAfter ?? 0);
+
+  if (retryAfter > 0) {
+    res.setHeader("Retry-After", retryAfter);
+    res.status(429).json({ error: "Too many voice transcription attempts. Try again shortly." });
+    return;
+  }
+
+  const body = req.body as {
+    audioBase64?: unknown;
+    mimeType?: unknown;
+  };
+  const audioBase64 = body?.audioBase64;
+  const mimeType = body?.mimeType;
+
+  if (
+    typeof audioBase64 !== "string" ||
+    audioBase64.length === 0 ||
+    audioBase64.length > maxAudioBase64Length ||
+    !isStrictBase64(audioBase64)
+  ) {
+    res.status(400).json({ error: "A valid audio recording is required." });
+    return;
+  }
+
+  if (typeof mimeType !== "string") {
+    res.status(400).json({ error: "Audio format is required." });
+    return;
+  }
+
+  const normalizedMimeType = mimeType.split(";")[0].trim().toLowerCase();
+  const supportedMimeTypes = new Set([
+    "audio/webm",
+    "audio/mp4",
+    "audio/m4a",
+    "audio/wav",
+    "audio/ogg",
+    "audio/mpeg",
+  ]);
+  if (!supportedMimeTypes.has(normalizedMimeType)) {
+    res.status(415).json({ error: "This recording format is not supported." });
+    return;
+  }
+
+  let audioBuffer: Buffer;
+  try {
+    audioBuffer = Buffer.from(audioBase64, "base64");
+  } catch {
+    res.status(400).json({ error: "The audio recording could not be read." });
+    return;
+  }
+
+  if (audioBuffer.length === 0 || audioBuffer.length > MAX_AUDIO_BYTES) {
+    res.status(413).json({ error: "The recording is too large. Keep voice notes under 2 minutes." });
+    return;
+  }
+
+  const detectedFormat = detectAudioFormat(audioBuffer);
+  if (detectedFormat === "unknown") {
+    res.status(415).json({ error: "The recording format could not be detected." });
+    return;
+  }
+
+  const controller = new AbortController();
+  try {
+    const compatible = await ensureCompatibleFormat(audioBuffer);
+    const transcript = (await withTimeout(
+      speechToText(compatible.buffer, compatible.format, controller.signal),
+      AUDIO_TRANSCRIPTION_TIMEOUT_MS,
+      controller,
+    )).trim();
+
+    if (!transcript) {
+      res.status(422).json({ error: "No speech was detected in the recording." });
+      return;
+    }
+
+    req.log.info({
+      requestId: req.id,
+      userId: req.dbUser.id,
+      audioBytes: audioBuffer.length,
+      durationMs: Date.now() - startedAt,
+    }, "Voice transcription completed");
+    res.json({ transcript });
+  } catch (err) {
+    const timedOut = err instanceof Error && err.message === "VOICE_TRANSCRIPTION_TIMEOUT";
+    req.log.error({
+      err,
+      requestId: req.id,
+      userId: req.dbUser.id,
+      audioBytes: audioBuffer.length,
+      durationMs: Date.now() - startedAt,
+    }, "Voice transcription failed");
+    res.status(timedOut ? 504 : 502).json({
+      error: timedOut
+        ? "Voice transcription took too long. Try a shorter recording."
+        : "Voice transcription is temporarily unavailable. Try again or type your plan.",
+    });
   }
 });
 
