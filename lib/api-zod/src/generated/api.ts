@@ -5,7 +5,15 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
-import * as zod from 'zod';
+import * as zodBase from 'zod';
+
+// The generator emits zod.int(), while this workspace currently uses Zod 3.
+// Keep the generated schema surface stable without requiring a runtime-wide
+// Zod upgrade.
+const zod = {
+  ...zodBase,
+  int: () => zodBase.number().int(),
+};
 
 
 /**

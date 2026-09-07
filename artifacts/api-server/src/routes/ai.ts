@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
+import { openai } from "@workspace/integrations-openai-ai-server";
 import {
   detectAudioFormat,
   ensureCompatibleFormat,
-  openai,
   speechToText,
-} from "@workspace/integrations-openai-ai-server";
+} from "@workspace/integrations-openai-ai-server/audio";
 import { db, dailyPlansTable, actionItemsTable } from "@workspace/db";
 
 const router: IRouter = Router();
