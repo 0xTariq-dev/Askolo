@@ -5,13 +5,15 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
-import * as zodBase from 'zod';
+import * as zodImport from 'zod';
 
-// Orval emits zod.int(), while this workspace currently uses Zod 3.
-// Keep generated schemas compatible without forcing a runtime-wide upgrade.
+// Orval currently emits Zod 4 helpers while this workspace intentionally runs
+// Zod 3. Keep the generated contract usable without changing the runtime
+// dependency for every consumer.
 const zod = {
-  ...zodBase,
-  int: () => zodBase.number().int(),
+  ...zodImport,
+  int: () => zodImport.number().int(),
+  url: () => zodImport.string().url(),
 };
 
 
@@ -1191,19 +1193,83 @@ export const transcribeAudioBodyAudioBase64Max = 11184812;
 
 export const transcribeAudioBodyDurationMsMax = 120000;
 
+export const transcribeAudioBodyLanguageMax = 20;
+
 
 
 export const TranscribeAudioBody = zod.object({
   "audioBase64": zod.string().min(1).max(transcribeAudioBodyAudioBase64Max),
   "mimeType": zod.enum(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/wav', 'audio/ogg', 'audio/mpeg']),
-  "durationMs": zod.int().min(1).max(transcribeAudioBodyDurationMsMax)
+  "durationMs": zod.int().min(1).max(transcribeAudioBodyDurationMsMax),
+  "language": zod.string().max(transcribeAudioBodyLanguageMax).optional(),
+  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']).optional()
 })
 
+
+export const transcribeAudioResponseConfidenceMin = 0;
+export const transcribeAudioResponseConfidenceMax = 1;
+
+export const transcribeAudioResponseReviewSignalsItemConfidenceMin = 0;
+export const transcribeAudioResponseReviewSignalsItemConfidenceMax = 1;
 
 
 
 export const TranscribeAudioResponse = zod.object({
-  "transcript": zod.string().min(1)
+  "transcript": zod.string().min(1),
+  "confidence": zod.number().min(transcribeAudioResponseConfidenceMin).max(transcribeAudioResponseConfidenceMax).nullable(),
+  "reviewSignals": zod.array(zod.object({
+  "kind": zod.enum(['low_confidence_entity']),
+  "text": zod.string(),
+  "confidence": zod.number().min(transcribeAudioResponseReviewSignalsItemConfidenceMin).max(transcribeAudioResponseReviewSignalsItemConfidenceMax),
+  "startMs": zod.int().nullable(),
+  "endMs": zod.int().nullable()
+})),
+  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
+  "deletion": zod.object({
+  "rawAudio": zod.enum(['not_stored']),
+  "providerTranscript": zod.enum(['deleted']),
+  "marker": zod.string()
+})
+})
+
+
+/**
+ * @summary Get voice-data retention preferences
+ */
+export const GetTranscriptionPreferencesResponse = zod.object({
+  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
+  "options": zod.array(zod.object({
+  "value": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
+  "label": zod.string(),
+  "description": zod.string()
+}))
+})
+
+
+/**
+ * @summary Update voice-data retention preferences
+ */
+export const UpdateTranscriptionPreferencesBody = zod.object({
+  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours'])
+})
+
+export const UpdateTranscriptionPreferencesResponse = zod.object({
+  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours'])
+})
+
+
+/**
+ * @summary Create a single-use US AssemblyAI realtime token
+ */
+export const CreateRealtimeTranscriptionTokenResponse = zod.object({
+  "token": zod.string(),
+  "expiresInSeconds": zod.int(),
+  "maxSessionDurationSeconds": zod.int(),
+  "region": zod.enum(['us']),
+  "websocketUrl": zod.url(),
+  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
+  "speechModel": zod.string(),
+  "redaction": zod.string()
 })
 
 

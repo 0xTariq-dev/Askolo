@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AudioTranscriptionBodyMimeType } from './audioTranscriptionBodyMimeType';
+import type { VoiceRetention } from './voiceRetention';
 
 export interface AudioTranscriptionBody {
   /**
@@ -19,4 +20,7 @@ export interface AudioTranscriptionBody {
      * @maximum 120000
      */
   durationMs: number;
+  /** @maxLength 20 */
+  language?: string;
+  retention?: VoiceRetention;
 }

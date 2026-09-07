@@ -1,12 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createHash } from "node:crypto";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import {
-  convertToWav,
-  detectAudioFormat,
-  speechToText,
-} from "@workspace/integrations-openai-ai-server/audio";
-import { db, dailyPlansTable, actionItemsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { db, dailyPlansTable, actionItemsTable, voicePreferencesTable, voiceRetentionValues, type VoiceRetention } from "@workspace/db";
 import {
   CreditLedgerError,
   CreditLimitError,
@@ -15,6 +11,12 @@ import {
   withPricedCreditReservation,
   type CreditPricingKey,
 } from "../lib/ai-credit-ledger";
+import {
+  AssemblyAiError,
+  createRealtimeToken,
+  transcribeRecordedAudio,
+  type AssemblyAiTranscript,
+} from "../lib/assemblyai";
 
 const router: IRouter = Router();
 
@@ -26,6 +28,18 @@ const AUDIO_TRANSCRIPTION_TIMEOUT_MS = 45_000;
 const MAX_AUDIO_DURATION_MS = 2 * 60 * 1000;
 const maxAudioBase64Length = Math.ceil(MAX_AUDIO_BYTES / 3) * 4 + 16;
 const audioTranscriptionRateLimits = new Map<string, { count: number; windowStartedAt: number }>();
+
+const supportedAudioMimeTypes = new Set([
+  "audio/webm",
+  "audio/mp4",
+  "audio/m4a",
+  "audio/wav",
+  "audio/ogg",
+  "audio/mpeg",
+]);
+
+const DEFAULT_VOICE_RETENTION: VoiceRetention = "delete_immediately";
+const LOW_CONFIDENCE_THRESHOLD = 0.78;
 
 interface PlanItem {
   title: string;
@@ -45,36 +59,6 @@ function isIsoDate(value: unknown): value is string {
 
 function isStrictBase64(value: string): boolean {
   return value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
-}
-
-function readPcmWavDurationMs(buffer: Buffer): number {
-  if (
-    buffer.length < 44 ||
-    buffer.toString("ascii", 0, 4) !== "RIFF" ||
-    buffer.toString("ascii", 8, 12) !== "WAVE"
-  ) {
-    throw new Error("INVALID_NORMALIZED_WAV");
-  }
-  let byteRate = 0;
-  let dataBytes = 0;
-  let offset = 12;
-  while (offset + 8 <= buffer.length) {
-    const chunkId = buffer.toString("ascii", offset, offset + 4);
-    const chunkSize = buffer.readUInt32LE(offset + 4);
-    const dataStart = offset + 8;
-    if (chunkId === "fmt " && chunkSize >= 12 && dataStart + 12 <= buffer.length) {
-      byteRate = buffer.readUInt32LE(dataStart + 8);
-    } else if (chunkId === "data") {
-      dataBytes = Math.min(chunkSize, Math.max(0, buffer.length - dataStart));
-    }
-    if (byteRate > 0 && dataBytes > 0) break;
-    offset = dataStart + chunkSize + (chunkSize % 2);
-  }
-  const durationMs = Math.ceil((dataBytes / byteRate) * 1000);
-  if (!Number.isSafeInteger(durationMs) || durationMs <= 0 || durationMs > MAX_AUDIO_DURATION_MS) {
-    throw new Error("INVALID_AUDIO_DURATION");
-  }
-  return durationMs;
 }
 
 function fingerprint(value: string | Buffer): string {
@@ -200,28 +184,52 @@ function consumeAudioRateLimit(key: string): number | null {
   return null;
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  controller: AbortController,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      controller.abort();
-      reject(new Error("VOICE_TRANSCRIPTION_TIMEOUT"));
-    }, timeoutMs);
+async function getVoiceRetention(userId: string): Promise<VoiceRetention> {
+  const [preference] = await db
+    .select({ retention: voicePreferencesTable.retention })
+    .from(voicePreferencesTable)
+    .where(eq(voicePreferencesTable.userId, userId))
+    .limit(1);
+  return preference?.retention ?? DEFAULT_VOICE_RETENTION;
+}
 
-    promise.then(
-      (value) => {
-        clearTimeout(timeout);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
+function isVoiceRetention(value: unknown): value is VoiceRetention {
+  return typeof value === "string" && (voiceRetentionValues as readonly string[]).includes(value);
+}
+
+function createReviewSignals(transcript: AssemblyAiTranscript) {
+  return (transcript.words ?? [])
+    .filter((word) => {
+      const text = word.text?.trim() ?? "";
+      return Boolean(text) &&
+        typeof word.confidence === "number" &&
+        word.confidence < LOW_CONFIDENCE_THRESHOLD &&
+        /[\d@#$%]|(?:am|pm)$/i.test(text);
+    })
+    .slice(0, 20)
+    .map((word) => ({
+      kind: "low_confidence_entity" as const,
+      text: word.text?.trim() ?? "",
+      confidence: word.confidence ?? 0,
+      startMs: word.start ?? null,
+      endMs: word.end ?? null,
+    }));
+}
+
+function respondToAssemblyAiError(req: Request, res: Response, error: unknown): boolean {
+  if (!(error instanceof AssemblyAiError)) return false;
+  const status = error.code === "cancelled"
+    ? 499
+    : error.code === "provider_rejected"
+      ? 422
+      : error.code === "not_configured"
+        ? 503
+        : 502;
+  if (status >= 500) {
+    req.log.error({ requestId: req.id, userId: req.dbUser.id, code: error.code }, "AssemblyAI transcription failed");
+  }
+  res.status(status).json({ error: error.message, code: `ASSEMBLYAI_${error.code.toUpperCase()}` });
+  return true;
 }
 
 // POST /ai/generate-plan
@@ -488,10 +496,16 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
     audioBase64?: unknown;
     mimeType?: unknown;
     durationMs?: unknown;
+    language?: unknown;
+    retention?: unknown;
   };
   const audioBase64 = body?.audioBase64;
   const mimeType = body?.mimeType;
   const durationMs = body?.durationMs;
+  const language = typeof body?.language === "string" ? body.language.slice(0, 20) : "en-US";
+  const retention = isVoiceRetention(body?.retention)
+    ? body.retention
+    : await getVoiceRetention(req.dbUser.id);
 
   if (
     typeof audioBase64 !== "string" ||
@@ -519,15 +533,7 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
   }
 
   const normalizedMimeType = mimeType.split(";")[0].trim().toLowerCase();
-  const supportedMimeTypes = new Set([
-    "audio/webm",
-    "audio/mp4",
-    "audio/m4a",
-    "audio/wav",
-    "audio/ogg",
-    "audio/mpeg",
-  ]);
-  if (!supportedMimeTypes.has(normalizedMimeType)) {
+  if (!supportedAudioMimeTypes.has(normalizedMimeType)) {
     res.status(415).json({ error: "This recording format is not supported." });
     return;
   }
@@ -545,29 +551,16 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
     return;
   }
 
-  const detectedFormat = detectAudioFormat(audioBuffer);
-  if (detectedFormat === "unknown") {
-    res.status(415).json({ error: "The recording format could not be detected." });
-    return;
-  }
-
   const controller = new AbortController();
+  const abortRequest = () => controller.abort();
+  req.once("close", abortRequest);
   try {
-    // Normalize on the server and derive duration from PCM headers. The client
-    // duration is only a tamper/error check and never controls billing.
-    const normalizedAudio = await convertToWav(audioBuffer);
-    const validatedDurationMs = readPcmWavDurationMs(normalizedAudio);
-    if (
-      typeof durationMs === "number" &&
-      Math.abs(durationMs - validatedDurationMs) > Math.max(3_000, Math.ceil(validatedDurationMs * 0.1))
-    ) {
-      res.status(400).json({ error: "Audio duration does not match the recording." });
-      return;
-    }
-    const estimatedCredits = Math.max(1, Math.ceil(validatedDurationMs / 1000));
-    const requestFingerprint = fingerprint(normalizedAudio);
+    // Client duration is only used to reserve a bounded amount of credit. The
+    // provider's duration is authoritative when the reservation settles.
+    const estimatedCredits = Math.max(1, Math.ceil((durationMs as number) / 1000));
+    const requestFingerprint = fingerprint(audioBuffer);
     const idempotencyKey = requestIdempotencyKey(req, "transcribe-audio", requestFingerprint);
-    const transcript = await withPricedCreditReservation(
+    const providerTranscript: AssemblyAiTranscript = await withPricedCreditReservation(
       {
         userId: req.dbUser.id,
         pricingKey: "transcription.recorded",
@@ -575,23 +568,35 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
         expiresInSeconds: Math.ceil(AUDIO_TRANSCRIPTION_TIMEOUT_MS / 1000) + 15,
         idempotencyKey,
         requestFingerprint,
-        metadata: { route: "transcribe-audio", audioFormat: detectedFormat },
+        metadata: {
+          route: "transcribe-audio",
+          audioFormat: normalizedMimeType,
+          retention,
+          provider: "assemblyai",
+          region: "us",
+        },
       },
       async () => {
-        return (await withTimeout(
-          speechToText(normalizedAudio, "wav", controller.signal),
-          AUDIO_TRANSCRIPTION_TIMEOUT_MS,
-          controller,
-        )).trim();
+        return transcribeRecordedAudio({
+          audio: audioBuffer,
+          language,
+          signal: controller.signal,
+        });
       },
       {
         actualUnits: estimatedCredits,
-        connectedDurationMs: validatedDurationMs,
-        evidence: { route: "transcribe-audio", audioFormat: detectedFormat },
+        connectedDurationMs: durationMs as number,
+        evidence: {
+          route: "transcribe-audio",
+          provider: "assemblyai",
+          region: "us",
+        },
       },
     );
 
-    if (!transcript) {
+    const transcript = providerTranscript;
+    const spokenText = transcript.text?.trim().slice(0, MAX_VOICE_TRANSCRIPT_LENGTH) ?? "";
+    if (!spokenText) {
       res.status(422).json({ error: "No speech was detected in the recording." });
       return;
     }
@@ -601,23 +606,85 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
       userId: req.dbUser.id,
       audioBytes: audioBuffer.length,
       durationMs: Date.now() - startedAt,
+      provider: "assemblyai",
+      region: "us",
+      retention,
     }, "Voice transcription completed");
-    res.json({ transcript });
+    res.json({
+      transcript: spokenText,
+      confidence: typeof transcript.confidence === "number" ? transcript.confidence : null,
+      reviewSignals: createReviewSignals(transcript),
+      retention,
+      deletion: {
+        rawAudio: "not_stored",
+        providerTranscript: "deleted",
+        marker: retention === "delete_immediately"
+          ? "Audio and provider transcript deleted after transcription."
+          : "Raw audio was not stored; provider transcript deleted after transcription.",
+      },
+    });
   } catch (err) {
     if (respondToCreditError(req, res, err)) return;
-    const timedOut = err instanceof Error && err.message === "VOICE_TRANSCRIPTION_TIMEOUT";
-    req.log.error({
-      err,
-      requestId: req.id,
-      userId: req.dbUser.id,
-      audioBytes: audioBuffer.length,
-      durationMs: Date.now() - startedAt,
-    }, "Voice transcription failed");
-    res.status(timedOut ? 504 : 502).json({
-      error: timedOut
-        ? "Voice transcription took too long. Try a shorter recording."
-        : "Voice transcription is temporarily unavailable. Try again or type your plan.",
+    if (respondToAssemblyAiError(req, res, err)) return;
+    req.log.error({ requestId: req.id, userId: req.dbUser.id }, "Voice transcription failed");
+    res.status(502).json({ error: "Voice transcription is temporarily unavailable. Try again or type your plan." });
+  } finally {
+    req.off("close", abortRequest);
+  }
+});
+
+router.get("/ai/transcription-preferences", async (req, res): Promise<void> => {
+  res.json({
+    retention: await getVoiceRetention(req.dbUser.id),
+    options: [
+      {
+        value: "delete_immediately",
+        label: "Delete after transcription",
+        description: "Recommended. Raw audio is never stored and the provider transcript is deleted after processing.",
+      },
+      {
+        value: "until_review",
+        label: "Keep until review",
+        description: "Keep the reviewed text in this session only; raw audio is never stored.",
+      },
+      {
+        value: "keep_24_hours",
+        label: "Keep for 24 hours",
+        description: "Keep the reviewed text in this session for up to 24 hours; raw audio is never stored.",
+      },
+    ],
+  });
+});
+
+router.patch("/ai/transcription-preferences", async (req, res): Promise<void> => {
+  const retention = (req.body as { retention?: unknown })?.retention;
+  if (!isVoiceRetention(retention)) {
+    res.status(400).json({ error: "A valid voice-data retention choice is required." });
+    return;
+  }
+  const [preference] = await db
+    .insert(voicePreferencesTable)
+    .values({ userId: req.dbUser.id, retention })
+    .onConflictDoUpdate({
+      target: voicePreferencesTable.userId,
+      set: { retention, updatedAt: new Date() },
+    })
+    .returning({ retention: voicePreferencesTable.retention });
+  res.json({ retention: preference?.retention ?? retention });
+});
+
+router.post("/ai/realtime-token", async (req, res): Promise<void> => {
+  try {
+    const token = await createRealtimeToken();
+    res.json({
+      ...token,
+      retention: await getVoiceRetention(req.dbUser.id),
+      speechModel: "universal-3-5-pro",
+      redaction: "provider_pii_redaction",
     });
+  } catch (err) {
+    if (respondToAssemblyAiError(req, res, err)) return;
+    res.status(502).json({ error: "A real-time transcription session could not be started." });
   }
 });
 

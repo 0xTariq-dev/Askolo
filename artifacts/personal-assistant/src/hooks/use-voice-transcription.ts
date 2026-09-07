@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTranscribeAudio } from '@workspace/api-client-react';
+import { StreamingTranscriber, type TurnEvent } from 'assemblyai';
+import {
+  useCreateRealtimeTranscriptionToken,
+  useTranscribeAudio,
+  type TranscriptionReviewSignal,
+  type VoiceRetention,
+} from '@workspace/api-client-react';
 
 export type VoiceState = 'idle' | 'starting' | 'listening' | 'processing' | 'review' | 'error';
 export type VoiceMode = 'live' | 'recorded';
@@ -8,6 +14,8 @@ export interface UseVoiceTranscriptionOptions {
   language?: string;
   maxRecordingMs?: number;
   maxAudioBytes?: number;
+  retention?: VoiceRetention;
+  realtime?: boolean;
 }
 
 export interface VoiceTranscriptionResult {
@@ -17,6 +25,7 @@ export interface VoiceTranscriptionResult {
   error: string;
   transcript: string;
   liveText: string;
+  reviewSignals: TranscriptionReviewSignal[];
   recordingSeconds: number;
   isBusy: boolean;
   isListening: boolean;
@@ -28,6 +37,7 @@ export interface VoiceTranscriptionResult {
 
 const DEFAULT_MAX_RECORDING_MS = 2 * 60 * 1000;
 const DEFAULT_MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+const LOW_CONFIDENCE_THRESHOLD = 0.78;
 
 function normalizeSpeech(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -36,7 +46,6 @@ function normalizeSpeech(value: string): string {
 function removeRepeatedTail(value: string): string {
   const words = normalizeSpeech(value).split(' ').filter(Boolean);
   const maxRepeatedWords = Math.min(12, Math.floor(words.length / 2));
-
   for (let size = maxRepeatedWords; size >= 5; size -= 1) {
     const previous = words.slice(words.length - size * 2, words.length - size);
     const last = words.slice(words.length - size);
@@ -44,8 +53,11 @@ function removeRepeatedTail(value: string): string {
       return words.slice(0, words.length - size).join(' ');
     }
   }
-
   return words.join(' ');
+}
+
+function isCriticalEntity(text: string): boolean {
+  return /[\d@#$%]|(?:am|pm)$/i.test(text);
 }
 
 function getRecorderMimeType(): string | null {
@@ -71,32 +83,62 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
+function downsampleToPcm16(input: Float32Array, inputRate: number, outputRate = 16_000): Int16Array {
+  if (inputRate === outputRate) {
+    const output = new Int16Array(input.length);
+    for (let index = 0; index < input.length; index += 1) {
+      const sample = Math.max(-1, Math.min(1, input[index]));
+      output[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    }
+    return output;
+  }
+
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.floor(input.length / ratio);
+  const output = new Int16Array(outputLength);
+  for (let index = 0; index < outputLength; index += 1) {
+    const sourceIndex = Math.floor(index * ratio);
+    const sample = Math.max(-1, Math.min(1, input[sourceIndex]));
+    output[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+  return output;
+}
+
 export function useVoiceTranscription({
   language = 'en-US',
   maxRecordingMs = DEFAULT_MAX_RECORDING_MS,
   maxAudioBytes = DEFAULT_MAX_AUDIO_BYTES,
+  retention = 'delete_immediately',
+  realtime = false,
 }: UseVoiceTranscriptionOptions = {}): VoiceTranscriptionResult {
   const transcribeAudio = useTranscribeAudio();
+  const createRealtimeToken = useCreateRealtimeTranscriptionToken();
   const [state, setState] = useState<VoiceState>('idle');
   const [mode, setMode] = useState<VoiceMode | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [transcript, setTranscript] = useState('');
   const [liveText, setLiveText] = useState('');
+  const [reviewSignals, setReviewSignals] = useState<TranscriptionReviewSignal[]>([]);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   const stateRef = useRef<VoiceState>('idle');
   const modeRef = useRef<VoiceMode | null>(null);
-  const recognitionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const liveSegmentsRef = useRef<Array<{ text: string; isFinal: boolean }>>([]);
   const sessionRef = useRef(0);
   const cancelRequestedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const durationStopRequestedRef = useRef(false);
   const recordingStartedAtRef = useRef<number | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const realtimeRef = useRef<StreamingTranscriber | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const finalTurnsRef = useRef<Map<number, string>>(new Map());
+  const interimTurnRef = useRef('');
+  const realtimeSignalsRef = useRef<TranscriptionReviewSignal[]>([]);
 
   const updateState = (next: VoiceState) => {
     stateRef.current = next;
@@ -109,36 +151,67 @@ export function useVoiceTranscription({
   };
 
   const cleanupMediaStream = () => {
+    audioProcessorRef.current?.disconnect();
+    audioSourceRef.current?.disconnect();
+    audioProcessorRef.current = null;
+    audioSourceRef.current = null;
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
     mediaRecorderRef.current = null;
     audioChunksRef.current = [];
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context && context.state !== 'closed') void context.close();
   };
 
-  const refreshLiveText = () => {
-    const finalText = removeRepeatedTail(
-      liveSegmentsRef.current.filter((segment) => segment.isFinal).map((segment) => segment.text).join(' '),
-    );
-    const interimText = normalizeSpeech(
-      liveSegmentsRef.current.filter((segment) => !segment.isFinal).map((segment) => segment.text).join(' '),
-    );
+  const refreshRealtimeText = () => {
+    const finalText = removeRepeatedTail([...finalTurnsRef.current.values()].join(' '));
     setTranscript(finalText);
-    setLiveText(normalizeSpeech([finalText, interimText].filter(Boolean).join(' ')));
+    setLiveText(normalizeSpeech([finalText, interimTurnRef.current].filter(Boolean).join(' ')));
+    setReviewSignals(realtimeSignalsRef.current);
   };
 
-  const finishLiveReview = (sessionId: number) => {
+  const collectRealtimeTurn = (turn: TurnEvent) => {
+    const spokenText = normalizeSpeech(turn.transcript ?? '');
+    if (!spokenText) return;
+    if (turn.end_of_turn) {
+      if (!finalTurnsRef.current.has(turn.turn_order)) {
+        finalTurnsRef.current.set(turn.turn_order, spokenText);
+      }
+      interimTurnRef.current = '';
+    } else {
+      interimTurnRef.current = spokenText;
+    }
+
+    for (const word of turn.words ?? []) {
+      const text = normalizeSpeech(word.text ?? '');
+      if (text && word.confidence < LOW_CONFIDENCE_THRESHOLD && isCriticalEntity(text)) {
+        const signal = {
+          kind: 'low_confidence_entity' as const,
+          text,
+          confidence: word.confidence,
+          startMs: word.start ?? null,
+          endMs: word.end ?? null,
+        };
+        if (!realtimeSignalsRef.current.some((item) => item.startMs === signal.startMs && item.text === signal.text)) {
+          realtimeSignalsRef.current = [...realtimeSignalsRef.current, signal].slice(0, 20);
+        }
+      }
+    }
+    refreshRealtimeText();
+  };
+
+  const finishReview = (sessionId: number) => {
     if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-    const finalText = removeRepeatedTail(
-      liveSegmentsRef.current.filter((segment) => segment.isFinal).map((segment) => segment.text).join(' '),
-    );
-    if (!finalText) {
+    const spokenText = removeRepeatedTail(transcript || liveText);
+    if (!spokenText) {
       updateState('error');
       setError('No speech was detected. Try again or type instead.');
       setStatus('');
       return;
     }
-    setTranscript(finalText);
-    setLiveText(finalText);
+    setTranscript(spokenText);
+    setLiveText(spokenText);
     updateState('review');
     setStatus('Review the transcript before submitting it.');
   };
@@ -147,34 +220,28 @@ export function useVoiceTranscription({
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       updateState('error');
       setError('This browser cannot record audio. You can type instead.');
-      setStatus('');
       return;
     }
-
     const mimeType = getRecorderMimeType();
     if (!mimeType) {
       updateState('error');
       setError('This browser has no supported audio recording format.');
-      setStatus('');
       return;
     }
 
     updateMode('recorded');
     updateState('starting');
     setStatus('Requesting microphone permission…');
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
-
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
-
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
@@ -193,7 +260,6 @@ export function useVoiceTranscription({
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType });
         cleanupMediaStream();
         if (canceled) return;
-
         if (blob.size === 0) {
           updateState('error');
           setError('No audio was recorded. Check microphone permission and try again.');
@@ -208,7 +274,7 @@ export function useVoiceTranscription({
         }
 
         updateState('processing');
-        setStatus('Transcribing your recording…');
+        setStatus('Transcribing with AssemblyAI…');
         try {
           const audioBase64 = await blobToBase64(blob);
           if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
@@ -219,6 +285,8 @@ export function useVoiceTranscription({
                 mimeType: (blob.type || mimeType).split(';')[0] as
                   'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
                 durationMs: recordedDurationMs,
+                language,
+                retention,
               },
             },
             {
@@ -233,6 +301,7 @@ export function useVoiceTranscription({
                 }
                 setTranscript(spokenText);
                 setLiveText(spokenText);
+                setReviewSignals(data.reviewSignals);
                 updateState('review');
                 setStatus('Review the transcript before submitting it.');
               },
@@ -251,102 +320,127 @@ export function useVoiceTranscription({
           setStatus('');
         }
       };
-
       recordingStartedAtRef.current = Date.now();
       recorder.start(1000);
       updateState('listening');
-      setStatus('Speak naturally. Your transcript will be reviewable before submission.');
+      setStatus('Speak naturally. Your audio is sent to AssemblyAI for reviewable transcription.');
     } catch (captureError) {
       const denied = captureError instanceof DOMException &&
         (captureError.name === 'NotAllowedError' || captureError.name === 'SecurityError');
       updateState('error');
-      setError(
-        denied
-          ? 'Microphone permission was denied. Allow microphone access or type instead.'
-          : 'The microphone could not be started. Check browser permissions and try again.',
-      );
+      setError(denied
+        ? 'Microphone permission was denied. Allow microphone access or type instead.'
+        : 'The microphone could not be started. Check browser permissions and try again.');
+      setStatus('');
+    }
+  };
+
+  const closeRealtime = async (waitForTermination: boolean) => {
+    cleanupMediaStream();
+    const transcriber = realtimeRef.current;
+    realtimeRef.current = null;
+    if (transcriber) {
+      try {
+        await transcriber.close(waitForTermination, 3_000);
+      } catch {
+        // The SDK closes the socket even when the provider does not send its
+        // termination acknowledgement. Never leave an abandoned socket open.
+      }
+    }
+  };
+
+  const startRealtimeSession = async (sessionId: number) => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined') {
+      updateState('error');
+      setError('Real-time transcription is not supported in this browser. Use recorded transcription instead.');
+      return;
+    }
+    updateMode('live');
+    updateState('starting');
+    setStatus('Requesting microphone permission…');
+    try {
+      const token = await createRealtimeToken.mutateAsync();
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current || token.region !== 'us') return;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const transcriber = new StreamingTranscriber({
+        token: token.token,
+        websocketBaseUrl: token.websocketUrl,
+        speechModel: token.speechModel as 'universal-3-5-pro',
+        sampleRate: 16_000,
+        includePartialTurns: true,
+        redactPii: true,
+        maxConnectionRetries: 0,
+      });
+      transcriber.on('turn', collectRealtimeTurn);
+      transcriber.on('error', () => {
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        updateState('error');
+        setError('Real-time transcription stopped unexpectedly. Try recorded transcription instead.');
+        setStatus('');
+        void closeRealtime(false);
+      });
+      transcriber.on('close', () => {
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current || stopRequestedRef.current) return;
+        updateState('error');
+        setError('The real-time transcription session ended unexpectedly.');
+        setStatus('');
+      });
+      realtimeRef.current = transcriber;
+      await transcriber.connect();
+
+      const AudioContextCtor = window.AudioContext ??
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) throw new Error('A Web Audio context is required.');
+      const context = new AudioContextCtor();
+      const source = context.createMediaStreamSource(stream);
+      const processor = context.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (event) => {
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        const pcm = downsampleToPcm16(event.inputBuffer.getChannelData(0), context.sampleRate);
+        if (pcm.length > 0) realtimeRef.current?.sendAudio(new Uint8Array(pcm).buffer);
+      };
+      source.connect(processor);
+      processor.connect(context.destination);
+      mediaStreamRef.current = stream;
+      audioContextRef.current = context;
+      audioSourceRef.current = source;
+      audioProcessorRef.current = processor;
+      updateState('listening');
+      setStatus('Live US transcription is active. Review the final text before submitting it.');
+    } catch (captureError) {
+      await closeRealtime(false);
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+      updateState('error');
+      setError(captureError instanceof Error
+        ? captureError.message
+        : 'Real-time transcription could not be started. Try recorded transcription instead.');
       setStatus('');
     }
   };
 
   const start = async () => {
-    if (stateRef.current === 'starting' || stateRef.current === 'listening' || stateRef.current === 'processing') {
-      return;
-    }
-
+    if (stateRef.current === 'starting' || stateRef.current === 'listening' || stateRef.current === 'processing') return;
     const sessionId = sessionRef.current + 1;
     sessionRef.current = sessionId;
     cancelRequestedRef.current = false;
     stopRequestedRef.current = false;
     durationStopRequestedRef.current = false;
-    liveSegmentsRef.current = [];
-    audioChunksRef.current = [];
+    finalTurnsRef.current = new Map();
+    interimTurnRef.current = '';
+    realtimeSignalsRef.current = [];
     setTranscript('');
     setLiveText('');
+    setReviewSignals([]);
     setRecordingSeconds(0);
     setError('');
     setStatus('');
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      await startRecordedSession(sessionId);
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = language;
-      recognition.onresult = (event: any) => {
-        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-        for (let index = 0; index < event.results.length; index += 1) {
-          const result = event.results[index];
-          liveSegmentsRef.current[index] = {
-            text: result[0]?.transcript ?? '',
-            isFinal: Boolean(result.isFinal),
-          };
-        }
-        refreshLiveText();
-      };
-      recognition.onerror = (event: any) => {
-        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-        const recoverable = event.error === 'network' ||
-          event.error === 'service-not-allowed' ||
-          event.error === 'audio-capture';
-        if (recoverable && !stopRequestedRef.current) {
-          recognition.abort();
-          const fallbackSessionId = sessionRef.current + 1;
-          sessionRef.current = fallbackSessionId;
-          void startRecordedSession(fallbackSessionId);
-          return;
-        }
-        if (event.error === 'no-speech') {
-          setStatus('No speech detected yet. Keep speaking or stop to review.');
-          return;
-        }
-        if (event.error === 'not-allowed') {
-          updateState('error');
-          setError('Microphone permission was denied. Allow microphone access or type instead.');
-          setStatus('');
-          return;
-        }
-        updateState('error');
-        setError('Live transcription stopped unexpectedly. Try again or type instead.');
-        setStatus('');
-      };
-      recognition.onend = () => {
-        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-        recognitionRef.current = null;
-        finishLiveReview(sessionId);
-      };
-      recognitionRef.current = recognition;
-      updateMode('live');
-      updateState('listening');
-      setStatus('Speak naturally. Your transcript will be reviewable before submission.');
-      recognition.start();
-    } catch {
-      recognitionRef.current = null;
+    if (realtime) {
+      await startRealtimeSession(sessionId);
+    } else {
       await startRecordedSession(sessionId);
     }
   };
@@ -357,7 +451,7 @@ export function useVoiceTranscription({
     setStatus('Finishing your recording…');
     if (modeRef.current === 'live') {
       updateState('processing');
-      recognitionRef.current?.stop();
+      void closeRealtime(true).then(() => finishReview(sessionRef.current));
       return;
     }
     mediaRecorderRef.current?.stop();
@@ -366,13 +460,14 @@ export function useVoiceTranscription({
   const cancel = () => {
     cancelRequestedRef.current = true;
     sessionRef.current += 1;
-    recognitionRef.current?.abort();
+    if (realtimeRef.current) void closeRealtime(true);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
     cleanupMediaStream();
     setTranscript('');
     setLiveText('');
+    setReviewSignals([]);
     updateState('idle');
     updateMode(null);
     setStatus('Voice input canceled.');
@@ -383,13 +478,14 @@ export function useVoiceTranscription({
   const reset = () => {
     cancelRequestedRef.current = true;
     sessionRef.current += 1;
-    recognitionRef.current?.abort();
+    if (realtimeRef.current) void closeRealtime(true);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
     cleanupMediaStream();
     setTranscript('');
     setLiveText('');
+    setReviewSignals([]);
     updateState('idle');
     updateMode(null);
     setStatus('');
@@ -417,7 +513,8 @@ export function useVoiceTranscription({
   }, [maxRecordingMs, state]);
 
   useEffect(() => () => {
-    recognitionRef.current?.abort();
+    cancelRequestedRef.current = true;
+    realtimeRef.current?.close(true, 3_000).catch(() => undefined);
     cleanupMediaStream();
   }, []);
 
@@ -429,6 +526,7 @@ export function useVoiceTranscription({
     error,
     transcript,
     liveText,
+    reviewSignals,
     recordingSeconds,
     isBusy,
     isListening: state === 'listening',

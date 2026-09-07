@@ -75,6 +75,10 @@ import type {
   Note,
   NoteInput,
   NoteUpdate,
+  RealtimeTranscriptionToken,
+  TranscriptionPreferences,
+  TranscriptionPreferencesUpdate,
+  TranscriptionPreferencesUpdateResponse,
   VoiceToPlanBody,
   VoiceToPlanResponse
 } from './api.schemas';
@@ -3970,6 +3974,237 @@ export const useTranscribeAudio = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getTranscribeAudioMutationOptions(options));
+    }
+
+export const getGetTranscriptionPreferencesUrl = () => {
+
+
+
+
+  return `/api/ai/transcription-preferences`
+}
+
+/**
+ * @summary Get voice-data retention preferences
+ */
+export const getTranscriptionPreferences = async ( options?: Parameters<typeof customFetch>[1]): Promise<TranscriptionPreferences> => {
+
+  return customFetch<TranscriptionPreferences>(getGetTranscriptionPreferencesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTranscriptionPreferencesQueryKey = () => {
+    return [
+    `/api/ai/transcription-preferences`
+    ] as const;
+    }
+
+
+export const getGetTranscriptionPreferencesQueryOptions = <TData = Awaited<ReturnType<typeof getTranscriptionPreferences>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTranscriptionPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTranscriptionPreferencesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTranscriptionPreferences>>> = ({ signal }) => getTranscriptionPreferences({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTranscriptionPreferences>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTranscriptionPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof getTranscriptionPreferences>>>
+export type GetTranscriptionPreferencesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get voice-data retention preferences
+ */
+
+export function useGetTranscriptionPreferences<TData = Awaited<ReturnType<typeof getTranscriptionPreferences>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTranscriptionPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTranscriptionPreferencesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateTranscriptionPreferencesUrl = () => {
+
+
+
+
+  return `/api/ai/transcription-preferences`
+}
+
+/**
+ * @summary Update voice-data retention preferences
+ */
+export const updateTranscriptionPreferences = async (transcriptionPreferencesUpdate: TranscriptionPreferencesUpdate, options?: Parameters<typeof customFetch>[1]): Promise<TranscriptionPreferencesUpdateResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<TranscriptionPreferencesUpdateResponse>(getUpdateTranscriptionPreferencesUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(transcriptionPreferencesUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateTranscriptionPreferencesMutationKey = () => ['updateTranscriptionPreferences'] as const;
+
+export const getUpdateTranscriptionPreferencesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTranscriptionPreferences>>, TError,UpdateTranscriptionPreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTranscriptionPreferences>>, TError,UpdateTranscriptionPreferencesMutationVariables, TContext> => {
+
+const mutationKey = getUpdateTranscriptionPreferencesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTranscriptionPreferences>>, UpdateTranscriptionPreferencesMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateTranscriptionPreferences(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateTranscriptionPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof updateTranscriptionPreferences>>>
+    export type UpdateTranscriptionPreferencesMutationBody = BodyType<TranscriptionPreferencesUpdate>
+    export type UpdateTranscriptionPreferencesMutationError = ErrorType<ErrorEnvelope>
+    export type UpdateTranscriptionPreferencesMutationVariables = {data: BodyType<TranscriptionPreferencesUpdate>}
+
+    /**
+ * @summary Update voice-data retention preferences
+ */
+export const useUpdateTranscriptionPreferences = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTranscriptionPreferences>>, TError,UpdateTranscriptionPreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateTranscriptionPreferences>>,
+        TError,
+        UpdateTranscriptionPreferencesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateTranscriptionPreferencesMutationOptions(options));
+    }
+
+export const getCreateRealtimeTranscriptionTokenUrl = () => {
+
+
+
+
+  return `/api/ai/realtime-token`
+}
+
+/**
+ * @summary Create a single-use US AssemblyAI realtime token
+ */
+export const createRealtimeTranscriptionToken = async ( options?: Parameters<typeof customFetch>[1]): Promise<RealtimeTranscriptionToken> => {
+
+  return customFetch<RealtimeTranscriptionToken>(getCreateRealtimeTranscriptionTokenUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCreateRealtimeTranscriptionTokenMutationKey = () => ['createRealtimeTranscriptionToken'] as const;
+
+export const getCreateRealtimeTranscriptionTokenMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, TError,void, TContext> => {
+
+const mutationKey = getCreateRealtimeTranscriptionTokenMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, void> = () => {
+
+
+          return  createRealtimeTranscriptionToken(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateRealtimeTranscriptionTokenMutationResult = NonNullable<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>>
+
+    export type CreateRealtimeTranscriptionTokenMutationError = ErrorType<ErrorEnvelope>
+
+
+    /**
+ * @summary Create a single-use US AssemblyAI realtime token
+ */
+export const useCreateRealtimeTranscriptionToken = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCreateRealtimeTranscriptionTokenMutationOptions(options));
     }
 
 export const getMeetingExtractUrl = () => {

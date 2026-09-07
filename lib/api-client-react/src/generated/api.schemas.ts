@@ -592,6 +592,15 @@ export const AudioTranscriptionBodyMimeType = {
   'audio/mpeg': 'audio/mpeg',
 } as const;
 
+export type VoiceRetention = typeof VoiceRetention[keyof typeof VoiceRetention];
+
+
+export const VoiceRetention = {
+  delete_immediately: 'delete_immediately',
+  until_review: 'until_review',
+  keep_24_hours: 'keep_24_hours',
+} as const;
+
 export interface AudioTranscriptionBody {
   /**
      * @minLength 1
@@ -604,11 +613,98 @@ export interface AudioTranscriptionBody {
      * @maximum 120000
      */
   durationMs: number;
+  /** @maxLength 20 */
+  language?: string;
+  retention?: VoiceRetention;
+}
+
+export type TranscriptionReviewSignalKind = typeof TranscriptionReviewSignalKind[keyof typeof TranscriptionReviewSignalKind];
+
+
+export const TranscriptionReviewSignalKind = {
+  low_confidence_entity: 'low_confidence_entity',
+} as const;
+
+export interface TranscriptionReviewSignal {
+  kind: TranscriptionReviewSignalKind;
+  text: string;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  confidence: number;
+  startMs: number | null;
+  endMs: number | null;
+}
+
+export type TranscriptionDeletionMarkerRawAudio = typeof TranscriptionDeletionMarkerRawAudio[keyof typeof TranscriptionDeletionMarkerRawAudio];
+
+
+export const TranscriptionDeletionMarkerRawAudio = {
+  not_stored: 'not_stored',
+} as const;
+
+export type TranscriptionDeletionMarkerProviderTranscript = typeof TranscriptionDeletionMarkerProviderTranscript[keyof typeof TranscriptionDeletionMarkerProviderTranscript];
+
+
+export const TranscriptionDeletionMarkerProviderTranscript = {
+  deleted: 'deleted',
+} as const;
+
+export interface TranscriptionDeletionMarker {
+  rawAudio: TranscriptionDeletionMarkerRawAudio;
+  providerTranscript: TranscriptionDeletionMarkerProviderTranscript;
+  marker: string;
 }
 
 export interface AudioTranscriptionResponse {
   /** @minLength 1 */
   transcript: string;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  confidence: number | null;
+  reviewSignals: TranscriptionReviewSignal[];
+  retention: VoiceRetention;
+  deletion: TranscriptionDeletionMarker;
+}
+
+export interface TranscriptionPreferenceOption {
+  value: VoiceRetention;
+  label: string;
+  description: string;
+}
+
+export interface TranscriptionPreferences {
+  retention: VoiceRetention;
+  options: TranscriptionPreferenceOption[];
+}
+
+export interface TranscriptionPreferencesUpdate {
+  retention: VoiceRetention;
+}
+
+export interface TranscriptionPreferencesUpdateResponse {
+  retention: VoiceRetention;
+}
+
+export type RealtimeTranscriptionTokenRegion = typeof RealtimeTranscriptionTokenRegion[keyof typeof RealtimeTranscriptionTokenRegion];
+
+
+export const RealtimeTranscriptionTokenRegion = {
+  us: 'us',
+} as const;
+
+export interface RealtimeTranscriptionToken {
+  token: string;
+  expiresInSeconds: number;
+  maxSessionDurationSeconds: number;
+  region: RealtimeTranscriptionTokenRegion;
+  websocketUrl: string;
+  retention: VoiceRetention;
+  speechModel: string;
+  redaction: string;
 }
 
 export interface MeetingExtractActionItem {

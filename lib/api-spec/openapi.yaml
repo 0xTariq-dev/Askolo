@@ -1101,6 +1101,61 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /ai/transcription-preferences:
+    get:
+      operationId: getTranscriptionPreferences
+      tags: [ai]
+      summary: Get voice-data retention preferences
+      responses:
+        "200":
+          description: Voice-data retention settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscriptionPreferences"
+    patch:
+      operationId: updateTranscriptionPreferences
+      tags: [ai]
+      summary: Update voice-data retention preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TranscriptionPreferencesUpdate"
+      responses:
+        "200":
+          description: Updated voice-data retention setting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscriptionPreferencesUpdateResponse"
+        "400":
+          description: Invalid retention setting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /ai/realtime-token:
+    post:
+      operationId: createRealtimeTranscriptionToken
+      tags: [ai]
+      summary: Create a single-use US AssemblyAI realtime token
+      responses:
+        "200":
+          description: Short-lived token and pinned streaming endpoint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RealtimeTranscriptionToken"
+        "503":
+          description: AssemblyAI is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /ai/meeting-extract:
     post:
       operationId: meetingExtract
@@ -2073,13 +2128,127 @@ components:
           type: integer
           minimum: 1
           maximum: 120000
+        language:
+          type: string
+          maxLength: 20
+        retention:
+          $ref: '#/components/schemas/VoiceRetention'
     AudioTranscriptionResponse:
       type: object
-      required: [transcript]
+      required: [transcript, confidence, reviewSignals, retention, deletion]
       properties:
         transcript:
           type: string
           minLength: 1
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+        reviewSignals:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptionReviewSignal'
+        retention:
+          $ref: '#/components/schemas/VoiceRetention'
+        deletion:
+          $ref: '#/components/schemas/TranscriptionDeletionMarker'
+
+    VoiceRetention:
+      type: string
+      enum: [delete_immediately, until_review, keep_24_hours]
+
+    TranscriptionReviewSignal:
+      type: object
+      required: [kind, text, confidence, startMs, endMs]
+      properties:
+        kind:
+          type: string
+          enum: [low_confidence_entity]
+        text:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        startMs:
+          type: integer
+          nullable: true
+        endMs:
+          type: integer
+          nullable: true
+
+    TranscriptionDeletionMarker:
+      type: object
+      required: [rawAudio, providerTranscript, marker]
+      properties:
+        rawAudio:
+          type: string
+          enum: [not_stored]
+        providerTranscript:
+          type: string
+          enum: [deleted]
+        marker:
+          type: string
+
+    TranscriptionPreferenceOption:
+      type: object
+      required: [value, label, description]
+      properties:
+        value:
+          $ref: '#/components/schemas/VoiceRetention'
+        label:
+          type: string
+        description:
+          type: string
+
+    TranscriptionPreferences:
+      type: object
+      required: [retention, options]
+      properties:
+        retention:
+          $ref: '#/components/schemas/VoiceRetention'
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptionPreferenceOption'
+
+    TranscriptionPreferencesUpdate:
+      type: object
+      required: [retention]
+      properties:
+        retention:
+          $ref: '#/components/schemas/VoiceRetention'
+
+    TranscriptionPreferencesUpdateResponse:
+      type: object
+      required: [retention]
+      properties:
+        retention:
+          $ref: '#/components/schemas/VoiceRetention'
+
+    RealtimeTranscriptionToken:
+      type: object
+      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, retention, speechModel, redaction]
+      properties:
+        token:
+          type: string
+        expiresInSeconds:
+          type: integer
+        maxSessionDurationSeconds:
+          type: integer
+        region:
+          type: string
+          enum: [us]
+        websocketUrl:
+          type: string
+          format: uri
+        retention:
+          $ref: '#/components/schemas/VoiceRetention'
+        speechModel:
+          type: string
+        redaction:
+          type: string
 
     MeetingExtractActionItem:
       type: object

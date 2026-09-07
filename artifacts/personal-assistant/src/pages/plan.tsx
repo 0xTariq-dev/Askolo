@@ -23,9 +23,12 @@ import {
   useCreateDailyPlan,
   useUpdateDailyPlan,
   useDeleteDailyPlan,
+  useGetTranscriptionPreferences,
+  useUpdateTranscriptionPreferences,
   getListDailyPlansQueryKey,
   getGetDashboardSummaryQueryKey,
   DailyPlan,
+  type VoiceRetention,
 } from '@workspace/api-client-react';
 
 import { Button } from '@/components/ui/button';
@@ -34,6 +37,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { cn } from '@/lib/utils';
@@ -74,7 +78,10 @@ export function PlanPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [voiceRetention, setVoiceRetention] = useState<VoiceRetention>('delete_immediately');
   const voiceBaseNotesRef = useRef('');
+  const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
+  const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const {
     state: voiceState,
     mode: voiceMode,
@@ -82,6 +89,7 @@ export function PlanPage() {
     error: voiceError,
     transcript,
     liveText,
+    reviewSignals: voiceReviewSignals,
     recordingSeconds,
     isBusy: voiceIsBusy,
     isListening,
@@ -89,7 +97,13 @@ export function PlanPage() {
     stop: stopListening,
     cancel: cancelVoiceInput,
     reset: resetVoiceInput,
-  } = useVoiceTranscription();
+  } = useVoiceTranscription({ retention: voiceRetention });
+
+  useEffect(() => {
+    if (transcriptionPreferences?.retention) {
+      setVoiceRetention(transcriptionPreferences.retention);
+    }
+  }, [transcriptionPreferences?.retention]);
 
   const form = useForm<PlanFormValues>({
     resolver: zodResolver(planSchema),
@@ -292,12 +306,24 @@ export function PlanPage() {
                 {voiceState === 'listening' && (
                   <p className="flex items-center gap-2 text-rose-500">
                     <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" aria-hidden="true" />
-                    {voiceMode === 'recorded' ? 'Recorded fallback' : 'Live transcription'} · {formatRecordingTime(recordingSeconds)}
+                    {voiceMode === 'recorded' ? 'AssemblyAI recorded transcription' : 'Live US transcription'} · {formatRecordingTime(recordingSeconds)}
                   </p>
                 )}
                 {voiceStatus && <p className="text-muted-foreground">{voiceStatus}</p>}
                 {voiceState === 'review' && transcript && (
                   <p className="text-emerald-600 dark:text-emerald-400">Transcript ready. Review the text above before generating.</p>
+                )}
+                {voiceReviewSignals.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
+                    <p className="font-medium">Please verify low-confidence details:</p>
+                    <ul className="mt-1 list-disc pl-4">
+                      {voiceReviewSignals.map((signal) => (
+                        <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>
+                          “{signal.text}” ({Math.round(signal.confidence * 100)}% confidence)
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {voiceError && (
                   <p role="alert" className="text-destructive">
@@ -345,6 +371,37 @@ export function PlanPage() {
                     <Sparkles className="h-4 w-4 ml-2" />
                   </Button>
                 </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground" role="note">
+                Selecting the microphone consents to sending this recording to AssemblyAI for transcription. Review the returned text before it is submitted to the planner; raw audio is not stored.
+              </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-border/50 bg-card/30 p-2.5">
+                <div className="min-w-0">
+                  <Label htmlFor="voice-retention" className="text-xs font-medium">Voice-data retention</Label>
+                  <p className="text-[11px] text-muted-foreground">Raw audio is never stored. Choose how long reviewed text may remain in this session.</p>
+                </div>
+                <Select
+                  value={voiceRetention}
+                  onValueChange={(value) => {
+                    const nextRetention = value as VoiceRetention;
+                    setVoiceRetention(nextRetention);
+                    updateTranscriptionPreferences.mutate({ data: { retention: nextRetention } });
+                  }}
+                  disabled={updateTranscriptionPreferences.isPending}
+                >
+                  <SelectTrigger id="voice-retention" className="w-full sm:w-[190px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(transcriptionPreferences?.options ?? [
+                      { value: 'delete_immediately' as const, label: 'Delete after transcription' },
+                      { value: 'until_review' as const, label: 'Keep until review' },
+                      { value: 'keep_24_hours' as const, label: 'Keep for 24 hours' },
+                    ]).map((option) => (
+                      <SelectItem key={option.value} value={option.value} className="text-xs">{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               {voiceIsBusy && (
                 <Button type="button" variant="ghost" size="sm" onClick={handleCancelVoice} className="self-end text-muted-foreground">

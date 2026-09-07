@@ -5,8 +5,19 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { TranscriptionDeletionMarker } from './transcriptionDeletionMarker';
+import type { TranscriptionReviewSignal } from './transcriptionReviewSignal';
+import type { VoiceRetention } from './voiceRetention';
 
 export interface AudioTranscriptionResponse {
   /** @minLength 1 */
   transcript: string;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  confidence: number | null;
+  reviewSignals: TranscriptionReviewSignal[];
+  retention: VoiceRetention;
+  deletion: TranscriptionDeletionMarker;
 }
