@@ -20,20 +20,31 @@ export type AssemblyAiTranscript = {
   text?: string | null;
   confidence?: number | null;
   audio_duration?: number | null;
+  speech_model_used?: string | null;
   words?: AssemblyAiWord[] | null;
   error?: string | null;
 };
 
+type AssemblyAiFailureReason =
+  | "authentication"
+  | "invalid_request"
+  | "network"
+  | "timeout"
+  | "unknown";
+
 export class AssemblyAiError extends Error {
   readonly code: "not_configured" | "provider_unavailable" | "provider_rejected" | "cancelled";
+  readonly failureReason?: AssemblyAiFailureReason;
 
   constructor(
     code: AssemblyAiError["code"],
     message: string,
+    failureReason?: AssemblyAiFailureReason,
   ) {
     super(message);
     this.name = "AssemblyAiError";
     this.code = code;
+    this.failureReason = failureReason;
   }
 }
 
@@ -87,9 +98,21 @@ function waitFor(milliseconds: number, signal?: AbortSignal): Promise<void> {
 
 function mapProviderError(error: unknown): AssemblyAiError {
   if (error instanceof AssemblyAiError) return error;
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  const failureReason: AssemblyAiFailureReason =
+    /unauthori[sz]ed|forbidden|api[ _-]?key|authentication/.test(message)
+      ? "authentication"
+      : /invalid|unsupported|required|must|parameter|policy|request/.test(message)
+        ? "invalid_request"
+        : /timeout|timed out/.test(message)
+          ? "timeout"
+          : /fetch|network|connect|socket|dns|econn/.test(message)
+            ? "network"
+            : "unknown";
   return new AssemblyAiError(
     "provider_unavailable",
     "AssemblyAI transcription is temporarily unavailable.",
+    failureReason,
   );
 }
 
@@ -105,11 +128,19 @@ export async function transcribeRecordedAudio(params: {
     throwIfAborted(params.signal);
     const submitted = await client.transcripts.submit({
       audio: params.audio,
-      speech_models: ["universal-3-5-pro"],
+      speech_models: ["universal-3-5-pro", "universal-2"],
       language_code: params.language?.split("-")[0] || "en",
       punctuate: true,
       format_text: true,
       redact_pii: true,
+      redact_pii_policies: [
+        "person_name",
+        "email_address",
+        "phone_number",
+        "account_number",
+        "credit_card_number",
+        "date_of_birth",
+      ],
       redact_pii_sub: "entity_name",
       redact_pii_return_unredacted: false,
     });
