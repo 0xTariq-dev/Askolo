@@ -226,7 +226,12 @@ function respondToAssemblyAiError(req: Request, res: Response, error: unknown): 
         ? 503
         : 502;
   if (status >= 500) {
-    req.log.error({ requestId: req.id, userId: req.dbUser.id, code: error.code }, "AssemblyAI transcription failed");
+    req.log.error({
+      requestId: req.id,
+      userId: req.dbUser.id,
+      code: error.code,
+      failureReason: error.failureReason,
+    }, "AssemblyAI transcription failed");
   }
   res.status(status).json({ error: error.message, code: `ASSEMBLYAI_${error.code.toUpperCase()}` });
   return true;

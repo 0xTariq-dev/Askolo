@@ -149,9 +149,9 @@ const CREDIT_PRICES = {
     creditsPerUnit: 1,
     minimumCredits: 1,
     maximumCredits: 120,
-    provider: "openai",
+    provider: "assemblyai",
     mode: "recorded",
-    model: "gpt-4o-mini-transcribe",
+    model: "universal-3-5-pro",
   },
   "transcription.realtime": {
     key: "transcription.realtime",
