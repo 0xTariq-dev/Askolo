@@ -4,7 +4,6 @@ import {
   useCreateRealtimeTranscriptionToken,
   useTranscribeAudio,
   type TranscriptionReviewSignal,
-  type VoiceRetention,
 } from '@workspace/api-client-react';
 
 export type VoiceState = 'idle' | 'starting' | 'listening' | 'processing' | 'review' | 'error';
@@ -14,8 +13,14 @@ export interface UseVoiceTranscriptionOptions {
   language?: string;
   maxRecordingMs?: number;
   maxAudioBytes?: number;
-  retention?: VoiceRetention;
   realtime?: boolean;
+}
+
+export interface CompletedVoiceRecording {
+  blob: Blob;
+  mimeType: string;
+  durationMs: number;
+  transcript: string;
 }
 
 export interface VoiceTranscriptionResult {
@@ -27,12 +32,15 @@ export interface VoiceTranscriptionResult {
   liveText: string;
   reviewSignals: TranscriptionReviewSignal[];
   recordingSeconds: number;
+  recording: CompletedVoiceRecording | null;
   isBusy: boolean;
   isListening: boolean;
   start: () => Promise<void>;
   stop: () => void;
   cancel: () => void;
   reset: () => void;
+  retry: () => Promise<void>;
+  clearRecording: () => void;
 }
 
 const DEFAULT_MAX_RECORDING_MS = 2 * 60 * 1000;
@@ -108,7 +116,6 @@ export function useVoiceTranscription({
   language = 'en-US',
   maxRecordingMs = DEFAULT_MAX_RECORDING_MS,
   maxAudioBytes = DEFAULT_MAX_AUDIO_BYTES,
-  retention = 'delete_immediately',
   realtime = false,
 }: UseVoiceTranscriptionOptions = {}): VoiceTranscriptionResult {
   const transcribeAudio = useTranscribeAudio();
@@ -121,6 +128,7 @@ export function useVoiceTranscription({
   const [liveText, setLiveText] = useState('');
   const [reviewSignals, setReviewSignals] = useState<TranscriptionReviewSignal[]>([]);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recording, setRecording] = useState<CompletedVoiceRecording | null>(null);
 
   const stateRef = useRef<VoiceState>('idle');
   const modeRef = useRef<VoiceMode | null>(null);
@@ -234,8 +242,10 @@ export function useVoiceTranscription({
     setStatus('Requesting microphone permission…');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
+       if (sessionRef.current !== sessionId || cancelRequestedRef.current || stopRequestedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
+         updateState('idle');
+         setStatus('');
         return;
       }
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -286,7 +296,6 @@ export function useVoiceTranscription({
                   'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
                 durationMs: recordedDurationMs,
                 language,
-                retention,
               },
             },
             {
@@ -302,6 +311,12 @@ export function useVoiceTranscription({
                 setTranscript(spokenText);
                 setLiveText(spokenText);
                 setReviewSignals(data.reviewSignals);
+                 setRecording({
+                   blob,
+                   mimeType: blob.type || mimeType,
+                   durationMs: recordedDurationMs,
+                   transcript: spokenText,
+                 });
                 updateState('review');
                 setStatus('Review the transcript before submitting it.');
               },
@@ -436,6 +451,7 @@ export function useVoiceTranscription({
     setLiveText('');
     setReviewSignals([]);
     setRecordingSeconds(0);
+    setRecording(null);
     setError('');
     setStatus('');
     if (realtime) {
@@ -446,6 +462,11 @@ export function useVoiceTranscription({
   };
 
   const stop = () => {
+    if (stateRef.current === 'starting') {
+      stopRequestedRef.current = true;
+      setStatus('Canceling before the microphone opens…');
+      return;
+    }
     if (stateRef.current !== 'listening') return;
     stopRequestedRef.current = true;
     setStatus('Finishing your recording…');
@@ -491,7 +512,40 @@ export function useVoiceTranscription({
     setStatus('');
     setError('');
     setRecordingSeconds(0);
+    setRecording(null);
   };
+
+  const retry = async () => {
+    if (!recording) return;
+    updateState('processing');
+    setError('');
+    setStatus('Transcribing the recording again…');
+    try {
+      const audioBase64 = await blobToBase64(recording.blob);
+      const data = await transcribeAudio.mutateAsync({
+        data: {
+          audioBase64,
+          mimeType: recording.mimeType.split(';')[0] as
+            'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
+          durationMs: recording.durationMs,
+          language,
+        },
+      });
+      const spokenText = removeRepeatedTail(data.transcript);
+      setTranscript(spokenText);
+      setLiveText(spokenText);
+      setReviewSignals(data.reviewSignals);
+      setRecording({ ...recording, transcript: spokenText });
+      updateState('review');
+      setStatus('Review the transcript before submitting it.');
+    } catch (retryError) {
+      updateState('error');
+      setError(retryError instanceof Error ? retryError.message : 'Voice transcription failed. Try again.');
+      setStatus('');
+    }
+  };
+
+  const clearRecording = () => setRecording(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -528,11 +582,14 @@ export function useVoiceTranscription({
     liveText,
     reviewSignals,
     recordingSeconds,
+    recording,
     isBusy,
     isListening: state === 'listening',
     start,
     stop,
     cancel,
     reset,
+    retry,
+    clearRecording,
   };
 }

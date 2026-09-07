@@ -16,6 +16,10 @@ import {
   ListTodo,
   Mic,
   MicOff,
+  Pause,
+  Square,
+  RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
 
 import {
@@ -27,17 +31,16 @@ import {
   useUpdateTranscriptionPreferences,
   getListDailyPlansQueryKey,
   getGetDashboardSummaryQueryKey,
+  getGetTranscriptionPreferencesQueryKey,
   DailyPlan,
-  type VoiceRetention,
 } from '@workspace/api-client-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { cn } from '@/lib/utils';
@@ -78,8 +81,13 @@ export function PlanPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [voiceRetention, setVoiceRetention] = useState<VoiceRetention>('delete_immediately');
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentError, setConsentError] = useState('');
+  const [consentSaving, setConsentSaving] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const voiceBaseNotesRef = useRef('');
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [recordingUrl, setRecordingUrl] = useState('');
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const {
@@ -91,19 +99,27 @@ export function PlanPage() {
     liveText,
     reviewSignals: voiceReviewSignals,
     recordingSeconds,
+    recording,
     isBusy: voiceIsBusy,
     isListening,
     start: startVoiceInput,
     stop: stopListening,
     cancel: cancelVoiceInput,
     reset: resetVoiceInput,
-  } = useVoiceTranscription({ retention: voiceRetention });
+    retry: retryVoiceRecording,
+    clearRecording,
+  } = useVoiceTranscription();
 
   useEffect(() => {
-    if (transcriptionPreferences?.retention) {
-      setVoiceRetention(transcriptionPreferences.retention);
+    if (!recording) {
+      setRecordingUrl('');
+      setIsPlaying(false);
+      return;
     }
-  }, [transcriptionPreferences?.retention]);
+    const url = URL.createObjectURL(recording.blob);
+    setRecordingUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [recording]);
 
   const form = useForm<PlanFormValues>({
     resolver: zodResolver(planSchema),
@@ -153,8 +169,49 @@ export function PlanPage() {
   };
 
   const handleStartVoice = async () => {
+    if (!transcriptionPreferences?.consentGiven) {
+      setConsentError('');
+      setConsentOpen(true);
+      return;
+    }
     voiceBaseNotesRef.current = notes;
     await startVoiceInput();
+  };
+
+  const saveVoiceConsent = async () => {
+    setConsentSaving(true);
+    setConsentError('');
+    try {
+      const updated = await updateTranscriptionPreferences.mutateAsync({ data: { consent: true } });
+      qc.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+      setConsentOpen(false);
+    } catch {
+      setConsentError('Consent could not be saved. Please try again.');
+    } finally {
+      setConsentSaving(false);
+    }
+  };
+
+  const stopPlayback = () => {
+    audioRef.current?.pause();
+    if (audioRef.current) audioRef.current.currentTime = 0;
+    setIsPlaying(false);
+  };
+
+  const togglePlayback = async () => {
+    if (!audioRef.current) return;
+    if (audioRef.current.paused) {
+      await audioRef.current.play();
+      setIsPlaying(true);
+    } else {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const deleteRecording = () => {
+    stopPlayback();
+    clearRecording();
   };
 
   const handleCancelVoice = () => {
@@ -349,11 +406,29 @@ export function PlanPage() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={isListening ? stopListening : handleStartVoice}
-                    disabled={voiceState === 'starting' || voiceState === 'processing'}
-                    aria-label={isListening ? 'Stop voice recording' : 'Start voice input'}
+                    onPointerDown={(event) => {
+                      event.currentTarget.setPointerCapture?.(event.pointerId);
+                      void handleStartVoice();
+                    }}
+                    onPointerUp={stopListening}
+                    onPointerCancel={stopListening}
+                    onKeyDown={(event) => {
+                      if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
+                        event.preventDefault();
+                        void handleStartVoice();
+                      }
+                    }}
+                    onKeyUp={(event) => {
+                      if (event.key === ' ' || event.key === 'Enter') {
+                        event.preventDefault();
+                        stopListening();
+                      }
+                    }}
+                    onClick={(event) => event.preventDefault()}
+                    disabled={voiceState === 'processing' || consentSaving}
+                    aria-label={isListening ? 'Release to stop voice recording' : 'Press and hold to record voice note'}
                     aria-pressed={isListening}
-                    title={isListening ? 'Stop recording' : 'Record voice note'}
+                    title="Press and hold to record"
                     className={cn(
                       'border-border',
                       isListening && 'bg-rose-500/10 text-rose-500 border-rose-500/30 animate-pulse',
@@ -373,36 +448,40 @@ export function PlanPage() {
                 </div>
               </div>
               <p className="text-[11px] text-muted-foreground" role="note">
-                Selecting the microphone consents to sending this recording to AssemblyAI for transcription. Review the returned text before it is submitted to the planner; raw audio is not stored.
+                Press and hold to record. Audio is sent to AssemblyAI only for transcription, then deleted. The returned text is reviewed before it reaches your plan.
               </p>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-border/50 bg-card/30 p-2.5">
-                <div className="min-w-0">
-                  <Label htmlFor="voice-retention" className="text-xs font-medium">Voice-data retention</Label>
-                  <p className="text-[11px] text-muted-foreground">Raw audio is never stored. Choose how long reviewed text may remain in this session.</p>
+              {recording && recordingUrl && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3" aria-label="Completed voice recording">
+                  <audio
+                    ref={audioRef}
+                    src={recordingUrl}
+                    onEnded={() => setIsPlaying(false)}
+                    className="hidden"
+                  />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Voice note ready</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatRecordingTime(Math.round(recording.durationMs / 1000))} · held in memory only
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Button type="button" size="icon" variant="outline" onClick={() => void togglePlayback()} aria-label={isPlaying ? 'Pause recording' : 'Play recording'}>
+                        {isPlaying ? <Pause className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      </Button>
+                      <Button type="button" size="icon" variant="outline" onClick={stopPlayback} aria-label="Stop playback">
+                        <Square className="h-3.5 w-3.5 fill-current" />
+                      </Button>
+                      <Button type="button" size="icon" variant="outline" onClick={() => void retryVoiceRecording()} disabled={voiceState === 'processing'} aria-label="Retry transcription">
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" size="icon" variant="ghost" onClick={deleteRecording} aria-label="Delete recording now" className="text-destructive hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-                <Select
-                  value={voiceRetention}
-                  onValueChange={(value) => {
-                    const nextRetention = value as VoiceRetention;
-                    setVoiceRetention(nextRetention);
-                    updateTranscriptionPreferences.mutate({ data: { retention: nextRetention } });
-                  }}
-                  disabled={updateTranscriptionPreferences.isPending}
-                >
-                  <SelectTrigger id="voice-retention" className="w-full sm:w-[190px] h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(transcriptionPreferences?.options ?? [
-                      { value: 'delete_immediately' as const, label: 'Delete after transcription' },
-                      { value: 'until_review' as const, label: 'Keep until review' },
-                      { value: 'keep_24_hours' as const, label: 'Keep for 24 hours' },
-                    ]).map((option) => (
-                      <SelectItem key={option.value} value={option.value} className="text-xs">{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              )}
               {voiceIsBusy && (
                 <Button type="button" variant="ghost" size="sm" onClick={handleCancelVoice} className="self-end text-muted-foreground">
                   Cancel voice input
@@ -504,6 +583,40 @@ export function PlanPage() {
           </div>
         </Card>
       </div>
+
+      <Dialog open={consentOpen} onOpenChange={setConsentOpen}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Before you use voice input
+            </DialogTitle>
+            <DialogDescription>
+              Please review how Askolo handles voice notes and AI processing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Your recording is sent to AssemblyAI for transcription and is deleted after processing. Neither Askolo nor AssemblyAI keeps the recording or uses it to train models.
+            </p>
+            <p>
+              PII is redacted from AI interactions across this flow before the result is returned. You will always review the transcript before it is used to build your plan.
+            </p>
+            <p>
+              By continuing, you consent to in-app AI processing and AssemblyAI transcription for this voice note.
+            </p>
+            {consentError && <p role="alert" className="text-destructive">{consentError}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConsentOpen(false)} disabled={consentSaving}>
+              Not now
+            </Button>
+            <Button type="button" onClick={() => void saveVoiceConsent()} disabled={consentSaving}>
+              {consentSaving ? 'Saving…' : 'I understand and continue'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">

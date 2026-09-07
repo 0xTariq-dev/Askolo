@@ -7,7 +7,6 @@
  */
 import type { TranscriptionDeletionMarker } from './transcriptionDeletionMarker';
 import type { TranscriptionReviewSignal } from './transcriptionReviewSignal';
-import type { VoiceRetention } from './voiceRetention';
 
 export interface AudioTranscriptionResponse {
   /** @minLength 1 */
@@ -18,6 +17,5 @@ export interface AudioTranscriptionResponse {
      */
   confidence: number | null;
   reviewSignals: TranscriptionReviewSignal[];
-  retention: VoiceRetention;
   deletion: TranscriptionDeletionMarker;
 }

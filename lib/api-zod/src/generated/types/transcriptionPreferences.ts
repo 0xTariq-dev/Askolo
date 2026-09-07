@@ -5,10 +5,9 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
-import type { TranscriptionPreferenceOption } from './transcriptionPreferenceOption';
-import type { VoiceRetention } from './voiceRetention';
 
 export interface TranscriptionPreferences {
-  retention: VoiceRetention;
-  options: TranscriptionPreferenceOption[];
+  consentGiven: boolean;
+  /** @nullable */
+  consentVersion?: string | null;
 }
