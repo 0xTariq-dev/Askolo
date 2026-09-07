@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# Reject generated Replit publish commits before they reach a remote.
+# Git sends one line per ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+
+set -eu
+
+blocked_pattern='^Published your App'
+zero_sha='0000000000000000000000000000000000000000'
+blocked=0
+
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_ref:-}" ] || continue
+
+  # Deleting a remote ref does not introduce commits.
+  [ "$local_sha" != "$zero_sha" ] || continue
+
+  if [ "$remote_sha" = "$zero_sha" ]; then
+    commit_range="$local_sha"
+  else
+    # Fail closed if the remote tip is not available locally. Fetch first so
+    # the hook can reliably determine which commits this push introduces.
+    if ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+      echo "pre-push: cannot inspect remote tip $remote_sha for $remote_ref." >&2
+      echo "pre-push: fetch the remote and retry." >&2
+      exit 1
+    fi
+    commit_range="$remote_sha..$local_sha"
+  fi
+
+  matching_subjects=$(git log --format='%s' "$commit_range" | grep -E "$blocked_pattern" || true)
+  if [ -n "$matching_subjects" ]; then
+    echo "pre-push: blocked generated publish commit(s) on $local_ref:" >&2
+    printf '%s\n' "$matching_subjects" >&2
+    echo "pre-push: remove or rewrite those commits before pushing." >&2
+    blocked=1
+  fi
+done
+
+if [ "$blocked" -ne 0 ]; then
+  exit 1
+fi
+
+exit 0
