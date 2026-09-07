@@ -49,7 +49,7 @@ function assertUsRegion(): void {
 
 function getAssemblyAiClient(): AssemblyAI {
   assertUsRegion();
-  const apiKey = process.env.ASSEMBLYAI_API_KEY;
+  const apiKey = process.env.ASSEMBLY_AI_API_KEY;
   if (!apiKey) {
     throw new AssemblyAiError(
       "not_configured",
