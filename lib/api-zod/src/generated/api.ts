@@ -5,7 +5,17 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
-import * as zod from 'zod';
+import * as zodRuntime from 'zod';
+
+// The OpenAPI generator currently emits Zod 4 helpers for integer and URL
+// schemas, while this workspace intentionally runs Zod 3. Keep the generated
+// schemas executable until the generator/runtime versions are upgraded
+// together.
+const zod = {
+  ...zodRuntime,
+  int: () => zodRuntime.number().int(),
+  url: () => zodRuntime.string().url(),
+};
 
 
 /**
