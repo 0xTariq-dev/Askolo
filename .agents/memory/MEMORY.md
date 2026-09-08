@@ -6,3 +6,4 @@
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
 - [Transient voice privacy](transient-voice-privacy.md) — voice recordings are never persisted; only versioned consent is stored server-side.
+- [Client voice gating](client-voice-gating.md) — reject short or silent recordings in the browser before any provider request.
