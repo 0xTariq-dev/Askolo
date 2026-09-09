@@ -127,10 +127,10 @@ artifacts/api-server/
 
 Askolo uses two Replit artifacts:
 
-| Artifact | Local port | Routed path | Role |
-| --- | ---: | --- | --- |
-| `artifacts/personal-assistant` | `18131` | `/` | React/Vite web application |
-| `artifacts/api-server` | `8080` | `/api` | Express API server |
+| Artifact                       | Local port | Routed path | Role                       |
+| ------------------------------ | ---------: | ----------- | -------------------------- |
+| `artifacts/personal-assistant` |    `18131` | `/`         | React/Vite web application |
+| `artifacts/api-server`         |     `8080` | `/api`      | Express API server         |
 
 The browser calls the API through the same application origin using `/api/...`
 paths. In production, Replit routes `/api` to the API artifact and all other
@@ -330,15 +330,15 @@ when testing authenticated or data-backed pages.
 
 ### Root commands
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm install` | Install workspace dependencies using pnpm |
-| `pnpm run typecheck` | Typecheck shared libraries, artifacts, and scripts |
-| `pnpm run typecheck:libs` | Typecheck TypeScript project references under `lib/` |
-| `pnpm run build` | Typecheck, then build all packages that expose a build script |
-| `pnpm --filter @workspace/api-spec run codegen` | Regenerate API clients and schemas |
-| `pnpm --filter @workspace/db run push` | Push development database schema changes |
-| `pnpm --filter @workspace/db run push-force` | Force a development schema push; use carefully |
+| Command                                         | Purpose                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------- |
+| `pnpm install`                                  | Install workspace dependencies using pnpm                     |
+| `pnpm run typecheck`                            | Typecheck shared libraries, artifacts, and scripts            |
+| `pnpm run typecheck:libs`                       | Typecheck TypeScript project references under `lib/`          |
+| `pnpm run build`                                | Typecheck, then build all packages that expose a build script |
+| `pnpm --filter @workspace/api-spec run codegen` | Regenerate API clients and schemas                            |
+| `pnpm --filter @workspace/db run push`          | Push development database schema changes                      |
+| `pnpm --filter @workspace/db run push-force`    | Force a development schema push; use carefully                |
 
 ### Web commands
 
@@ -396,12 +396,12 @@ It is not required to run the main Askolo web application.
 
 The workspace currently defines these relevant workflows:
 
-| Workflow | Command or role |
-| --- | --- |
-| `artifacts/personal-assistant: web` | Runs the Vite web application |
-| `artifacts/api-server: API Server` | Runs the Express API |
-| `artifacts/mockup-sandbox: Component Preview Server` | Runs isolated component previews |
-| `ai-credit-ledger` | Runs the AI credit ledger test command |
+| Workflow                                             | Command or role                        |
+| ---------------------------------------------------- | -------------------------------------- |
+| `artifacts/personal-assistant: web`                  | Runs the Vite web application          |
+| `artifacts/api-server: API Server`                   | Runs the Express API                   |
+| `artifacts/mockup-sandbox: Component Preview Server` | Runs isolated component previews       |
+| `ai-credit-ledger`                                   | Runs the AI credit ledger test command |
 
 Prefer the managed workflows in Replit when working inside the hosted
 environment. They provide the artifact ports and preview routing expected by
@@ -415,35 +415,35 @@ provider's protected environment configuration.
 
 ### Runtime and routing
 
-| Variable | Used by | Notes |
-| --- | --- | --- |
-| `NODE_ENV` | API and build/runtime code | `production` selects native production auth; development uses Clerk |
-| `PORT` | Web and API | Required by both server entry points |
-| `BASE_PATH` | Vite web build | Required by the web config; `/` is the current artifact base |
-| `REPL_ID` | Development Vite plugin selection | Managed by Replit when applicable |
-| `LOG_LEVEL` | Server logging | Optional logging configuration |
+| Variable    | Used by                           | Notes                                                               |
+| ----------- | --------------------------------- | ------------------------------------------------------------------- |
+| `NODE_ENV`  | API and build/runtime code        | `production` selects native production auth; development uses Clerk |
+| `PORT`      | Web and API                       | Required by both server entry points                                |
+| `BASE_PATH` | Vite web build                    | Required by the web config; `/` is the current artifact base        |
+| `REPL_ID`   | Development Vite plugin selection | Managed by Replit when applicable                                   |
+| `LOG_LEVEL` | Server logging                    | Optional logging configuration                                      |
 
 ### Database and sessions
 
-| Variable | Used by | Notes |
-| --- | --- | --- |
-| `DATABASE_URL` | `lib/db` and Drizzle Kit | PostgreSQL connection string; required for database work |
+| Variable         | Used by                      | Notes                                                       |
+| ---------------- | ---------------------------- | ----------------------------------------------------------- |
+| `DATABASE_URL`   | `lib/db` and Drizzle Kit     | PostgreSQL connection string; required for database work    |
 | `SESSION_SECRET` | Google OAuth/session helpers | Keep private; used to protect signed redirect/session state |
 
 ### Development authentication
 
-| Variable | Used by | Notes |
-| --- | --- | --- |
-| `CLERK_PUBLISHABLE_KEY` | API development middleware | Server-side Clerk host/key resolution |
-| `CLERK_SECRET_KEY` | API user operations and Clerk server calls | Secret; never expose to the browser |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Lazy Clerk web routes | Browser-safe publishable key for development |
-| `VITE_CLERK_PROXY_URL` | Lazy Clerk web routes | Optional Clerk proxy configuration |
+| Variable                     | Used by                                    | Notes                                        |
+| ---------------------------- | ------------------------------------------ | -------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY`      | API development middleware                 | Server-side Clerk host/key resolution        |
+| `CLERK_SECRET_KEY`           | API user operations and Clerk server calls | Secret; never expose to the browser          |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Lazy Clerk web routes                      | Browser-safe publishable key for development |
+| `VITE_CLERK_PROXY_URL`       | Lazy Clerk web routes                      | Optional Clerk proxy configuration           |
 
 ### Google integrations
 
-| Variable | Used by | Notes |
-| --- | --- | --- |
-| `GOOGLE_CLIENT_ID` | Google OAuth and native auth | OAuth client identifier |
+| Variable               | Used by                      | Notes                               |
+| ---------------------- | ---------------------------- | ----------------------------------- |
+| `GOOGLE_CLIENT_ID`     | Google OAuth and native auth | OAuth client identifier             |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth and native auth | Secret; never expose to the browser |
 
 Google Calendar and Gmail are opt-in. The rest of the application should
@@ -452,12 +452,12 @@ flows require the corresponding OAuth setup and redirect URIs.
 
 ### AI and transcription
 
-| Variable | Used by | Notes |
-| --- | --- | --- |
-| `AI_INTEGRATIONS_OPENAI_API_KEY` | Replit OpenAI integration helpers | Secret; use the managed integration secret |
+| Variable                          | Used by                           | Notes                                         |
+| --------------------------------- | --------------------------------- | --------------------------------------------- |
+| `AI_INTEGRATIONS_OPENAI_API_KEY`  | Replit OpenAI integration helpers | Secret; use the managed integration secret    |
 | `AI_INTEGRATIONS_OPENAI_BASE_URL` | Replit OpenAI integration helpers | Provider base URL supplied by the integration |
-| `ASSEMBLY_AI_API_KEY` | AssemblyAI server helper | Secret required for transcription |
-| `ASSEMBLYAI_REGION` | AssemblyAI server helper | Optional/provider-specific region selection |
+| `ASSEMBLY_AI_API_KEY`             | AssemblyAI server helper          | Secret required for transcription             |
+| `ASSEMBLYAI_REGION`               | AssemblyAI server helper          | Optional/provider-specific region selection   |
 
 ### Environment rules
 
@@ -655,21 +655,21 @@ The Express API is mounted under `/api`. Route modules are in
 
 Current route groups include:
 
-| Module | Responsibility |
-| --- | --- |
-| `health.ts` | Liveness/health endpoint |
-| `auth.ts` | Browser and session authentication |
-| `user.ts` | Profile, data deletion, and account deletion |
-| `habits.ts` | Habits and completions |
-| `goals.ts` | Goal management |
-| `daily_plans.ts` | Daily planning |
-| `events.ts` | Calendar events |
-| `chores.ts` | Household chores |
-| `notes.ts` | Notes |
-| `action_items.ts` | Action items |
-| `dashboard.ts` | Dashboard summary data |
-| `google.ts` | Google status and connection flows |
-| `ai.ts` | AI coaching, planning, extraction, and related operations |
+| Module            | Responsibility                                            |
+| ----------------- | --------------------------------------------------------- |
+| `health.ts`       | Liveness/health endpoint                                  |
+| `auth.ts`         | Browser and session authentication                        |
+| `user.ts`         | Profile, data deletion, and account deletion              |
+| `habits.ts`       | Habits and completions                                    |
+| `goals.ts`        | Goal management                                           |
+| `daily_plans.ts`  | Daily planning                                            |
+| `events.ts`       | Calendar events                                           |
+| `chores.ts`       | Household chores                                          |
+| `notes.ts`        | Notes                                                     |
+| `action_items.ts` | Action items                                              |
+| `dashboard.ts`    | Dashboard summary data                                    |
+| `google.ts`       | Google status and connection flows                        |
+| `ai.ts`           | AI coaching, planning, extraction, and related operations |
 
 The API health endpoint is:
 
