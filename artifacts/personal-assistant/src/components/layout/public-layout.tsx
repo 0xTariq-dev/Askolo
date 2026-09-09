@@ -19,12 +19,12 @@ export function PublicLayout({ children }: { children: ReactNode }) {
       <header className="relative z-10 w-full border-b border-border/60 bg-background/80 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 group">
-            <img src={logoUrl} alt="Askolo" className="h-8 w-auto object-contain" />
+            <img src={logoUrl} alt="Askolo" width={64} height={64} className="h-8 w-auto object-contain" />
             <span className="font-display font-bold text-xl tracking-tight group-hover:text-primary transition-colors">
               Askolo
             </span>
           </Link>
-          <nav className="flex items-center gap-2 sm:gap-4">
+          <nav aria-label="Primary" className="flex items-center gap-2 sm:gap-4">
             <Link href="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
               Privacy
             </Link>
@@ -50,19 +50,19 @@ export function PublicLayout({ children }: { children: ReactNode }) {
       </header>
 
       {/* Main content */}
-      <main className="relative z-10 flex-1">{children}</main>
+      <main id="main-content" className="relative z-10 flex-1">{children}</main>
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-border/60 bg-background/80 backdrop-blur-sm py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row gap-4 sm:gap-6 justify-between items-center text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <img src={logoUrl} alt="Askolo" className="h-5 w-auto object-contain opacity-80" />
+            <img src={logoUrl} alt="Askolo" width={64} height={64} className="h-5 w-auto object-contain opacity-80" />
             <span>© {new Date().getFullYear()} Askolo</span>
           </div>
-          <div className="flex items-center gap-4 sm:gap-6">
+          <nav aria-label="Footer" className="flex items-center gap-4 sm:gap-6">
             <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
             <Link href="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
-          </div>
+          </nav>
         </div>
       </footer>
     </div>

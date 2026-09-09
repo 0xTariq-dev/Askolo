@@ -98,7 +98,7 @@ export function LandingPage() {
   return (
     <PublicLayout>
       {/* Hero */}
-      <section className="relative overflow-hidden">
+      <section id="hero" aria-labelledby="landing-heading" className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24 text-center">
           <motion.div
@@ -118,11 +118,18 @@ export function LandingPage() {
             transition={{ duration: 0.7, delay: 0.1, ease: 'easeOut' }}
           >
             <div className="h-24 sm:h-28 w-auto mb-8 mx-auto relative">
-              <img src={logoUrl} alt="Askolo" className="h-full w-auto object-contain drop-shadow-2xl mx-auto" />
+              <img
+                src={logoUrl}
+                alt="Askolo"
+                width={64}
+                height={64}
+                className="h-full w-auto object-contain drop-shadow-2xl mx-auto"
+              />
             </div>
           </motion.div>
 
           <motion.h1
+            id="landing-heading"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.2, ease: 'easeOut' }}
@@ -188,10 +195,14 @@ export function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40">
+      <section
+        id="features"
+        aria-labelledby="features-heading"
+        className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40"
+      >
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
+            <h2 id="features-heading" className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
               Everything you need to stay organized
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-base sm:text-lg">
@@ -199,9 +210,9 @@ export function LandingPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 list-none p-0 m-0">
             {features.map((feature, index) => (
-              <motion.div
+              <motion.li
                 key={feature.title}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -216,25 +227,31 @@ export function LandingPage() {
                     <p className="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </motion.li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 
       {/* How it works */}
-      <section className="py-16 sm:py-24 px-4 sm:px-6">
+      <section
+        id="how-it-works"
+        aria-labelledby="how-it-works-heading"
+        className="py-16 sm:py-24 px-4 sm:px-6"
+      >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">How Askolo works</h2>
+            <h2 id="how-it-works-heading" className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
+              How Askolo works
+            </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-base sm:text-lg">
               A simple workflow that keeps your life organized without overwhelming you.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <ol className="grid grid-cols-1 md:grid-cols-3 gap-6 list-none p-0 m-0">
             {howItWorks.map((item, index) => (
-              <motion.div
+              <motion.li
                 key={item.step}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -249,17 +266,21 @@ export function LandingPage() {
                     <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </motion.li>
             ))}
-          </div>
+          </ol>
         </div>
       </section>
 
       {/* Google integration explanation */}
-      <section className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40">
+      <section
+        id="integrations"
+        aria-labelledby="integrations-heading"
+        className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40"
+      >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 sm:mb-14">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
+            <h2 id="integrations-heading" className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
               Optional Google integrations
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-base sm:text-lg">
@@ -325,9 +346,9 @@ export function LandingPage() {
       </section>
 
       {/* Final CTA */}
-      <section className="py-16 sm:py-24 px-4 sm:px-6 text-center">
+      <section id="final-cta" aria-labelledby="final-cta-heading" className="py-16 sm:py-24 px-4 sm:px-6 text-center">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
+          <h2 id="final-cta-heading" className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
             Ready to get organized?
           </h2>
           <p className="text-muted-foreground text-base sm:text-lg mb-8 max-w-xl mx-auto">
