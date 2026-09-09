@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/hexlayer-support-console/"
+title = "Hexlayer Support Console"
+description = "A terminal-inspired contact console for routing sales, engineering support, documentation, community, and security requests to the right team."
+version = "1.0.0"
+id = "artifacts/hexlayer-support-console"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/hexlayer-support-console/" ]
+localPort = 19177
+
+[services.development]
+run = "pnpm --filter @workspace/hexlayer-support-console run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/hexlayer-support-console", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/hexlayer-support-console/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19177"
+BASE_PATH = "/hexlayer-support-console/"
