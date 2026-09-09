@@ -14,6 +14,8 @@ export function pingAppwrite(): void {
       console.info("[Appwrite] Server ping succeeded.");
     })
     .catch((error: unknown) => {
-      console.error("[Appwrite] Server ping failed.", error);
+      const details =
+        error instanceof Error ? error.message : String(error);
+      console.error("[Appwrite] Server ping failed.", details);
     });
 }
