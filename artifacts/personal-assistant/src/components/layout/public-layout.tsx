@@ -1,14 +1,10 @@
 import { ReactNode } from 'react';
 import { Link } from 'wouter';
-import { useAuth } from '@clerk/react';
 import { Button } from '@/components/ui/button';
 import logoUrl from '/logo.png';
-
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+import { toAppUrl } from '@/lib/site-domains';
 
 export function PublicLayout({ children }: { children: ReactNode }) {
-  const { isSignedIn } = useAuth();
-
   return (
     <div className="min-h-screen w-full flex flex-col bg-background text-foreground relative overflow-hidden">
       {/* Ambient background glows */}
@@ -37,20 +33,12 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
               Terms
             </Link>
-            {isSignedIn ? (
-              <Button asChild size="sm">
-                <Link href="/dashboard">Go to Dashboard</Link>
-              </Button>
-            ) : (
-              <>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/sign-in">Sign In</Link>
-                </Button>
-                <Button size="sm" asChild>
-                  <Link href="/sign-up">Get Started</Link>
-                </Button>
-              </>
-            )}
+            <Button variant="ghost" size="sm" asChild>
+              <a href={toAppUrl('/sign-in')}>Sign In</a>
+            </Button>
+            <Button size="sm" asChild>
+              <a href={toAppUrl('/sign-up')}>Get Started</a>
+            </Button>
           </nav>
         </div>
       </header>

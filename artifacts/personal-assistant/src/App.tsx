@@ -9,6 +9,12 @@ import { Route, Switch, Router as WouterRouter, useLocation, Redirect } from 'wo
 import { Loader2 } from 'lucide-react';
 
 import { LandingPage } from '@/pages/landing';
+import {
+  isAppProductionHost,
+  isPublicProductionHost,
+  toAppUrl,
+  toPublicUrl,
+} from '@/lib/site-domains';
 
 const AppLayout = lazy(() =>
   import('@/components/layout/app-layout').then(({ AppLayout }) => ({ default: AppLayout })),
@@ -85,7 +91,7 @@ const clerkAppearance = {
   cssLayerName: 'clerk',
   options: {
     logoPlacement: 'inside' as const,
-    logoLinkUrl: basePath || '/',
+    logoLinkUrl: isAppProductionHost() ? toPublicUrl('/') : basePath || '/',
     logoImageUrl: `${window.location.origin}${basePath}/logo.png`,
     socialButtonsPlacement: 'top' as const,
     socialButtonsVariant: 'blockButton' as const,
@@ -210,6 +216,40 @@ function RouteLoadingState() {
   );
 }
 
+function ExternalRedirect({ href }: { href: string }) {
+  useEffect(() => {
+    window.location.replace(href);
+  }, [href]);
+
+  return <RouteLoadingState />;
+}
+
+function currentPathWithQuery(): string {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function PublicSiteRoutes() {
+  const currentPath = window.location.pathname || '/';
+
+  if (window.location.hostname.toLowerCase() === 'www.askolo.app') {
+    return <ExternalRedirect href={toPublicUrl(currentPathWithQuery())} />;
+  }
+
+  if (!['/', '/privacy', '/terms'].includes(currentPath)) {
+    return <ExternalRedirect href={toAppUrl(currentPathWithQuery())} />;
+  }
+
+  return (
+    <Suspense fallback={<RouteLoadingState />}>
+      <Switch>
+        <Route path="/" component={LandingPage} />
+        <Route path="/privacy" component={PrivacyPage} />
+        <Route path="/terms" component={TermsPage} />
+      </Switch>
+    </Suspense>
+  );
+}
+
 function ProtectedRoutes() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -246,6 +286,7 @@ function ProtectedRoutes() {
 
 function ClerkProviderWithRoutes() {
   const [, setLocation] = useLocation();
+  const splitAppHost = isAppProductionHost();
 
   return (
     <ClerkProvider
@@ -276,10 +317,20 @@ function ClerkProviderWithRoutes() {
         <TooltipProvider>
           <Suspense fallback={<RouteLoadingState />}>
             <Switch>
-              {/* Public pages */}
-              <Route path="/" component={LandingPage} />
-              <Route path="/privacy" component={PrivacyPage} />
-              <Route path="/terms" component={TermsPage} />
+              {splitAppHost ? (
+                <>
+                  <Route path="/" component={() => <ExternalRedirect href={toPublicUrl('/')} />} />
+                  <Route path="/privacy" component={() => <ExternalRedirect href={toPublicUrl('/privacy')} />} />
+                  <Route path="/terms" component={() => <ExternalRedirect href={toPublicUrl('/terms')} />} />
+                </>
+              ) : (
+                <>
+                  {/* Public pages in the Replit preview/development host */}
+                  <Route path="/" component={LandingPage} />
+                  <Route path="/privacy" component={PrivacyPage} />
+                  <Route path="/terms" component={TermsPage} />
+                </>
+              )}
               {/* REQUIRED — /sign-in/*? and /sign-up/*? must match exactly.
                   The /*? optional wildcard is the only wouter syntax that
                   handles Clerk's OAuth sub-paths. */}
@@ -301,7 +352,7 @@ function ClerkProviderWithRoutes() {
 function App() {
   return (
     <WouterRouter base={basePath}>
-      <ClerkProviderWithRoutes />
+      {isPublicProductionHost() ? <PublicSiteRoutes /> : <ClerkProviderWithRoutes />}
     </WouterRouter>
   );
 }
