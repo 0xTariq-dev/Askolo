@@ -7,3 +7,4 @@
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
 - [Structured data without reviews](structured-data-without-reviews.md) — never add aggregateRating to marketing schema without authentic, verifiable review data.
 - [Published static build freshness](published-static-build-freshness.md) — verify live asset hashes against the current build before diagnosing SEO or compression findings.
+- [Safe history cleanup](safe-history-cleanup.md) — interactive rebase editors require `--interactive`; protect abbreviated todo hashes and preserve recovery refs.
