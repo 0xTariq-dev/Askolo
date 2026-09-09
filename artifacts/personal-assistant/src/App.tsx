@@ -15,6 +15,7 @@ import {
   toAppUrl,
   toPublicUrl,
 } from '@/lib/site-domains';
+import { ClerkAuthBridge, NativeAuthProvider, useAppAuth } from '@/contexts/auth-context';
 
 const AppLayout = lazy(() =>
   import('@/components/layout/app-layout').then(({ AppLayout }) => ({ default: AppLayout })),
@@ -60,19 +61,21 @@ const LoginPage = lazy(() =>
 );
 
 const queryClient = new QueryClient();
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+const nativeAuthEnabled = isAppProductionHost() || isPublicProductionHost();
 
 // REQUIRED — copy verbatim. Resolves the key from window.location.hostname so the
 // same build serves multiple Clerk custom domains.
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
+const clerkPubKey = nativeAuthEnabled
+  ? ''
+  : publishableKeyFromHost(
+      window.location.hostname,
+      import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+    );
 
 // REQUIRED — copy verbatim. Empty in dev (Clerk hits dev FAPI directly), auto-set
 // in prod. Do NOT gate on import.meta.env.PROD / NODE_ENV.
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
-
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 // Clerk passes full paths to routerPush/routerReplace, but wouter's
 // setLocation prepends the base — strip it to avoid doubling.
@@ -82,7 +85,7 @@ function stripBase(path: string): string {
     : path;
 }
 
-if (!clerkPubKey) {
+if (!nativeAuthEnabled && !clerkPubKey) {
   throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY');
 }
 
@@ -284,6 +287,31 @@ function ProtectedRoutes() {
   );
 }
 
+function NativeProtectedRoutes() {
+  const { isLoaded, isSignedIn } = useAppAuth();
+
+  if (!isLoaded) return <RouteLoadingState />;
+  if (!isSignedIn) return <LoginPage />;
+
+  return (
+    <AppLayout>
+      <Switch>
+        <Route path="/dashboard" component={DashboardPage} />
+        <Route path="/habits" component={HabitsPage} />
+        <Route path="/goals" component={GoalsPage} />
+        <Route path="/plan" component={PlanPage} />
+        <Route path="/calendar" component={CalendarPage} />
+        <Route path="/chores" component={ChoresPage} />
+        <Route path="/notes" component={NotesPage} />
+        <Route path="/actions" component={ActionsPage} />
+        <Route path="/assistant"><Redirect to="/dashboard" /></Route>
+        <Route path="/email" component={EmailPage} />
+        <Route path="/profile" component={ProfilePage} />
+      </Switch>
+    </AppLayout>
+  );
+}
+
 function ClerkProviderWithRoutes() {
   const [, setLocation] = useLocation();
   const splitAppHost = isAppProductionHost();
@@ -314,9 +342,10 @@ function ClerkProviderWithRoutes() {
     >
       <QueryClientProvider client={queryClient}>
         <ClerkQueryClientCacheInvalidator />
-        <TooltipProvider>
-          <Suspense fallback={<RouteLoadingState />}>
-            <Switch>
+        <ClerkAuthBridge>
+          <TooltipProvider>
+            <Suspense fallback={<RouteLoadingState />}>
+              <Switch>
               {splitAppHost ? (
                 <>
                   <Route path="/" component={() => <ExternalRedirect href={toPublicUrl('/')} />} />
@@ -340,19 +369,46 @@ function ClerkProviderWithRoutes() {
               <Route path="/sso-callback" component={SsoCallbackPage} />
               {/* Protected app routes */}
               <Route component={ProtectedRoutes} />
+              </Switch>
+            </Suspense>
+            <Toaster />
+          </TooltipProvider>
+        </ClerkAuthBridge>
+      </QueryClientProvider>
+    </ClerkProvider>
+  );
+}
+
+function NativeAuthWithRoutes() {
+  return (
+    <NativeAuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Suspense fallback={<RouteLoadingState />}>
+            <Switch>
+              <Route path="/" component={() => <ExternalRedirect href={toPublicUrl('/')} />} />
+              <Route path="/privacy" component={() => <ExternalRedirect href={toPublicUrl('/privacy')} />} />
+              <Route path="/terms" component={() => <ExternalRedirect href={toPublicUrl('/terms')} />} />
+              <Route component={NativeProtectedRoutes} />
             </Switch>
           </Suspense>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
-    </ClerkProvider>
+    </NativeAuthProvider>
   );
 }
 
 function App() {
   return (
     <WouterRouter base={basePath}>
-      {isPublicProductionHost() ? <PublicSiteRoutes /> : <ClerkProviderWithRoutes />}
+      {isPublicProductionHost() ? (
+        <PublicSiteRoutes />
+      ) : isAppProductionHost() ? (
+        <NativeAuthWithRoutes />
+      ) : (
+        <ClerkProviderWithRoutes />
+      )}
     </WouterRouter>
   );
 }

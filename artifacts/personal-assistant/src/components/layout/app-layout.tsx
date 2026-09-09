@@ -1,6 +1,5 @@
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { useUser, useClerk } from '@clerk/react';
 import {
   LayoutDashboard,
   CheckCircle2,
@@ -24,6 +23,7 @@ import { NotificationBell } from '@/components/notification-bell';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
 import logoUrl from '/logo.png';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
+import { useAppAuth } from '@/contexts/auth-context';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -41,16 +41,15 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 // Inner component so it can consume both providers
 function AppLayoutInner({ children }: { children: ReactNode }) {
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const { user, signOut } = useAppAuth();
   const [location] = useLocation();
 
   // Run once per session to check Google connection status
   useGoogleConnectionCheck();
 
   const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'User';
-  const email = user?.primaryEmailAddress?.emailAddress || '';
-  const avatarUrl = user?.imageUrl || undefined;
+  const email = user?.email || '';
+  const avatarUrl = user?.imageUrl || user?.profileImageUrl || undefined;
   const initials = user?.firstName?.[0] || 'U';
 
   return (

@@ -1,0 +1,138 @@
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useAuth, useClerk, useUser } from '@clerk/react';
+
+import { toPublicUrl } from '@/lib/site-domains';
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+export type AppUser = {
+  id: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  profileImageUrl: string | null;
+  imageUrl?: string;
+};
+
+type SignOutOptions = { redirectUrl?: string };
+
+type AppAuthValue = {
+  user: AppUser | null;
+  isLoaded: boolean;
+  isSignedIn: boolean;
+  authProvider: 'clerk' | 'google' | null;
+  signOut: (options?: SignOutOptions) => Promise<void>;
+  updateProfile: (profile: { firstName: string; lastName: string }) => Promise<void>;
+  updateProfileImage: (file: File) => Promise<void>;
+  updatePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+};
+
+const AppAuthContext = createContext<AppAuthValue | null>(null);
+
+export function useAppAuth() {
+  const value = useContext(AppAuthContext);
+  if (!value) throw new Error('useAppAuth must be used within an auth provider');
+  return value;
+}
+
+export function ClerkAuthBridge({ children }: { children: ReactNode }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
+  const clerk = useClerk();
+
+  const value = useMemo<AppAuthValue>(
+    () => ({
+      isLoaded,
+      isSignedIn: Boolean(isSignedIn && user),
+      authProvider: isSignedIn ? 'clerk' : null,
+      user: user
+        ? {
+            id: user.id,
+            email: user.primaryEmailAddress?.emailAddress ?? null,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            profileImageUrl: user.imageUrl,
+            imageUrl: user.imageUrl,
+          }
+        : null,
+      signOut: async (options) => {
+        await clerk.signOut(options);
+      },
+      updateProfile: async ({ firstName, lastName }) => {
+        await user?.update({ firstName, lastName });
+      },
+      updateProfileImage: async (file) => {
+        await user?.setProfileImage({ file });
+      },
+      updatePassword: async (currentPassword, newPassword) => {
+        await user?.updatePassword({ currentPassword, newPassword });
+      },
+    }),
+    [clerk, isLoaded, isSignedIn, user],
+  );
+
+  return <AppAuthContext.Provider value={value}>{children}</AppAuthContext.Provider>;
+}
+
+export function NativeAuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${basePath}/api/auth/user`, { credentials: 'include' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Auth check failed: ${response.status}`);
+        return (await response.json()) as { user: AppUser | null };
+      })
+      .then((payload) => {
+        if (!active) return;
+        setUser(payload.user);
+        setIsLoaded(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        setUser(null);
+        setIsLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const value = useMemo<AppAuthValue>(
+    () => ({
+      user,
+      isLoaded,
+      isSignedIn: Boolean(user),
+      authProvider: user ? 'google' : null,
+      signOut: async (options) => {
+        await fetch(`${basePath}/api/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        window.location.assign(options?.redirectUrl ?? toPublicUrl('/'));
+      },
+      updateProfile: async ({ firstName, lastName }) => {
+        const response = await fetch(`${basePath}/api/user/profile`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ firstName, lastName }),
+        });
+        if (!response.ok) throw new Error('Profile update failed');
+        const updated = (await response.json()) as AppUser;
+        setUser(updated);
+      },
+      updateProfileImage: async () => {
+        throw new Error('Native profile photo editing is not available');
+      },
+      updatePassword: async () => {
+        throw new Error('Google manages this account password');
+      },
+    }),
+    [isLoaded, user],
+  );
+
+  return <AppAuthContext.Provider value={value}>{children}</AppAuthContext.Provider>;
+}

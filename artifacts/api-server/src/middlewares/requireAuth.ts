@@ -2,6 +2,7 @@ import { getAuth } from '@clerk/express';
 import { eq } from 'drizzle-orm';
 import type { NextFunction, Request, Response } from 'express';
 import { db, usersTable } from '@workspace/db';
+import { clearCookie, getNativeSession, getNativeSessionId } from '../lib/nativeAuth';
 
 export type DbUser = typeof usersTable.$inferSelect;
 
@@ -9,6 +10,8 @@ declare global {
   namespace Express {
     interface Request {
       dbUser: DbUser;
+      authProvider?: 'clerk' | 'google';
+      nativeSessionId?: string;
     }
   }
 }
@@ -18,6 +21,33 @@ export async function requireAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  if (process.env.NODE_ENV === 'production') {
+    const nativeSessionId = getNativeSessionId(req);
+    const nativeSession = await getNativeSession(nativeSessionId);
+    if (!nativeSession) {
+      if (nativeSessionId) clearCookie(res, 'sid');
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const [nativeUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, nativeSession.userId))
+      .limit(1);
+    if (!nativeUser) {
+      if (nativeSessionId) clearCookie(res, 'sid');
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    req.dbUser = nativeUser;
+    req.authProvider = 'google';
+    req.nativeSessionId = nativeSessionId;
+    next();
+    return;
+  }
+
   const auth = getAuth(req);
   const sessionClaims = auth?.sessionClaims as Record<string, unknown> | undefined;
 
@@ -62,5 +92,6 @@ export async function requireAuth(
   }
 
   req.dbUser = dbUser;
+  req.authProvider = 'clerk';
   next();
 }

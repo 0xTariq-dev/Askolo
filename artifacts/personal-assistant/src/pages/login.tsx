@@ -2,10 +2,21 @@ import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { Sparkles, UserPlus } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { isAppProductionHost } from '@/lib/site-domains';
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 import logoUrl from '/logo.png';
 
 export function LoginPage() {
   const [, setLocation] = useLocation();
+  const nativeGoogleLogin = isAppProductionHost();
+
+  const beginGoogleLogin = () => {
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(
+      `${basePath}/api/auth/google?returnTo=${encodeURIComponent(returnTo || '/dashboard')}`,
+    );
+  };
 
   return (
     <div className="min-h-screen w-full flex bg-background relative overflow-hidden flex-col items-center justify-center p-4">
@@ -35,6 +46,17 @@ export function LoginPage() {
           Your beautifully designed mission control for habits, goals, and daily focus.
         </p>
 
+        {nativeGoogleLogin ? (
+          <Button
+            size="lg"
+            onClick={beginGoogleLogin}
+            className="w-full max-w-xs rounded-full px-8 py-6 text-lg font-medium shadow-[0_0_40px_-10px_rgba(234,179,8,0.3)]"
+            data-testid="button-google-login"
+          >
+            <Sparkles className="mr-2 h-5 w-5 text-primary-foreground/70" />
+            Continue with Google
+          </Button>
+        ) : (
         <div className="flex flex-col sm:flex-row gap-4 w-full max-w-xs">
           <Button
             size="lg"
@@ -56,6 +78,7 @@ export function LoginPage() {
             Get Started
           </Button>
         </div>
+        )}
       </motion.div>
     </div>
   );

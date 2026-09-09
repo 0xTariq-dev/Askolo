@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser, useClerk } from '@clerk/react';
 import { useLocation } from 'wouter';
 import {
   Camera,
@@ -44,6 +43,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
+import { useAppAuth } from '@/contexts/auth-context';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -56,8 +56,15 @@ async function apiDelete(path: string) {
 }
 
 export function ProfilePage() {
-  const { user, isLoaded } = useUser();
-  const { signOut } = useClerk();
+  const {
+    user,
+    isLoaded,
+    authProvider,
+    signOut,
+    updateProfile,
+    updateProfileImage,
+    updatePassword,
+  } = useAppAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -95,7 +102,7 @@ export function ProfilePage() {
   }
 
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || 'User';
-  const email = user.primaryEmailAddress?.emailAddress || '';
+  const email = user.email || '';
   const initials = user.firstName?.[0] || 'U';
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -109,7 +116,7 @@ export function ProfilePage() {
   const saveName = async () => {
     setSavingName(true);
     try {
-      await user.update({ firstName: firstName.trim(), lastName: lastName.trim() });
+      await updateProfile({ firstName: firstName.trim(), lastName: lastName.trim() });
       setEditingName(false);
       toast({ title: 'Name updated' });
     } catch {
@@ -124,7 +131,11 @@ export function ProfilePage() {
     if (!file) return;
     setUploadingPhoto(true);
     try {
-      await user.setProfileImage({ file });
+      if (authProvider !== 'clerk') {
+        toast({ title: 'Profile photo editing is not available for Google accounts yet' });
+        return;
+      }
+      await updateProfileImage(file);
       toast({ title: 'Photo updated' });
     } catch {
       toast({ title: 'Failed to upload photo', variant: 'destructive' });
@@ -138,7 +149,11 @@ export function ProfilePage() {
     if (!newPassword || !currentPassword) return;
     setChangingPassword(true);
     try {
-      await user.updatePassword({ newPassword, currentPassword });
+      if (authProvider !== 'clerk') {
+        toast({ title: 'Password changes are managed by Google for this account' });
+        return;
+      }
+      await updatePassword(currentPassword, newPassword);
       setPasswordFormOpen(false);
       setCurrentPassword('');
       setNewPassword('');
@@ -225,12 +240,12 @@ export function ProfilePage() {
           <div className="flex items-center gap-4">
             <div className="relative">
               <Avatar className="h-16 w-16 border-2 border-border">
-                <AvatarImage src={user.imageUrl} />
+                <AvatarImage src={user.imageUrl || user.profileImageUrl || undefined} />
                 <AvatarFallback className="bg-primary/20 text-primary text-xl">{initials}</AvatarFallback>
               </Avatar>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingPhoto}
+                disabled={uploadingPhoto || authProvider !== 'clerk'}
                 className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow hover:bg-primary/90 transition-colors"
                 aria-label="Change photo"
               >
@@ -250,6 +265,7 @@ export function ProfilePage() {
               type="file"
               accept="image/*"
               className="hidden"
+              disabled={authProvider !== 'clerk'}
               onChange={handlePhotoChange}
             />
           </div>
@@ -284,7 +300,8 @@ export function ProfilePage() {
           )}
 
           {/* Password */}
-          <div className="border-t border-border pt-4">
+          {authProvider === 'clerk' && (
+            <div className="border-t border-border pt-4">
             <div className="flex items-center gap-2 mb-3">
               <Key className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">Password</span>
@@ -324,7 +341,8 @@ export function ProfilePage() {
                 Change password
               </Button>
             )}
-          </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -12,6 +12,7 @@ import router from './routes';
 import { logger } from './lib/logger';
 
 const app: Express = express();
+const nativeAuthEnabled = process.env.NODE_ENV === 'production';
 
 app.use(
   pinoHttp({
@@ -33,8 +34,11 @@ app.use(
   }),
 );
 
-// Clerk proxy must be mounted before body parsers (it streams raw bytes).
-app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+// Clerk is retained for development/testing only. Production uses native OAuth.
+if (!nativeAuthEnabled) {
+  // Clerk proxy must be mounted before body parsers (it streams raw bytes).
+  app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+}
 
 app.use(cors({ credentials: true, origin: true }));
 // Voice fallback uploads are sent as base64 JSON. Keep the global parser
@@ -44,14 +48,16 @@ app.use(express.urlencoded({ extended: true }));
 
 // Resolve the publishable key from the incoming request host so the same
 // server can serve multiple Clerk custom domains.
-app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? '',
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
-  })),
-);
+if (!nativeAuthEnabled) {
+  app.use(
+    clerkMiddleware((req) => ({
+      publishableKey: publishableKeyFromHost(
+        getClerkProxyHost(req) ?? '',
+        process.env.CLERK_PUBLISHABLE_KEY,
+      ),
+    })),
+  );
+}
 
 app.use('/api', router);
 

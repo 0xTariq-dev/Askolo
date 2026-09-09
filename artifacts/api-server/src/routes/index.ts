@@ -1,6 +1,7 @@
 import { Router, type IRouter } from 'express';
 import { requireAuth } from '../middlewares/requireAuth';
 import healthRouter from './health';
+import authRouter from './auth';
 import habitsRouter from './habits';
 import goalsRouter from './goals';
 import dailyPlansRouter from './daily_plans';
@@ -17,6 +18,8 @@ const router: IRouter = Router();
 
 // Health is public — mount before requireAuth.
 router.use(healthRouter);
+// Native OAuth entry points are public. Development continues to use Clerk.
+router.use(authRouter);
 
 // All feature routes require a valid Clerk session + a local user row.
 router.use(requireAuth);

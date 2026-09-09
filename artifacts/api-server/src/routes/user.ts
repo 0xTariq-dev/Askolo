@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { getAuth } from "@clerk/express";
+import { clearCookie, deleteNativeSession } from "../lib/nativeAuth";
 import {
   db,
   habitsTable,
@@ -42,6 +43,40 @@ router.delete("/user/data", async (req, res): Promise<void> => {
   }
 });
 
+// PATCH /user/profile
+// Updates editable local profile fields without changing the login identity.
+router.patch("/user/profile", async (req, res): Promise<void> => {
+  const firstName = typeof req.body?.firstName === "string" ? req.body.firstName.trim() : "";
+  const lastName = typeof req.body?.lastName === "string" ? req.body.lastName.trim() : "";
+
+  if (firstName.length > 100 || lastName.length > 100) {
+    res.status(400).json({ error: "Profile names are too long" });
+    return;
+  }
+
+  try {
+    const [updated] = await db
+      .update(usersTable)
+      .set({
+        firstName: firstName || null,
+        lastName: lastName || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(usersTable.id, req.dbUser.id))
+      .returning();
+    res.json({
+      id: updated.id,
+      email: updated.email,
+      firstName: updated.firstName,
+      lastName: updated.lastName,
+      profileImageUrl: updated.profileImageUrl,
+    });
+  } catch (err) {
+    req.log.error({ err, userId: req.dbUser.id }, "Profile update failed");
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+});
+
 // DELETE /user/account
 // Wipes all data AND deletes the Clerk user, then the local users row.
 //
@@ -52,6 +87,20 @@ router.delete("/user/data", async (req, res): Promise<void> => {
 //     A partial failure here leaves orphaned rows (acceptable; the Clerk
 //     identity is already gone so no one can access them).
 router.delete("/user/account", async (req, res): Promise<void> => {
+  if (req.authProvider === "google") {
+    try {
+      await deleteAllUserData(req.dbUser.id);
+      await db.delete(usersTable).where(eq(usersTable.id, req.dbUser.id));
+      await deleteNativeSession(req.nativeSessionId);
+      clearCookie(res, "sid");
+      res.sendStatus(204);
+    } catch (err) {
+      req.log.error({ err, userId: req.dbUser.id }, "Native account deletion failed");
+      res.status(500).json({ error: "Failed to delete account" });
+    }
+    return;
+  }
+
   // auth.userId is always the native Clerk user ID.
   // req.dbUser.id may be a legacy remapped ID for pre-migration users.
   const auth = getAuth(req);
