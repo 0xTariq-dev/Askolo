@@ -28,6 +28,7 @@ import { NotificationProvider } from '@/contexts/notification-context';
 import { AssistantSidebar } from '@/components/assistant-sidebar';
 import { NotificationBell } from '@/components/notification-bell';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
+import { useIsMobile } from '@/hooks/use-mobile';
 import logoUrl from '/logo.png';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { useAppAuth } from '@/contexts/auth-context';
@@ -169,6 +170,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const isMobile = useIsMobile();
 
   // Run once per session to check Google connection status
   useGoogleConnectionCheck();
@@ -191,6 +193,10 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   }, [location]);
 
   useEffect(() => {
+    if (!isMobile) setIsMobileNavOpen(false);
+  }, [isMobile]);
+
+  useEffect(() => {
     if (!isMobileNavOpen) return;
 
     const handleEscape = (event: KeyboardEvent) => {
@@ -202,6 +208,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   }, [isMobileNavOpen]);
 
   const handleTouchStart = (event: React.TouchEvent) => {
+    if (!isMobile) return;
     const touch = event.touches[0];
     if (!touch) return;
 
@@ -211,6 +218,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   };
 
   const handleTouchEnd = (event: React.TouchEvent) => {
+    if (!isMobile) return;
     const start = touchStartRef.current;
     touchStartRef.current = null;
     const touch = event.changedTouches[0];
