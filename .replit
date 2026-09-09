@@ -58,6 +58,3 @@ VITE_CLERK_PROXY_URL = "/api/__clerk"
 [nix]
 channel = "stable-25_05"
 
-[objectStorage]
-defaultBucketID = "replit-objstore-44966a6b-9f0e-474f-a3b2-dc4c0517c8ae"
-
