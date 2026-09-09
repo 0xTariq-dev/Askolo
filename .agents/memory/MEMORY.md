@@ -5,6 +5,7 @@
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
+- [Managed backup refs](managed-backup-refs.md) — the gitsafe backup remote rejects non-main pushes, including deletion of recovery branches.
 - [GitHub CLI Git transport](github-cli-git-transport.md) — `gh auth status` does not configure Git HTTPS; run `gh auth setup-git` before fetch/push.
 - [Transient voice privacy](transient-voice-privacy.md) — voice recordings are never persisted; only versioned consent is stored server-side.
 - [Client voice gating](client-voice-gating.md) — reject short or silent recordings in the browser before any provider request.
