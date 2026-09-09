@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 
-# Remove selected non-merge commits from a local branch history.
+# Remove one selected empty linear commit from a local branch.
 #
-# This intentionally does not rewrite history automatically. Run it without
-# --apply to inspect the candidates first, then pass --apply and confirm.
+# The cleaned history is created on a new local branch in an isolated
+# temporary worktree. The source branch is never moved by default.
 #
 # Replit deployment commits are history entries, not files. They cannot be
-# excluded with .gitignore or with .replit. This script is the explicit,
-# reversible cleanup path for local branches.
+# excluded with .gitignore or with .replit.
 
 set -Eeuo pipefail
 
@@ -17,6 +16,7 @@ readonly DEFAULT_PATTERN='^Published your App$'
 apply_changes=false
 pattern="$DEFAULT_PATTERN"
 requested_branch=""
+requested_new_branch=""
 
 die() {
   printf 'Error: %s\n' "$*" >&2
@@ -26,21 +26,26 @@ die() {
 usage() {
   cat <<EOF
 Usage:
-  $SCRIPT_NAME [--dry-run] [--apply] [--branch BRANCH] [--pattern REGEX]
+  $SCRIPT_NAME [--dry-run] [--apply] [--branch BRANCH]
+              [--new-branch BRANCH] [--pattern REGEX]
 
 Options:
   --dry-run          Inspect candidates only. This is the default.
-  --apply            Rewrite the selected local branch after confirmation.
+  --apply            Create a cleaned branch after confirmation.
   --branch BRANCH   Branch to inspect. Defaults to the current branch.
+  --new-branch NAME Name for the cleaned branch. Defaults to an automatic
+                     drop-published/<commit>-<timestamp> name.
   --pattern REGEX   Commit-subject regex. Defaults to:
                      $DEFAULT_PATTERN
   -h, --help         Show this help.
 
 Safety:
   - Requires a clean worktree.
-  - Only local branches can be rewritten.
-  - Merge commits are displayed but cannot be selected automatically.
-  - A backup Git ref is created before an applied rewrite.
+  - The source branch is never changed; a cleaned branch is created.
+  - The rewrite runs in an isolated temporary worktree.
+  - Exactly one linear empty commit may be selected.
+  - Merge and non-empty commits are rejected.
+  - A backup Git ref is created before the rewrite.
 EOF
 }
 
@@ -55,6 +60,11 @@ while (($# > 0)); do
     --branch)
       (($# >= 2)) || die "--branch requires a branch name"
       requested_branch="$2"
+      shift
+      ;;
+    --new-branch)
+      (($# >= 2)) || die "--new-branch requires a branch name"
+      requested_new_branch="$2"
       shift
       ;;
     --pattern)
@@ -96,11 +106,6 @@ fi
 git show-ref --verify --quiet "refs/heads/$branch" ||
   die "'$branch' is not a local branch; this script never rewrites remote-tracking refs"
 
-if [[ "$branch" != "$current_branch" ]]; then
-  printf "Selected branch: %s (current branch: %s)\n" "$branch" "${current_branch:-detached HEAD}"
-  printf "The script will switch to the selected branch only after confirmation.\n"
-fi
-
 mapfile -t matching_rows < <(
   git log --topo-order --reverse --format='%H%x09%P%x09%s' "$branch" |
     awk -F '\t' -v pattern="$pattern" '$3 ~ pattern { print }'
@@ -112,36 +117,33 @@ if ((${#matching_rows[@]} == 0)); then
 fi
 
 printf "Matching commits on %s:\n\n" "$branch"
-printf '%-4s %-14s %-8s %s\n' '#' 'type' 'commit' 'subject'
-printf '%-4s %-14s %-8s %s\n' '----' '--------------' '--------' '-------'
+printf '%-4s %-16s %-8s %s\n' '#' 'type' 'commit' 'subject'
+printf '%-4s %-16s %-8s %s\n' '----' '----------------' '--------' '-------'
 
 declare -a hashes=()
 declare -a subjects=()
-declare -a is_merge=()
-declare -a is_empty=()
+declare -a commit_types=()
 
 for row in "${matching_rows[@]}"; do
   IFS=$'\t' read -r hash parents subject <<<"$row"
   hashes+=("$hash")
   subjects+=("$subject")
+
   if [[ "$parents" == *" "* ]]; then
-    is_merge+=(true)
-    is_empty+=(false)
-    commit_type="MERGE"
+    commit_types+=(merge)
+    type="merge"
+  elif git diff-tree --no-commit-id --quiet -r "$hash"; then
+    commit_types+=(linear-empty)
+    type="linear-empty"
   else
-    is_merge+=(false)
-    if git diff-tree --no-commit-id --quiet -r "$hash"; then
-      is_empty+=(true)
-      commit_type="linear-empty"
-    else
-      is_empty+=(false)
-      commit_type="linear-changes"
-    fi
+    commit_types+=(linear-changes)
+    type="linear-changes"
   fi
-  printf '%-4s %-14s %-8s %s\n' "${#hashes[@]}" "$commit_type" "${hash:0:8}" "$subject"
+
+  printf '%-4s %-16s %-8s %s\n' "${#hashes[@]}" "$type" "${hash:0:8}" "$subject"
 done
 
-printf '\nChoose commits to drop: [a]ll linear commits, comma-separated numbers, or [n]one: '
+printf '\nChoose exactly one commit number to drop, or [n]one: '
 read -r selection
 
 case "${selection,,}" in
@@ -149,99 +151,84 @@ case "${selection,,}" in
     printf 'No changes made.\n'
     exit 0
     ;;
-  a|all)
-    selected_indices=()
-    for index in "${!hashes[@]}"; do
-      [[ "${is_merge[$index]}" == false && "${is_empty[$index]}" == true ]] &&
-        selected_indices+=("$index")
-    done
-    ;;
-  *)
-    selected_indices=()
-    IFS=',' read -r -a requested_indices <<<"$selection"
-    for requested_index in "${requested_indices[@]}"; do
-      [[ "$requested_index" =~ ^[0-9]+$ ]] ||
-        die "invalid selection '$requested_index'; use numbers such as 1,3,4"
-      ((requested_index >= 1 && requested_index <= ${#hashes[@]})) ||
-        die "selection '$requested_index' is outside the displayed range"
-      index=$((requested_index - 1))
-      [[ "${is_merge[$index]}" == false ]] ||
-        die "commit ${hashes[$index]:0:12} is a merge commit; review and drop it manually"
-      [[ "${is_empty[$index]}" == true ]] ||
-        die "commit ${hashes[$index]:0:12} changes files; it is not safe to auto-drop"
-      selected_indices+=("$index")
-    done
-    ;;
 esac
 
-if ((${#selected_indices[@]} == 0)); then
-  printf 'No linear commits were selected. Merge commits are not rewritten automatically.\n'
-  exit 0
-fi
+[[ "$selection" =~ ^[0-9]+$ ]] ||
+  die "enter one numeric commit selection, such as 4"
+((selection >= 1 && selection <= ${#hashes[@]})) ||
+  die "selection '$selection' is outside the displayed range"
 
-selected_hashes=()
-printf '\nSelected linear commits:\n'
-for index in "${selected_indices[@]}"; do
-  printf '  %s %s\n' "${hashes[$index]:0:12}" "${subjects[$index]}"
-  selected_hashes+=("${hashes[$index]}")
-done
+index=$((selection - 1))
+selected_hash="${hashes[$index]}"
+selected_subject="${subjects[$index]}"
+selected_type="${commit_types[$index]}"
+
+[[ "$selected_type" == linear-empty ]] ||
+  die "selected commit $selected_hash is $selected_type; only linear empty commits are safe to drop automatically"
+
+parent_hash="$(git rev-parse "$selected_hash^")"
+branch_tip="$(git rev-parse "refs/heads/$branch")"
+descendant_count="$(git rev-list --count "$selected_hash..$branch")"
+
+printf '\nSelected commit:\n'
+printf '  %s %s\n' "$selected_hash" "$selected_subject"
+printf 'Parent kept unchanged:\n'
+printf '  %s %s\n' "$parent_hash" "$(git show -s --format=%s "$parent_hash")"
+printf 'Descendant commits to replay: %s\n' "$descendant_count"
+
+if ((descendant_count > 0)); then
+  printf '\nOnly descendants will receive new commit IDs because their parent changes.\n'
+else
+  printf '\nThis is the branch tip; no descendant commits need to be replayed.\n'
+fi
 
 if ! $apply_changes; then
-  printf '\nDry run complete. Re-run with --apply to create a backup ref and rewrite this branch.\n'
+  printf '\nDry run complete. Re-run with --apply to create a separate cleaned branch.\n'
   exit 0
 fi
 
-printf '\nThis rewrites local history on %s. Remote branches are not changed.\n' "$branch"
+if [[ -n "$requested_new_branch" ]]; then
+  new_branch="$requested_new_branch"
+else
+  new_branch="drop-published/${selected_hash:0:8}-$(date -u +%Y%m%dT%H%M%SZ)"
+fi
+git show-ref --verify --quiet "refs/heads/$new_branch" &&
+  die "local branch '$new_branch' already exists"
+
+printf '\nA new local branch will be created: %s\n' "$new_branch"
+printf 'Source branch will remain unchanged: %s\n' "$branch"
 printf 'Continue? Type REWRITE to continue: '
 read -r confirmation
 [[ "$confirmation" == REWRITE ]] ||
   die "confirmation did not match REWRITE; no changes made"
 
-if [[ "$branch" != "$current_branch" ]]; then
-  git switch "$branch"
-fi
-
 backup_ref="refs/backup/drop-published-app/$branch/$(date -u +%Y%m%dT%H%M%SZ)"
-git update-ref "$backup_ref" "refs/heads/$branch"
+git update-ref "$backup_ref" "$branch_tip"
 
-hash_file="$(mktemp "${TMPDIR:-/tmp}/drop-published-app-hashes.XXXXXX")"
-editor_file="$(mktemp "${TMPDIR:-/tmp}/drop-published-app-editor.XXXXXX")"
+worktree="$(mktemp -d "${TMPDIR:-/tmp}/drop-published-worktree.XXXXXX")"
 cleanup() {
-  rm -f "$hash_file" "$editor_file"
+  git worktree remove --force "$worktree" >/dev/null 2>&1 || true
+  rmdir "$worktree" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-printf '%s\n' "${selected_hashes[@]}" >"$hash_file"
-
-cat >"$editor_file" <<'EDITOR'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-
-todo_file="$1"
-replacement="${todo_file}.drop"
-
-while IFS= read -r line || [[ -n "$line" ]]; do
-  if [[ "$line" =~ ^(pick|reword|edit|squash|fixup)[[:space:]]+([0-9a-f]+)(.*)$ ]] &&
-     grep -Fq "${BASH_REMATCH[2]}" "$DROP_PUBLISHED_HASH_FILE"; then
-    printf 'drop %s%s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" >>"$replacement"
-  else
-    printf '%s\n' "$line" >>"$replacement"
-  fi
-done <"$todo_file"
-
-mv "$replacement" "$todo_file"
-EDITOR
-
-chmod +x "$editor_file"
-export DROP_PUBLISHED_HASH_FILE="$hash_file"
-export GIT_SEQUENCE_EDITOR="$editor_file"
-
-if git rebase --interactive --rebase-merges --root "$branch"; then
-  printf '\nHistory rewrite completed.\n'
-  printf 'Backup ref: %s\n' "$backup_ref"
-  printf 'Restore with: git reset --hard %s\n' "$backup_ref"
+if ((descendant_count == 0)); then
+  new_tip="$parent_hash"
 else
-  printf '\nThe rebase stopped or failed. The backup ref is still available: %s\n' "$backup_ref" >&2
-  printf 'If a rebase is in progress, inspect it with git status and abort with git rebase --abort.\n' >&2
-  exit 1
+  git worktree add --detach --quiet "$worktree" "$branch_tip"
+  if git -C "$worktree" rebase --rebase-merges --onto "$parent_hash" "$selected_hash"; then
+    new_tip="$(git -C "$worktree" rev-parse HEAD)"
+  else
+    printf '\nThe isolated targeted rebase stopped or failed.\n' >&2
+    printf 'The source branch was not changed. Backup ref: %s\n' "$backup_ref" >&2
+    printf 'The temporary worktree will be removed.\n' >&2
+    exit 1
+  fi
 fi
+
+git branch "$new_branch" "$new_tip"
+
+printf '\nCreated cleaned branch: %s\n' "$new_branch"
+printf 'Source branch unchanged: %s\n' "$branch"
+printf 'Backup ref: %s\n' "$backup_ref"
+printf 'Compare with: git log --oneline %s..%s\n' "$branch" "$new_branch"
