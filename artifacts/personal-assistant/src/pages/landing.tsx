@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   CheckCircle2,
@@ -22,6 +23,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
+import { setPageMetadata } from '@/lib/seo';
 
 const features = [
   {
@@ -87,6 +89,14 @@ const howItWorks = [
 export function LandingPage() {
   const ctaHref = toAppUrl('/sign-up');
   const secondaryHref = toAppUrl('/sign-in');
+
+  useEffect(() => {
+    setPageMetadata({
+      title: 'AI Personal & Family Assistant for Calmer Days | Askolo',
+      description:
+        'Askolo is a private AI personal and family assistant for habits, goals, daily plans, calendar, chores, notes, and email.',
+    });
+  }, []);
 
   return (
     <PublicLayout>
