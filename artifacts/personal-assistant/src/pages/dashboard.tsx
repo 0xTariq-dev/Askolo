@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useGetDashboardSummary, useGetGoogleStatus } from '@workspace/api-client-react';
+import { useGetDashboardSummary } from '@workspace/api-client-react';
 import { 
   CheckCircle2, 
   Target, 
@@ -24,27 +24,56 @@ import { PageTransition } from '@/components/ui/page-transition';
 
 export function DashboardPage() {
   const { data: summary, isLoading } = useGetDashboardSummary();
-  useGetGoogleStatus(); // keep data warm so googleConnection.calendarConnected is populated
   const [coaching, setCoaching] = useState<string | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(true);
 
   useEffect(() => {
     if (!summary) return;
-    fetch('/api/ai/coaching', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        habits: summary.habits,
-        goals: summary.goals,
-        habitsCompletedToday: summary.habitsCompletedToday,
-        habitsTotal: summary.habitsTotal,
-      }),
-    })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.message) setCoaching(data.message); })
-      .catch(() => {})
-      .finally(() => setCoachingLoading(false));
+    const controller = new AbortController();
+    let timeoutId: number | undefined;
+    let idleId: number | undefined;
+    let cancelled = false;
+
+    const loadCoaching = () => {
+      if (cancelled) return;
+
+      fetch('/api/ai/coaching', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        signal: controller.signal,
+        body: JSON.stringify({
+          habits: summary.habits,
+          goals: summary.goals,
+          habitsCompletedToday: summary.habitsCompletedToday,
+          habitsTotal: summary.habitsTotal,
+        }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (!cancelled && data?.message) setCoaching(data.message); })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setCoachingLoading(false);
+        });
+    };
+
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (idleWindow.requestIdleCallback) {
+      idleId = idleWindow.requestIdleCallback(loadCoaching, { timeout: 2500 });
+    } else {
+      timeoutId = window.setTimeout(loadCoaching, 1200);
+    }
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (idleId !== undefined) idleWindow.cancelIdleCallback?.(idleId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
   }, [summary?.habitsCompletedToday, summary?.habitsTotal]);
 
   if (isLoading) {

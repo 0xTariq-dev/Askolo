@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useAuth, useClerk, useUser } from '@clerk/react';
 
 import { toPublicUrl } from '@/lib/site-domains';
 
@@ -27,51 +26,12 @@ type AppAuthValue = {
   updatePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 };
 
-const AppAuthContext = createContext<AppAuthValue | null>(null);
+export const AppAuthContext = createContext<AppAuthValue | null>(null);
 
 export function useAppAuth() {
   const value = useContext(AppAuthContext);
   if (!value) throw new Error('useAppAuth must be used within an auth provider');
   return value;
-}
-
-export function ClerkAuthBridge({ children }: { children: ReactNode }) {
-  const { isLoaded, isSignedIn } = useAuth();
-  const { user } = useUser();
-  const clerk = useClerk();
-
-  const value = useMemo<AppAuthValue>(
-    () => ({
-      isLoaded,
-      isSignedIn: Boolean(isSignedIn && user),
-      authProvider: isSignedIn ? 'clerk' : null,
-      user: user
-        ? {
-            id: user.id,
-            email: user.primaryEmailAddress?.emailAddress ?? null,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImageUrl: user.imageUrl,
-            imageUrl: user.imageUrl,
-          }
-        : null,
-      signOut: async (options) => {
-        await clerk.signOut(options);
-      },
-      updateProfile: async ({ firstName, lastName }) => {
-        await user?.update({ firstName, lastName });
-      },
-      updateProfileImage: async (file) => {
-        await user?.setProfileImage({ file });
-      },
-      updatePassword: async (currentPassword, newPassword) => {
-        await user?.updatePassword({ currentPassword, newPassword });
-      },
-    }),
-    [clerk, isLoaded, isSignedIn, user],
-  );
-
-  return <AppAuthContext.Provider value={value}>{children}</AppAuthContext.Provider>;
 }
 
 export function NativeAuthProvider({ children }: { children: ReactNode }) {

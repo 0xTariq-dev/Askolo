@@ -63,6 +63,13 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Avoid dozens of sub-kilobyte requests while preserving route-level
+        // lazy loading for larger feature pages.
+        experimentalMinChunkSize: 8 * 1024,
+      },
+    },
   },
   server: {
     port,
