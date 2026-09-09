@@ -1,5 +1,3 @@
-import { Link } from 'wouter';
-import { useAuth } from '@clerk/react';
 import { motion } from 'framer-motion';
 import {
   CheckCircle2,
@@ -23,8 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
 import logoUrl from '/logo.png';
-
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+import { toAppUrl } from '@/lib/site-domains';
 
 const features = [
   {
@@ -88,12 +85,8 @@ const howItWorks = [
 ];
 
 export function LandingPage() {
-  const { isSignedIn } = useAuth();
-
-  const ctaHref = isSignedIn ? '/dashboard' : '/sign-up';
-  const ctaLabel = isSignedIn ? 'Go to Dashboard' : 'Get Started Free';
-  const secondaryHref = isSignedIn ? '/dashboard' : '/sign-in';
-  const secondaryLabel = isSignedIn ? 'Open Dashboard' : 'Sign In';
+  const ctaHref = toAppUrl('/sign-up');
+  const secondaryHref = toAppUrl('/sign-in');
 
   return (
     <PublicLayout>
@@ -158,10 +151,10 @@ export function LandingPage() {
               asChild
               className="rounded-full px-8 py-6 text-lg font-medium shadow-[0_0_40px_-10px_rgba(234,179,8,0.3)] hover:shadow-[0_0_60px_-10px_rgba(234,179,8,0.5)] transition-all duration-300 group"
             >
-              <Link href={ctaHref}>
-                {ctaLabel}
+              <a href={ctaHref}>
+                Get Started Free
                 <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-              </Link>
+              </a>
             </Button>
             <Button
               size="lg"
@@ -169,9 +162,7 @@ export function LandingPage() {
               asChild
               className="rounded-full px-8 py-6 text-lg font-medium border-white/10 hover:bg-white/5 transition-all"
             >
-              <Link href={secondaryHref}>
-                {secondaryLabel}
-              </Link>
+              <a href={secondaryHref}>Sign In</a>
             </Button>
           </motion.div>
 
@@ -367,10 +358,10 @@ export function LandingPage() {
             asChild
             className="rounded-full px-8 py-6 text-lg font-medium shadow-[0_0_40px_-10px_rgba(234,179,8,0.3)] hover:shadow-[0_0_60px_-10px_rgba(234,179,8,0.5)] transition-all duration-300 group"
           >
-            <Link href={ctaHref}>
-              {ctaLabel}
+            <a href={ctaHref}>
+              Get Started Free
               <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-            </Link>
+            </a>
           </Button>
         </div>
       </section>
