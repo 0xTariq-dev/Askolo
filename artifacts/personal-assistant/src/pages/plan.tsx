@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { format, addDays, subDays } from 'date-fns';
+import { format } from 'date-fns';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,11 +11,14 @@ import {
   CheckCircle2,
   Clock,
   LayoutList,
-  AlertCircle,
-  Calendar,
+  Calendar as CalendarIcon,
   ListTodo,
   Mic,
   MicOff,
+  Pause,
+  Square,
+  RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
 
 import {
@@ -27,17 +30,18 @@ import {
   useUpdateTranscriptionPreferences,
   getListDailyPlansQueryKey,
   getGetDashboardSummaryQueryKey,
+  getGetTranscriptionPreferencesQueryKey,
   DailyPlan,
-  type VoiceRetention,
 } from '@workspace/api-client-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as DatePicker } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { cn } from '@/lib/utils';
@@ -66,9 +70,34 @@ function formatRecordingTime(seconds: number): string {
   return `${minutes}:${remainder}`;
 }
 
+function VoiceWaveform({ active, level }: { active: boolean; level: number }) {
+  return (
+    <div
+      className="flex h-8 items-center gap-0.5 rounded-md border border-rose-500/20 bg-rose-500/5 px-2"
+      role="img"
+      aria-label={active ? 'Live microphone level' : 'Microphone inactive'}
+    >
+      {Array.from({ length: 18 }, (_, index) => {
+        const position = index / 17;
+        const shape = 0.35 + Math.sin(position * Math.PI) * 0.65;
+        const height = active ? Math.max(4, Math.round(4 + level * shape * 22)) : 4;
+        return (
+          <span
+            key={index}
+            className={cn('w-0.5 rounded-full transition-[height] duration-75', active ? 'bg-rose-500' : 'bg-muted-foreground/40')}
+            style={{ height }}
+            aria-hidden="true"
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function PlanPage() {
   const qc = useQueryClient();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
   const { data: plans, isLoading } = useListDailyPlans({ date: dateStr });
   const createPlan = useCreateDailyPlan();
@@ -78,8 +107,13 @@ export function PlanPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [voiceRetention, setVoiceRetention] = useState<VoiceRetention>('delete_immediately');
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentError, setConsentError] = useState('');
+  const [consentSaving, setConsentSaving] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const voiceBaseNotesRef = useRef('');
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [recordingUrl, setRecordingUrl] = useState('');
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const {
@@ -91,19 +125,28 @@ export function PlanPage() {
     liveText,
     reviewSignals: voiceReviewSignals,
     recordingSeconds,
+    audioLevel,
+    recording,
     isBusy: voiceIsBusy,
     isListening,
     start: startVoiceInput,
     stop: stopListening,
     cancel: cancelVoiceInput,
     reset: resetVoiceInput,
-  } = useVoiceTranscription({ retention: voiceRetention });
+    retry: retryVoiceRecording,
+    clearRecording,
+  } = useVoiceTranscription();
 
   useEffect(() => {
-    if (transcriptionPreferences?.retention) {
-      setVoiceRetention(transcriptionPreferences.retention);
+    if (!recording) {
+      setRecordingUrl('');
+      setIsPlaying(false);
+      return;
     }
-  }, [transcriptionPreferences?.retention]);
+    const url = URL.createObjectURL(recording.blob);
+    setRecordingUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [recording]);
 
   const form = useForm<PlanFormValues>({
     resolver: zodResolver(planSchema),
@@ -153,8 +196,49 @@ export function PlanPage() {
   };
 
   const handleStartVoice = async () => {
+    if (!transcriptionPreferences?.consentGiven) {
+      setConsentError('');
+      setConsentOpen(true);
+      return;
+    }
     voiceBaseNotesRef.current = notes;
     await startVoiceInput();
+  };
+
+  const saveVoiceConsent = async () => {
+    setConsentSaving(true);
+    setConsentError('');
+    try {
+      const updated = await updateTranscriptionPreferences.mutateAsync({ data: { consent: true } });
+      qc.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+      setConsentOpen(false);
+    } catch {
+      setConsentError('Consent could not be saved. Please try again.');
+    } finally {
+      setConsentSaving(false);
+    }
+  };
+
+  const stopPlayback = () => {
+    audioRef.current?.pause();
+    if (audioRef.current) audioRef.current.currentTime = 0;
+    setIsPlaying(false);
+  };
+
+  const togglePlayback = async () => {
+    if (!audioRef.current) return;
+    if (audioRef.current.paused) {
+      await audioRef.current.play();
+      setIsPlaying(true);
+    } else {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const deleteRecording = () => {
+    stopPlayback();
+    clearRecording();
   };
 
   const handleCancelVoice = () => {
@@ -229,190 +313,10 @@ export function PlanPage() {
           </h1>
           <p className="text-muted-foreground mt-2 text-lg">Brain dump your thoughts, and let AI structure your day.</p>
         </div>
-        <div className="flex bg-card/50 p-1 rounded-xl border border-border/50 backdrop-blur-sm self-start sm:self-auto">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedDate(subDays(new Date(), 1))}
-            className={cn(
-              'rounded-lg px-4 h-9',
-              dateStr === format(subDays(new Date(), 1), 'yyyy-MM-dd') &&
-                'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground shadow-sm',
-            )}
-          >
-            Yesterday
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedDate(new Date())}
-            className={cn(
-              'rounded-lg px-4 h-9',
-              dateStr === format(new Date(), 'yyyy-MM-dd') &&
-                'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground shadow-sm',
-            )}
-          >
-            Today
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedDate(addDays(new Date(), 1))}
-            className={cn(
-              'rounded-lg px-4 h-9',
-              dateStr === format(addDays(new Date(), 1), 'yyyy-MM-dd') &&
-                'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground shadow-sm',
-            )}
-          >
-            Tomorrow
-          </Button>
-          <div className="w-px bg-border/50 mx-1 my-1" />
-          <div className="relative">
-            <input
-              type="date"
-              aria-label="Choose plan date"
-              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
-              value={dateStr}
-              onChange={(event) => {
-                if (event.target.value) setSelectedDate(new Date(`${event.target.value}T12:00:00`));
-              }}
-            />
-            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg text-muted-foreground" aria-label="Choose plan date">
-              <Calendar className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </header>
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-6 pb-6">
-        <Card className="flex flex-col border-border bg-card/30 backdrop-blur-sm h-full overflow-hidden shadow-sm">
-          <CardHeader className="pb-3 border-b border-border/50 shrink-0 bg-card/50">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              What&apos;s on your mind?
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 flex flex-col p-4 min-h-0">
-            <Textarea
-              aria-label="Daily plan notes"
-              className="flex-1 resize-none bg-black/20 border-white/5 focus-visible:ring-1 focus-visible:ring-primary/50 text-lg leading-relaxed placeholder:text-muted-foreground/40 p-4"
-              placeholder={`Write your intentions, tasks, meetings, anything on your mind...\n\nExample:\n"I have a marketing sync at 10am, need to buy groceries for dinner, finish the Q3 report by EOD, and squeeze in a 30min run."`}
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-            />
-
-            {(voiceState !== 'idle' || voiceStatus || voiceError || generationError) && (
-              <div className="mt-3 space-y-1 text-xs" aria-live="polite" aria-atomic="true">
-                {voiceState === 'listening' && (
-                  <p className="flex items-center gap-2 text-rose-500">
-                    <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" aria-hidden="true" />
-                    {voiceMode === 'recorded' ? 'AssemblyAI recorded transcription' : 'Live US transcription'} · {formatRecordingTime(recordingSeconds)}
-                  </p>
-                )}
-                {voiceStatus && <p className="text-muted-foreground">{voiceStatus}</p>}
-                {voiceState === 'review' && transcript && (
-                  <p className="text-emerald-600 dark:text-emerald-400">Transcript ready. Review the text above before generating.</p>
-                )}
-                {voiceReviewSignals.length > 0 && (
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
-                    <p className="font-medium">Please verify low-confidence details:</p>
-                    <ul className="mt-1 list-disc pl-4">
-                      {voiceReviewSignals.map((signal) => (
-                        <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>
-                          “{signal.text}” ({Math.round(signal.confidence * 100)}% confidence)
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {voiceError && (
-                  <p role="alert" className="text-destructive">
-                    {voiceError}
-                  </p>
-                )}
-                {generationError && (
-                  <p role="alert" className="text-destructive">
-                    {generationError}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="pt-4 shrink-0 flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  AI will extract tasks, estimate priorities, and suggest time blocks.
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={isListening ? stopListening : handleStartVoice}
-                    disabled={voiceState === 'starting' || voiceState === 'processing'}
-                    aria-label={isListening ? 'Stop voice recording' : 'Start voice input'}
-                    aria-pressed={isListening}
-                    title={isListening ? 'Stop recording' : 'Record voice note'}
-                    className={cn(
-                      'border-border',
-                      isListening && 'bg-rose-500/10 text-rose-500 border-rose-500/30 animate-pulse',
-                    )}
-                    data-testid="button-voice-record"
-                  >
-                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    onClick={generateWithAI}
-                    disabled={!canGenerate}
-                    className="bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30"
-                  >
-                    {isGenerating ? 'Thinking...' : 'Generate Plan with AI'}
-                    <Sparkles className="h-4 w-4 ml-2" />
-                  </Button>
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground" role="note">
-                Selecting the microphone consents to sending this recording to AssemblyAI for transcription. Review the returned text before it is submitted to the planner; raw audio is not stored.
-              </p>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-border/50 bg-card/30 p-2.5">
-                <div className="min-w-0">
-                  <Label htmlFor="voice-retention" className="text-xs font-medium">Voice-data retention</Label>
-                  <p className="text-[11px] text-muted-foreground">Raw audio is never stored. Choose how long reviewed text may remain in this session.</p>
-                </div>
-                <Select
-                  value={voiceRetention}
-                  onValueChange={(value) => {
-                    const nextRetention = value as VoiceRetention;
-                    setVoiceRetention(nextRetention);
-                    updateTranscriptionPreferences.mutate({ data: { retention: nextRetention } });
-                  }}
-                  disabled={updateTranscriptionPreferences.isPending}
-                >
-                  <SelectTrigger id="voice-retention" className="w-full sm:w-[190px] h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(transcriptionPreferences?.options ?? [
-                      { value: 'delete_immediately' as const, label: 'Delete after transcription' },
-                      { value: 'until_review' as const, label: 'Keep until review' },
-                      { value: 'keep_24_hours' as const, label: 'Keep for 24 hours' },
-                    ]).map((option) => (
-                      <SelectItem key={option.value} value={option.value} className="text-xs">{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {voiceIsBusy && (
-                <Button type="button" variant="ghost" size="sm" onClick={handleCancelVoice} className="self-end text-muted-foreground">
-                  Cancel voice input
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="flex flex-col border-border bg-card/50 backdrop-blur-sm h-full overflow-hidden shadow-sm">
+      <div className="flex-1 min-h-0 pb-6">
+        <Card className="flex flex-col border-border bg-card/30 backdrop-blur-sm overflow-hidden shadow-sm">
           <CardHeader className="pb-3 border-b border-border/50 shrink-0 flex flex-row items-center justify-between bg-card/50">
             <CardTitle className="text-lg font-display flex items-center gap-2">
               <ListTodo className="h-5 w-5 text-foreground" />
@@ -425,7 +329,7 @@ export function PlanPage() {
               <Plus className="h-4 w-4" />
             </Button>
           </CardHeader>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="max-h-[min(42vh,34rem)] overflow-y-auto p-4 space-y-3">
             {isLoading ? (
               <div className="space-y-3">
                 {[...Array(5)].map((_, index) => <div key={index} className="h-16 w-full bg-white/5 animate-pulse rounded-xl" />)}
@@ -502,8 +406,187 @@ export function PlanPage() {
               </Button>
             )}
           </div>
+          <div className="border-t border-border/50" />
+          <CardContent className="p-4 sm:p-6">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="text-lg font-display flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                What&apos;s on your mind?
+              </CardTitle>
+              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="w-full justify-start sm:w-auto">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    Plan for {format(selectedDate, 'MMM d, yyyy')}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0">
+                  <DatePicker
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(date) => {
+                      if (date) {
+                        setSelectedDate(date);
+                        setDatePickerOpen(false);
+                      }
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <Textarea
+              aria-label="Daily plan notes"
+              className="min-h-[180px] resize-y bg-black/20 border-white/5 focus-visible:ring-1 focus-visible:ring-primary/50 text-lg leading-relaxed placeholder:text-muted-foreground/40 p-4"
+              placeholder={`Write your intentions, tasks, meetings, anything on your mind...\n\nExample:\n"I have a marketing sync at 10am, need to buy groceries for dinner, finish the Q3 report by EOD, and squeeze in a 30min run."`}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+
+            {(voiceState !== 'idle' || voiceStatus || voiceError || generationError) && (
+              <div className="mt-3 space-y-1 text-xs" aria-live="polite" aria-atomic="true">
+                {voiceState === 'listening' && (
+                  <div className="flex flex-wrap items-center gap-2 text-rose-500">
+                    <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" aria-hidden="true" />
+                    <span>{voiceMode === 'recorded' ? 'Recording voice note' : 'Live US transcription'} · {formatRecordingTime(recordingSeconds)}</span>
+                    <VoiceWaveform active level={audioLevel} />
+                  </div>
+                )}
+                {voiceStatus && <p className="text-muted-foreground">{voiceStatus}</p>}
+                {voiceState === 'review' && transcript && (
+                  <p className="text-emerald-600 dark:text-emerald-400">Transcript ready. Review the text above before generating.</p>
+                )}
+                {voiceReviewSignals.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
+                    <p className="font-medium">Please verify low-confidence details:</p>
+                    <ul className="mt-1 list-disc pl-4">
+                      {voiceReviewSignals.map((signal) => (
+                        <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>
+                          “{signal.text}” ({Math.round(signal.confidence * 100)}% confidence)
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {voiceError && <p role="alert" className="text-destructive">{voiceError}</p>}
+                {generationError && <p role="alert" className="text-destructive">{generationError}</p>}
+              </div>
+            )}
+
+            <div className="pt-4 flex flex-col gap-3">
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onPointerDown={(event) => {
+                    event.currentTarget.setPointerCapture?.(event.pointerId);
+                    void handleStartVoice();
+                  }}
+                  onPointerUp={stopListening}
+                  onPointerCancel={stopListening}
+                  onKeyDown={(event) => {
+                    if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
+                      event.preventDefault();
+                      void handleStartVoice();
+                    }
+                  }}
+                  onKeyUp={(event) => {
+                    if (event.key === ' ' || event.key === 'Enter') {
+                      event.preventDefault();
+                      stopListening();
+                    }
+                  }}
+                  onClick={(event) => event.preventDefault()}
+                  disabled={voiceState === 'processing' || consentSaving}
+                  aria-label={isListening ? 'Release to stop voice recording' : 'Press and hold to record voice note'}
+                  aria-pressed={isListening}
+                  title="Press and hold to record"
+                  className={cn('border-border', isListening && 'bg-rose-500/10 text-rose-500 border-rose-500/30 animate-pulse')}
+                  data-testid="button-voice-record"
+                >
+                  {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </Button>
+                <Button
+                  onClick={generateWithAI}
+                  disabled={!canGenerate}
+                  className="bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30"
+                >
+                  {isGenerating ? 'Thinking...' : 'Generate Plan with AI'}
+                  <Sparkles className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground" role="note">
+                Press and hold to record. Audio is sent to AssemblyAI only after the browser validates the recording.
+              </p>
+              {recording && recordingUrl && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3" aria-label="Completed voice recording">
+                  <audio ref={audioRef} src={recordingUrl} onEnded={() => setIsPlaying(false)} className="hidden" />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Voice note ready</p>
+                      <p className="text-xs text-muted-foreground">{formatRecordingTime(Math.round(recording.durationMs / 1000))} · held in memory only</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Button type="button" size="icon" variant="outline" onClick={() => void togglePlayback()} aria-label={isPlaying ? 'Pause recording' : 'Play recording'}>
+                        {isPlaying ? <Pause className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      </Button>
+                      <Button type="button" size="icon" variant="outline" onClick={stopPlayback} aria-label="Stop playback">
+                        <Square className="h-3.5 w-3.5 fill-current" />
+                      </Button>
+                      <Button type="button" size="icon" variant="outline" onClick={() => void retryVoiceRecording()} disabled={voiceState === 'processing'} aria-label="Retry transcription">
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" size="icon" variant="ghost" onClick={deleteRecording} aria-label="Delete recording now" className="text-destructive hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {voiceIsBusy && (
+                <Button type="button" variant="ghost" size="sm" onClick={handleCancelVoice} className="self-end text-muted-foreground">
+                  Cancel voice input
+                </Button>
+              )}
+            </div>
+          </CardContent>
         </Card>
       </div>
+
+      <Dialog open={consentOpen} onOpenChange={setConsentOpen}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Before you use voice input
+            </DialogTitle>
+            <DialogDescription>
+              Please review how Askolo handles voice notes and AI processing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Your recording is sent to AssemblyAI for transcription and is deleted after processing. Neither Askolo nor AssemblyAI keeps the recording or uses it to train models.
+            </p>
+            <p>
+              PII is redacted from AI interactions across this flow before the result is returned. You will always review the transcript before it is used to build your plan.
+            </p>
+            <p>
+              By continuing, you consent to in-app AI processing and AssemblyAI transcription for this voice note.
+            </p>
+            {consentError && <p role="alert" className="text-destructive">{consentError}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConsentOpen(false)} disabled={consentSaving}>
+              Not now
+            </Button>
+            <Button type="button" onClick={() => void saveVoiceConsent()} disabled={consentSaving}>
+              {consentSaving ? 'Saving…' : 'I understand and continue'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">

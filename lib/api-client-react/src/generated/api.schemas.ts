@@ -592,15 +592,6 @@ export const AudioTranscriptionBodyMimeType = {
   'audio/mpeg': 'audio/mpeg',
 } as const;
 
-export type VoiceRetention = typeof VoiceRetention[keyof typeof VoiceRetention];
-
-
-export const VoiceRetention = {
-  delete_immediately: 'delete_immediately',
-  until_review: 'until_review',
-  keep_24_hours: 'keep_24_hours',
-} as const;
-
 export interface AudioTranscriptionBody {
   /**
      * @minLength 1
@@ -615,7 +606,6 @@ export interface AudioTranscriptionBody {
   durationMs: number;
   /** @maxLength 20 */
   language?: string;
-  retention?: VoiceRetention;
 }
 
 export type TranscriptionReviewSignalKind = typeof TranscriptionReviewSignalKind[keyof typeof TranscriptionReviewSignalKind];
@@ -649,6 +639,7 @@ export type TranscriptionDeletionMarkerProviderTranscript = typeof Transcription
 
 export const TranscriptionDeletionMarkerProviderTranscript = {
   deleted: 'deleted',
+  deletion_failed: 'deletion_failed',
 } as const;
 
 export interface TranscriptionDeletionMarker {
@@ -666,27 +657,23 @@ export interface AudioTranscriptionResponse {
      */
   confidence: number | null;
   reviewSignals: TranscriptionReviewSignal[];
-  retention: VoiceRetention;
   deletion: TranscriptionDeletionMarker;
 }
 
-export interface TranscriptionPreferenceOption {
-  value: VoiceRetention;
-  label: string;
-  description: string;
-}
-
 export interface TranscriptionPreferences {
-  retention: VoiceRetention;
-  options: TranscriptionPreferenceOption[];
+  consentGiven: boolean;
+  /** @nullable */
+  consentVersion?: string | null;
 }
 
 export interface TranscriptionPreferencesUpdate {
-  retention: VoiceRetention;
+  consent: boolean;
 }
 
 export interface TranscriptionPreferencesUpdateResponse {
-  retention: VoiceRetention;
+  consentGiven: boolean;
+  /** @nullable */
+  consentVersion?: string | null;
 }
 
 export type RealtimeTranscriptionTokenRegion = typeof RealtimeTranscriptionTokenRegion[keyof typeof RealtimeTranscriptionTokenRegion];
@@ -702,7 +689,6 @@ export interface RealtimeTranscriptionToken {
   maxSessionDurationSeconds: number;
   region: RealtimeTranscriptionTokenRegion;
   websocketUrl: string;
-  retention: VoiceRetention;
   speechModel: string;
   redaction: string;
 }

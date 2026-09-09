@@ -4,7 +4,6 @@ import {
   useCreateRealtimeTranscriptionToken,
   useTranscribeAudio,
   type TranscriptionReviewSignal,
-  type VoiceRetention,
 } from '@workspace/api-client-react';
 
 export type VoiceState = 'idle' | 'starting' | 'listening' | 'processing' | 'review' | 'error';
@@ -14,8 +13,14 @@ export interface UseVoiceTranscriptionOptions {
   language?: string;
   maxRecordingMs?: number;
   maxAudioBytes?: number;
-  retention?: VoiceRetention;
   realtime?: boolean;
+}
+
+export interface CompletedVoiceRecording {
+  blob: Blob;
+  mimeType: string;
+  durationMs: number;
+  transcript: string;
 }
 
 export interface VoiceTranscriptionResult {
@@ -27,16 +32,23 @@ export interface VoiceTranscriptionResult {
   liveText: string;
   reviewSignals: TranscriptionReviewSignal[];
   recordingSeconds: number;
+  audioLevel: number;
+  recording: CompletedVoiceRecording | null;
   isBusy: boolean;
   isListening: boolean;
   start: () => Promise<void>;
   stop: () => void;
   cancel: () => void;
   reset: () => void;
+  retry: () => Promise<void>;
+  clearRecording: () => void;
 }
 
 const DEFAULT_MAX_RECORDING_MS = 2 * 60 * 1000;
 const DEFAULT_MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+const MIN_RECORDED_SPEECH_MS = 700;
+const MIN_ACTIVE_AUDIO_MS = 140;
+const ACTIVE_AUDIO_RMS_THRESHOLD = 0.008;
 const LOW_CONFIDENCE_THRESHOLD = 0.78;
 
 function normalizeSpeech(value: string): string {
@@ -70,6 +82,43 @@ function getRecorderMimeType(): string | null {
     'audio/mpeg',
   ];
   return supportedTypes.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
+}
+
+async function validateRecordedSpeech(blob: Blob, durationMs: number): Promise<boolean> {
+  if (durationMs < MIN_RECORDED_SPEECH_MS) return false;
+
+  const AudioContextCtor = window.AudioContext ??
+    (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextCtor) return false;
+
+  let context: AudioContext | null = null;
+  try {
+    context = new AudioContextCtor();
+    const audioBuffer = await context.decodeAudioData(await blob.arrayBuffer());
+    const channel = audioBuffer.getChannelData(0);
+    const windowSize = Math.max(1, Math.floor(audioBuffer.sampleRate * 0.02));
+    let activeSamples = 0;
+    let peakRms = 0;
+
+    for (let offset = 0; offset < channel.length; offset += windowSize) {
+      const end = Math.min(channel.length, offset + windowSize);
+      let sumSquares = 0;
+      for (let index = offset; index < end; index += 1) {
+        sumSquares += channel[index] ** 2;
+      }
+      const rms = Math.sqrt(sumSquares / Math.max(1, end - offset));
+      peakRms = Math.max(peakRms, rms);
+      if (rms >= ACTIVE_AUDIO_RMS_THRESHOLD) activeSamples += end - offset;
+    }
+
+    const activeDurationMs = (activeSamples / audioBuffer.sampleRate) * 1000;
+    return peakRms >= ACTIVE_AUDIO_RMS_THRESHOLD && activeDurationMs >= MIN_ACTIVE_AUDIO_MS;
+  } catch {
+    // Do not send an unvalidated recording if this browser cannot decode it.
+    return false;
+  } finally {
+    if (context && context.state !== 'closed') await context.close();
+  }
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {
@@ -108,7 +157,6 @@ export function useVoiceTranscription({
   language = 'en-US',
   maxRecordingMs = DEFAULT_MAX_RECORDING_MS,
   maxAudioBytes = DEFAULT_MAX_AUDIO_BYTES,
-  retention = 'delete_immediately',
   realtime = false,
 }: UseVoiceTranscriptionOptions = {}): VoiceTranscriptionResult {
   const transcribeAudio = useTranscribeAudio();
@@ -121,6 +169,8 @@ export function useVoiceTranscription({
   const [liveText, setLiveText] = useState('');
   const [reviewSignals, setReviewSignals] = useState<TranscriptionReviewSignal[]>([]);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [recording, setRecording] = useState<CompletedVoiceRecording | null>(null);
 
   const stateRef = useRef<VoiceState>('idle');
   const modeRef = useRef<VoiceMode | null>(null);
@@ -136,6 +186,8 @@ export function useVoiceTranscription({
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const visualizerFrameRef = useRef<number | null>(null);
   const finalTurnsRef = useRef<Map<number, string>>(new Map());
   const interimTurnRef = useRef('');
   const realtimeSignalsRef = useRef<TranscriptionReviewSignal[]>([]);
@@ -151,6 +203,11 @@ export function useVoiceTranscription({
   };
 
   const cleanupMediaStream = () => {
+    if (visualizerFrameRef.current !== null) {
+      cancelAnimationFrame(visualizerFrameRef.current);
+      visualizerFrameRef.current = null;
+    }
+    analyserRef.current = null;
     audioProcessorRef.current?.disconnect();
     audioSourceRef.current?.disconnect();
     audioProcessorRef.current = null;
@@ -162,6 +219,21 @@ export function useVoiceTranscription({
     const context = audioContextRef.current;
     audioContextRef.current = null;
     if (context && context.state !== 'closed') void context.close();
+    setAudioLevel(0);
+  };
+
+  const updateAudioLevel = () => {
+    const analyser = analyserRef.current;
+    if (!analyser) return;
+    const samples = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(samples);
+    let sumSquares = 0;
+    for (const sample of samples) {
+      const centered = (sample - 128) / 128;
+      sumSquares += centered ** 2;
+    }
+    setAudioLevel(Math.min(1, Math.sqrt(sumSquares / samples.length) * 5));
+    visualizerFrameRef.current = requestAnimationFrame(updateAudioLevel);
   };
 
   const refreshRealtimeText = () => {
@@ -234,8 +306,10 @@ export function useVoiceTranscription({
     setStatus('Requesting microphone permission…');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
+       if (sessionRef.current !== sessionId || cancelRequestedRef.current || stopRequestedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
+         updateState('idle');
+         setStatus('');
         return;
       }
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -251,6 +325,21 @@ export function useVoiceTranscription({
         setError('The browser could not record this voice note. Try again or type instead.');
         setStatus('');
       };
+      const AudioContextCtor = window.AudioContext ??
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextCtor) {
+        const context = new AudioContextCtor();
+        const source = context.createMediaStreamSource(stream);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.75;
+        source.connect(analyser);
+        audioContextRef.current = context;
+        audioSourceRef.current = source;
+        analyserRef.current = analyser;
+        void context.resume();
+        visualizerFrameRef.current = requestAnimationFrame(updateAudioLevel);
+      }
       recorder.onstop = async () => {
         const canceled = cancelRequestedRef.current || sessionRef.current !== sessionId;
         const recordedDurationMs = Math.min(
@@ -272,6 +361,12 @@ export function useVoiceTranscription({
           setStatus('');
           return;
         }
+        if (!(await validateRecordedSpeech(blob, recordedDurationMs))) {
+          updateState('error');
+          setError('This recording is too short or contains no clear speech. Hold to record while speaking, then release.');
+          setStatus('');
+          return;
+        }
 
         updateState('processing');
         setStatus('Transcribing with AssemblyAI…');
@@ -286,7 +381,6 @@ export function useVoiceTranscription({
                   'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
                 durationMs: recordedDurationMs,
                 language,
-                retention,
               },
             },
             {
@@ -302,6 +396,12 @@ export function useVoiceTranscription({
                 setTranscript(spokenText);
                 setLiveText(spokenText);
                 setReviewSignals(data.reviewSignals);
+                 setRecording({
+                   blob,
+                   mimeType: blob.type || mimeType,
+                   durationMs: recordedDurationMs,
+                   transcript: spokenText,
+                 });
                 updateState('review');
                 setStatus('Review the transcript before submitting it.');
               },
@@ -400,7 +500,11 @@ export function useVoiceTranscription({
       const processor = context.createScriptProcessor(4096, 1, 1);
       processor.onaudioprocess = (event) => {
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-        const pcm = downsampleToPcm16(event.inputBuffer.getChannelData(0), context.sampleRate);
+        const input = event.inputBuffer.getChannelData(0);
+        let sumSquares = 0;
+        for (const sample of input) sumSquares += sample ** 2;
+        setAudioLevel(Math.min(1, Math.sqrt(sumSquares / Math.max(1, input.length)) * 5));
+        const pcm = downsampleToPcm16(input, context.sampleRate);
         if (pcm.length > 0) realtimeRef.current?.sendAudio(new Uint8Array(pcm).buffer);
       };
       source.connect(processor);
@@ -436,6 +540,8 @@ export function useVoiceTranscription({
     setLiveText('');
     setReviewSignals([]);
     setRecordingSeconds(0);
+    setAudioLevel(0);
+    setRecording(null);
     setError('');
     setStatus('');
     if (realtime) {
@@ -446,6 +552,11 @@ export function useVoiceTranscription({
   };
 
   const stop = () => {
+    if (stateRef.current === 'starting') {
+      stopRequestedRef.current = true;
+      setStatus('Canceling before the microphone opens…');
+      return;
+    }
     if (stateRef.current !== 'listening') return;
     stopRequestedRef.current = true;
     setStatus('Finishing your recording…');
@@ -473,6 +584,7 @@ export function useVoiceTranscription({
     setStatus('Voice input canceled.');
     setError('');
     setRecordingSeconds(0);
+    setAudioLevel(0);
   };
 
   const reset = () => {
@@ -491,7 +603,41 @@ export function useVoiceTranscription({
     setStatus('');
     setError('');
     setRecordingSeconds(0);
+    setAudioLevel(0);
+    setRecording(null);
   };
+
+  const retry = async () => {
+    if (!recording) return;
+    updateState('processing');
+    setError('');
+    setStatus('Transcribing the recording again…');
+    try {
+      const audioBase64 = await blobToBase64(recording.blob);
+      const data = await transcribeAudio.mutateAsync({
+        data: {
+          audioBase64,
+          mimeType: recording.mimeType.split(';')[0] as
+            'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
+          durationMs: recording.durationMs,
+          language,
+        },
+      });
+      const spokenText = removeRepeatedTail(data.transcript);
+      setTranscript(spokenText);
+      setLiveText(spokenText);
+      setReviewSignals(data.reviewSignals);
+      setRecording({ ...recording, transcript: spokenText });
+      updateState('review');
+      setStatus('Review the transcript before submitting it.');
+    } catch (retryError) {
+      updateState('error');
+      setError(retryError instanceof Error ? retryError.message : 'Voice transcription failed. Try again.');
+      setStatus('');
+    }
+  };
+
+  const clearRecording = () => setRecording(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -528,11 +674,15 @@ export function useVoiceTranscription({
     liveText,
     reviewSignals,
     recordingSeconds,
+    audioLevel,
+    recording,
     isBusy,
     isListening: state === 'listening',
     start,
     stop,
     cancel,
     reset,
+    retry,
+    clearRecording,
   };
 }

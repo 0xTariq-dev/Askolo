@@ -5,15 +5,16 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
-import * as zodImport from 'zod';
+import * as zodRuntime from 'zod';
 
-// Orval currently emits Zod 4 helpers while this workspace intentionally runs
-// Zod 3. Keep the generated contract usable without changing the runtime
-// dependency for every consumer.
+// The OpenAPI generator currently emits Zod 4 helpers for integer and URL
+// schemas, while this workspace intentionally runs Zod 3. Keep the generated
+// schemas executable until the generator/runtime versions are upgraded
+// together.
 const zod = {
-  ...zodImport,
-  int: () => zodImport.number().int(),
-  url: () => zodImport.string().url(),
+  ...zodRuntime,
+  int: () => zodRuntime.number().int(),
+  url: () => zodRuntime.string().url(),
 };
 
 
@@ -1201,8 +1202,7 @@ export const TranscribeAudioBody = zod.object({
   "audioBase64": zod.string().min(1).max(transcribeAudioBodyAudioBase64Max),
   "mimeType": zod.enum(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/wav', 'audio/ogg', 'audio/mpeg']),
   "durationMs": zod.int().min(1).max(transcribeAudioBodyDurationMsMax),
-  "language": zod.string().max(transcribeAudioBodyLanguageMax).optional(),
-  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']).optional()
+  "language": zod.string().max(transcribeAudioBodyLanguageMax).optional()
 })
 
 
@@ -1224,37 +1224,33 @@ export const TranscribeAudioResponse = zod.object({
   "startMs": zod.int().nullable(),
   "endMs": zod.int().nullable()
 })),
-  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
   "deletion": zod.object({
   "rawAudio": zod.enum(['not_stored']),
-  "providerTranscript": zod.enum(['deleted']),
+  "providerTranscript": zod.enum(['deleted', 'deletion_failed']),
   "marker": zod.string()
 })
 })
 
 
 /**
- * @summary Get voice-data retention preferences
+ * @summary Get voice transcription consent
  */
 export const GetTranscriptionPreferencesResponse = zod.object({
-  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
-  "options": zod.array(zod.object({
-  "value": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
-  "label": zod.string(),
-  "description": zod.string()
-}))
+  "consentGiven": zod.boolean(),
+  "consentVersion": zod.string().nullish()
 })
 
 
 /**
- * @summary Update voice-data retention preferences
+ * @summary Update voice transcription consent
  */
 export const UpdateTranscriptionPreferencesBody = zod.object({
-  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours'])
+  "consent": zod.boolean()
 })
 
 export const UpdateTranscriptionPreferencesResponse = zod.object({
-  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours'])
+  "consentGiven": zod.boolean(),
+  "consentVersion": zod.string().nullish()
 })
 
 
@@ -1267,7 +1263,6 @@ export const CreateRealtimeTranscriptionTokenResponse = zod.object({
   "maxSessionDurationSeconds": zod.int(),
   "region": zod.enum(['us']),
   "websocketUrl": zod.url(),
-  "retention": zod.enum(['delete_immediately', 'until_review', 'keep_24_hours']),
   "speechModel": zod.string(),
   "redaction": zod.string()
 })

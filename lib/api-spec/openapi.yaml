@@ -1066,6 +1066,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Current voice transcription consent is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "413":
           description: Recording is too large
           content:
@@ -1094,6 +1100,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Voice transcription consent status unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "504":
           description: Transcription timed out
           content:
@@ -1105,10 +1117,10 @@ paths:
     get:
       operationId: getTranscriptionPreferences
       tags: [ai]
-      summary: Get voice-data retention preferences
+      summary: Get voice transcription consent
       responses:
         "200":
-          description: Voice-data retention settings
+          description: Voice transcription consent state
           content:
             application/json:
               schema:
@@ -1116,7 +1128,7 @@ paths:
     patch:
       operationId: updateTranscriptionPreferences
       tags: [ai]
-      summary: Update voice-data retention preferences
+      summary: Update voice transcription consent
       requestBody:
         required: true
         content:
@@ -1125,13 +1137,13 @@ paths:
               $ref: "#/components/schemas/TranscriptionPreferencesUpdate"
       responses:
         "200":
-          description: Updated voice-data retention setting
+          description: Updated voice transcription consent
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TranscriptionPreferencesUpdateResponse"
         "400":
-          description: Invalid retention setting
+          description: Invalid consent decision
           content:
             application/json:
               schema:
@@ -1150,7 +1162,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/RealtimeTranscriptionToken"
         "503":
-          description: AssemblyAI is not configured
+          description: Voice consent or AssemblyAI is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Current voice transcription consent is required
           content:
             application/json:
               schema:
@@ -1180,7 +1204,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-
   # ─── GOOGLE SERVICES ────────────────────────────────────────────────────────
   /google/status:
     get:
@@ -2131,11 +2154,9 @@ components:
         language:
           type: string
           maxLength: 20
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
     AudioTranscriptionResponse:
       type: object
-      required: [transcript, confidence, reviewSignals, retention, deletion]
+      required: [transcript, confidence, reviewSignals, deletion]
       properties:
         transcript:
           type: string
@@ -2149,14 +2170,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TranscriptionReviewSignal'
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
         deletion:
           $ref: '#/components/schemas/TranscriptionDeletionMarker'
-
-    VoiceRetention:
-      type: string
-      enum: [delete_immediately, until_review, keep_24_hours]
 
     TranscriptionReviewSignal:
       type: object
@@ -2187,49 +2202,38 @@ components:
           enum: [not_stored]
         providerTranscript:
           type: string
-          enum: [deleted]
+          enum: [deleted, deletion_failed]
         marker:
-          type: string
-
-    TranscriptionPreferenceOption:
-      type: object
-      required: [value, label, description]
-      properties:
-        value:
-          $ref: '#/components/schemas/VoiceRetention'
-        label:
-          type: string
-        description:
           type: string
 
     TranscriptionPreferences:
       type: object
-      required: [retention, options]
+      required: [consentGiven]
       properties:
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
-        options:
-          type: array
-          items:
-            $ref: '#/components/schemas/TranscriptionPreferenceOption'
+        consentGiven:
+          type: boolean
+        consentVersion:
+          type: ["string", "null"]
 
     TranscriptionPreferencesUpdate:
       type: object
-      required: [retention]
+      required: [consent]
       properties:
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
+        consent:
+          type: boolean
 
     TranscriptionPreferencesUpdateResponse:
       type: object
-      required: [retention]
+      required: [consentGiven]
       properties:
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
+        consentGiven:
+          type: boolean
+        consentVersion:
+          type: ["string", "null"]
 
     RealtimeTranscriptionToken:
       type: object
-      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, retention, speechModel, redaction]
+      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, speechModel, redaction]
       properties:
         token:
           type: string
@@ -2243,8 +2247,6 @@ components:
         websocketUrl:
           type: string
           format: uri
-        retention:
-          $ref: '#/components/schemas/VoiceRetention'
         speechModel:
           type: string
         redaction:
