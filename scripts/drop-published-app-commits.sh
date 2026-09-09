@@ -108,7 +108,7 @@ if [[ "$branch" != "$current_branch" ]] &&
 fi
 
 mapfile -t matching_rows < <(
-  git log --topo-order --reverse --format='%H%x09%P%x09%s' "$branch" |
+  git log --topo-order --format='%H%x09%P%x09%s' "$branch" |
     awk -F '\t' -v pattern="$pattern" '$3 ~ pattern { print }'
 )
 
