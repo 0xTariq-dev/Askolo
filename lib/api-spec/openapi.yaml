@@ -1066,6 +1066,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Current voice transcription consent is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "413":
           description: Recording is too large
           content:
@@ -1090,6 +1096,12 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "502":
           description: Transcription provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Voice transcription consent status unavailable
           content:
             application/json:
               schema:
@@ -1150,7 +1162,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/RealtimeTranscriptionToken"
         "503":
-          description: AssemblyAI is not configured
+          description: Voice consent or AssemblyAI is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Current voice transcription consent is required
           content:
             application/json:
               schema:
@@ -1180,7 +1204,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-
   # ─── GOOGLE SERVICES ────────────────────────────────────────────────────────
   /google/status:
     get:
@@ -2179,7 +2202,7 @@ components:
           enum: [not_stored]
         providerTranscript:
           type: string
-          enum: [deleted]
+          enum: [deleted, deletion_failed]
         marker:
           type: string
 

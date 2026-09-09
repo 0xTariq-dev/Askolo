@@ -639,6 +639,7 @@ export type TranscriptionDeletionMarkerProviderTranscript = typeof Transcription
 
 export const TranscriptionDeletionMarkerProviderTranscript = {
   deleted: 'deleted',
+  deletion_failed: 'deletion_failed',
 } as const;
 
 export interface TranscriptionDeletionMarker {

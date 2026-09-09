@@ -22,6 +22,11 @@ import {
   transcribeRecordedAudio,
   type AssemblyAiTranscript,
 } from "../lib/assemblyai";
+import {
+  isCurrentVoiceConsent,
+  VOICE_CONSENT_REQUIRED_MESSAGE,
+  VOICE_CONSENT_VERSION,
+} from "../lib/voice-consent";
 
 const router: IRouter = Router();
 
@@ -43,7 +48,6 @@ const supportedAudioMimeTypes = new Set([
   "audio/mpeg",
 ]);
 
-const VOICE_CONSENT_VERSION = "voice-consent-2026-09-07-v1";
 const LOW_CONFIDENCE_THRESHOLD = 0.78;
 
 interface PlanItem {
@@ -187,6 +191,44 @@ function consumeAudioRateLimit(key: string): number | null {
 
   existing.count += 1;
   return null;
+}
+
+async function getVoiceConsent(userId: string) {
+  const [preference] = await db
+    .select({
+      consentAt: voicePreferencesTable.consentAt,
+      consentVersion: voicePreferencesTable.consentVersion,
+    })
+    .from(voicePreferencesTable)
+    .where(eq(voicePreferencesTable.userId, userId))
+    .limit(1);
+  return preference;
+}
+
+async function requireCurrentVoiceConsent(
+  req: Request,
+  res: Response,
+): Promise<boolean> {
+  try {
+    const preference = await getVoiceConsent(req.dbUser.id);
+    if (isCurrentVoiceConsent(preference)) return true;
+
+    req.log.warn({
+      requestId: req.id,
+      userId: req.dbUser.id,
+      consentVersion: preference?.consentVersion ?? null,
+    }, "Voice transcription consent is required");
+    res.status(403).json({ error: VOICE_CONSENT_REQUIRED_MESSAGE });
+    return false;
+  } catch (error) {
+    req.log.error({
+      err: error,
+      requestId: req.id,
+      userId: req.dbUser.id,
+    }, "Voice transcription consent lookup failed");
+    res.status(503).json({ error: "Voice transcription consent is temporarily unavailable." });
+    return false;
+  }
 }
 
 function createReviewSignals(transcript: AssemblyAiTranscript) {
@@ -489,6 +531,8 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
     return;
   }
 
+  if (!(await requireCurrentVoiceConsent(req, res))) return;
+
   const body = req.body as {
     audioBase64?: unknown;
     mimeType?: unknown;
@@ -553,7 +597,7 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
     const estimatedCredits = Math.max(1, Math.ceil((durationMs as number) / 1000));
     const requestFingerprint = fingerprint(audioBuffer);
     const idempotencyKey = requestIdempotencyKey(req, "transcribe-audio", requestFingerprint);
-    const providerTranscript: AssemblyAiTranscript = await withPricedCreditReservation(
+    const providerResult = await withPricedCreditReservation(
       {
         userId: req.dbUser.id,
         pricingKey: "transcription.recorded",
@@ -586,7 +630,7 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
       },
     );
 
-    const transcript = providerTranscript;
+    const transcript = providerResult.transcript;
     const spokenText = transcript.text?.trim().slice(0, MAX_VOICE_TRANSCRIPT_LENGTH) ?? "";
     if (!spokenText) {
       res.status(422).json({ error: "No speech was detected in the recording." });
@@ -607,8 +651,10 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
       reviewSignals: createReviewSignals(transcript),
       deletion: {
         rawAudio: "not_stored",
-        providerTranscript: "deleted",
-        marker: "Audio and provider transcript deleted after transcription.",
+        providerTranscript: providerResult.providerTranscriptDeleted ? "deleted" : "deletion_failed",
+        marker: providerResult.providerTranscriptDeleted
+          ? "Audio and provider transcript deleted after transcription."
+          : "Audio was not stored locally, but provider transcript deletion could not be confirmed.",
       },
     });
   } catch (err) {
@@ -622,16 +668,9 @@ router.post("/ai/transcribe-audio", async (req, res): Promise<void> => {
 });
 
 router.get("/ai/transcription-preferences", async (req, res): Promise<void> => {
-  const [preference] = await db
-    .select({
-      consentAt: voicePreferencesTable.consentAt,
-      consentVersion: voicePreferencesTable.consentVersion,
-    })
-    .from(voicePreferencesTable)
-    .where(eq(voicePreferencesTable.userId, req.dbUser.id))
-    .limit(1);
+  const preference = await getVoiceConsent(req.dbUser.id);
   res.json({
-    consentGiven: Boolean(preference?.consentAt),
+    consentGiven: isCurrentVoiceConsent(preference),
     consentVersion: preference?.consentVersion ?? null,
   });
 });
@@ -662,12 +701,14 @@ router.patch("/ai/transcription-preferences", async (req, res): Promise<void> =>
       consentVersion: voicePreferencesTable.consentVersion,
     });
   res.json({
-    consentGiven: Boolean(preference?.consentAt),
+    consentGiven: isCurrentVoiceConsent(preference),
     consentVersion: preference?.consentVersion ?? null,
   });
 });
 
 router.post("/ai/realtime-token", async (req, res): Promise<void> => {
+  if (!(await requireCurrentVoiceConsent(req, res))) return;
+
   try {
     const token = await createRealtimeToken();
     res.json({

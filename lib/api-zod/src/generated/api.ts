@@ -1226,7 +1226,7 @@ export const TranscribeAudioResponse = zod.object({
 })),
   "deletion": zod.object({
   "rawAudio": zod.enum(['not_stored']),
-  "providerTranscript": zod.enum(['deleted']),
+  "providerTranscript": zod.enum(['deleted', 'deletion_failed']),
   "marker": zod.string()
 })
 })

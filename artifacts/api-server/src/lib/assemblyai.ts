@@ -1,4 +1,5 @@
 import { AssemblyAI } from "assemblyai";
+import { logger } from "./logger";
 
 export const ASSEMBLYAI_REGION = "us" as const;
 export const ASSEMBLYAI_REST_BASE_URL = "https://api.assemblyai.com";
@@ -23,6 +24,11 @@ export type AssemblyAiTranscript = {
   speech_model_used?: string | null;
   words?: AssemblyAiWord[] | null;
   error?: string | null;
+};
+
+export type RecordedAudioTranscription = {
+  transcript: AssemblyAiTranscript;
+  providerTranscriptDeleted: boolean;
 };
 
 type AssemblyAiFailureReason =
@@ -120,9 +126,11 @@ export async function transcribeRecordedAudio(params: {
   audio: Buffer;
   language?: string;
   signal?: AbortSignal;
-}): Promise<AssemblyAiTranscript> {
+}): Promise<RecordedAudioTranscription> {
   const client = getAssemblyAiClient();
   let providerTranscriptId: string | null = null;
+  let completedTranscript: AssemblyAiTranscript | null = null;
+  let providerTranscriptDeleted = false;
 
   try {
     throwIfAborted(params.signal);
@@ -150,7 +158,10 @@ export async function transcribeRecordedAudio(params: {
     while (Date.now() < deadline) {
       throwIfAborted(params.signal);
       const transcript = await client.transcripts.get(submitted.id) as AssemblyAiTranscript;
-      if (transcript.status === "completed") return transcript;
+      if (transcript.status === "completed") {
+        completedTranscript = transcript;
+        break;
+      }
       if (transcript.status === "error") {
         throw new AssemblyAiError(
           "provider_rejected",
@@ -170,12 +181,28 @@ export async function transcribeRecordedAudio(params: {
     if (providerTranscriptId) {
       try {
         await client.transcripts.delete(providerTranscriptId);
+        providerTranscriptDeleted = true;
       } catch {
-        // Provider transcript deletion is best effort. The response never logs
-        // or returns the provider payload, and no raw audio is stored locally.
+        logger.warn(
+          { provider: "assemblyai" },
+          "AssemblyAI transcript deletion could not be confirmed",
+        );
       }
     }
   }
+
+  const transcript = completedTranscript;
+  if (!transcript) {
+    throw new AssemblyAiError(
+      "provider_unavailable",
+      "AssemblyAI did not return a completed transcript.",
+    );
+  }
+
+  return {
+    transcript: transcript as AssemblyAiTranscript,
+    providerTranscriptDeleted,
+  };
 }
 
 export async function createRealtimeToken(): Promise<{
