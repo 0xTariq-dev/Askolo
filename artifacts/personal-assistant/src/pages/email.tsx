@@ -43,6 +43,41 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 const GOOGLE_CONNECT_URL = '/api/google/gmail/connect?redirectTo=%2Femail&scope=gmail';
 
+function EmailPageHeader({
+  connected,
+  isLoading,
+  onRefresh,
+}: {
+  connected: boolean;
+  isLoading?: boolean;
+  onRefresh?: () => void;
+}) {
+  return (
+    <header
+      className={
+        connected
+          ? 'flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8'
+          : 'mb-8'
+      }
+    >
+      <div>
+        <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Email Triage</h1>
+        <p className="text-muted-foreground mt-2 text-lg">
+          {connected
+            ? 'AI-prioritized inbox and one-click reply drafts.'
+            : 'AI-powered inbox prioritization and reply drafting.'}
+        </p>
+      </div>
+      {connected && onRefresh ? (
+        <Button variant="outline" onClick={onRefresh} disabled={isLoading} className="shrink-0">
+          <RefreshCw className={cn('h-4 w-4 mr-2', isLoading && 'animate-spin')} />
+          Refresh
+        </Button>
+      ) : null}
+    </header>
+  );
+}
+
 export function EmailPage() {
   const qc = useQueryClient();
   const [, setLocation] = useLocation();
@@ -127,10 +162,7 @@ export function EmailPage() {
   if (!googleStatus?.gmailConnected || error) {
     return (
       <PageTransition className="max-w-5xl mx-auto pb-10">
-        <header className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Email Triage</h1>
-          <p className="text-muted-foreground mt-2 text-lg">AI-powered inbox prioritization and reply drafting.</p>
-        </header>
+        <EmailPageHeader connected={false} />
 
         <Card className="border border-border/60 bg-card/50 backdrop-blur-sm">
           <CardContent className="p-8 sm:p-12 text-center">
@@ -166,16 +198,7 @@ export function EmailPage() {
 
   return (
     <PageTransition className="max-w-5xl mx-auto pb-10">
-      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Email Triage</h1>
-          <p className="text-muted-foreground mt-2 text-lg">AI-prioritized inbox and one-click reply drafts.</p>
-        </div>
-        <Button variant="outline" onClick={() => refetch()} disabled={isLoading} className="shrink-0">
-          <RefreshCw className={cn('h-4 w-4 mr-2', isLoading && 'animate-spin')} />
-          Refresh
-        </Button>
-      </header>
+      <EmailPageHeader connected isLoading={isLoading} onRefresh={() => refetch()} />
 
       <Tabs value={filter} onValueChange={setFilter} className="w-full mb-6">
         <TabsList className="bg-card border border-border flex-wrap h-auto py-1">

@@ -2,12 +2,16 @@ import { useEffect } from 'react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent } from '@/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
+import { setPageMetadata } from '@/lib/seo';
 
 export function TermsPage() {
   useEffect(() => {
-    document.title = 'Terms of Service — Askolo';
-    document.querySelector('meta[name="description"]')
-      ?.setAttribute('content', 'Read the Askolo Terms of Service to understand your rights and responsibilities when using the Askolo personal assistant app.');
+    setPageMetadata({
+      title: 'Askolo Terms of Service | Using Your Personal Assistant',
+      description:
+        'Read the Askolo Terms of Service covering accounts, AI-generated content, Google integrations, acceptable use, and your responsibilities.',
+      canonicalPath: '/terms',
+    });
   }, []);
 
   return (

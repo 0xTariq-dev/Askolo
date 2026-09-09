@@ -2,12 +2,16 @@ import { useEffect } from 'react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent } from '@/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
+import { setPageMetadata } from '@/lib/seo';
 
 export function PrivacyPage() {
   useEffect(() => {
-    document.title = 'Privacy Policy — Askolo';
-    document.querySelector('meta[name="description"]')
-      ?.setAttribute('content', 'Read the Askolo Privacy Policy to understand how we collect, use, and protect your personal data.');
+    setPageMetadata({
+      title: 'Askolo Privacy Policy | Data Protection and Your Rights',
+      description:
+        'Read the Askolo Privacy Policy to understand how we collect, use, store, and protect your personal data and Google integration data.',
+      canonicalPath: '/privacy',
+    });
   }, []);
 
   return (
