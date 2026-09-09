@@ -135,7 +135,7 @@ export function LandingPage() {
             transition={{ duration: 0.7, delay: 0.2, ease: 'easeOut' }}
             className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold tracking-tight mb-6"
           >
-            Meet <span className="text-primary">Askolo</span>
+            Your AI personal assistant for <span className="text-primary">calmer days</span>
           </motion.h1>
 
           <motion.p
@@ -144,7 +144,7 @@ export function LandingPage() {
             transition={{ duration: 0.7, delay: 0.3, ease: 'easeOut' }}
             className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed"
           >
-            Askolo is your beautifully designed mission control for habits, goals, daily plans, calendar, chores, notes, and action items. One calm, focused place to manage your life — with an AI coach that helps you stay on track.
+            Askolo brings habits, goals, daily plans, calendar, chores, notes, and action items into one calm workspace — with an AI coach that helps individuals and families stay on track.
           </motion.p>
 
           <motion.div
@@ -198,6 +198,7 @@ export function LandingPage() {
       <section
         id="features"
         aria-labelledby="features-heading"
+        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 720px' }}
         className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40"
       >
         <div className="max-w-6xl mx-auto">
@@ -237,6 +238,7 @@ export function LandingPage() {
       <section
         id="how-it-works"
         aria-labelledby="how-it-works-heading"
+        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 560px' }}
         className="py-16 sm:py-24 px-4 sm:px-6"
       >
         <div className="max-w-5xl mx-auto">
@@ -276,6 +278,7 @@ export function LandingPage() {
       <section
         id="integrations"
         aria-labelledby="integrations-heading"
+        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 700px' }}
         className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40"
       >
         <div className="max-w-5xl mx-auto">
@@ -346,7 +349,12 @@ export function LandingPage() {
       </section>
 
       {/* Final CTA */}
-      <section id="final-cta" aria-labelledby="final-cta-heading" className="py-16 sm:py-24 px-4 sm:px-6 text-center">
+      <section
+        id="final-cta"
+        aria-labelledby="final-cta-heading"
+        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 360px' }}
+        className="py-16 sm:py-24 px-4 sm:px-6 text-center"
+      >
         <div className="max-w-3xl mx-auto">
           <h2 id="final-cta-heading" className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
             Ready to get organized?

@@ -12,8 +12,8 @@ export function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen w-full flex flex-col bg-background text-foreground relative overflow-hidden">
       {/* Ambient background glows */}
-      <div className="absolute top-[0%] left-[-10%] w-[60%] h-[60%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="hidden sm:block absolute top-[0%] left-[-10%] w-[60%] h-[60%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="hidden sm:block absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Header */}
       <header className="relative z-10 w-full border-b border-border/60 bg-background/80 backdrop-blur-sm">
@@ -25,6 +25,12 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             </span>
           </Link>
           <nav aria-label="Primary" className="flex items-center gap-2 sm:gap-4">
+            <a href="/#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden md:inline">
+              Features
+            </a>
+            <a href="/#integrations" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden md:inline">
+              Integrations
+            </a>
             <Link href="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
               Privacy
             </Link>
