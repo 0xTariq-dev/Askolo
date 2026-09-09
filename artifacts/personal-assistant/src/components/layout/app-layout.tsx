@@ -23,6 +23,7 @@ import { AssistantSidebar } from '@/components/assistant-sidebar';
 import { NotificationBell } from '@/components/notification-bell';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
 import logoUrl from '/logo.png';
+import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -104,7 +105,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
           <Button
             variant="outline"
             className="w-full justify-start text-sidebar-foreground/70 border-border hover:bg-white/5 hover:text-sidebar-foreground"
-            onClick={() => signOut({ redirectUrl: basePath || '/' })}
+            onClick={() => signOut({ redirectUrl: isAppProductionHost() ? toPublicUrl('/') : basePath || '/' })}
             data-testid="button-logout"
           >
             <LogOut className="h-4 w-4 mr-2" />
@@ -129,8 +130,8 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
         </div>
         <footer className="shrink-0 py-4 px-4 md:px-8 border-t border-border/50 text-xs text-muted-foreground flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center bg-background">
           <span>© {new Date().getFullYear()} Askolo</span>
-          <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
-          <Link href="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
+          <a href={toPublicUrl('/privacy')} className="hover:text-primary transition-colors">Privacy Policy</a>
+          <a href={toPublicUrl('/terms')} className="hover:text-primary transition-colors">Terms of Service</a>
         </footer>
       </main>
 

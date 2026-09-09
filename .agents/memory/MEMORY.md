@@ -9,3 +9,6 @@
 - [GitHub CLI Git transport](github-cli-git-transport.md) — `gh auth status` does not configure Git HTTPS; run `gh auth setup-git` before fetch/push.
 - [Transient voice privacy](transient-voice-privacy.md) — voice recordings are never persisted; only versioned consent is stored server-side.
 - [Client voice gating](client-voice-gating.md) — reject short or silent recordings in the browser before any provider request.
+- [Structured data without reviews](structured-data-without-reviews.md) — never add aggregateRating to marketing schema without authentic, verifiable review data.
+- [Published static build freshness](published-static-build-freshness.md) — verify live asset hashes against the current build before diagnosing SEO or compression findings.
+

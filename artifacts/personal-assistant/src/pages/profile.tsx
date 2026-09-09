@@ -43,6 +43,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -182,7 +183,7 @@ export function ProfilePage() {
     setDeletingAccount(true);
     try {
       await apiDelete('/user/account');
-      await signOut({ redirectUrl: basePath || '/' });
+      await signOut({ redirectUrl: isAppProductionHost() ? toPublicUrl('/') : basePath || '/' });
     } catch {
       toast({ title: 'Failed to delete account', variant: 'destructive' });
       setDeletingAccount(false);

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { AuthenticateWithRedirectCallback, ClerkProvider, SignIn, SignUp, useAuth, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
@@ -6,23 +6,58 @@ import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/reac
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Router as WouterRouter, useLocation, Redirect } from 'wouter';
-import { AppLayout } from '@/components/layout/app-layout';
 import { Loader2 } from 'lucide-react';
 
-import { DashboardPage } from '@/pages/dashboard';
-import { HabitsPage } from '@/pages/habits';
-import { GoalsPage } from '@/pages/goals';
-import { PlanPage } from '@/pages/plan';
-import { CalendarPage } from '@/pages/calendar';
-import { ChoresPage } from '@/pages/chores';
-import { NotesPage } from '@/pages/notes';
-import { ActionsPage } from '@/pages/actions';
-import { EmailPage } from '@/pages/email';
-import { ProfilePage } from '@/pages/profile';
-import { PrivacyPage } from '@/pages/privacy';
-import { TermsPage } from '@/pages/terms';
-import { LoginPage } from '@/pages/login';
 import { LandingPage } from '@/pages/landing';
+import {
+  isAppProductionHost,
+  isPublicProductionHost,
+  toAppUrl,
+  toPublicUrl,
+} from '@/lib/site-domains';
+
+const AppLayout = lazy(() =>
+  import('@/components/layout/app-layout').then(({ AppLayout }) => ({ default: AppLayout })),
+);
+const DashboardPage = lazy(() =>
+  import('@/pages/dashboard').then(({ DashboardPage }) => ({ default: DashboardPage })),
+);
+const HabitsPage = lazy(() =>
+  import('@/pages/habits').then(({ HabitsPage }) => ({ default: HabitsPage })),
+);
+const GoalsPage = lazy(() =>
+  import('@/pages/goals').then(({ GoalsPage }) => ({ default: GoalsPage })),
+);
+const PlanPage = lazy(() =>
+  import('@/pages/plan').then(({ PlanPage }) => ({ default: PlanPage })),
+);
+const CalendarPage = lazy(() =>
+  import('@/pages/calendar').then(({ CalendarPage }) => ({ default: CalendarPage })),
+);
+const ChoresPage = lazy(() =>
+  import('@/pages/chores').then(({ ChoresPage }) => ({ default: ChoresPage })),
+);
+const NotesPage = lazy(() =>
+  import('@/pages/notes').then(({ NotesPage }) => ({ default: NotesPage })),
+);
+const ActionsPage = lazy(() =>
+  import('@/pages/actions').then(({ ActionsPage }) => ({ default: ActionsPage })),
+);
+const EmailPage = lazy(() =>
+  import('@/pages/email').then(({ EmailPage }) => ({ default: EmailPage })),
+);
+const ProfilePage = lazy(() =>
+  import('@/pages/profile').then(({ ProfilePage }) => ({ default: ProfilePage })),
+);
+const PrivacyPage = lazy(() =>
+  import('@/pages/privacy').then(({ PrivacyPage }) => ({ default: PrivacyPage })),
+);
+const TermsPage = lazy(() =>
+  import('@/pages/terms').then(({ TermsPage }) => ({ default: TermsPage })),
+);
+const LoginPage = lazy(() =>
+  import('@/pages/login').then(({ LoginPage }) => ({ default: LoginPage })),
+);
 
 const queryClient = new QueryClient();
 
@@ -56,7 +91,7 @@ const clerkAppearance = {
   cssLayerName: 'clerk',
   options: {
     logoPlacement: 'inside' as const,
-    logoLinkUrl: basePath || '/',
+    logoLinkUrl: isAppProductionHost() ? toPublicUrl('/') : basePath || '/',
     logoImageUrl: `${window.location.origin}${basePath}/logo.png`,
     socialButtonsPlacement: 'top' as const,
     socialButtonsVariant: 'blockButton' as const,
@@ -173,6 +208,48 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+function RouteLoadingState() {
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-background" aria-label="Loading page">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+    </div>
+  );
+}
+
+function ExternalRedirect({ href }: { href: string }) {
+  useEffect(() => {
+    window.location.replace(href);
+  }, [href]);
+
+  return <RouteLoadingState />;
+}
+
+function currentPathWithQuery(): string {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function PublicSiteRoutes() {
+  const currentPath = window.location.pathname || '/';
+
+  if (window.location.hostname.toLowerCase() === 'www.askolo.app') {
+    return <ExternalRedirect href={toPublicUrl(currentPathWithQuery())} />;
+  }
+
+  if (!['/', '/privacy', '/terms'].includes(currentPath)) {
+    return <ExternalRedirect href={toAppUrl(currentPathWithQuery())} />;
+  }
+
+  return (
+    <Suspense fallback={<RouteLoadingState />}>
+      <Switch>
+        <Route path="/" component={LandingPage} />
+        <Route path="/privacy" component={PrivacyPage} />
+        <Route path="/terms" component={TermsPage} />
+      </Switch>
+    </Suspense>
+  );
+}
+
 function ProtectedRoutes() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -209,6 +286,7 @@ function ProtectedRoutes() {
 
 function ClerkProviderWithRoutes() {
   const [, setLocation] = useLocation();
+  const splitAppHost = isAppProductionHost();
 
   return (
     <ClerkProvider
@@ -237,21 +315,33 @@ function ClerkProviderWithRoutes() {
       <QueryClientProvider client={queryClient}>
         <ClerkQueryClientCacheInvalidator />
         <TooltipProvider>
-          <Switch>
-            {/* Public pages */}
-            <Route path="/" component={LandingPage} />
-            <Route path="/privacy" component={PrivacyPage} />
-            <Route path="/terms" component={TermsPage} />
-            {/* REQUIRED — /sign-in/*? and /sign-up/*? must match exactly.
-                The /*? optional wildcard is the only wouter syntax that
-                handles Clerk's OAuth sub-paths. */}
-            <Route path="/sign-in/*?" component={SignInPage} />
-            <Route path="/sign-up/*?" component={SignUpPage} />
-            {/* Clerk OAuth callback route */}
-            <Route path="/sso-callback" component={SsoCallbackPage} />
-            {/* Protected app routes */}
-            <Route component={ProtectedRoutes} />
-          </Switch>
+          <Suspense fallback={<RouteLoadingState />}>
+            <Switch>
+              {splitAppHost ? (
+                <>
+                  <Route path="/" component={() => <ExternalRedirect href={toPublicUrl('/')} />} />
+                  <Route path="/privacy" component={() => <ExternalRedirect href={toPublicUrl('/privacy')} />} />
+                  <Route path="/terms" component={() => <ExternalRedirect href={toPublicUrl('/terms')} />} />
+                </>
+              ) : (
+                <>
+                  {/* Public pages in the Replit preview/development host */}
+                  <Route path="/" component={LandingPage} />
+                  <Route path="/privacy" component={PrivacyPage} />
+                  <Route path="/terms" component={TermsPage} />
+                </>
+              )}
+              {/* REQUIRED — /sign-in/*? and /sign-up/*? must match exactly.
+                  The /*? optional wildcard is the only wouter syntax that
+                  handles Clerk's OAuth sub-paths. */}
+              <Route path="/sign-in/*?" component={SignInPage} />
+              <Route path="/sign-up/*?" component={SignUpPage} />
+              {/* Clerk OAuth callback route */}
+              <Route path="/sso-callback" component={SsoCallbackPage} />
+              {/* Protected app routes */}
+              <Route component={ProtectedRoutes} />
+            </Switch>
+          </Suspense>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
@@ -262,7 +352,7 @@ function ClerkProviderWithRoutes() {
 function App() {
   return (
     <WouterRouter base={basePath}>
-      <ClerkProviderWithRoutes />
+      {isPublicProductionHost() ? <PublicSiteRoutes /> : <ClerkProviderWithRoutes />}
     </WouterRouter>
   );
 }
