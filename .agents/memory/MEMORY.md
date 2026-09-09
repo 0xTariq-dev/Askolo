@@ -5,3 +5,4 @@
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
+- [Structured data without reviews](structured-data-without-reviews.md) — never add aggregateRating to marketing schema without authentic, verifiable review data.
