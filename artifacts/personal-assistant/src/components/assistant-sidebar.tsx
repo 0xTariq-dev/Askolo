@@ -16,6 +16,7 @@ import {
 import {
   useAssistantChat,
   useGetDashboardSummary,
+  getGetDashboardSummaryQueryKey,
   useListGmailMessages,
   type AssistantEmailSummaryPriority,
 } from '@workspace/api-client-react';
@@ -37,7 +38,11 @@ export function AssistantSidebar() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isThinking, setIsThinking] = useState(false);
 
-  const { data: summary } = useGetDashboardSummary();
+  // The assistant is mounted in the shell on every authenticated route, but
+  // its dashboard context is only needed after the panel is opened.
+  const { data: summary } = useGetDashboardSummary({
+    query: { queryKey: getGetDashboardSummaryQueryKey(), enabled: isOpen },
+  });
   const calendarConnected = summary?.googleConnection?.calendarConnected ?? false;
   const gmailConnected = summary?.googleConnection?.gmailConnected ?? false;
 

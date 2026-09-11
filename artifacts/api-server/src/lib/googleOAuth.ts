@@ -13,6 +13,7 @@ const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com";
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
+const GOOGLE_STATUS_TIMEOUT_MS = 3_000;
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
@@ -209,12 +210,15 @@ export async function verifyGmailConnection(userId: string): Promise<boolean> {
   if (!(await hasGoogleScope(userId, GMAIL_SCOPE))) return false;
   try {
     const accessToken = await getGoogleAccessToken(userId);
-    const res = await fetch(`${GMAIL_API_BASE}/gmail/v1/users/me/messages?maxResults=1&labelIds=INBOX`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const res = await fetchGoogleStatus(
+      `${GMAIL_API_BASE}/gmail/v1/users/me/messages?maxResults=1&labelIds=INBOX`,
+      accessToken,
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "(unreadable)");
-      logger.warn({ userId, status: res.status, body }, "Gmail verification request returned non-OK");
+      logger.warn(
+        { userId, status: res.status },
+        "Gmail verification request returned non-OK",
+      );
     }
     return res.ok;
   } catch (err) {
@@ -227,17 +231,34 @@ export async function verifyCalendarConnection(userId: string): Promise<boolean>
   if (!(await hasGoogleScope(userId, CALENDAR_SCOPE))) return false;
   try {
     const accessToken = await getGoogleAccessToken(userId);
-    const res = await fetch(`${CALENDAR_API_BASE}/users/me/calendarList`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const res = await fetchGoogleStatus(
+      `${CALENDAR_API_BASE}/users/me/calendarList`,
+      accessToken,
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "(unreadable)");
-      logger.warn({ userId, status: res.status, body }, "Calendar verification request returned non-OK");
+      logger.warn(
+        { userId, status: res.status },
+        "Calendar verification request returned non-OK",
+      );
     }
     return res.ok;
   } catch (err) {
     logger.warn({ err, userId }, "Calendar connection verification failed");
     return false;
+  }
+}
+
+async function fetchGoogleStatus(url: string, accessToken: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GOOGLE_STATUS_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef } from 'react';
+import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   AuthenticateWithRedirectCallback,
   ClerkProvider,
@@ -6,6 +6,7 @@ import {
   SignUp,
   useAuth,
   useClerk,
+  useSignIn,
 } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
@@ -15,6 +16,8 @@ import { Loader2 } from 'lucide-react';
 
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ClerkAuthBridge } from '@/contexts/clerk-auth-context';
 import { isAppProductionHost } from '@/lib/site-domains';
 import '@clerk/themes/shadcn.css';
@@ -59,18 +62,150 @@ function RouteLoadingState() {
   );
 }
 
+function LocalPasswordSignIn({ onBack }: { onBack: () => void }) {
+  const { signIn, fetchStatus } = useSignIn();
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+
+    setErrorMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      const result = await signIn.password({ identifier, password });
+      if (result.error) {
+        setErrorMessage(
+          result.error.longMessage ||
+            result.error.message ||
+            'Unable to sign in with that email and password.',
+        );
+        return;
+      }
+
+      if (signIn.status === 'complete') {
+        const finalizeResult = await signIn.finalize();
+        if (finalizeResult.error) {
+          setErrorMessage(
+            finalizeResult.error.longMessage ||
+              finalizeResult.error.message ||
+              'Unable to activate the signed-in session.',
+          );
+          return;
+        }
+        window.location.assign(`${basePath}/dashboard`);
+        return;
+      }
+
+      setErrorMessage(
+        'This account needs an additional verification step. Use the standard sign-in options instead.',
+      );
+    } catch {
+      setErrorMessage('Unable to sign in right now. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold text-foreground">
+          Sign in with email and password
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Use your local Clerk development account to test the app.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <label htmlFor="local-sign-in-identifier" className="text-sm font-medium">
+            Email or username
+          </label>
+          <Input
+            id="local-sign-in-identifier"
+            name="identifier"
+            type="text"
+            autoComplete="username"
+            value={identifier}
+            onChange={(event) => setIdentifier(event.target.value)}
+            placeholder="you@example.com"
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="local-sign-in-password" className="text-sm font-medium">
+            Password
+          </label>
+          <Input
+            id="local-sign-in-password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Enter your password"
+            required
+          />
+        </div>
+
+        {errorMessage && (
+          <p role="alert" className="text-sm text-destructive">
+            {errorMessage}
+          </p>
+        )}
+
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={fetchStatus === 'fetching' || isSubmitting || !identifier || !password}
+        >
+          {isSubmitting ? 'Signing in…' : 'Sign in'}
+        </Button>
+      </form>
+
+      <Button type="button" variant="link" className="mt-4 w-full" onClick={onBack}>
+        Use Google or other sign-in options
+      </Button>
+    </div>
+  );
+}
+
 function SignInPage() {
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-background px-4 relative overflow-hidden">
       <div className="absolute top-[0%] left-[-10%] w-[60%] h-[60%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="relative z-10 w-full">
-        <SignIn
-          routing="path"
-          path={`${basePath}/sign-in`}
-          signUpUrl={`${basePath}/sign-up`}
-          fallbackRedirectUrl={`${basePath}/dashboard`}
-        />
+        {showPasswordForm ? (
+          <LocalPasswordSignIn onBack={() => setShowPasswordForm(false)} />
+        ) : (
+          <>
+            <SignIn
+              routing="path"
+              path={`${basePath}/sign-in`}
+              signUpUrl={`${basePath}/sign-up`}
+              fallbackRedirectUrl={`${basePath}/dashboard`}
+            />
+            <Button
+              type="button"
+              variant="link"
+              className="mx-auto mt-4 block text-sm"
+              onClick={() => setShowPasswordForm(true)}
+              data-testid="button-password-login"
+            >
+              Use email and password
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
