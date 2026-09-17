@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gt, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import {
   aiCreditAccountsTable,
   aiCreditAdjustmentsTable,
@@ -566,7 +566,6 @@ export async function reserveCredits(input: ReserveCreditsInput): Promise<Reserv
       return { reservation: initialExisting[0], balance: toBalance(account), reused: true };
     }
 
-    const account = await lockAccount(tx, input.userId);
     const existing = await tx
       .select()
       .from(aiCreditReservationsTable)
@@ -580,10 +579,15 @@ export async function reserveCredits(input: ReserveCreditsInput): Promise<Reserv
         throw new CreditLedgerError("Reservation idempotency key belongs to another user");
       }
       assertReservationMatches(existing[0], input);
+      const account = await lockAccount(tx, input.userId);
       return { reservation: existing[0], balance: toBalance(account), reused: true };
     }
 
-    const balance = toBalance(account);
+    // Expire this user's abandoned reservations in the same transaction.
+    // This keeps the ledger correct without a process-wide polling job.
+    await expireStaleReservationsInTransaction(tx, input.userId, new Date());
+    const currentAccount = await lockAccount(tx, input.userId);
+    const balance = toBalance(currentAccount);
     if (input.enforceBalance && balance.availableCredits < input.estimatedCredits) {
       throw new CreditLimitError(undefined, balance);
     }
@@ -621,7 +625,7 @@ export async function reserveCredits(input: ReserveCreditsInput): Promise<Reserv
 
     await tx
       .update(aiCreditAccountsTable)
-      .set({ reservedCredits: account.reservedCredits + input.estimatedCredits })
+      .set({ reservedCredits: currentAccount.reservedCredits + input.estimatedCredits })
       .where(eq(aiCreditAccountsTable.userId, input.userId));
     await tx.insert(aiCreditReservationEventsTable).values({
       reservationId,
@@ -1051,6 +1055,81 @@ export async function recordProviderUsage(input: {
     idempotencyKey: input.idempotencyKey,
     evidence: safeTelemetry(input.evidence),
   }).onConflictDoNothing();
+}
+
+async function expireStaleReservationsInTransaction(
+  tx: any,
+  userId: string,
+  now: Date,
+  limit = 100,
+): Promise<number> {
+  const stale = await tx
+    .select()
+    .from(aiCreditReservationsTable)
+    .where(and(
+      eq(aiCreditReservationsTable.userId, userId),
+      inArray(aiCreditReservationsTable.status, ["active", "reserved"]),
+      lt(aiCreditReservationsTable.expiresAt, now),
+    ))
+    .limit(limit)
+    .for("update");
+
+  let settled = 0;
+  for (const reservation of stale) {
+    const elapsedMs = Math.max(0, now.getTime() - reservation.startedAt.getTime());
+    const connectedDurationMs = reservation.durationSeconds
+      ? Math.min(elapsedMs, reservation.durationSeconds * 1000)
+      : undefined;
+    const chargedCredits = connectedDurationMs === undefined
+      ? reservation.reservedCredits
+      : Math.min(
+          reservation.reservedCredits,
+          Math.ceil(connectedDurationMs / 1000) * reservation.unitRate,
+        );
+    const releasedCredits = reservation.reservedCredits - chargedCredits;
+
+    await tx
+      .update(aiCreditReservationsTable)
+      .set({
+        status: "expired",
+        reservedCredits: 0,
+        settledCredits: chargedCredits,
+        connectedDurationMs,
+        closedAt: now,
+      })
+      .where(eq(aiCreditReservationsTable.id, reservation.id));
+    await tx
+      .update(aiCreditAccountsTable)
+      .set({
+        reservedCredits: sql`${aiCreditAccountsTable.reservedCredits} - ${reservation.reservedCredits}`,
+        spentCredits: sql`${aiCreditAccountsTable.spentCredits} + ${chargedCredits}`,
+      })
+      .where(eq(aiCreditAccountsTable.userId, userId));
+    await tx.insert(aiCreditReservationEventsTable).values({
+      reservationId: reservation.id,
+      userId,
+      eventType: "settle",
+      credits: chargedCredits,
+      durationMs: connectedDurationMs,
+      idempotencyKey: reservationEventKey(
+        `expiry:${reservation.id}:${reservation.expiresAt?.getTime() ?? 0}`,
+      ),
+      details: { status: "expired", releasedCredits },
+    });
+    if (releasedCredits > 0) {
+      await tx.insert(aiCreditReservationEventsTable).values({
+        reservationId: reservation.id,
+        userId,
+        eventType: "release",
+        credits: releasedCredits,
+        idempotencyKey: reservationEventKey(
+          `expiry:${reservation.id}:${reservation.expiresAt?.getTime() ?? 0}:release`,
+        ),
+      });
+    }
+    settled += 1;
+  }
+  return settled;
 }
 
 export async function expireStaleReservations(now = new Date(), limit = 100): Promise<number> {
