@@ -90,6 +90,42 @@ router = "path"
 PORT = "8081"
 BASE_PATH = "/__mockup"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "go-assemblyai-sidecar: compile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "go-assemblyai-sidecar: run"
+
+[[workflows.workflow]]
+name = "go-assemblyai-sidecar: compile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd services/assemblyai-sidecar && go test ./... && go vet ./... && mkdir -p bin && go build -trimpath -o ./bin/assemblyai-sidecar ./cmd/assemblyai-sidecar"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "go-assemblyai-sidecar: run"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd services/assemblyai-sidecar && go run ./cmd/assemblyai-sidecar"
+waitForPort = 8090
+
+[workflows.workflow.metadata]
+outputType = "console"
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true

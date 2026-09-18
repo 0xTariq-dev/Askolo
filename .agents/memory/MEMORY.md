@@ -13,4 +13,5 @@
 - [Structured data without reviews](structured-data-without-reviews.md) — never add aggregateRating to marketing schema without authentic, verifiable review data.
 - [Published static build freshness](published-static-build-freshness.md) — verify live asset hashes against the current build before diagnosing SEO or compression findings.
 - [Managed static artifact serving](artifact-static-serving.md) — production static serving is schema-managed; use supported cache/compression configuration rather than replacing it.
+- [Go toolchain path](go-toolchain-path.md) — use `go fmt ./...` because the managed Go wrapper may not expose standalone `gofmt`.
 
