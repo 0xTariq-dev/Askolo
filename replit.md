@@ -6,6 +6,9 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 
 - `pnpm --filter @workspace/personal-assistant run dev` — run the web app (requires `PORT` and `BASE_PATH` env vars)
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port from `PORT`, default 8080 in dev)
+- `cd services/assemblyai-sidecar && go run ./cmd/assemblyai-sidecar` — run the Go AssemblyAI sidecar locally (port 8090 by default)
+- `cd services/assemblyai-sidecar && go test ./...` — run Go sidecar tests
+- `cd services/assemblyai-sidecar && go build -trimpath -o ./bin/assemblyai-sidecar ./cmd/assemblyai-sidecar` — compile the Go sidecar
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec

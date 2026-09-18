@@ -10,6 +10,9 @@ out-tsc
 
 # dependencies
 node_modules
+.gocache/
+services/assemblyai-sidecar/bin/
+services/assemblyai-sidecar/tmp/
 
 # IDEs and editors
 /.idea
