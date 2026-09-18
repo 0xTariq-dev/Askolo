@@ -6,9 +6,9 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 
 - `pnpm --filter @workspace/personal-assistant run dev` — run the web app (requires `PORT` and `BASE_PATH` env vars)
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port from `PORT`, default 8080 in dev)
-- `cd services/askolo-backend && go run ./cmd/askolo-backend` — run the companion Go backend locally (port 8090 by default)
+- `cd services/askolo-backend && bash ./scripts/run.sh` — run the companion Go backend locally (port 8090 by default)
 - `cd services/askolo-backend && go test ./...` — run Go backend tests
-- `cd services/askolo-backend && go build -trimpath -o ./bin/askolo-backend ./cmd/askolo-backend` — compile the Go backend
+- `cd services/askolo-backend && bash ./scripts/build.sh` — test, vet, and atomically replace the compiled Go backend binary
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec

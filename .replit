@@ -109,7 +109,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd services/askolo-backend && go test ./... && go vet ./... && mkdir -p bin && go build -trimpath -o ./bin/askolo-backend ./cmd/askolo-backend"
+args = "cd services/askolo-backend && bash ./scripts/build.sh"
 
 [workflows.workflow.metadata]
 outputType = "console"
@@ -120,7 +120,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd services/askolo-backend && go run ./cmd/askolo-backend"
+args = "cd services/askolo-backend && bash ./scripts/run.sh"
 waitForPort = 8090
 
 [workflows.workflow.metadata]

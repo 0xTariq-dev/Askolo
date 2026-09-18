@@ -54,6 +54,13 @@ implementations together.
 go fmt ./...
 go test ./...
 go vet ./...
-go build -trimpath -o ./bin/askolo-backend ./cmd/askolo-backend
-go run ./cmd/askolo-backend
+bash ./scripts/build.sh
+bash ./scripts/run.sh
 ```
+
+`build.sh` always writes to a temporary file and atomically replaces
+`bin/askolo-backend`; failed builds leave the last known-good binary intact.
+It also stops a recorded running backend before rebuilding. `run.sh` records
+the managed process under `tmp/askolo-backend.pid`, cleans stale PID state,
+forwards shutdown signals, and terminates the child if graceful shutdown
+fails. The `bin/` and `tmp/` directories are ignored generated state.
