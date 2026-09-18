@@ -18,7 +18,7 @@ func New(cfg config.Config, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
 
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"service": cfg.ServiceName,
 			"status":  "running",
@@ -33,8 +33,8 @@ func New(cfg config.Config, logger *slog.Logger) http.Handler {
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"service":             cfg.ServiceName,
-			"status":              "ready",
+			"service":                cfg.ServiceName,
+			"status":                 "ready",
 			"internalAuthConfigured": cfg.InternalAuthToken != "",
 		})
 	})
@@ -48,6 +48,7 @@ func New(cfg config.Config, logger *slog.Logger) http.Handler {
 
 	webhookHandler := webhooks.New(logger, cfg.ServiceName)
 	mux.Handle("/webhooks/", webhookHandler)
+	mux.HandleFunc("/", notFound)
 
 	return httpx.Middleware(logger, mux)
 }

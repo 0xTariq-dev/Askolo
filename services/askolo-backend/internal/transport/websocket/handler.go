@@ -10,7 +10,7 @@ import (
 const maxSessionDurationSeconds = 120
 
 type Handler struct {
-	logger     *slog.Logger
+	logger      *slog.Logger
 	serviceName string
 }
 

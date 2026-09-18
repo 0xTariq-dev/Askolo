@@ -11,7 +11,7 @@ import (
 const maxWebhookBodyBytes = 1 << 20
 
 type Handler struct {
-	logger     *slog.Logger
+	logger      *slog.Logger
 	serviceName string
 }
 

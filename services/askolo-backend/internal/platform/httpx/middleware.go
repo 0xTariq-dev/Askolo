@@ -1,9 +1,11 @@
 package httpx
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -17,7 +19,14 @@ type responseWriter struct {
 	status int
 }
 
+func (w *responseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (w *responseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
@@ -27,6 +36,14 @@ func (w *responseWriter) Write(body []byte) (int, error) {
 		w.status = http.StatusOK
 	}
 	return w.ResponseWriter.Write(body)
+}
+
+func (w *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return http.NewResponseController(w.ResponseWriter).Hijack()
+}
+
+func (w *responseWriter) Flush() {
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 func Middleware(logger *slog.Logger, next http.Handler) http.Handler {

@@ -97,30 +97,30 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "go-assemblyai-sidecar: compile"
+args = "go-askolo-backend: compile"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "go-assemblyai-sidecar: run"
+args = "go-askolo-backend: run"
 
 [[workflows.workflow]]
-name = "go-assemblyai-sidecar: compile"
+name = "go-askolo-backend: compile"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd services/assemblyai-sidecar && go test ./... && go vet ./... && mkdir -p bin && go build -trimpath -o ./bin/assemblyai-sidecar ./cmd/assemblyai-sidecar"
+args = "cd services/askolo-backend && go test ./... && go vet ./... && mkdir -p bin && go build -trimpath -o ./bin/askolo-backend ./cmd/askolo-backend"
 
 [workflows.workflow.metadata]
 outputType = "console"
 
 [[workflows.workflow]]
-name = "go-assemblyai-sidecar: run"
+name = "go-askolo-backend: run"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd services/assemblyai-sidecar && go run ./cmd/assemblyai-sidecar"
+args = "cd services/askolo-backend && go run ./cmd/askolo-backend"
 waitForPort = 8090
 
 [workflows.workflow.metadata]

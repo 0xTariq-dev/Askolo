@@ -72,3 +72,18 @@ func TestProtocolShellsAreExplicitlyUnconfigured(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownRoutesUseJSONErrorContract(t *testing.T) {
+	handler := New(testConfig("secret"), slog.Default())
+	request := httptest.NewRequest(http.MethodGet, "/missing", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), `"code":"NOT_FOUND"`) {
+		t.Fatalf("expected JSON error contract, got %q", response.Body.String())
+	}
+}

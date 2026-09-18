@@ -11,8 +11,8 @@ out-tsc
 # dependencies
 node_modules
 .gocache/
-services/assemblyai-sidecar/bin/
-services/assemblyai-sidecar/tmp/
+services/askolo-backend/bin/
+services/askolo-backend/tmp/
 
 # IDEs and editors
 /.idea

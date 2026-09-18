@@ -13,11 +13,11 @@ const (
 )
 
 type Config struct {
-	ServiceName         string
-	Environment         string
-	Host                string
-	Port                int
-	InternalAuthToken   string
+	ServiceName       string
+	Environment       string
+	Host              string
+	Port              int
+	InternalAuthToken string
 }
 
 func Load() (Config, error) {
