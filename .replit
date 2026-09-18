@@ -92,7 +92,7 @@ BASE_PATH = "/__mockup"
 
 [[workflows.workflow]]
 name = "Project"
-mode = "parallel"
+mode = "sequential"
 author = "agent"
 
 [[workflows.workflow.tasks]]
