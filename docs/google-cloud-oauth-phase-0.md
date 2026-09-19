@@ -35,6 +35,28 @@ Stable hosts:
 - Production OAuth host: `web.askolo.app`
 - Staging OAuth host: `staging.askolo.app`
 
+## Recommended staging topology
+
+Use a separate Replit project and published deployment for staging.
+
+- Source: the same Git repository, using a staging branch or an explicit
+  version promoted from the main project
+- Domain: `staging.askolo.app`
+- Google Cloud project: `directed-craft-499422-n6`
+- OAuth credentials: staging-only login and integration clients
+- Database and storage: staging-only resources; never production data
+- Replit production secrets: staging values owned by the staging project
+- Access: limit to the team and Google OAuth test users until release
+
+Do not route `staging.askolo.app` to the current production deployment. Although
+the hostname currently responds over HTTPS, it is not listed as a domain on the
+current Askolo deployment. Attach it explicitly to the dedicated staging
+deployment before using it as an OAuth callback host.
+
+When configuring the custom domain, use the DNS records shown by Replit's
+Publishing domain setup. Verify the domain and TLS certificate before adding
+the callback URIs to Google Cloud.
+
 ## APIs to enable
 
 Enable these APIs in both projects:
@@ -159,6 +181,22 @@ Before deployment work begins, the Go service still needs:
 - A production-safe token encryption/key strategy
 - A stable staging hostname and routing path to the Go service
 - Health and readiness checks that do not expose configuration secrets
+
+## Staging deployment sequence
+
+1. Create a separate Replit project for Askolo staging from the same source
+   repository.
+2. Configure staging-only database, storage, session, Clerk/auth, and provider
+   secrets.
+3. Publish the staging project.
+4. Attach and verify `staging.askolo.app` in the staging project's Publishing
+   domain settings.
+5. Confirm `https://staging.askolo.app/healthz` or the final routed application
+   health endpoint is served by staging rather than production.
+6. Create the staging Google OAuth clients using the exact callbacks in this
+   document.
+7. Keep the staging Google consent screen in testing mode and add only explicit
+   test users.
 
 ## Phase 0 exit criteria
 
