@@ -27,8 +27,13 @@ Record these values outside source control:
 
 | Environment | Google Cloud project ID | Status |
 |---|---|---|
-| Production | `<PRODUCTION_PROJECT_ID>` | Needed |
-| Staging | `<STAGING_PROJECT_ID>` | Needed |
+| Production | `life-organizer-503015` | Provided |
+| Staging | `directed-craft-499422-n6` | Provided |
+
+Stable hosts:
+
+- Production OAuth host: `web.askolo.app`
+- Staging OAuth host: `staging.askolo.app`
 
 ## APIs to enable
 
@@ -47,11 +52,10 @@ Configure the Google Auth Platform consent screen in each project:
 - App name: `Askolo`
 - User support email: the Askolo support address
 - Developer contact email: the Askolo operational contact
-- Authorized domain:
-  - `web.askolo.app` for production
-  - the stable staging domain once selected
-- Privacy Policy URL: Askolo's published privacy-policy URL
-- Terms of Service URL: Askolo's published terms URL
+- Authorized domain: `askolo.app` (the registered root domain covers the
+  `web.askolo.app` and `staging.askolo.app` hosts)
+- Privacy Policy URL: `https://askolo.app/privacy`
+- Terms of Service URL: `https://askolo.app/terms`
 - Audience: External unless the product is intentionally restricted to one
   Google Workspace organization
 - Add only the release-1 scopes:
@@ -102,23 +106,23 @@ removed from the OAuth client after the Go cutover is verified.
 
 ### Staging login client
 
-Replace `<STAGING_HOST>` with the stable staging hostname, without a path:
+The stable staging hostname is `staging.askolo.app`:
 
 ```text
-https://<STAGING_HOST>/api/auth/google/callback
+https://staging.askolo.app/api/auth/google/callback
 ```
 
 ### Staging integration client
 
 ```text
-https://<STAGING_HOST>/api/integrations/google/callback
+https://staging.askolo.app/api/integrations/google/callback
 ```
 
 If the old TypeScript integration is exercised in staging during migration,
 also register:
 
 ```text
-https://<STAGING_HOST>/api/google/gmail/callback
+https://staging.askolo.app/api/google/gmail/callback
 ```
 
 Register each URI exactly. Do not use wildcard paths, unstable `*.replit.dev`
@@ -172,13 +176,11 @@ Before deployment work begins, the Go service still needs:
 
 ## User-controlled actions still required
 
-1. Provide the production and staging Google Cloud project IDs.
-2. Provide the stable staging hostname.
-3. Confirm the production OAuth host remains `web.askolo.app` rather than the
-   deployment's primary `askolo.app`.
-4. Confirm the published Privacy Policy and Terms URLs to place on the consent
-   screen.
-5. Create the four OAuth clients and add their IDs/secrets to the appropriate
+1. Create the four OAuth clients in the two provided projects and add their
+   IDs/secrets to the appropriate
    Replit environments when requested.
-6. Add the intended Google test accounts in each project's consent-screen
+2. Add the intended Google test accounts in each project's consent-screen
    audience configuration.
+
+The project IDs, staging hostname, production OAuth host, privacy URL, and
+terms URL have already been provided and recorded above.
