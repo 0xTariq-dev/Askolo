@@ -14,4 +14,5 @@
 - [Published static build freshness](published-static-build-freshness.md) — verify live asset hashes against the current build before diagnosing SEO or compression findings.
 - [Managed static artifact serving](artifact-static-serving.md) — production static serving is schema-managed; use supported cache/compression configuration rather than replacing it.
 - [Go toolchain path](go-toolchain-path.md) — use `go fmt ./...` because the managed Go wrapper may not expose standalone `gofmt`.
+- [Three-Repl release architecture](three-repl-release-architecture.md) — identify the active environment before acting; normal releases use main, while hotfixes start from the live production tag.
 
