@@ -4,8 +4,8 @@ import { db, gmailTokensTable } from "@workspace/db";
 import { logger } from "./logger";
 import type { Request } from "express";
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_INTEGRATION_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_INTEGRATION_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -16,7 +16,7 @@ const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 const GOOGLE_STATUS_TIMEOUT_MS = 3_000;
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
-const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 export { CALENDAR_SCOPE, GMAIL_SCOPE };
 export const GOOGLE_SCOPES = ["openid", "email", "profile", CALENDAR_SCOPE, GMAIL_SCOPE];
@@ -38,7 +38,9 @@ interface TokenResponse {
 
 function requireConfig() {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-    throw new Error("Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.");
+    throw new Error(
+      "Google integration OAuth is not configured. Set GOOGLE_INTEGRATION_CLIENT_ID and GOOGLE_INTEGRATION_CLIENT_SECRET.",
+    );
   }
   return { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET };
 }

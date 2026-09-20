@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/app"
 	"askolo/backend/internal/config"
 )
@@ -26,7 +27,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	backend := app.New(cfg, logger)
+	store, err := postgres.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("database initialization failed", "error", err)
+		os.Exit(1)
+	}
+	backend := app.New(cfg, logger, store)
 	if err := backend.Run(ctx); err != nil {
 		logger.Error("backend stopped unexpectedly", "error", err)
 		os.Exit(1)

@@ -57,8 +57,8 @@ export function consumeAuthRateLimit(req: Request): { allowed: boolean; retryAft
 }
 
 function requiredGoogleConfig() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = process.env.GOOGLE_LOGIN_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_LOGIN_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new Error("Google account authentication is not configured.");
   }

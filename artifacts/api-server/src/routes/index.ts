@@ -13,11 +13,15 @@ import dashboardRouter from './dashboard';
 import aiRouter from './ai';
 import googleRouter from './google';
 import userRouter from './user';
+import { googleGoProxy } from '../lib/googleGoProxy';
 
 const router: IRouter = Router();
 
 // Health is public — mount before requireAuth.
 router.use(healthRouter);
+// The Go Google implementation is opt-in through an environment-backed target.
+// If it is not configured, the legacy routes remain available for rollback.
+router.use(googleGoProxy);
 // Native OAuth entry points are public. Development continues to use Clerk.
 router.use(authRouter);
 

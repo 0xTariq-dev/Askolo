@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
+	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	googleoauth "askolo/backend/internal/modules/google"
 	"askolo/backend/internal/platform/apierror"
 	"askolo/backend/internal/platform/auth"
 	"askolo/backend/internal/platform/httpx"
@@ -14,7 +16,7 @@ import (
 	"askolo/backend/internal/transport/websocket"
 )
 
-func New(cfg config.Config, logger *slog.Logger) http.Handler {
+func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Handler {
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
 
@@ -48,6 +50,7 @@ func New(cfg config.Config, logger *slog.Logger) http.Handler {
 
 	webhookHandler := webhooks.New(logger, cfg.ServiceName)
 	mux.Handle("/webhooks/", webhookHandler)
+	mux.Handle("/api/", googleoauth.NewHandler(cfg, store, logger).Routes())
 	mux.HandleFunc("/", notFound)
 
 	return httpx.Middleware(logger, mux)

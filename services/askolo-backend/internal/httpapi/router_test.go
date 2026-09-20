@@ -21,7 +21,7 @@ func testConfig(token string) config.Config {
 }
 
 func TestHealthAndRequestID(t *testing.T) {
-	handler := New(testConfig("secret"), slog.Default())
+	handler := New(testConfig("secret"), slog.Default(), nil)
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	response := httptest.NewRecorder()
 
@@ -39,7 +39,7 @@ func TestHealthAndRequestID(t *testing.T) {
 }
 
 func TestInternalRestRequiresAndAcceptsServiceAuth(t *testing.T) {
-	handler := New(testConfig("secret"), slog.Default())
+	handler := New(testConfig("secret"), slog.Default(), nil)
 
 	unauthorizedRequest := httptest.NewRequest(http.MethodGet, "/internal/rest/v1/status", nil)
 	unauthorizedResponse := httptest.NewRecorder()
@@ -58,7 +58,7 @@ func TestInternalRestRequiresAndAcceptsServiceAuth(t *testing.T) {
 }
 
 func TestProtocolShellsAreExplicitlyUnconfigured(t *testing.T) {
-	handler := New(testConfig("secret"), slog.Default())
+	handler := New(testConfig("secret"), slog.Default(), nil)
 
 	for _, path := range []string{"/ws", "/webhooks/example"} {
 		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
@@ -74,7 +74,7 @@ func TestProtocolShellsAreExplicitlyUnconfigured(t *testing.T) {
 }
 
 func TestUnknownRoutesUseJSONErrorContract(t *testing.T) {
-	handler := New(testConfig("secret"), slog.Default())
+	handler := New(testConfig("secret"), slog.Default(), nil)
 	request := httptest.NewRequest(http.MethodGet, "/missing", nil)
 	response := httptest.NewRecorder()
 
