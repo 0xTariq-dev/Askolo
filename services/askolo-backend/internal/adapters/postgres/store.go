@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 
 var ErrNotFound = errors.New("record not found")
 var ErrOwnership = errors.New("record does not belong to user")
+var ErrEmailExists = errors.New("email already belongs to an account")
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -47,6 +50,27 @@ type ProviderCredentials struct {
 type ProviderDefault struct {
 	Service      string
 	ConnectionID string
+}
+
+type User struct {
+	ID                string
+	Email             string
+	FirstName         string
+	LastName          string
+	ProfileImageURL   string
+	Status            string
+	EmailVerifiedAt   *time.Time
+	AccountCreatedVia string
+}
+
+type ProviderIdentity struct {
+	ID              string
+	UserID          string
+	Provider        string
+	ExternalSubject string
+	Email           string
+	LoginEnabled    bool
+	EmailVerified   bool
 }
 
 func New(ctx context.Context, databaseURL string) (*Store, error) {
@@ -134,7 +158,7 @@ func (s *Store) UpsertUser(ctx context.Context, email, firstName, lastName, imag
 	return userID, err
 }
 
-func (s *Store) CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error) {
+func (s *Store) CreateSession(ctx context.Context, userID, provider string, ttl time.Duration) (string, error) {
 	if s == nil {
 		return "", errors.New("database is not configured")
 	}
@@ -144,7 +168,7 @@ func (s *Store) CreateSession(ctx context.Context, userID string, ttl time.Durat
 	}
 	payload, err := json.Marshal(map[string]any{
 		"userId":    userID,
-		"provider":  "google",
+		"provider":  provider,
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {
@@ -152,7 +176,7 @@ func (s *Store) CreateSession(ctx context.Context, userID string, ttl time.Durat
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO sessions (sid, sess, expire) VALUES ($1, $2::jsonb, $3)
-	`, sessionID, payload, time.Now().Add(ttl))
+	`, sessionStorageKey(sessionID), payload, time.Now().Add(ttl))
 	if err != nil {
 		return "", err
 	}
@@ -165,7 +189,13 @@ func (s *Store) SessionUserID(ctx context.Context, sessionID string) (string, er
 	}
 	var payload []byte
 	var expiresAt time.Time
-	err := s.pool.QueryRow(ctx, `SELECT sess, expire FROM sessions WHERE sid = $1`, sessionID).
+	storageKey := sessionStorageKey(sessionID)
+	err := s.pool.QueryRow(ctx, `
+		SELECT sess, expire
+		FROM sessions
+		WHERE sid = $1 OR sid = $2
+		LIMIT 1
+	`, storageKey, sessionID).
 		Scan(&payload, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
@@ -174,7 +204,7 @@ func (s *Store) SessionUserID(ctx context.Context, sessionID string) (string, er
 		return "", err
 	}
 	if expiresAt.Before(time.Now()) {
-		_, _ = s.pool.Exec(ctx, `DELETE FROM sessions WHERE sid = $1`, sessionID)
+		_, _ = s.pool.Exec(ctx, `DELETE FROM sessions WHERE sid = $1 OR sid = $2`, storageKey, sessionID)
 		return "", ErrNotFound
 	}
 	var session struct {
@@ -190,8 +220,252 @@ func (s *Store) DeleteSession(ctx context.Context, sessionID string) error {
 	if s == nil || sessionID == "" {
 		return nil
 	}
-	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE sid = $1`, sessionID)
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE sid = $1 OR sid = $2`, sessionStorageKey(sessionID), sessionID)
 	return err
+}
+
+func sessionStorageKey(sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) GetUser(ctx context.Context, userID string) (User, error) {
+	if s == nil {
+		return User{}, errors.New("database is not configured")
+	}
+	var user User
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, COALESCE(email, ''), COALESCE(first_name, ''), COALESCE(last_name, ''),
+		       COALESCE(profile_image_url, ''), COALESCE(status, 'active'),
+		       email_verified_at, COALESCE(account_created_via, '')
+		FROM users
+		WHERE id = $1
+	`, userID).Scan(
+		&user.ID, &user.Email, &user.FirstName, &user.LastName,
+		&user.ProfileImageURL, &user.Status, &user.EmailVerifiedAt, &user.AccountCreatedVia,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	return user, err
+}
+
+func (s *Store) FindUserByEmail(ctx context.Context, email string) (User, error) {
+	if s == nil {
+		return User{}, errors.New("database is not configured")
+	}
+	var user User
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, COALESCE(email, ''), COALESCE(first_name, ''), COALESCE(last_name, ''),
+		       COALESCE(profile_image_url, ''), COALESCE(status, 'active'),
+		       email_verified_at, COALESCE(account_created_via, '')
+		FROM users
+		WHERE lower(email) = lower($1)
+	`, strings.TrimSpace(email)).Scan(
+		&user.ID, &user.Email, &user.FirstName, &user.LastName,
+		&user.ProfileImageURL, &user.Status, &user.EmailVerifiedAt, &user.AccountCreatedVia,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	return user, err
+}
+
+func (s *Store) FindProviderIdentity(ctx context.Context, provider, externalSubject string) (ProviderIdentity, error) {
+	if s == nil {
+		return ProviderIdentity{}, errors.New("database is not configured")
+	}
+	var identity ProviderIdentity
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, user_id, provider, external_subject, COALESCE(email, ''),
+		       login_enabled, email_verified
+		FROM provider_accounts
+		WHERE provider = $1 AND external_subject = $2
+	`, provider, externalSubject).Scan(
+		&identity.ID, &identity.UserID, &identity.Provider, &identity.ExternalSubject,
+		&identity.Email, &identity.LoginEnabled, &identity.EmailVerified,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProviderIdentity{}, ErrNotFound
+	}
+	return identity, err
+}
+
+func (s *Store) CreatePasswordUser(ctx context.Context, email, passwordHash string) (string, error) {
+	if s == nil {
+		return "", errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var existingID string
+	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE lower(email) = lower($1)`, email).Scan(&existingID)
+	if err == nil {
+		return "", ErrEmailExists
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	userID, err := id.New()
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO users (id, email, status, account_created_via)
+		VALUES ($1, $2, 'pending_email_verification', 'password')
+	`, userID, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO auth_passwords (user_id, password_hash, hash_version)
+		VALUES ($1, $2, 'argon2id-v1')
+	`, userID, passwordHash)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return userID, nil
+}
+
+func (s *Store) SetPassword(ctx context.Context, userID, passwordHash string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO auth_passwords (user_id, password_hash, hash_version)
+		VALUES ($1, $2, 'argon2id-v1')
+		ON CONFLICT (user_id) DO UPDATE SET
+			password_hash = EXCLUDED.password_hash,
+			hash_version = EXCLUDED.hash_version,
+			updated_at = NOW()
+	`, userID, passwordHash)
+	return err
+}
+
+func (s *Store) PasswordHash(ctx context.Context, userID string) (string, error) {
+	if s == nil {
+		return "", errors.New("database is not configured")
+	}
+	var passwordHash string
+	err := s.pool.QueryRow(ctx, `
+		SELECT password_hash FROM auth_passwords WHERE user_id = $1
+	`, userID).Scan(&passwordHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return passwordHash, err
+}
+
+func (s *Store) CreateProviderSignupUser(
+	ctx context.Context,
+	provider, externalSubject, email, firstName, lastName, imageURL string,
+) (string, error) {
+	if s == nil {
+		return "", errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var existingID string
+	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE lower(email) = lower($1)`, email).Scan(&existingID)
+	if err == nil {
+		return "", ErrEmailExists
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+
+	userID, err := id.New()
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO users
+			(id, email, first_name, last_name, profile_image_url, status, email_verified_at, account_created_via)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''),
+		        'pending_provider_onboarding', NOW(), $6)
+	`, userID, strings.ToLower(strings.TrimSpace(email)), firstName, lastName, imageURL, provider)
+	if err != nil {
+		return "", err
+	}
+	accountID, err := id.New()
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO provider_accounts
+			(id, user_id, provider, external_subject, email, display_name, avatar_url,
+			 login_enabled, email_verified, linked_at)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''),
+		        TRUE, TRUE, NOW())
+	`, accountID, userID, provider, externalSubject, email,
+		strings.TrimSpace(strings.TrimSpace(firstName)+" "+strings.TrimSpace(lastName)), imageURL)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return userID, nil
+}
+
+func (s *Store) LinkProviderIdentity(
+	ctx context.Context,
+	userID, provider, externalSubject, email, displayName, imageURL string,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var existingUserID string
+	err = tx.QueryRow(ctx, `
+		SELECT user_id FROM provider_accounts
+		WHERE provider = $1 AND external_subject = $2
+		FOR UPDATE
+	`, provider, externalSubject).Scan(&existingUserID)
+	if err == nil {
+		if existingUserID != userID {
+			return ErrOwnership
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE provider_accounts
+			SET email = NULLIF($3, ''), display_name = NULLIF($4, ''),
+			    avatar_url = NULLIF($5, ''), login_enabled = TRUE,
+			    email_verified = TRUE, linked_at = COALESCE(linked_at, NOW()),
+			    updated_at = NOW()
+			WHERE provider = $1 AND external_subject = $2 AND user_id = $6
+		`, provider, externalSubject, email, displayName, imageURL, userID)
+	} else if errors.Is(err, pgx.ErrNoRows) {
+		accountID, idErr := id.New()
+		if idErr != nil {
+			return idErr
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO provider_accounts
+				(id, user_id, provider, external_subject, email, display_name, avatar_url,
+				 login_enabled, email_verified, linked_at)
+			VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''),
+			        TRUE, TRUE, NOW())
+		`, accountID, userID, provider, externalSubject, email, displayName, imageURL)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) UpsertGoogleConnection(

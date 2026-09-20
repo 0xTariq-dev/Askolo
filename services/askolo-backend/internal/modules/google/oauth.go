@@ -48,6 +48,7 @@ type statePayload struct {
 	CodeVerifier string `json:"codeVerifier"`
 	ReturnTo     string `json:"returnTo"`
 	Flow         string `json:"flow"`
+	Intent       string `json:"intent,omitempty"`
 	UserID       string `json:"userId,omitempty"`
 	IssuedAt     int64  `json:"issuedAt"`
 }
@@ -97,6 +98,8 @@ func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/auth/google", h.startLogin)
 	mux.HandleFunc("GET /api/auth/google/callback", h.finishLogin)
+	mux.HandleFunc("GET /api/auth/google/link", h.startLink)
+	mux.HandleFunc("GET /api/auth/google/link/callback", h.finishLink)
 	mux.HandleFunc("GET /api/integrations/google", h.startIntegration)
 	mux.HandleFunc("GET /api/integrations/google/callback", h.finishIntegration)
 	mux.HandleFunc("GET /api/integrations/google/status", h.status)
@@ -116,7 +119,11 @@ func (h *Handler) Routes() http.Handler {
 }
 
 func (h *Handler) startLogin(w http.ResponseWriter, r *http.Request) {
-	h.start(w, r, "login")
+	intent := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("intent")))
+	if intent != "signup" {
+		intent = "signin"
+	}
+	h.startWithUser(w, r, "login", "", intent)
 }
 
 func (h *Handler) startIntegration(w http.ResponseWriter, r *http.Request) {
@@ -125,14 +132,19 @@ func (h *Handler) startIntegration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before connecting a Google account.")
 		return
 	}
-	h.startWithUser(w, r, "integration", userID)
+	h.startWithUser(w, r, "integration", userID, "")
 }
 
-func (h *Handler) start(w http.ResponseWriter, r *http.Request, flow string) {
-	h.startWithUser(w, r, flow, "")
+func (h *Handler) startLink(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before linking a Google account.")
+		return
+	}
+	h.startWithUser(w, r, "link", userID, "link")
 }
 
-func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, userID string) {
+func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, userID, intent string) {
 	if !h.limiter.allow(clientKey(r), 20, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many Google authorization attempts.")
@@ -145,7 +157,7 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 	}
 	returnTo := safeReturnTo(r.URL.Query().Get("returnTo"))
 	scopes, err := requestedScopes(r.URL.Query().Get("scope"))
-	if flow == "login" {
+	if flow == "login" || flow == "link" {
 		scopes = []string{scopeOpenID, scopeEmail, scopeProfile}
 	}
 	if err != nil {
@@ -176,6 +188,7 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 		CodeVerifier: verifier,
 		ReturnTo:     returnTo,
 		Flow:         flow,
+		Intent:       intent,
 		UserID:       userID,
 		IssuedAt:     time.Now().Unix(),
 	}
@@ -225,12 +238,16 @@ func (h *Handler) finishLogin(w http.ResponseWriter, r *http.Request) {
 	h.finish(w, r, "login")
 }
 
+func (h *Handler) finishLink(w http.ResponseWriter, r *http.Request) {
+	h.finish(w, r, "link")
+}
+
 func (h *Handler) finishIntegration(w http.ResponseWriter, r *http.Request) {
 	h.finish(w, r, "integration")
 }
 
 func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
-	clearOAuthCookie(w)
+	clearOAuthCookie(w, r)
 	if !h.limiter.allow(clientKey(r), 20, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many Google authorization attempts.")
@@ -288,7 +305,11 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 		return
 	}
 	if flow == "login" {
-		h.finishLoginUser(w, r, returnTo, info)
+		h.finishLoginUser(w, r, returnTo, info, payload.Intent)
+		return
+	}
+	if flow == "link" {
+		h.finishLinkUser(w, r, returnTo, info, payload.UserID)
 		return
 	}
 	if userID == "" {
@@ -314,7 +335,25 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 	redirectStatus(w, r, returnTo, "connected")
 }
 
-func (h *Handler) finishLoginUser(w http.ResponseWriter, r *http.Request, returnTo string, info userInfo) {
+func (h *Handler) finishLoginUser(w http.ResponseWriter, r *http.Request, returnTo string, info userInfo, intent string) {
+	identity, err := h.store.FindProviderIdentity(r.Context(), "google", info.Subject)
+	if err == nil {
+		if !identity.LoginEnabled {
+			redirectStatus(w, r, returnTo, "provider_not_linked")
+			return
+		}
+		h.createLoginSession(w, r, returnTo, identity.UserID)
+		return
+	}
+	if !errors.Is(err, postgres.ErrNotFound) {
+		h.logger.Error("Google identity lookup failed", "error", err)
+		redirectStatus(w, r, returnTo, "error")
+		return
+	}
+	if intent != "signup" {
+		redirectStatus(w, r, returnTo, "provider_not_linked")
+		return
+	}
 	if !info.EmailVerified {
 		redirectStatus(w, r, returnTo, "error")
 		return
@@ -324,13 +363,23 @@ func (h *Handler) finishLoginUser(w http.ResponseWriter, r *http.Request, return
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
-	userID, err := h.store.UpsertUser(r.Context(), email, info.GivenName, info.FamilyName, info.Picture)
+	userID, err := h.store.CreateProviderSignupUser(
+		r.Context(), "google", info.Subject, email, info.GivenName, info.FamilyName, info.Picture,
+	)
+	if errors.Is(err, postgres.ErrEmailExists) {
+		redirectStatus(w, r, returnTo, "provider_not_linked")
+		return
+	}
 	if err != nil {
 		h.logger.Error("Google user persistence failed", "error", err)
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
-	sessionID, err := h.store.CreateSession(r.Context(), userID, sessionTTL)
+	h.createLoginSession(w, r, returnTo, userID)
+}
+
+func (h *Handler) createLoginSession(w http.ResponseWriter, r *http.Request, returnTo, userID string) {
+	sessionID, err := h.store.CreateSession(r.Context(), userID, "google", sessionTTL)
 	if err != nil {
 		h.logger.Error("Google session persistence failed", "user_id", userID, "error", err)
 		redirectStatus(w, r, returnTo, "error")
@@ -341,11 +390,33 @@ func (h *Handler) finishLoginUser(w http.ResponseWriter, r *http.Request, return
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
 	redirectStatus(w, r, returnTo, "success")
+}
+
+func (h *Handler) finishLinkUser(w http.ResponseWriter, r *http.Request, returnTo string, info userInfo, userID string) {
+	if userID == "" {
+		userID, _ = h.sessionUserID(r)
+	}
+	if userID == "" {
+		redirectStatus(w, r, returnTo, "error")
+		return
+	}
+	if err := h.store.LinkProviderIdentity(
+		r.Context(), userID, "google", info.Subject, info.Email, displayName(info), info.Picture,
+	); err != nil {
+		if errors.Is(err, postgres.ErrOwnership) {
+			redirectStatus(w, r, returnTo, "provider_not_linked")
+			return
+		}
+		h.logger.Error("Google identity linking failed", "user_id", userID, "error", err)
+		redirectStatus(w, r, returnTo, "error")
+		return
+	}
+	redirectStatus(w, r, returnTo, "linked")
 }
 
 func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
@@ -588,7 +659,7 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 }
 
 func (h *Handler) clientID(flow string) (string, error) {
-	if flow == "login" && h.cfg.Google.LoginClientID != "" {
+	if (flow == "login" || flow == "link") && h.cfg.Google.LoginClientID != "" {
 		return h.cfg.Google.LoginClientID, nil
 	}
 	if flow == "integration" && h.cfg.Google.IntegrationClientID != "" {
@@ -598,7 +669,7 @@ func (h *Handler) clientID(flow string) (string, error) {
 }
 
 func (h *Handler) clientSecret(flow string) (string, error) {
-	if flow == "login" && h.cfg.Google.LoginClientSecret != "" {
+	if (flow == "login" || flow == "link") && h.cfg.Google.LoginClientSecret != "" {
 		return h.cfg.Google.LoginClientSecret, nil
 	}
 	if flow == "integration" && h.cfg.Google.IntegrationSecret != "" {
@@ -753,6 +824,9 @@ func (h *Handler) revokeToken(ctx context.Context, token string) {
 func callbackPath(flow string) string {
 	if flow == "login" {
 		return "/api/auth/google/callback"
+	}
+	if flow == "link" {
+		return "/api/auth/google/link/callback"
 	}
 	return "/api/integrations/google/callback"
 }
@@ -916,8 +990,16 @@ func (l *rateLimiter) allow(key string, max int, window time.Duration) bool {
 	return true
 }
 
-func clearOAuthCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: stateCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+func clearOAuthCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: stateCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: cookieSecure(r), SameSite: http.SameSiteLaxMode})
+}
+
+func cookieSecure(r *http.Request) bool {
+	host := firstHeader(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = r.Host
+	}
+	return !strings.HasPrefix(host, "localhost") && !strings.HasPrefix(host, "127.0.0.1")
 }
 
 func redirectStatus(w http.ResponseWriter, r *http.Request, returnTo, status string) {

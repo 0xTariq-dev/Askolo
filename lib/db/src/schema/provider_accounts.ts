@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { boolean, index, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,6 +12,9 @@ export const providerAccountsTable = pgTable(
     email: text("email"),
     displayName: text("display_name"),
     avatarUrl: text("avatar_url"),
+    loginEnabled: boolean("login_enabled").notNull().default(false),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    linkedAt: timestamp("linked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

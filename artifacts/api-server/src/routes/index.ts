@@ -19,13 +19,13 @@ const router: IRouter = Router();
 
 // Health is public — mount before requireAuth.
 router.use(healthRouter);
-// The Go Google implementation is opt-in through an environment-backed target.
-// If it is not configured, the legacy routes remain available for rollback.
+// Go owns authentication and provider integrations. The TypeScript server only
+// forwards those routes when the Go service is configured.
 router.use(googleGoProxy);
-// Native OAuth entry points are public. Development continues to use Clerk.
+// Session inspection/logout remain as a temporary compatibility adapter.
 router.use(authRouter);
 
-// All feature routes require a valid Clerk session + a local user row.
+// All feature routes require a Go-owned native session + a local user row.
 router.use(requireAuth);
 router.use(habitsRouter);
 router.use(goalsRouter);

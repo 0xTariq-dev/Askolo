@@ -1,12 +1,10 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from '@/components/ui/toaster';
-import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
 import { Loader2 } from 'lucide-react';
+import { Toaster } from '@/components/ui/toaster';
 
 import {
-  isAppProductionHost,
   isPublicProductionHost,
   toAppUrl,
   toPublicUrl,
@@ -30,7 +28,6 @@ import {
   TermsPage,
 } from '@/routes/lazy-pages';
 
-const ClerkRoutes = lazy(() => import('@/routes/clerk-routes'));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -118,17 +115,15 @@ function NativeAuthWithRoutes() {
   return (
     <NativeAuthProvider>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Suspense fallback={<RouteLoadingState />}>
-            <Switch>
-              <Route path="/" component={() => <ExternalRedirect href={toPublicUrl('/')} />} />
-              <Route path="/privacy" component={() => <ExternalRedirect href={toPublicUrl('/privacy')} />} />
-              <Route path="/terms" component={() => <ExternalRedirect href={toPublicUrl('/terms')} />} />
-              <Route component={NativeProtectedRoutes} />
-            </Switch>
-          </Suspense>
-          <Toaster />
-        </TooltipProvider>
+        <Suspense fallback={<RouteLoadingState />}>
+          <Switch>
+            <Route path="/" component={() => <ExternalRedirect href={toPublicUrl('/')} />} />
+            <Route path="/privacy" component={() => <ExternalRedirect href={toPublicUrl('/privacy')} />} />
+            <Route path="/terms" component={() => <ExternalRedirect href={toPublicUrl('/terms')} />} />
+            <Route component={NativeProtectedRoutes} />
+          </Switch>
+        </Suspense>
+        <Toaster />
       </QueryClientProvider>
     </NativeAuthProvider>
   );
@@ -139,12 +134,8 @@ function App() {
     <WouterRouter base={basePath}>
       {isPublicProductionHost() ? (
         <PublicSiteRoutes />
-      ) : isAppProductionHost() ? (
-        <NativeAuthWithRoutes />
       ) : (
-        <Suspense fallback={<RouteLoadingState />}>
-          <ClerkRoutes queryClient={queryClient} />
-        </Suspense>
+        <NativeAuthWithRoutes />
       )}
     </WouterRouter>
   );

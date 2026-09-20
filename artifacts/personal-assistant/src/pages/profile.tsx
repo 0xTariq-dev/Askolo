@@ -131,8 +131,8 @@ export function ProfilePage() {
     if (!file) return;
     setUploadingPhoto(true);
     try {
-      if (authProvider !== 'clerk') {
-        toast({ title: 'Profile photo editing is not available for Google accounts yet' });
+      if (authProvider !== 'password') {
+        toast({ title: 'Profile photo editing is not available for native provider accounts yet' });
         return;
       }
       await updateProfileImage(file);
@@ -146,13 +146,9 @@ export function ProfilePage() {
   };
 
   const changePassword = async () => {
-    if (!newPassword || !currentPassword) return;
+    if (!newPassword || (authProvider === 'password' && !currentPassword)) return;
     setChangingPassword(true);
     try {
-      if (authProvider !== 'clerk') {
-        toast({ title: 'Password changes are managed by Google for this account' });
-        return;
-      }
       await updatePassword(currentPassword, newPassword);
       setPasswordFormOpen(false);
       setCurrentPassword('');
@@ -245,7 +241,7 @@ export function ProfilePage() {
               </Avatar>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingPhoto || authProvider !== 'clerk'}
+                disabled={uploadingPhoto || authProvider !== 'password'}
                 className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow hover:bg-primary/90 transition-colors"
                 aria-label="Change photo"
               >
@@ -265,7 +261,7 @@ export function ProfilePage() {
               type="file"
               accept="image/*"
               className="hidden"
-              disabled={authProvider !== 'clerk'}
+              disabled={authProvider !== 'password'}
               onChange={handlePhotoChange}
             />
           </div>
@@ -300,7 +296,7 @@ export function ProfilePage() {
           )}
 
           {/* Password */}
-          {authProvider === 'clerk' && (
+          {authProvider && (
             <div className="border-t border-border pt-4">
             <div className="flex items-center gap-2 mb-3">
               <Key className="h-4 w-4 text-muted-foreground" />
@@ -309,7 +305,7 @@ export function ProfilePage() {
             {passwordFormOpen ? (
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <Label>Current password</Label>
+                  <Label>{authProvider === 'password' ? 'Current password' : 'Current password (optional)'}</Label>
                   <Input
                     type="password"
                     value={currentPassword}
@@ -327,7 +323,7 @@ export function ProfilePage() {
                   />
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={changePassword} disabled={changingPassword || !currentPassword || !newPassword}>
+                  <Button size="sm" onClick={changePassword} disabled={changingPassword || !newPassword || (authProvider === 'password' && !currentPassword)}>
                     {changingPassword && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
                     Change password
                   </Button>

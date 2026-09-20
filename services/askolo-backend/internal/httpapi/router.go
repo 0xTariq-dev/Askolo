@@ -7,6 +7,8 @@ import (
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	authmodule "askolo/backend/internal/modules/auth"
+	githuboauth "askolo/backend/internal/modules/github"
 	googleoauth "askolo/backend/internal/modules/google"
 	"askolo/backend/internal/platform/apierror"
 	"askolo/backend/internal/platform/auth"
@@ -50,7 +52,13 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 
 	webhookHandler := webhooks.New(logger, cfg.ServiceName)
 	mux.Handle("/webhooks/", webhookHandler)
-	mux.Handle("/api/", googleoauth.NewHandler(cfg, store, logger).Routes())
+	apiMux := http.NewServeMux()
+	apiMux.Handle("/api/auth/", authmodule.NewHandler(cfg, store, logger).Routes())
+	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
+	apiMux.Handle("/api/auth/github", githubRoutes)
+	apiMux.Handle("/api/auth/github/", githubRoutes)
+	apiMux.Handle("/api/", googleoauth.NewHandler(cfg, store, logger).Routes())
+	mux.Handle("/api/", apiMux)
 	mux.HandleFunc("/", notFound)
 
 	return httpx.Middleware(logger, mux)

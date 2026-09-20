@@ -12,8 +12,6 @@
     "test:voice-consent": "esbuild src/lib/voice-consent.test.ts --bundle --platform=node --format=cjs --outfile=/tmp/askolo-voice-consent.test.cjs && node --test /tmp/askolo-voice-consent.test.cjs"
   },
   "dependencies": {
-    "@clerk/express": "^2.1.43",
-    "@clerk/shared": "^4.25.5",
     "@replit/connectors-sdk": "^0.4.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",

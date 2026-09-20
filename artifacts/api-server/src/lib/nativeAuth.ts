@@ -24,7 +24,7 @@ type GoogleOAuthState = {
 
 export type NativeSession = {
   userId: string;
-  provider: "google";
+  provider: "google" | "github" | "password";
   createdAt: string;
 };
 
@@ -89,6 +89,10 @@ export function getSafeReturnTo(value: unknown): string {
 
 function base64Url(value: Buffer): string {
   return value.toString("base64url");
+}
+
+function sessionStorageKey(sessionId: string): string {
+  return createHash("sha256").update(sessionId).digest("hex");
 }
 
 export function createPkcePair() {
@@ -172,7 +176,7 @@ export async function createNativeSession(userId: string): Promise<string> {
     createdAt: new Date().toISOString(),
   };
   await db.insert(sessionsTable).values({
-    sid,
+    sid: sessionStorageKey(sid),
     sess: session,
     expire: new Date(Date.now() + NATIVE_SESSION_TTL_MS),
   });
@@ -184,19 +188,32 @@ export async function getNativeSession(sid: string | undefined): Promise<NativeS
   const [row] = await db
     .select()
     .from(sessionsTable)
-    .where(eq(sessionsTable.sid, sid))
+    .where(eq(sessionsTable.sid, sessionStorageKey(sid)))
     .limit(1);
   if (!row || row.expire <= new Date()) {
-    if (row) await db.delete(sessionsTable).where(eq(sessionsTable.sid, sid));
+    if (row) {
+      await db
+        .delete(sessionsTable)
+        .where(eq(sessionsTable.sid, sessionStorageKey(sid)));
+    }
     return null;
   }
   const session = row.sess as Partial<NativeSession>;
-  if (session.provider !== "google" || typeof session.userId !== "string") return null;
+  if (
+    !["google", "github", "password"].includes(String(session.provider)) ||
+    typeof session.userId !== "string"
+  ) {
+    return null;
+  }
   return session as NativeSession;
 }
 
 export async function deleteNativeSession(sid: string | undefined) {
-  if (sid) await db.delete(sessionsTable).where(eq(sessionsTable.sid, sid));
+  if (sid) {
+    await db
+      .delete(sessionsTable)
+      .where(eq(sessionsTable.sid, sessionStorageKey(sid)));
+  }
 }
 
 export async function findOrCreateGoogleUser(info: GoogleUserInfo) {

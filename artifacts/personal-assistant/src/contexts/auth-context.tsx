@@ -11,6 +11,8 @@ export type AppUser = {
   lastName: string | null;
   profileImageUrl: string | null;
   imageUrl?: string;
+  authProvider?: 'google' | 'github' | 'password';
+  status?: string;
 };
 
 type SignOutOptions = { redirectUrl?: string };
@@ -19,7 +21,7 @@ type AppAuthValue = {
   user: AppUser | null;
   isLoaded: boolean;
   isSignedIn: boolean;
-  authProvider: 'clerk' | 'google' | null;
+  authProvider: 'google' | 'github' | 'password' | null;
   signOut: (options?: SignOutOptions) => Promise<void>;
   updateProfile: (profile: { firstName: string; lastName: string }) => Promise<void>;
   updateProfileImage: (file: File) => Promise<void>;
@@ -65,7 +67,7 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoaded,
       isSignedIn: Boolean(user),
-      authProvider: user ? 'google' : null,
+      authProvider: user?.authProvider ?? null,
       signOut: async (options) => {
         await fetch(`${basePath}/api/auth/logout`, {
           method: 'POST',
@@ -87,8 +89,17 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
       updateProfileImage: async () => {
         throw new Error('Native profile photo editing is not available');
       },
-      updatePassword: async () => {
-        throw new Error('Google manages this account password');
+      updatePassword: async (currentPassword, newPassword) => {
+        const response = await fetch(`${basePath}/api/auth/password/set`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, password: newPassword }),
+        });
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(payload?.error || 'Password update failed');
+        }
       },
     }),
     [isLoaded, user],

@@ -18,3 +18,4 @@ export * from "./provider_credentials";
 export * from "./provider_defaults";
 export * from "./provider_sync_state";
 export * from "./google_oauth_states";
+export * from "./security_auth";

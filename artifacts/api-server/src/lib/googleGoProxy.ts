@@ -8,14 +8,23 @@ const proxyTimeoutMs = 20_000;
 
 const GOOGLE_PATHS = [
   /^\/auth\/google(?:\/callback)?$/,
+  /^\/auth\/google\/link(?:\/callback)?$/,
+  /^\/auth\/github(?:\/callback)?$/,
+  /^\/auth\/github\/link(?:\/callback)?$/,
   /^\/integrations\/google(?:\/callback|\/status|\/accounts)?$/,
   /^\/integrations\/google\/[A-Za-z0-9._@-]+$/,
   /^\/integrations\/google\/calendar\/(?:calendars|events)(?:\/[A-Za-z0-9._@-]+)?$/,
   /^\/integrations\/google\/gmail\/send$/,
 ];
 
+const AUTH_PATHS = [
+  /^\/auth\/(?:user|session|logout)$/,
+  /^\/auth\/password\/(?:login|set|signup)$/,
+];
+
 function isGoogleGoPath(path: string): boolean {
-  return GOOGLE_PATHS.some((pattern) => pattern.test(path));
+  return GOOGLE_PATHS.some((pattern) => pattern.test(path)) ||
+    AUTH_PATHS.some((pattern) => pattern.test(path));
 }
 
 function relativeAPIPath(req: Request): string {

@@ -15,4 +15,5 @@
 - [Managed static artifact serving](artifact-static-serving.md) — production static serving is schema-managed; use supported cache/compression configuration rather than replacing it.
 - [Go toolchain path](go-toolchain-path.md) — use `go fmt ./...` because the managed Go wrapper may not expose standalone `gofmt`.
 - [Three-Repl release architecture](three-repl-release-architecture.md) — identify the active environment before acting; normal releases use main, while hotfixes start from the live production tag.
+- [Development schema application](dev-schema-apply.md) — Drizzle migration behavior can differ locally; verify auth tables after the project’s development schema flow.
 

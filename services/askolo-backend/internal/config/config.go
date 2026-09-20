@@ -24,6 +24,7 @@ type Config struct {
 	DatabaseURL       string
 	SessionSecret     string
 	Google            GoogleOAuthConfig
+	GitHub            GitHubOAuthConfig
 	AllowedOAuthHosts map[string]struct{}
 }
 
@@ -37,6 +38,15 @@ type GoogleOAuthConfig struct {
 	TokenURL            string
 	UserInfoURL         string
 	RevokeURL           string
+}
+
+type GitHubOAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	AuthURL      string
+	TokenURL     string
+	UserURL      string
+	EmailsURL    string
 }
 
 func Load() (Config, error) {
@@ -82,6 +92,14 @@ func Load() (Config, error) {
 			TokenURL:            "https://oauth2.googleapis.com/token",
 			UserInfoURL:         "https://openidconnect.googleapis.com/v1/userinfo",
 			RevokeURL:           "https://oauth2.googleapis.com/revoke",
+		},
+		GitHub: GitHubOAuthConfig{
+			ClientID:     strings.TrimSpace(os.Getenv("GITHUB_LOGIN_CLIENT_ID")),
+			ClientSecret: strings.TrimSpace(os.Getenv("GITHUB_LOGIN_CLIENT_SECRET")),
+			AuthURL:      "https://github.com/login/oauth/authorize",
+			TokenURL:     "https://github.com/login/oauth/access_token",
+			UserURL:      "https://api.github.com/user",
+			EmailsURL:    "https://api.github.com/user/emails",
 		},
 		AllowedOAuthHosts: oauthHosts(environment),
 	}, nil
