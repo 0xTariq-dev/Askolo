@@ -89,6 +89,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	sessionSecret := strings.TrimSpace(os.Getenv("SESSION_SECRET"))
+	internalAuthToken := strings.TrimSpace(os.Getenv("ASKOLO_INTERNAL_TOKEN"))
+	if internalAuthToken == "" && environment != "production" && sessionSecret != "" {
+		derived := sha256.Sum256([]byte("askolo-internal-auth:" + sessionSecret))
+		internalAuthToken = hex.EncodeToString(derived[:])
+	}
 	totpEncryptionKey, err := loadEncryptionKey(os.Getenv("AUTH_TOTP_ENCRYPTION_KEY"))
 	if err != nil {
 		return Config{}, err
@@ -107,7 +112,7 @@ func Load() (Config, error) {
 		Environment:       environment,
 		Host:              host,
 		Port:              port,
-		InternalAuthToken: strings.TrimSpace(os.Getenv("ASKOLO_INTERNAL_TOKEN")),
+		InternalAuthToken: internalAuthToken,
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		SessionSecret:     sessionSecret,
 		TOTPEncryptionKey: totpEncryptionKey,

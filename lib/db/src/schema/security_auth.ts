@@ -1,4 +1,5 @@
-import { index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const authPasswordsTable = pgTable("auth_passwords", {
   userId: text("user_id").primaryKey(),
@@ -85,5 +86,69 @@ export const authSecurityEventsTable = pgTable(
   (table) => [
     index("auth_security_events_user_created_idx").on(table.userId, table.createdAt),
     index("auth_security_events_type_created_idx").on(table.eventType, table.createdAt),
+  ],
+);
+
+export const workspacesTable = pgTable(
+  "workspaces",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    status: text("status").notNull().default("active"),
+    isPersonal: boolean("is_personal").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("workspaces_owner_user_id_idx").on(table.ownerUserId),
+    index("workspaces_status_idx").on(table.status),
+    uniqueIndex("workspaces_personal_owner_unique")
+      .on(table.ownerUserId)
+      .where(sql`${table.isPersonal} = true`),
+  ],
+);
+
+export const workspaceMembershipsTable = pgTable(
+  "workspace_memberships",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    status: text("status").notNull().default("active"),
+    role: text("role").notNull().default("member"),
+    permissions: text("permissions").array().notNull().default([]),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("workspace_memberships_workspace_user_unique").on(table.workspaceId, table.userId),
+    index("workspace_memberships_user_id_idx").on(table.userId),
+    index("workspace_memberships_workspace_id_idx").on(table.workspaceId),
+    index("workspace_memberships_status_idx").on(table.status),
+  ],
+);
+
+export const authorizationResourcesTable = pgTable(
+  "authorization_resources",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("authorization_resources_scope_unique").on(
+      table.workspaceId,
+      table.resourceType,
+      table.resourceId,
+    ),
+    index("authorization_resources_workspace_idx").on(table.workspaceId),
+    index("authorization_resources_owner_idx").on(table.ownerUserId),
   ],
 );

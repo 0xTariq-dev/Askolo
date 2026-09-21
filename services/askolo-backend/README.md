@@ -31,6 +31,18 @@ to become Askolo's primary backend without a second structural rewrite.
   `ASKOLO_GOOGLE_BACKEND_URL` when configured. Development defaults to the
   local Go service at `http://127.0.0.1:8090`; production must use the
   deployed Go service URL and must not use a loopback target.
+- Go is the authorization decision owner. The internal
+  `POST /internal/authz/decision` route derives the actor from the native
+  session, lazily provisions a personal workspace for active users, and
+  evaluates account status, workspace status, membership status, explicit
+  capabilities, and registered resource ownership. The TypeScript API calls
+  this route before feature requests; provider and WebSocket boundaries use
+  the same store and policy primitives.
+- `X-Askolo-Workspace-ID` is an authorization scope hint, not an identity
+  assertion. Unknown, inactive, revoked, cross-workspace, or unowned scopes
+  fail closed with generic client errors. A separate `ASKOLO_INTERNAL_TOKEN`
+  should be configured for production service handover; development derives
+  the service token from `SESSION_SECRET` when the dedicated token is absent.
 
 ## Package boundaries
 

@@ -10,6 +10,7 @@ import (
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
 	authmodule "askolo/backend/internal/modules/auth"
+	authorizationmodule "askolo/backend/internal/modules/authorization"
 	githuboauth "askolo/backend/internal/modules/github"
 	googleoauth "askolo/backend/internal/modules/google"
 	"askolo/backend/internal/platform/apierror"
@@ -39,9 +40,13 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		databaseReachable := false
+		authorizationStorageReady := false
 		if store != nil {
 			pingContext, cancel := context.WithTimeout(r.Context(), 750*time.Millisecond)
 			databaseReachable = store.Ping(pingContext) == nil
+			if databaseReachable {
+				authorizationStorageReady = store.AuthorizationSchemaReady(pingContext)
+			}
 			cancel()
 		}
 		emailDeliveryConfigured := cfg.Email.SMTPHost != "" &&
@@ -49,23 +54,27 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 			cfg.Email.ChallengeSecret != ""
 		status := "ready"
 		statusCode := http.StatusOK
-		if !databaseReachable {
+		if !databaseReachable || !authorizationStorageReady {
 			status = "degraded"
 			statusCode = http.StatusServiceUnavailable
 		}
 		writeJSON(w, statusCode, map[string]any{
-			"service":                 cfg.ServiceName,
-			"status":                  status,
-			"internalAuthConfigured":  cfg.InternalAuthToken != "",
-			"databaseReachable":       databaseReachable,
-			"emailDeliveryConfigured": emailDeliveryConfigured,
+			"service":                   cfg.ServiceName,
+			"status":                    status,
+			"internalAuthConfigured":    cfg.InternalAuthToken != "",
+			"databaseReachable":         databaseReachable,
+			"authorizationStorageReady": authorizationStorageReady,
+			"emailDeliveryConfigured":   emailDeliveryConfigured,
 		})
 	})
 
 	restHandler := rest.New(logger, cfg.ServiceName)
 	mux.Handle("/internal/rest/", internalAuth.Wrap(http.StripPrefix("/internal/rest", restHandler)))
 
-	websocketHandler := websocket.New(logger, cfg.ServiceName)
+	authorizationHandler := authorizationmodule.NewHandler(store, logger)
+	mux.Handle("/internal/authz/", internalAuth.Wrap(authorizationHandler.Routes()))
+
+	websocketHandler := websocket.New(logger, cfg.ServiceName, store)
 	mux.Handle("/internal/ws", internalAuth.Wrap(websocketHandler))
 	mux.Handle("/ws", websocketHandler)
 

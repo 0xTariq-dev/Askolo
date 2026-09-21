@@ -17,4 +17,5 @@
 - [Go backend binary refresh](go-backend-binary-refresh.md) — the run script reuses an existing binary; rebuild before restarting after Go source changes.
 - [Three-Repl release architecture](three-repl-release-architecture.md) — identify the active environment before acting; normal releases use main, while hotfixes start from the live production tag.
 - [Development schema application](dev-schema-apply.md) — Drizzle migration behavior can differ locally; verify auth tables after the project’s development schema flow.
+- [Authorization handover](authorization-handover.md) — Go owns authorization decisions; TypeScript and provider boundaries pass session-derived identity and scope hints only.
 

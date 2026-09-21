@@ -19,6 +19,7 @@ import (
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	policy "askolo/backend/internal/platform/authorization"
 )
 
 const (
@@ -384,6 +385,39 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 	}
 	if err != nil {
 		return "", http.StatusServiceUnavailable
+	}
+	state, stateErr := h.store.SessionMFAState(r.Context(), cookie.Value)
+	if stateErr != nil {
+		return "", http.StatusServiceUnavailable
+	}
+	if state.Required && !state.Verified {
+		return "", http.StatusForbidden
+	}
+	workspaceID := strings.TrimSpace(r.Header.Get("X-Askolo-Workspace-ID"))
+	if workspaceID == "" {
+		workspaceID = postgres.DefaultWorkspaceID(userID)
+	}
+	if workspaceID == postgres.DefaultWorkspaceID(userID) {
+		if err := h.store.EnsurePersonalWorkspace(r.Context(), userID); err != nil {
+			return "", http.StatusServiceUnavailable
+		}
+	}
+	decision, authzErr := h.store.Authorize(r.Context(), policy.Input{
+		ActorUserID: userID,
+		WorkspaceID: workspaceID,
+		Action:      policy.ActionProviderWrite,
+	})
+	if authzErr != nil {
+		return "", http.StatusServiceUnavailable
+	}
+	if !decision.Allowed {
+		_ = h.store.CreateSecurityEvent(r.Context(), userID, "authorization_denied", r.Header.Get("X-Request-ID"), map[string]any{
+			"workspace_id": workspaceID,
+			"action":       policy.ActionProviderWrite,
+			"reason":       decision.Reason,
+			"provider":     "github",
+		})
+		return "", http.StatusForbidden
 	}
 	return userID, http.StatusOK
 }

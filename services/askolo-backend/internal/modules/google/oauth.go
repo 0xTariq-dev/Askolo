@@ -19,6 +19,7 @@ import (
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	policy "askolo/backend/internal/platform/authorization"
 )
 
 const (
@@ -671,7 +672,59 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 		h.logger.Error("session lookup failed", "error", err)
 		return "", http.StatusServiceUnavailable
 	}
+	state, stateErr := h.store.SessionMFAState(r.Context(), cookie.Value)
+	if stateErr != nil {
+		return "", http.StatusServiceUnavailable
+	}
+	if state.Required && !state.Verified {
+		return "", http.StatusForbidden
+	}
+	action := policy.ActionProviderRead
+	if r.Method != http.MethodGet && r.Method != http.MethodHead ||
+		strings.Contains(r.URL.Path, "/link") {
+		action = policy.ActionProviderWrite
+	}
+	if authorizationStatus := h.authorize(r, userID, action); authorizationStatus != http.StatusOK {
+		return "", authorizationStatus
+	}
 	return userID, http.StatusOK
+}
+
+func (h *Handler) authorize(r *http.Request, userID string, action policy.Action) int {
+	if h.store == nil {
+		return http.StatusServiceUnavailable
+	}
+	workspaceID := strings.TrimSpace(r.Header.Get("X-Askolo-Workspace-ID"))
+	if workspaceID == "" {
+		workspaceID = postgres.DefaultWorkspaceID(userID)
+	}
+	if workspaceID == postgres.DefaultWorkspaceID(userID) {
+		if err := h.store.EnsurePersonalWorkspace(r.Context(), userID); err != nil {
+			h.logger.Error("provider authorization workspace provisioning failed", "request_id", r.Header.Get("X-Request-ID"), "error", err)
+			return http.StatusServiceUnavailable
+		}
+	}
+	decision, err := h.store.Authorize(r.Context(), policy.Input{
+		ActorUserID: userID,
+		WorkspaceID: workspaceID,
+		Action:      action,
+	})
+	if err != nil {
+		h.logger.Error("provider authorization failed", "request_id", r.Header.Get("X-Request-ID"), "error", err)
+		return http.StatusServiceUnavailable
+	}
+	if !decision.Allowed {
+		_ = h.store.CreateSecurityEvent(r.Context(), userID, "authorization_denied", r.Header.Get("X-Request-ID"), map[string]any{
+			"workspace_id": workspaceID,
+			"action":       action,
+			"reason":       decision.Reason,
+			"provider":     "google",
+		})
+	}
+	if !decision.Allowed {
+		return http.StatusForbidden
+	}
+	return http.StatusOK
 }
 
 func (h *Handler) clientID(flow string) (string, error) {

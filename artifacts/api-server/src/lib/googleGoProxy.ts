@@ -62,9 +62,11 @@ export async function googleGoProxy(req: Request, res: Response, next: NextFunct
     const cookie = req.headers.cookie;
     const contentType = req.headers["content-type"];
     const requestID = req.headers["x-request-id"];
+    const workspaceID = req.headers["x-askolo-workspace-id"];
     if (cookie) headers.set("cookie", cookie);
     if (typeof contentType === "string") headers.set("content-type", contentType);
     if (typeof requestID === "string") headers.set("x-request-id", requestID);
+    if (typeof workspaceID === "string") headers.set("x-askolo-workspace-id", workspaceID);
     const body = ["GET", "HEAD"].includes(req.method)
       ? undefined
       : JSON.stringify(req.body ?? {});

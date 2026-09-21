@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { NextFunction, Request, Response } from 'express';
 import { db, usersTable } from '@workspace/db';
 import { clearCookie, getNativeSession, getNativeSessionId } from '../lib/nativeAuth';
+import { authorizeRequest } from '../lib/goAuthorization';
 
 export type DbUser = typeof usersTable.$inferSelect;
 
@@ -29,6 +30,9 @@ export async function requireAuth(
   }
   if (nativeSession.mfaRequired === true && nativeSession.mfaVerified !== true) {
     res.status(403).json({ code: 'MFA_REQUIRED', error: 'Complete MFA before accessing the app.' });
+    return;
+  }
+  if (!(await authorizeRequest(req, res))) {
     return;
   }
 

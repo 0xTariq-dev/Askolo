@@ -75,7 +75,7 @@ func TestInternalRestRequiresAndAcceptsServiceAuth(t *testing.T) {
 	}
 }
 
-func TestProtocolShellsAreExplicitlyUnconfigured(t *testing.T) {
+func TestProtocolShellsRequireAuthorizationBeforeConfigurationCheck(t *testing.T) {
 	handler := New(testConfig("secret"), slog.Default(), nil)
 
 	for _, path := range []string{"/ws", "/webhooks/example"} {
@@ -85,8 +85,12 @@ func TestProtocolShellsAreExplicitlyUnconfigured(t *testing.T) {
 		}
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
-		if response.Code != http.StatusNotImplemented {
-			t.Fatalf("expected %s to return 501, got %d", path, response.Code)
+		expected := http.StatusNotImplemented
+		if path == "/ws" {
+			expected = http.StatusServiceUnavailable
+		}
+		if response.Code != expected {
+			t.Fatalf("expected %s to return %d, got %d", path, expected, response.Code)
 		}
 	}
 }
