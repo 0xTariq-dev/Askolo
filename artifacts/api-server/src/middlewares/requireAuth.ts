@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { NextFunction, Request, Response } from 'express';
 import { db, usersTable } from '@workspace/db';
-import { clearCookie, getNativeSession, getNativeSessionId } from '../lib/nativeAuth';
+import { clearCookie, getNativeSession, getNativeSessionId, NATIVE_SESSION_COOKIE } from '../lib/nativeAuth';
 import { authorizeRequest } from '../lib/goAuthorization';
 
 export type DbUser = typeof usersTable.$inferSelect;
@@ -24,7 +24,7 @@ export async function requireAuth(
   const nativeSessionId = getNativeSessionId(req);
   const nativeSession = await getNativeSession(nativeSessionId);
   if (!nativeSession) {
-    if (nativeSessionId) clearCookie(res, 'sid');
+    if (nativeSessionId) clearCookie(res, NATIVE_SESSION_COOKIE);
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }

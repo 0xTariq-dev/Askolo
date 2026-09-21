@@ -1422,8 +1422,17 @@ components:
       properties:
         status:
           type: string
+        environment:
+          type: string
+        commit:
+          type: string
+        release:
+          type: string
       required:
         - status
+        - environment
+        - commit
+        - release
 
     # ── Auth ─────────────────────────────────────────────────────────────
     AuthUser:

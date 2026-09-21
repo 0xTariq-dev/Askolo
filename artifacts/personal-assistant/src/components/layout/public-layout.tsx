@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
+import { provenanceLabel } from '@/lib/runtime-environment';
 
 export function PublicLayout({ children }: { children: ReactNode }) {
   return (
@@ -52,6 +53,9 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-2">
             <img src={logoUrl} alt="Askolo" width={64} height={64} className="h-5 w-auto object-contain opacity-80" />
             <span>© {new Date().getFullYear()} Askolo</span>
+            <span aria-label="Build provenance" className="text-xs opacity-70">
+              {provenanceLabel()}
+            </span>
           </div>
           <nav aria-label="Footer" className="flex items-center gap-4 sm:gap-6">
             <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>

@@ -99,7 +99,7 @@ func (h *Handler) user(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
 		return
 	}
-	if state, err := h.store.SessionMFAState(r.Context(), sessionIDFromRequest(r)); err == nil && state.Required && !state.Verified {
+	if state, err := h.store.SessionMFAState(r.Context(), h.sessionIDFromRequest(r)); err == nil && state.Required && !state.Verified {
 		writeJSON(w, http.StatusOK, map[string]any{"user": nil, "mfaRequired": true})
 		return
 	}
@@ -124,13 +124,13 @@ func (h *Handler) user(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	sessionID := sessionIDFromRequest(r)
+	sessionID := h.sessionIDFromRequest(r)
 	if sessionID != "" && h.store != nil {
 		if err := h.store.DeleteSession(r.Context(), sessionID); err != nil {
 			h.logger.Warn("session deletion failed", "error", err)
 		}
 	}
-	clearSessionCookie(w, r)
+	h.clearSessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -552,7 +552,7 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("provider account activation check failed", "operation", "password_recovery", "request_id", requestID(r), "user_id", userID, "error", err)
 	}
 	h.recordSecurityEvent(r, userID, "password_reset", map[string]any{"purpose": "password_recovery"})
-	clearSessionCookie(w, r)
+	h.clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
 }
 
@@ -698,14 +698,14 @@ func (h *Handler) confirmMFA(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
-	sessionID := sessionIDFromRequest(r)
+	sessionID := h.sessionIDFromRequest(r)
 	if sessionID == "" {
 		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Sign in before completing MFA.")
 		return
 	}
 	state, err := h.store.SessionMFAState(r.Context(), sessionID)
 	if errors.Is(err, postgres.ErrMFAChallengeExpired) {
-		clearSessionCookie(w, r)
+		h.clearSessionCookie(w, r)
 		writeError(w, http.StatusUnauthorized, "MFA_CHALLENGE_EXPIRED", "Your MFA challenge expired. Sign in again.")
 		return
 	}
@@ -894,7 +894,7 @@ func (h *Handler) fullSessionUserID(r *http.Request) (string, int) {
 	if status != http.StatusOK {
 		return "", status
 	}
-	state, err := h.store.SessionMFAState(r.Context(), sessionIDFromRequest(r))
+	state, err := h.store.SessionMFAState(r.Context(), h.sessionIDFromRequest(r))
 	if errors.Is(err, postgres.ErrMFAChallengeExpired) {
 		return "", http.StatusUnauthorized
 	}
@@ -945,7 +945,7 @@ func (h *Handler) writeMFAReauthError(w http.ResponseWriter, r *http.Request, op
 }
 
 func (h *Handler) recordMFAFailure(r *http.Request, userID, reason string) bool {
-	err := h.store.RecordMFAFailure(r.Context(), sessionIDFromRequest(r), userID, mfaChallengeAttempts)
+	err := h.store.RecordMFAFailure(r.Context(), h.sessionIDFromRequest(r), userID, mfaChallengeAttempts)
 	if errors.Is(err, postgres.ErrMFAChallengeLocked) {
 		return true
 	}
@@ -1063,7 +1063,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request, userID s
 		h.writeStoreError(w, "session creation failed", err)
 		return
 	}
-	setSessionCookie(w, r, sessionID, sessionTTL)
+	h.setSessionCookie(w, r, sessionID, sessionTTL)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
 }
 
@@ -1073,7 +1073,7 @@ func (h *Handler) createMFAPendingSession(w http.ResponseWriter, r *http.Request
 		h.writeStoreError(w, "MFA session creation failed", err)
 		return
 	}
-	setSessionCookie(w, r, sessionID, sessionTTL)
+	h.setSessionCookie(w, r, sessionID, sessionTTL)
 	h.recordSecurityEvent(r, userID, "mfa_challenge_started", nil)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "mfa_required",
@@ -1085,7 +1085,7 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 	if h.store == nil {
 		return "", http.StatusServiceUnavailable
 	}
-	sessionID := sessionIDFromRequest(r)
+	sessionID := h.sessionIDFromRequest(r)
 	if sessionID == "" {
 		return "", http.StatusUnauthorized
 	}
@@ -1133,8 +1133,8 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
 	return decoder.Decode(target)
 }
 
-func sessionIDFromRequest(r *http.Request) string {
-	if cookie, err := r.Cookie("sid"); err == nil {
+func (h *Handler) sessionIDFromRequest(r *http.Request) string {
+	if cookie, err := r.Cookie(config.CookieName(h.cfg.SessionCookieName)); err == nil {
 		return strings.TrimSpace(cookie.Value)
 	}
 	authorization := r.Header.Get("Authorization")
@@ -1144,7 +1144,7 @@ func sessionIDFromRequest(r *http.Request) string {
 	return ""
 }
 
-func setSessionCookie(w http.ResponseWriter, r *http.Request, sessionID string, ttl time.Duration) {
+func (h *Handler) setSessionCookie(w http.ResponseWriter, r *http.Request, sessionID string, ttl time.Duration) {
 	secure := true
 	host := firstHeader(r.Header.Get("X-Forwarded-Host"))
 	if host == "" {
@@ -1154,7 +1154,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, sessionID string, 
 		secure = false
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "sid",
+		Name:     config.CookieName(h.cfg.SessionCookieName),
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
@@ -1164,7 +1164,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, sessionID string, 
 	})
 }
 
-func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	secure := true
 	host := firstHeader(r.Header.Get("X-Forwarded-Host"))
 	if host == "" {
@@ -1174,7 +1174,7 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 		secure = false
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "sid",
+		Name:     config.CookieName(h.cfg.SessionCookieName),
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,

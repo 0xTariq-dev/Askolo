@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { clearCookie, deleteNativeSession, getNativeSession, getNativeSessionId } from "../lib/nativeAuth";
+import { clearCookie, deleteNativeSession, getNativeSession, getNativeSessionId, NATIVE_SESSION_COOKIE } from "../lib/nativeAuth";
 
 const router: IRouter = Router();
 
@@ -30,7 +30,7 @@ router.get("/auth/user", async (req, res): Promise<void> => {
 router.post("/auth/logout", async (req, res): Promise<void> => {
   const sid = getNativeSessionId(req);
   await deleteNativeSession(sid);
-  clearCookie(res, "sid");
+  clearCookie(res, NATIVE_SESSION_COOKIE);
   res.sendStatus(204);
 });
 

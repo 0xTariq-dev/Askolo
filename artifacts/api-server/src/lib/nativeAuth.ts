@@ -2,8 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Request, Response } from "express";
 import { eq, sql } from "drizzle-orm";
 import { db, sessionsTable, usersTable } from "@workspace/db";
+import { runtimeEnvironment } from "./environment";
 
-export const NATIVE_SESSION_COOKIE = "sid";
+export const NATIVE_SESSION_COOKIE = runtimeEnvironment.sessionCookieName;
 export const NATIVE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const GOOGLE_OAUTH_COOKIE = "askolo_google_oauth";
 export const GOOGLE_OAUTH_TTL_MS = 10 * 60 * 1000;
@@ -75,7 +76,11 @@ export function getRequestOrigin(req: Request): string {
   const protocol = getHeaderValue(req.headers["x-forwarded-proto"]) || "https";
   const host = getHeaderValue(req.headers["x-forwarded-host"]) || req.headers.host;
   if (!host) throw new Error("Unable to determine request host.");
-  return `${protocol}://${host}`;
+  const requestOrigin = `${protocol}://${host}`;
+  if (runtimeEnvironment.canonicalOrigin && requestOrigin !== runtimeEnvironment.canonicalOrigin) {
+    throw new Error("Request host does not match the configured environment origin.");
+  }
+  return requestOrigin;
 }
 
 export function getGoogleCallbackUrl(req: Request): string {

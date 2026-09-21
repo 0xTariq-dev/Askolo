@@ -1,7 +1,8 @@
-export const PUBLIC_ORIGIN = 'https://askolo.app';
-export const APP_ORIGIN = 'https://web.askolo.app';
+import { runtimeEnvironment } from './runtime-environment';
 
-const PUBLIC_HOSTS = new Set(['askolo.app', 'www.askolo.app']);
+export const PUBLIC_ORIGIN = runtimeEnvironment.publicOrigin || 'http://localhost';
+export const APP_ORIGIN = runtimeEnvironment.appOrigin || PUBLIC_ORIGIN;
+const PUBLIC_HOSTS = new Set([new URL(PUBLIC_ORIGIN).hostname, 'www.askolo.app']);
 
 function withPath(origin: string, path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -21,5 +22,5 @@ export function isPublicProductionHost(hostname = window.location.hostname): boo
 }
 
 export function isAppProductionHost(hostname = window.location.hostname): boolean {
-  return hostname.toLowerCase() === 'web.askolo.app';
+  return hostname.toLowerCase() === new URL(APP_ORIGIN).hostname;
 }

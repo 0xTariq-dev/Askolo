@@ -3,6 +3,7 @@ import cors from 'cors';
 import pinoHttp from 'pino-http';
 import router from './routes';
 import { logger } from './lib/logger';
+import { runtimeEnvironment } from './lib/environment';
 
 const app: Express = express();
 app.use(
@@ -25,7 +26,24 @@ app.use(
   }),
 );
 
-app.use(cors({ credentials: true, origin: true }));
+const allowedOrigins = new Set(
+  [runtimeEnvironment.canonicalOrigin, ...(process.env.ASKOLO_ALLOWED_ORIGINS || '').split(',')]
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+
+app.use(
+  cors({
+    credentials: true,
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin || runtimeEnvironment.name === 'development' || allowedOrigins.has(requestOrigin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+  }),
+);
 // Voice fallback uploads are sent as base64 JSON. Keep the global parser
 // bounded while allowing the route to enforce its smaller decoded-audio cap.
 app.use(express.json({ limit: '12mb' }));

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -22,7 +23,14 @@ type Config struct {
 	Port              int
 	InternalAuthToken string
 	DatabaseURL       string
+	DatabaseIdentity  string
 	SessionSecret     string
+	CanonicalOrigin   string
+	SessionCookieName string
+	BuildCommit       string
+	ReleaseTag        string
+	ReleaseMode       string
+	ParentReleaseTag  string
 	TOTPEncryptionKey []byte
 	Email             EmailConfig
 	Google            GoogleOAuthConfig
@@ -70,9 +78,13 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	environment := strings.TrimSpace(os.Getenv("APP_ENV"))
+	explicitEnvironment := strings.TrimSpace(os.Getenv("ASKOLO_ENVIRONMENT"))
+	environment := explicitEnvironment
 	if environment == "" {
 		environment = strings.TrimSpace(os.Getenv("NODE_ENV"))
+	}
+	if environment == "" {
+		environment = strings.TrimSpace(os.Getenv("APP_ENV"))
 	}
 	if environment == "" {
 		environment = "development"
@@ -84,6 +96,12 @@ func Load() (Config, error) {
 	}
 
 	environment = strings.ToLower(environment)
+	if environment != "development" && environment != "staging" && environment != "production" {
+		return Config{}, fmt.Errorf("ASKOLO_ENVIRONMENT must be development, staging, or production")
+	}
+	if environment == "production" && explicitEnvironment == "" {
+		return Config{}, fmt.Errorf("ASKOLO_ENVIRONMENT is required in production")
+	}
 	encryptionKey, err := loadEncryptionKey(os.Getenv("GOOGLE_TOKEN_ENCRYPTION_KEY"))
 	if err != nil {
 		return Config{}, err
@@ -106,6 +124,52 @@ func Load() (Config, error) {
 	if challengeSecret == "" {
 		challengeSecret = sessionSecret
 	}
+	canonicalOrigin := strings.TrimSpace(os.Getenv("ASKOLO_CANONICAL_ORIGIN"))
+	if environment != "development" {
+		if canonicalOrigin == "" {
+			return Config{}, fmt.Errorf("ASKOLO_CANONICAL_ORIGIN is required outside development")
+		}
+		parsedOrigin, parseErr := url.Parse(canonicalOrigin)
+		if parseErr != nil || parsedOrigin.Scheme != "https" || parsedOrigin.Host == "" ||
+			(parsedOrigin.Path != "" && parsedOrigin.Path != "/") || parsedOrigin.RawQuery != "" || parsedOrigin.Fragment != "" {
+			return Config{}, fmt.Errorf("ASKOLO_CANONICAL_ORIGIN must be an HTTPS origin")
+		}
+		canonicalOrigin = parsedOrigin.Scheme + "://" + parsedOrigin.Host
+	}
+	databaseIdentity := strings.TrimSpace(os.Getenv("ASKOLO_DATABASE_ID"))
+	if databaseIdentity == "" && environment == "development" {
+		databaseIdentity = "development-database"
+	}
+	cookieNamespace := strings.TrimSpace(os.Getenv("ASKOLO_COOKIE_NAMESPACE"))
+	if cookieNamespace == "" && environment == "development" {
+		cookieNamespace = "askolo_dev"
+	}
+	if !validCookieNamespace(cookieNamespace) {
+		return Config{}, fmt.Errorf("ASKOLO_COOKIE_NAMESPACE must be 2-32 lowercase characters")
+	}
+	releaseMode := strings.TrimSpace(os.Getenv("ASKOLO_RELEASE_MODE"))
+	if releaseMode == "" && environment == "development" {
+		releaseMode = "development"
+	}
+	buildCommit := strings.TrimSpace(os.Getenv("ASKOLO_COMMIT_SHA"))
+	releaseTag := strings.TrimSpace(os.Getenv("ASKOLO_RELEASE_TAG"))
+	parentReleaseTag := strings.TrimSpace(os.Getenv("ASKO_PARENT_PRODUCTION_TAG"))
+	if environment != "development" {
+		for name, value := range map[string]string{
+			"ASKOLO_DATABASE_ID": databaseIdentity, "ASKOLO_COMMIT_SHA": buildCommit,
+			"ASKOLO_RELEASE_TAG": releaseTag, "ASKOLO_INTERNAL_TOKEN": internalAuthToken,
+		} {
+			if value == "" {
+				return Config{}, fmt.Errorf("%s is required outside development", name)
+			}
+		}
+		if releaseMode != "normal" && releaseMode != "hotfix" {
+			return Config{}, fmt.Errorf("ASKOLO_RELEASE_MODE must be normal or hotfix outside development")
+		}
+		if releaseMode == "hotfix" && parentReleaseTag == "" {
+			return Config{}, fmt.Errorf("ASKOLO_PARENT_PRODUCTION_TAG is required for hotfix releases")
+		}
+	}
 
 	return Config{
 		ServiceName:       "askolo-backend",
@@ -114,7 +178,14 @@ func Load() (Config, error) {
 		Port:              port,
 		InternalAuthToken: internalAuthToken,
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DatabaseIdentity:  databaseIdentity,
 		SessionSecret:     sessionSecret,
+		CanonicalOrigin:   canonicalOrigin,
+		SessionCookieName: cookieNamespace + "_sid",
+		BuildCommit:       buildCommit,
+		ReleaseTag:        releaseTag,
+		ReleaseMode:       releaseMode,
+		ParentReleaseTag:  parentReleaseTag,
 		TOTPEncryptionKey: totpEncryptionKey,
 		Email: EmailConfig{
 			SMTPHost:        strings.TrimSpace(os.Getenv("AUTH_SMTP_HOST")),
@@ -143,20 +214,47 @@ func Load() (Config, error) {
 			UserURL:      "https://api.github.com/user",
 			EmailsURL:    "https://api.github.com/user/emails",
 		},
-		AllowedOAuthHosts: oauthHosts(environment),
+		AllowedOAuthHosts: oauthHosts(environment, canonicalOrigin),
 	}, nil
 }
 
-func oauthHosts(environment string) map[string]struct{} {
-	hosts := map[string]struct{}{
-		"web.askolo.app":     {},
-		"staging.askolo.app": {},
+func oauthHosts(environment, canonicalOrigin string) map[string]struct{} {
+	hosts := map[string]struct{}{}
+	if parsed, err := url.Parse(canonicalOrigin); err == nil && parsed.Hostname() != "" {
+		hosts[parsed.Hostname()] = struct{}{}
 	}
 	if environment != "production" {
 		hosts["localhost"] = struct{}{}
 		hosts["127.0.0.1"] = struct{}{}
+		if devDomain := strings.TrimSpace(os.Getenv("REPLIT_DEV_DOMAIN")); devDomain != "" {
+			hosts[devDomain] = struct{}{}
+		}
 	}
 	return hosts
+}
+
+func validCookieNamespace(value string) bool {
+	if len(value) < 2 || len(value) > 32 {
+		return false
+	}
+	for index, character := range value {
+		if (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') &&
+			character != '_' && character != '-' {
+			return false
+		}
+		if index == 0 && (character < 'a' || character > 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+func CookieName(configured string) string {
+	if configured == "" {
+		return "sid"
+	}
+	return configured
 }
 
 func loadEncryptionKey(raw string) ([]byte, error) {

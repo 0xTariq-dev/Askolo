@@ -22,7 +22,10 @@ const zod = {
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
+  "status": zod.string(),
+  "environment": zod.string(),
+  "commit": zod.string(),
+  "release": zod.string()
 })
 
 

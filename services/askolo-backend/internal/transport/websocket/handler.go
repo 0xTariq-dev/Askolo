@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"askolo/backend/internal/adapters/postgres"
+	"askolo/backend/internal/config"
 	"askolo/backend/internal/platform/apierror"
 	policy "askolo/backend/internal/platform/authorization"
 )
@@ -14,16 +15,17 @@ import (
 const maxSessionDurationSeconds = 120
 
 type Handler struct {
-	logger      *slog.Logger
-	serviceName string
-	store       *postgres.Store
+	logger            *slog.Logger
+	serviceName       string
+	store             *postgres.Store
+	sessionCookieName string
 }
 
-func New(logger *slog.Logger, serviceName string, store *postgres.Store) *Handler {
+func New(logger *slog.Logger, serviceName string, store *postgres.Store, sessionCookieName string) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{logger: logger, serviceName: serviceName, store: store}
+	return &Handler{logger: logger, serviceName: serviceName, store: store, sessionCookieName: sessionCookieName}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +79,7 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 		return "", http.StatusServiceUnavailable
 	}
 	sessionID := ""
-	if cookie, err := r.Cookie("sid"); err == nil {
+	if cookie, err := r.Cookie(config.CookieName(h.sessionCookieName)); err == nil {
 		sessionID = cookie.Value
 	}
 	if sessionID == "" && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {

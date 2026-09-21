@@ -8,4 +8,7 @@
 
 export interface HealthStatus {
   status: string;
+  environment: string;
+  commit: string;
+  release: string;
 }

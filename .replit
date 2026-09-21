@@ -139,10 +139,12 @@ timeoutMs = 20000
 [userenv.shared]
 
 [userenv.development]
+ASKOLO_ENVIRONMENT = "development"
+ASKOLO_COOKIE_NAMESPACE = "askolo_dev"
+ASKOLO_DATABASE_ID = "development-database"
 GOOGLE_REDIRECT_URI = "https://5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvhiesj.picard.replit.dev/api/google/gmail/callback"
 
 [userenv.production]
-GOOGLE_REDIRECT_URI = "https://askolo.replit.dev/api/google/gmail/callback"
 VITE_CLERK_PROXY_URL = "/api/__clerk"
 
 [nix]

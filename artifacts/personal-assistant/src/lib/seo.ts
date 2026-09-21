@@ -1,3 +1,5 @@
+import { runtimeEnvironment } from './runtime-environment';
+
 type PageMetadata = {
   title: string;
   description: string;
@@ -47,9 +49,9 @@ export function setPageMetadata({
   title,
   description,
   canonicalPath = '/',
-  robots = 'index, follow',
+  robots = runtimeEnvironment.isProduction ? 'index, follow' : 'noindex, nofollow',
 }: PageMetadata): void {
-  const canonicalUrl = new URL(canonicalPath, 'https://askolo.app').toString();
+  const canonicalUrl = new URL(canonicalPath, runtimeEnvironment.publicOrigin || window.location.origin).toString();
 
   document.title = title;
   setMetaContent('description', description);

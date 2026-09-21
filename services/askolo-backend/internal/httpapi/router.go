@@ -34,8 +34,12 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
-			"service": cfg.ServiceName,
-			"status":  "ok",
+			"service":     cfg.ServiceName,
+			"status":      "ok",
+			"environment": cfg.Environment,
+			"release":     cfg.ReleaseTag,
+			"commit":      cfg.BuildCommit,
+			"origin":      cfg.CanonicalOrigin,
 		})
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +63,9 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 			statusCode = http.StatusServiceUnavailable
 		}
 		writeJSON(w, statusCode, map[string]any{
+			"environment":               cfg.Environment,
+			"release":                   cfg.ReleaseTag,
+			"commit":                    cfg.BuildCommit,
 			"service":                   cfg.ServiceName,
 			"status":                    status,
 			"internalAuthConfigured":    cfg.InternalAuthToken != "",
@@ -71,10 +78,10 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 	restHandler := rest.New(logger, cfg.ServiceName)
 	mux.Handle("/internal/rest/", internalAuth.Wrap(http.StripPrefix("/internal/rest", restHandler)))
 
-	authorizationHandler := authorizationmodule.NewHandler(store, logger)
+	authorizationHandler := authorizationmodule.NewHandler(store, logger, cfg.SessionCookieName)
 	mux.Handle("/internal/authz/", internalAuth.Wrap(authorizationHandler.Routes()))
 
-	websocketHandler := websocket.New(logger, cfg.ServiceName, store)
+	websocketHandler := websocket.New(logger, cfg.ServiceName, store, cfg.SessionCookieName)
 	mux.Handle("/internal/ws", internalAuth.Wrap(websocketHandler))
 	mux.Handle("/ws", websocketHandler)
 

@@ -360,7 +360,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request, returnTo
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: "sid", Value: sessionID, Path: "/", HttpOnly: true,
+		Name: config.CookieName(h.cfg.SessionCookieName), Value: sessionID, Path: "/", HttpOnly: true,
 		Secure: !strings.HasPrefix(r.Host, "localhost"), SameSite: http.SameSiteLaxMode,
 		MaxAge: int(sessionTTL.Seconds()),
 	})
@@ -375,7 +375,7 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 	if h.store == nil {
 		return "", http.StatusServiceUnavailable
 	}
-	cookie, err := r.Cookie("sid")
+	cookie, err := r.Cookie(config.CookieName(h.cfg.SessionCookieName))
 	if err != nil || cookie.Value == "" {
 		return "", http.StatusUnauthorized
 	}

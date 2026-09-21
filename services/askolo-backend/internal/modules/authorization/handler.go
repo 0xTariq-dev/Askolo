@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
+	"askolo/backend/internal/config"
 	"askolo/backend/internal/platform/apierror"
 	policy "askolo/backend/internal/platform/authorization"
 )
@@ -19,8 +20,9 @@ var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9._:@/-]{1,255}$`)
 var actionPattern = regexp.MustCompile(`^[a-z][a-z0-9._:-]{0,99}$`)
 
 type Handler struct {
-	store  *postgres.Store
-	logger *slog.Logger
+	store             *postgres.Store
+	logger            *slog.Logger
+	sessionCookieName string
 }
 
 type decisionRequest struct {
@@ -30,11 +32,11 @@ type decisionRequest struct {
 	Action       string `json:"action"`
 }
 
-func NewHandler(store *postgres.Store, logger *slog.Logger) *Handler {
+func NewHandler(store *postgres.Store, logger *slog.Logger, sessionCookieName string) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{store: store, logger: logger}
+	return &Handler{store: store, logger: logger, sessionCookieName: sessionCookieName}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -80,7 +82,7 @@ func (h *Handler) decide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state, stateErr := h.store.SessionMFAState(r.Context(), sessionIDFromRequest(r))
+	state, stateErr := h.store.SessionMFAState(r.Context(), h.sessionIDFromRequest(r))
 	if stateErr != nil {
 		h.logger.Warn("authorization session state lookup failed", "request_id", requestID(r), "error", stateErr)
 		writeError(w, r, http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "Authorization is temporarily unavailable.")
@@ -146,7 +148,7 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 	if h.store == nil {
 		return "", http.StatusServiceUnavailable
 	}
-	sessionID := sessionIDFromRequest(r)
+	sessionID := h.sessionIDFromRequest(r)
 	if sessionID == "" {
 		return "", http.StatusUnauthorized
 	}
@@ -160,8 +162,8 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 	return userID, http.StatusOK
 }
 
-func sessionIDFromRequest(r *http.Request) string {
-	if cookie, err := r.Cookie("sid"); err == nil && cookie.Value != "" {
+func (h *Handler) sessionIDFromRequest(r *http.Request) string {
+	if cookie, err := r.Cookie(config.CookieName(h.sessionCookieName)); err == nil && cookie.Value != "" {
 		return cookie.Value
 	}
 	if authorization := r.Header.Get("Authorization"); strings.HasPrefix(authorization, "Bearer ") {

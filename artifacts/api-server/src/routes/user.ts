@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
-import { clearCookie, deleteNativeSession } from "../lib/nativeAuth";
+import { clearCookie, deleteNativeSession, NATIVE_SESSION_COOKIE } from "../lib/nativeAuth";
 import {
   db,
   habitsTable,
@@ -103,7 +103,7 @@ router.delete("/user/account", async (req, res): Promise<void> => {
     await deleteAuthenticationData(req.dbUser.id);
     await db.delete(usersTable).where(eq(usersTable.id, req.dbUser.id));
     await deleteNativeSession(req.nativeSessionId);
-    clearCookie(res, "sid");
+    clearCookie(res, NATIVE_SESSION_COOKIE);
     res.sendStatus(204);
   } catch (err) {
     req.log.error({ err, userId: req.dbUser.id }, "Native account deletion failed");
