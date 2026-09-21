@@ -16,6 +16,7 @@ import (
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	authcrypto "askolo/backend/internal/platform/crypto"
 	"askolo/backend/internal/platform/id"
 )
 
@@ -83,6 +84,12 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/recovery/email/verify", h.verifyRecoveryEmail)
 	mux.HandleFunc("POST /api/auth/password/recovery/request", h.requestPasswordRecovery)
 	mux.HandleFunc("POST /api/auth/password/recovery/reset", h.resetPassword)
+	mux.HandleFunc("GET /api/auth/mfa/status", h.mfaStatus)
+	mux.HandleFunc("POST /api/auth/mfa/enroll", h.enrollMFA)
+	mux.HandleFunc("POST /api/auth/mfa/confirm", h.confirmMFA)
+	mux.HandleFunc("POST /api/auth/mfa/verify", h.verifyMFA)
+	mux.HandleFunc("POST /api/auth/mfa/disable", h.disableMFA)
+	mux.HandleFunc("POST /api/auth/mfa/recovery-codes/regenerate", h.regenerateRecoveryCodes)
 	return mux
 }
 
@@ -90,6 +97,10 @@ func (h *Handler) user(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
 	if status != http.StatusOK {
 		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
+		return
+	}
+	if state, err := h.store.SessionMFAState(r.Context(), sessionIDFromRequest(r)); err == nil && state.Required && !state.Verified {
+		writeJSON(w, http.StatusOK, map[string]any{"user": nil, "mfaRequired": true})
 		return
 	}
 	user, err := h.store.GetUser(r.Context(), userID)
@@ -161,6 +172,15 @@ func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if user.Status == "pending_provider_onboarding" {
 		writeError(w, http.StatusForbidden, "ACCOUNT_SETUP_REQUIRED", "Complete account setup before signing in.")
+		return
+	}
+	mfaEnabled, err := h.store.TOTPEnabled(r.Context(), user.ID)
+	if err != nil {
+		h.writeStoreError(w, "password login MFA lookup failed", err)
+		return
+	}
+	if mfaEnabled {
+		h.createMFAPendingSession(w, r, user.ID)
 		return
 	}
 	h.createSession(w, r, user.ID)
@@ -536,6 +556,410 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
 }
 
+func (h *Handler) mfaStatus(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.fullSessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before checking MFA status.")
+		return
+	}
+	enabled, err := h.store.TOTPEnabled(r.Context(), userID)
+	if err != nil {
+		h.writeStoreError(w, "MFA status lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"enabled": enabled})
+}
+
+func (h *Handler) enrollMFA(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.fullSessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before enrolling MFA.")
+		return
+	}
+	if !h.allow(r, 5, 15*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA changes. Try again later.")
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"currentPassword"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil || len(input.CurrentPassword) > 256 {
+		writeError(w, http.StatusBadRequest, "REAUTHENTICATION_REQUIRED", "Recent reauthentication is required.")
+		return
+	}
+	if err := h.verifyRecentPassword(r, userID, input.CurrentPassword); err != nil {
+		h.writeMFAReauthError(w, r, "MFA enrollment reauthentication failed", err)
+		return
+	}
+	if _, err := h.store.VerifiedRecoveryEmail(r.Context(), userID); err != nil {
+		if errors.Is(err, postgres.ErrRecoveryUnavailable) {
+			writeError(w, http.StatusForbidden, "RECOVERY_METHOD_REQUIRED", "Set up an independent recovery method before enabling MFA.")
+			return
+		}
+		h.writeStoreError(w, "MFA recovery method lookup failed", err)
+		return
+	}
+	secret, err := newTOTPSecret()
+	if err != nil {
+		h.writeStoreError(w, "MFA secret generation failed", err)
+		return
+	}
+	if len(h.cfg.TOTPEncryptionKey) != 32 {
+		h.logger.Error("MFA encryption is not configured", "operation", "mfa_enrollment", "request_id", requestID(r))
+		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
+		return
+	}
+	encryptedSecret, err := authcrypto.Seal(h.cfg.TOTPEncryptionKey, []byte(secret))
+	if err != nil {
+		h.writeStoreError(w, "MFA secret encryption failed", err)
+		return
+	}
+	if err := h.store.BeginTOTPEnrollment(r.Context(), userID, encryptedSecret); errors.Is(err, postgres.ErrMFAAlreadyEnabled) {
+		writeError(w, http.StatusConflict, "MFA_ALREADY_ENABLED", "MFA is already enabled.")
+		return
+	} else if err != nil {
+		h.writeStoreError(w, "MFA enrollment persistence failed", err)
+		return
+	}
+	user, err := h.store.GetUser(r.Context(), userID)
+	if err != nil {
+		h.writeStoreError(w, "MFA enrollment user lookup failed", err)
+		return
+	}
+	h.recordSecurityEvent(r, userID, "mfa_enrollment_started", nil)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "mfa_confirmation_required",
+		"secret":  secret,
+		"account": user.Email,
+	})
+}
+
+func (h *Handler) confirmMFA(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.fullSessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before confirming MFA.")
+		return
+	}
+	if !h.allow(r, 10, 10*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA attempts. Try again later.")
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil || !validChallengeCode(input.Code) {
+		writeError(w, http.StatusBadRequest, "INVALID_MFA", "Enter a valid authenticator code.")
+		return
+	}
+	encryptedSecret, err := h.store.EncryptedTOTPSecret(r.Context(), userID)
+	if errors.Is(err, postgres.ErrMFANotEnrolled) {
+		writeError(w, http.StatusBadRequest, "MFA_ENROLLMENT_REQUIRED", "Start MFA enrollment before confirming it.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "MFA secret lookup failed", err)
+		return
+	}
+	secretBytes, err := authcrypto.Open(h.cfg.TOTPEncryptionKey, encryptedSecret)
+	if err != nil {
+		h.logger.Error("MFA secret decryption failed", "operation", "mfa_confirmation", "request_id", requestID(r), "user_id", userID, "error", err)
+		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
+		return
+	}
+	step, valid := verifyTOTP(string(secretBytes), input.Code, time.Now().UTC())
+	if !valid {
+		h.recordSecurityEvent(r, userID, "mfa_enrollment_failed", map[string]any{"reason": "invalid_code"})
+		writeError(w, http.StatusUnauthorized, "INVALID_MFA", "The authenticator code is incorrect or expired.")
+		return
+	}
+	displayCodes, rawCodes, err := newRecoveryCodes()
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery code generation failed", err)
+		return
+	}
+	hashes := make([]string, 0, len(rawCodes))
+	for _, code := range rawCodes {
+		hashes = append(hashes, h.hashRecoveryCode(code))
+	}
+	if err := h.store.ConfirmTOTPEnrollment(r.Context(), userID, hashes, step); errors.Is(err, postgres.ErrMFAAlreadyEnabled) {
+		writeError(w, http.StatusConflict, "MFA_ALREADY_ENABLED", "MFA is already enabled.")
+		return
+	} else if err != nil {
+		h.writeStoreError(w, "MFA enrollment confirmation failed", err)
+		return
+	}
+	h.recordSecurityEvent(r, userID, "mfa_enabled", map[string]any{"recovery_code_count": len(displayCodes)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":        "enabled",
+		"recoveryCodes": displayCodes,
+	})
+}
+
+func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
+	sessionID := sessionIDFromRequest(r)
+	if sessionID == "" {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Sign in before completing MFA.")
+		return
+	}
+	state, err := h.store.SessionMFAState(r.Context(), sessionID)
+	if errors.Is(err, postgres.ErrMFAChallengeExpired) {
+		clearSessionCookie(w, r)
+		writeError(w, http.StatusUnauthorized, "MFA_CHALLENGE_EXPIRED", "Your MFA challenge expired. Sign in again.")
+		return
+	}
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Sign in before completing MFA.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "MFA session lookup failed", err)
+		return
+	}
+	if !state.Required || state.Verified {
+		writeError(w, http.StatusBadRequest, "MFA_NOT_REQUIRED", "This session does not require MFA.")
+		return
+	}
+	if !h.allow(r, 10, 10*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA attempts. Try again later.")
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_MFA", "Enter your authenticator or recovery code.")
+		return
+	}
+	code := strings.TrimSpace(input.Code)
+	if validChallengeCode(code) {
+		encryptedSecret, err := h.store.EncryptedTOTPSecret(r.Context(), state.UserID)
+		if err != nil {
+			h.writeStoreError(w, "MFA challenge secret lookup failed", err)
+			return
+		}
+		secretBytes, err := authcrypto.Open(h.cfg.TOTPEncryptionKey, encryptedSecret)
+		if err != nil {
+			h.logger.Error("MFA challenge secret decryption failed", "operation", "mfa_challenge", "request_id", requestID(r), "user_id", state.UserID, "error", err)
+			writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
+			return
+		}
+		step, valid := verifyTOTP(string(secretBytes), code, time.Now().UTC())
+		if !valid {
+			if h.recordMFAFailure(r, state.UserID, "invalid_totp") {
+				h.writeMFAChallengeLocked(w, r, state.UserID)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "INVALID_MFA", "The authenticator or recovery code is incorrect.")
+			return
+		}
+		err = h.store.CompleteTOTPChallenge(r.Context(), sessionID, state.UserID, step, mfaChallengeAttempts)
+		if errors.Is(err, postgres.ErrMFAReplay) {
+			h.recordSecurityEvent(r, state.UserID, "mfa_replay_rejected", map[string]any{"method": "totp"})
+			writeError(w, http.StatusUnauthorized, "INVALID_MFA", "That authenticator code has already been used.")
+			return
+		}
+		if errors.Is(err, postgres.ErrMFAChallengeLocked) {
+			h.writeMFAChallengeLocked(w, r, state.UserID)
+			return
+		}
+		if err != nil {
+			h.writeStoreError(w, "MFA challenge completion failed", err)
+			return
+		}
+		h.recordSecurityEvent(r, state.UserID, "mfa_challenge_succeeded", map[string]any{"method": "totp"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
+		return
+	}
+	if !validRecoveryCode(code) {
+		if h.recordMFAFailure(r, state.UserID, "invalid_code") {
+			h.writeMFAChallengeLocked(w, r, state.UserID)
+			return
+		}
+		writeError(w, http.StatusUnauthorized, "INVALID_MFA", "The authenticator or recovery code is incorrect.")
+		return
+	}
+	err = h.store.ConsumeRecoveryCode(r.Context(), sessionID, state.UserID, h.hashRecoveryCode(code), mfaChallengeAttempts)
+	if errors.Is(err, postgres.ErrMFAChallengeLocked) {
+		h.writeMFAChallengeLocked(w, r, state.UserID)
+		return
+	}
+	if errors.Is(err, postgres.ErrRecoveryCodeInvalid) {
+		h.recordSecurityEvent(r, state.UserID, "mfa_recovery_code_failed", nil)
+		writeError(w, http.StatusUnauthorized, "INVALID_MFA", "The authenticator or recovery code is incorrect.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery code completion failed", err)
+		return
+	}
+	h.recordSecurityEvent(r, state.UserID, "mfa_recovery_code_used", nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
+}
+
+func (h *Handler) disableMFA(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.fullSessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before disabling MFA.")
+		return
+	}
+	if !h.allow(r, 5, 15*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA changes. Try again later.")
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"currentPassword"`
+		RecoveryCode    string `json:"recoveryCode"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil || len(input.CurrentPassword) > 256 || !validRecoveryCode(input.RecoveryCode) {
+		writeError(w, http.StatusBadRequest, "REAUTHENTICATION_REQUIRED", "Recent reauthentication and a recovery code are required.")
+		return
+	}
+	if err := h.verifyRecentPassword(r, userID, input.CurrentPassword); err != nil {
+		h.writeMFAReauthError(w, r, "MFA disable reauthentication failed", err)
+		return
+	}
+	if !h.hasIndependentRecoveryMethod(w, r, userID) {
+		return
+	}
+	if err := h.store.DisableTOTPWithRecoveryCode(r.Context(), userID, h.hashRecoveryCode(input.RecoveryCode)); errors.Is(err, postgres.ErrRecoveryCodeInvalid) {
+		h.recordSecurityEvent(r, userID, "mfa_disable_failed", map[string]any{"reason": "invalid_recovery_code"})
+		writeError(w, http.StatusUnauthorized, "INVALID_MFA", "The recovery code is incorrect or already used.")
+		return
+	} else if errors.Is(err, postgres.ErrMFANotEnrolled) {
+		writeError(w, http.StatusBadRequest, "MFA_NOT_ENABLED", "MFA is not enabled.")
+		return
+	} else if err != nil {
+		h.writeStoreError(w, "MFA disable failed", err)
+		return
+	}
+	h.recordSecurityEvent(r, userID, "mfa_disabled", nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+}
+
+func (h *Handler) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.fullSessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before regenerating recovery codes.")
+		return
+	}
+	if !h.allow(r, 3, 15*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many recovery-code changes. Try again later.")
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"currentPassword"`
+		RecoveryCode    string `json:"recoveryCode"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil || len(input.CurrentPassword) > 256 || !validRecoveryCode(input.RecoveryCode) {
+		writeError(w, http.StatusBadRequest, "REAUTHENTICATION_REQUIRED", "Recent reauthentication and a recovery code are required.")
+		return
+	}
+	if err := h.verifyRecentPassword(r, userID, input.CurrentPassword); err != nil {
+		h.writeMFAReauthError(w, r, "recovery code regeneration reauthentication failed", err)
+		return
+	}
+	if !h.hasIndependentRecoveryMethod(w, r, userID) {
+		return
+	}
+	displayCodes, rawCodes, err := newRecoveryCodes()
+	if err != nil {
+		h.writeStoreError(w, "recovery code generation failed", err)
+		return
+	}
+	hashes := make([]string, 0, len(rawCodes))
+	for _, code := range rawCodes {
+		hashes = append(hashes, h.hashRecoveryCode(code))
+	}
+	err = h.store.RegenerateRecoveryCodes(r.Context(), userID, h.hashRecoveryCode(input.RecoveryCode), hashes)
+	if errors.Is(err, postgres.ErrRecoveryCodeInvalid) {
+		h.recordSecurityEvent(r, userID, "recovery_code_regeneration_failed", map[string]any{"reason": "invalid_recovery_code"})
+		writeError(w, http.StatusUnauthorized, "INVALID_MFA", "The recovery code is incorrect or already used.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "recovery code regeneration failed", err)
+		return
+	}
+	h.recordSecurityEvent(r, userID, "recovery_codes_regenerated", map[string]any{"recovery_code_count": len(displayCodes)})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "regenerated", "recoveryCodes": displayCodes})
+}
+
+func (h *Handler) fullSessionUserID(r *http.Request) (string, int) {
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK {
+		return "", status
+	}
+	state, err := h.store.SessionMFAState(r.Context(), sessionIDFromRequest(r))
+	if errors.Is(err, postgres.ErrMFAChallengeExpired) {
+		return "", http.StatusUnauthorized
+	}
+	if err != nil {
+		h.logger.Error("full session MFA lookup failed", "error", err)
+		return "", http.StatusServiceUnavailable
+	}
+	if state.Required && !state.Verified {
+		return "", http.StatusForbidden
+	}
+	return userID, http.StatusOK
+}
+
+func (h *Handler) verifyRecentPassword(r *http.Request, userID, password string) error {
+	passwordHash, err := h.store.PasswordHash(r.Context(), userID)
+	if err != nil {
+		return err
+	}
+	if !VerifyPassword(passwordHash, password) {
+		return errors.New("password reauthentication failed")
+	}
+	return nil
+}
+
+func (h *Handler) hasIndependentRecoveryMethod(w http.ResponseWriter, r *http.Request, userID string) bool {
+	if _, err := h.store.VerifiedRecoveryEmail(r.Context(), userID); err != nil {
+		if errors.Is(err, postgres.ErrRecoveryUnavailable) {
+			writeError(w, http.StatusForbidden, "RECOVERY_METHOD_REQUIRED", "Set up an independent recovery method before changing MFA.")
+			return false
+		}
+		h.writeStoreError(w, "MFA recovery method lookup failed", err)
+		return false
+	}
+	return true
+}
+
+func (h *Handler) writeMFAReauthError(w http.ResponseWriter, r *http.Request, operation string, err error) {
+	h.logger.Warn(operation, "request_id", requestID(r), "error", err)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "REAUTHENTICATION_REQUIRED", "Recent reauthentication is required.")
+		return
+	}
+	if strings.Contains(err.Error(), "reauthentication failed") {
+		writeError(w, http.StatusUnauthorized, "REAUTHENTICATION_REQUIRED", "Recent reauthentication is required.")
+		return
+	}
+	h.writeStoreError(w, operation, err)
+}
+
+func (h *Handler) recordMFAFailure(r *http.Request, userID, reason string) bool {
+	err := h.store.RecordMFAFailure(r.Context(), sessionIDFromRequest(r), userID, mfaChallengeAttempts)
+	if errors.Is(err, postgres.ErrMFAChallengeLocked) {
+		return true
+	}
+	h.recordSecurityEvent(r, userID, "mfa_challenge_failed", map[string]any{"reason": reason})
+	return false
+}
+
+func (h *Handler) writeMFAChallengeLocked(w http.ResponseWriter, r *http.Request, userID string) {
+	h.recordSecurityEvent(r, userID, "mfa_challenge_locked", nil)
+	if w != nil {
+		writeError(w, http.StatusTooManyRequests, "MFA_CHALLENGE_LOCKED", "The MFA challenge is temporarily locked. Sign in again.")
+	}
+}
+
 func (h *Handler) challengeConfiguration() error {
 	if h.store == nil || h.emailSender == nil || strings.TrimSpace(h.cfg.Email.ChallengeSecret) == "" {
 		return errors.New("email challenge dependencies are not configured")
@@ -641,6 +1065,20 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request, userID s
 	}
 	setSessionCookie(w, r, sessionID, sessionTTL)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
+}
+
+func (h *Handler) createMFAPendingSession(w http.ResponseWriter, r *http.Request, userID string) {
+	sessionID, err := h.store.CreateMFAPendingSession(r.Context(), userID, "password", sessionTTL, mfaChallengeTTL)
+	if err != nil {
+		h.writeStoreError(w, "MFA session creation failed", err)
+		return
+	}
+	setSessionCookie(w, r, sessionID, sessionTTL)
+	h.recordSecurityEvent(r, userID, "mfa_challenge_started", nil)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "mfa_required",
+		"methods": []string{"totp", "recovery_code"},
+	})
 }
 
 func (h *Handler) sessionUserID(r *http.Request) (string, int) {

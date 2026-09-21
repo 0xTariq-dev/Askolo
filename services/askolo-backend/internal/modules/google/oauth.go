@@ -25,6 +25,7 @@ const (
 	stateCookieName = "askolo_google_oauth"
 	stateTTL        = 10 * time.Minute
 	sessionTTL      = 7 * 24 * time.Hour
+	mfaChallengeTTL = 5 * time.Minute
 )
 
 const (
@@ -379,7 +380,18 @@ func (h *Handler) finishLoginUser(w http.ResponseWriter, r *http.Request, return
 }
 
 func (h *Handler) createLoginSession(w http.ResponseWriter, r *http.Request, returnTo, userID string) {
-	sessionID, err := h.store.CreateSession(r.Context(), userID, "google", sessionTTL)
+	mfaEnabled, err := h.store.TOTPEnabled(r.Context(), userID)
+	if err != nil {
+		h.logger.Error("Google MFA status lookup failed", "user_id", userID, "error", err)
+		redirectStatus(w, r, returnTo, "error")
+		return
+	}
+	var sessionID string
+	if mfaEnabled {
+		sessionID, err = h.store.CreateMFAPendingSession(r.Context(), userID, "google", sessionTTL, mfaChallengeTTL)
+	} else {
+		sessionID, err = h.store.CreateSession(r.Context(), userID, "google", sessionTTL)
+	}
 	if err != nil {
 		h.logger.Error("Google session persistence failed", "user_id", userID, "error", err)
 		redirectStatus(w, r, returnTo, "error")
@@ -394,6 +406,10 @@ func (h *Handler) createLoginSession(w http.ResponseWriter, r *http.Request, ret
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
+	if mfaEnabled {
+		redirectStatus(w, r, returnTo, "mfa_required")
+		return
+	}
 	redirectStatus(w, r, returnTo, "success")
 }
 

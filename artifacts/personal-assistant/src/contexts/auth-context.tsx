@@ -21,6 +21,7 @@ type AppAuthValue = {
   user: AppUser | null;
   isLoaded: boolean;
   isSignedIn: boolean;
+  mfaRequired: boolean;
   authProvider: 'google' | 'github' | 'password' | null;
   signOut: (options?: SignOutOptions) => Promise<void>;
   updateProfile: (profile: { firstName: string; lastName: string }) => Promise<void>;
@@ -38,6 +39,7 @@ export function useAppAuth() {
 
 export function NativeAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -45,16 +47,18 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
     fetch(`${basePath}/api/auth/user`, { credentials: 'include' })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Auth check failed: ${response.status}`);
-        return (await response.json()) as { user: AppUser | null };
+        return (await response.json()) as { user: AppUser | null; mfaRequired?: boolean };
       })
       .then((payload) => {
         if (!active) return;
         setUser(payload.user);
+        setMfaRequired(payload.mfaRequired === true);
         setIsLoaded(true);
       })
       .catch(() => {
         if (!active) return;
         setUser(null);
+        setMfaRequired(false);
         setIsLoaded(true);
       });
     return () => {
@@ -67,6 +71,7 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoaded,
       isSignedIn: Boolean(user),
+      mfaRequired,
       authProvider: user?.authProvider ?? null,
       signOut: async (options) => {
         await fetch(`${basePath}/api/auth/logout`, {
@@ -102,7 +107,7 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [isLoaded, user],
+    [isLoaded, mfaRequired, user],
   );
 
   return <AppAuthContext.Provider value={value}>{children}</AppAuthContext.Provider>;

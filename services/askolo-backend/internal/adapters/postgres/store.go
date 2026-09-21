@@ -23,9 +23,25 @@ var ErrEmailExists = errors.New("email already belongs to an account")
 var ErrChallengeInvalid = errors.New("email challenge is invalid")
 var ErrChallengeLocked = errors.New("email challenge is locked")
 var ErrRecoveryUnavailable = errors.New("recovery method is unavailable")
+var ErrMFAAlreadyEnabled = errors.New("multi-factor authentication is already enabled")
+var ErrMFANotEnrolled = errors.New("multi-factor authentication is not enrolled")
+var ErrMFAEnrollmentUnavailable = errors.New("multi-factor enrollment is unavailable")
+var ErrMFAChallengeExpired = errors.New("multi-factor challenge is expired")
+var ErrMFAChallengeLocked = errors.New("multi-factor challenge is locked")
+var ErrMFAChallengeInvalid = errors.New("multi-factor challenge is invalid")
+var ErrMFAReplay = errors.New("multi-factor challenge was already used")
+var ErrRecoveryCodeInvalid = errors.New("recovery code is invalid")
 
 type Store struct {
 	pool *pgxpool.Pool
+}
+
+type SessionMFAState struct {
+	UserID    string
+	Required  bool
+	Verified  bool
+	Attempts  int
+	ExpiresAt time.Time
 }
 
 type ProviderConnection struct {
@@ -163,6 +179,20 @@ func (s *Store) UpsertUser(ctx context.Context, email, firstName, lastName, imag
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID, provider string, ttl time.Duration) (string, error) {
+	return s.createSession(ctx, userID, provider, ttl, true, time.Time{})
+}
+
+func (s *Store) CreateMFAPendingSession(ctx context.Context, userID, provider string, ttl, challengeTTL time.Duration) (string, error) {
+	return s.createSession(ctx, userID, provider, ttl, false, time.Now().UTC().Add(challengeTTL))
+}
+
+func (s *Store) createSession(
+	ctx context.Context,
+	userID, provider string,
+	ttl time.Duration,
+	mfaVerified bool,
+	mfaExpiresAt time.Time,
+) (string, error) {
 	if s == nil {
 		return "", errors.New("database is not configured")
 	}
@@ -170,11 +200,18 @@ func (s *Store) CreateSession(ctx context.Context, userID, provider string, ttl 
 	if err != nil {
 		return "", err
 	}
-	payload, err := json.Marshal(map[string]any{
-		"userId":    userID,
-		"provider":  provider,
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
-	})
+	payloadMap := map[string]any{
+		"userId":      userID,
+		"provider":    provider,
+		"createdAt":   time.Now().UTC().Format(time.RFC3339),
+		"mfaVerified": mfaVerified,
+	}
+	if !mfaVerified {
+		payloadMap["mfaRequired"] = true
+		payloadMap["mfaChallengeExpiresAt"] = mfaExpiresAt.Format(time.RFC3339)
+		payloadMap["mfaAttempts"] = 0
+	}
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return "", err
 	}
@@ -185,6 +222,41 @@ func (s *Store) CreateSession(ctx context.Context, userID, provider string, ttl 
 		return "", err
 	}
 	return sessionID, nil
+}
+
+func (s *Store) SessionMFAState(ctx context.Context, sessionID string) (SessionMFAState, error) {
+	if s == nil {
+		return SessionMFAState{}, errors.New("database is not configured")
+	}
+	var payload []byte
+	var expiresAt time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT sess, expire
+		FROM sessions
+		WHERE sid = $1 OR sid = $2
+		LIMIT 1
+	`, sessionStorageKey(sessionID), sessionID).Scan(&payload, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SessionMFAState{}, ErrNotFound
+	}
+	if err != nil {
+		return SessionMFAState{}, err
+	}
+	if expiresAt.Before(time.Now()) {
+		return SessionMFAState{}, ErrNotFound
+	}
+	state, err := parseSessionMFAState(payload)
+	if err != nil {
+		return SessionMFAState{}, ErrNotFound
+	}
+	state.UserID = sessionUserIDFromPayload(payload)
+	if state.UserID == "" {
+		return SessionMFAState{}, ErrNotFound
+	}
+	if state.Required && !state.Verified && !state.ExpiresAt.IsZero() && state.ExpiresAt.Before(time.Now()) {
+		return state, ErrMFAChallengeExpired
+	}
+	return state, nil
 }
 
 func (s *Store) SessionUserID(ctx context.Context, sessionID string) (string, error) {
@@ -242,6 +314,490 @@ func (s *Store) DeleteUserSessions(ctx context.Context, userID string) error {
 func sessionStorageKey(sessionID string) string {
 	sum := sha256.Sum256([]byte(sessionID))
 	return hex.EncodeToString(sum[:])
+}
+
+func parseSessionMFAState(payload []byte) (SessionMFAState, error) {
+	var raw struct {
+		UserID                string `json:"userId"`
+		MFARequired           bool   `json:"mfaRequired"`
+		MFAVerified           *bool  `json:"mfaVerified"`
+		MFAChallengeExpiresAt string `json:"mfaChallengeExpiresAt"`
+		MFAAttempts           int    `json:"mfaAttempts"`
+	}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return SessionMFAState{}, err
+	}
+	verified := true
+	if raw.MFAVerified != nil {
+		verified = *raw.MFAVerified
+	}
+	state := SessionMFAState{
+		UserID:   raw.UserID,
+		Required: raw.MFARequired || !verified,
+		Verified: verified,
+		Attempts: raw.MFAAttempts,
+	}
+	if raw.MFAChallengeExpiresAt != "" {
+		expiresAt, err := time.Parse(time.RFC3339, raw.MFAChallengeExpiresAt)
+		if err != nil {
+			return SessionMFAState{}, err
+		}
+		state.ExpiresAt = expiresAt
+	}
+	return state, nil
+}
+
+func sessionUserIDFromPayload(payload []byte) string {
+	state, err := parseSessionMFAState(payload)
+	if err != nil {
+		return ""
+	}
+	return state.UserID
+}
+
+func sessionWithMFACompleted(payload []byte) ([]byte, error) {
+	var values map[string]any
+	if err := json.Unmarshal(payload, &values); err != nil {
+		return nil, err
+	}
+	values["mfaRequired"] = false
+	values["mfaVerified"] = true
+	delete(values, "mfaChallengeExpiresAt")
+	delete(values, "mfaAttempts")
+	return json.Marshal(values)
+}
+
+func (s *Store) TOTPEnabled(ctx context.Context, userID string) (bool, error) {
+	if s == nil {
+		return false, errors.New("database is not configured")
+	}
+	var enabled bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM auth_totp
+			WHERE user_id = $1 AND enabled_at IS NOT NULL
+		)
+	`, userID).Scan(&enabled)
+	return enabled, err
+}
+
+func (s *Store) BeginTOTPEnrollment(ctx context.Context, userID, encryptedSecret string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var enabled bool
+	err = tx.QueryRow(ctx, `
+		SELECT enabled_at IS NOT NULL
+		FROM auth_totp
+		WHERE user_id = $1
+		FOR UPDATE
+	`, userID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO auth_totp (user_id, secret_encrypted, enabled_at, last_used_step)
+			VALUES ($1, $2, NULL, NULL)
+		`, userID, encryptedSecret)
+		if err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	if enabled {
+		return ErrMFAAlreadyEnabled
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_totp
+		SET secret_encrypted = $2, enabled_at = NULL, last_used_step = NULL, updated_at = NOW()
+		WHERE user_id = $1
+	`, userID, encryptedSecret); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) EncryptedTOTPSecret(ctx context.Context, userID string) (string, error) {
+	if s == nil {
+		return "", errors.New("database is not configured")
+	}
+	var encryptedSecret string
+	err := s.pool.QueryRow(ctx, `
+		SELECT secret_encrypted
+		FROM auth_totp
+		WHERE user_id = $1
+	`, userID).Scan(&encryptedSecret)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrMFANotEnrolled
+	}
+	return encryptedSecret, err
+}
+
+func (s *Store) ConfirmTOTPEnrollment(
+	ctx context.Context,
+	userID string,
+	recoveryCodeHashes []string,
+	lastUsedStep int64,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	if len(recoveryCodeHashes) == 0 {
+		return ErrMFAEnrollmentUnavailable
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var enabled bool
+	err = tx.QueryRow(ctx, `
+		SELECT enabled_at IS NOT NULL
+		FROM auth_totp
+		WHERE user_id = $1
+		FOR UPDATE
+	`, userID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrMFANotEnrolled
+	}
+	if err != nil {
+		return err
+	}
+	if enabled {
+		return ErrMFAAlreadyEnabled
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_totp
+		SET enabled_at = NOW(), last_used_step = $2, updated_at = NOW()
+		WHERE user_id = $1
+	`, userID, lastUsedStep); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_recovery_codes WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	for _, codeHash := range recoveryCodeHashes {
+		codeID, err := id.New()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO auth_recovery_codes (id, user_id, code_hash)
+			VALUES ($1, $2, $3)
+		`, codeID, userID, codeHash); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) loadPendingMFASession(
+	ctx context.Context,
+	tx pgx.Tx,
+	sessionID, userID string,
+	maxAttempts int,
+) ([]byte, SessionMFAState, error) {
+	var payload []byte
+	var expiresAt time.Time
+	err := tx.QueryRow(ctx, `
+		SELECT sess, expire
+		FROM sessions
+		WHERE sid = $1 OR sid = $2
+		FOR UPDATE
+	`, sessionStorageKey(sessionID), sessionID).Scan(&payload, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, SessionMFAState{}, ErrNotFound
+	}
+	if err != nil {
+		return nil, SessionMFAState{}, err
+	}
+	if expiresAt.Before(time.Now()) {
+		return nil, SessionMFAState{}, ErrNotFound
+	}
+	state, err := parseSessionMFAState(payload)
+	if err != nil {
+		return nil, SessionMFAState{}, ErrNotFound
+	}
+	if state.UserID != userID {
+		return nil, SessionMFAState{}, ErrOwnership
+	}
+	if !state.Required || state.Verified {
+		return nil, state, ErrMFAChallengeExpired
+	}
+	if !state.ExpiresAt.IsZero() && state.ExpiresAt.Before(time.Now()) {
+		return nil, state, ErrMFAChallengeExpired
+	}
+	if state.Attempts >= maxAttempts {
+		return nil, state, ErrMFAChallengeLocked
+	}
+	return payload, state, nil
+}
+
+func updateSessionPayload(ctx context.Context, tx pgx.Tx, sessionID string, payload []byte) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE sessions
+		SET sess = $3::jsonb
+		WHERE sid = $1 OR sid = $2
+	`, sessionStorageKey(sessionID), sessionID, payload)
+	return err
+}
+
+func (s *Store) RecordMFAFailure(ctx context.Context, sessionID, userID string, maxAttempts int) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	payload, state, err := s.loadPendingMFASession(ctx, tx, sessionID, userID, maxAttempts)
+	if err != nil {
+		return err
+	}
+	values := map[string]any{}
+	if err := json.Unmarshal(payload, &values); err != nil {
+		return err
+	}
+	state.Attempts++
+	values["mfaAttempts"] = state.Attempts
+	payload, err = json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	if err := updateSessionPayload(ctx, tx, sessionID, payload); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if state.Attempts >= maxAttempts {
+		return ErrMFAChallengeLocked
+	}
+	return ErrMFAChallengeInvalid
+}
+
+func (s *Store) CompleteTOTPChallenge(ctx context.Context, sessionID, userID string, step int64, maxAttempts int) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	payload, _, err := s.loadPendingMFASession(ctx, tx, sessionID, userID, maxAttempts)
+	if err != nil {
+		return err
+	}
+	var lastUsedStep *int64
+	err = tx.QueryRow(ctx, `
+		SELECT last_used_step
+		FROM auth_totp
+		WHERE user_id = $1 AND enabled_at IS NOT NULL
+		FOR UPDATE
+	`, userID).Scan(&lastUsedStep)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrMFANotEnrolled
+	}
+	if err != nil {
+		return err
+	}
+	if lastUsedStep != nil && step <= *lastUsedStep {
+		return ErrMFAReplay
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_totp SET last_used_step = $2, updated_at = NOW()
+		WHERE user_id = $1
+	`, userID, step); err != nil {
+		return err
+	}
+	payload, err = sessionWithMFACompleted(payload)
+	if err != nil {
+		return err
+	}
+	if err := updateSessionPayload(ctx, tx, sessionID, payload); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) ConsumeRecoveryCode(
+	ctx context.Context, sessionID, userID, codeHash string, maxAttempts int,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	payload, state, err := s.loadPendingMFASession(ctx, tx, sessionID, userID, maxAttempts)
+	if err != nil {
+		return err
+	}
+	var codeID string
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM auth_recovery_codes
+		WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
+		FOR UPDATE
+	`, userID, codeHash).Scan(&codeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		values := map[string]any{}
+		if unmarshalErr := json.Unmarshal(payload, &values); unmarshalErr != nil {
+			return unmarshalErr
+		}
+		state.Attempts++
+		values["mfaAttempts"] = state.Attempts
+		payload, marshalErr := json.Marshal(values)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if updateErr := updateSessionPayload(ctx, tx, sessionID, payload); updateErr != nil {
+			return updateErr
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			return commitErr
+		}
+		if state.Attempts >= maxAttempts {
+			return ErrMFAChallengeLocked
+		}
+		return ErrRecoveryCodeInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_recovery_codes SET used_at = NOW() WHERE id = $1
+	`, codeID); err != nil {
+		return err
+	}
+	payload, err = sessionWithMFACompleted(payload)
+	if err != nil {
+		return err
+	}
+	if err := updateSessionPayload(ctx, tx, sessionID, payload); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) DisableTOTPWithRecoveryCode(ctx context.Context, userID, codeHash string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var enabled bool
+	err = tx.QueryRow(ctx, `
+		SELECT enabled_at IS NOT NULL
+		FROM auth_totp
+		WHERE user_id = $1
+		FOR UPDATE
+	`, userID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrMFANotEnrolled
+	}
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrMFANotEnrolled
+	}
+	var codeID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id FROM auth_recovery_codes
+		WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
+		FOR UPDATE
+	`, userID, codeHash).Scan(&codeID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrRecoveryCodeInvalid
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE auth_recovery_codes SET used_at = NOW() WHERE id = $1`, codeID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_recovery_codes WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_totp WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) RegenerateRecoveryCodes(
+	ctx context.Context, userID, currentCodeHash string, newCodeHashes []string,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	if len(newCodeHashes) == 0 {
+		return ErrMFAEnrollmentUnavailable
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var enabled bool
+	err = tx.QueryRow(ctx, `
+		SELECT enabled_at IS NOT NULL
+		FROM auth_totp
+		WHERE user_id = $1
+		FOR UPDATE
+	`, userID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrMFANotEnrolled
+	}
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrMFANotEnrolled
+	}
+	var codeID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id FROM auth_recovery_codes
+		WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
+		FOR UPDATE
+	`, userID, currentCodeHash).Scan(&codeID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrRecoveryCodeInvalid
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE auth_recovery_codes SET used_at = NOW() WHERE id = $1`, codeID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_recovery_codes WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	for _, codeHash := range newCodeHashes {
+		newCodeID, err := id.New()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO auth_recovery_codes (id, user_id, code_hash)
+			VALUES ($1, $2, $3)
+		`, newCodeID, userID, codeHash); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) GetUser(ctx context.Context, userID string) (User, error) {

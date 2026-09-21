@@ -26,6 +26,8 @@ export type NativeSession = {
   userId: string;
   provider: "google" | "github" | "password";
   createdAt: string;
+  mfaRequired?: boolean;
+  mfaVerified?: boolean;
 };
 
 export type GoogleUserInfo = {

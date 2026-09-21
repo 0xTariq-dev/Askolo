@@ -3,11 +3,12 @@ import { Input } from '@/components/ui/input';
 import { motion } from 'framer-motion';
 import { Github, KeyRound, Sparkles, UserPlus } from 'lucide-react';
 import { useState } from 'react';
+import { useAppAuth } from '@/contexts/auth-context';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 import logoUrl from '/logo.png';
 
-type PasswordMode = 'signin' | 'signup' | 'verify' | 'recovery-request' | 'recovery-reset';
+type PasswordMode = 'signin' | 'signup' | 'verify' | 'recovery-request' | 'recovery-reset' | 'mfa';
 
 type AuthPayload = {
   error?: string;
@@ -29,7 +30,12 @@ async function postAuth(path: string, body: Record<string, string>): Promise<Aut
 }
 
 export function LoginPage() {
-  const initialMode: PasswordMode = window.location.pathname.endsWith('/sign-up') ? 'signup' : 'signin';
+  const { mfaRequired } = useAppAuth();
+  const initialMode: PasswordMode = mfaRequired
+    ? 'mfa'
+    : window.location.pathname.endsWith('/sign-up')
+      ? 'signup'
+      : 'signin';
   const beginProviderLogin = (provider: 'google' | 'github', intent: 'signin' | 'signup' = 'signin') => {
     const returnTo = `${window.location.pathname}${window.location.search}`;
     window.location.assign(
@@ -66,8 +72,13 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       if (mode === 'signin') {
-        await postAuth('/api/auth/password/login', { email, password });
-        window.location.assign(`${basePath}/dashboard`);
+        const payload = await postAuth('/api/auth/password/login', { email, password });
+        if (payload.status === 'mfa_required') {
+          setMode('mfa');
+          setNotice('Enter an authenticator code or one of your recovery codes to continue.');
+        } else {
+          window.location.assign(`${basePath}/dashboard`);
+        }
       } else if (mode === 'signup') {
         await postAuth('/api/auth/password/signup', { email, password });
         setMode('verify');
@@ -82,6 +93,9 @@ export function LoginPage() {
         await postAuth('/api/auth/password/recovery/request', { email });
         setMode('recovery-reset');
         setNotice('If a verified recovery address matches, a reset code is on its way.');
+      } else if (mode === 'mfa') {
+        await postAuth('/api/auth/mfa/verify', { code });
+        window.location.assign(`${basePath}/dashboard`);
       } else {
         if (newPassword !== confirmPassword) {
           throw new Error('The passwords do not match.');
@@ -123,6 +137,7 @@ export function LoginPage() {
     verify: 'Verify your email',
     'recovery-request': 'Recover your account',
     'recovery-reset': 'Choose a new password',
+    mfa: 'Verify your identity',
   }[mode];
 
   return (
@@ -222,30 +237,44 @@ export function LoginPage() {
                   ? 'Enter the six-digit code sent to your email.'
                   : mode === 'recovery-request'
                     ? 'Use the independently verified recovery email on your account.'
+                    : mode === 'mfa'
+                      ? 'Enter the six-digit code from your authenticator app, or use a recovery code.'
                     : 'Enter the code from your recovery email and choose a strong password.'}
               </p>
-              <label htmlFor="flow-email" className="sr-only">Email address</label>
-              <Input
-                id="flow-email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
+              {mode !== 'mfa' && (
+                <>
+                  <label htmlFor="flow-email" className="sr-only">Email address</label>
+                  <Input
+                    id="flow-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    required
+                  />
+                </>
+              )}
               {mode !== 'recovery-request' && (
                 <>
-                  <label htmlFor="flow-code" className="sr-only">Six-digit verification code</label>
+                  <label htmlFor="flow-code" className="sr-only">
+                    {mode === 'mfa' ? 'Authenticator or recovery code' : 'Six-digit verification code'}
+                  </label>
                   <Input
                     id="flow-code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    placeholder="123456"
+                    inputMode={mode === 'mfa' ? 'text' : 'numeric'}
+                    autoComplete={mode === 'mfa' ? 'one-time-code' : 'one-time-code'}
+                    placeholder={mode === 'mfa' ? '123456 or ABCD-1234-5678-9ABC' : '123456'}
                     value={code}
-                    onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                    minLength={6}
-                    maxLength={6}
+                    onChange={(event) =>
+                      setCode(
+                        mode === 'mfa'
+                          ? event.target.value.toUpperCase().replace(/[^A-F0-9-]/g, '').slice(0, 19)
+                          : event.target.value.replace(/\D/g, '').slice(0, 6),
+                      )
+                    }
+                    minLength={mode === 'mfa' ? 6 : 6}
+                    maxLength={mode === 'mfa' ? 19 : 6}
                     required
                   />
                 </>
@@ -277,7 +306,15 @@ export function LoginPage() {
               {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
               <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? 'Working…' : mode === 'verify' ? 'Verify email' : mode === 'recovery-request' ? 'Send recovery code' : 'Reset password'}
+                {submitting
+                  ? 'Working…'
+                  : mode === 'verify'
+                    ? 'Verify email'
+                    : mode === 'recovery-request'
+                      ? 'Send recovery code'
+                      : mode === 'mfa'
+                        ? 'Verify MFA'
+                        : 'Reset password'}
               </Button>
             </form>
             {mode === 'verify' && (

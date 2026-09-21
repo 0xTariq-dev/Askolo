@@ -23,6 +23,7 @@ type Config struct {
 	InternalAuthToken string
 	DatabaseURL       string
 	SessionSecret     string
+	TOTPEncryptionKey []byte
 	Email             EmailConfig
 	Google            GoogleOAuthConfig
 	GitHub            GitHubOAuthConfig
@@ -87,9 +88,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	sessionSecret := strings.TrimSpace(os.Getenv("SESSION_SECRET"))
+	totpEncryptionKey, err := loadEncryptionKey(os.Getenv("AUTH_TOTP_ENCRYPTION_KEY"))
+	if err != nil {
+		return Config{}, err
+	}
+	if len(totpEncryptionKey) == 0 && sessionSecret != "" {
+		derived := sha256.Sum256([]byte("askolo-auth-totp:" + sessionSecret))
+		totpEncryptionKey = derived[:]
+	}
 	challengeSecret := strings.TrimSpace(os.Getenv("AUTH_CHALLENGE_SECRET"))
 	if challengeSecret == "" {
-		challengeSecret = strings.TrimSpace(os.Getenv("SESSION_SECRET"))
+		challengeSecret = sessionSecret
 	}
 
 	return Config{
@@ -99,7 +109,8 @@ func Load() (Config, error) {
 		Port:              port,
 		InternalAuthToken: strings.TrimSpace(os.Getenv("ASKOLO_INTERNAL_TOKEN")),
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		SessionSecret:     strings.TrimSpace(os.Getenv("SESSION_SECRET")),
+		SessionSecret:     sessionSecret,
+		TOTPEncryptionKey: totpEncryptionKey,
 		Email: EmailConfig{
 			SMTPHost:        strings.TrimSpace(os.Getenv("AUTH_SMTP_HOST")),
 			SMTPPort:        smtpPort,

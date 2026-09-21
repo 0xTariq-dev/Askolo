@@ -23,6 +23,8 @@ const AUTH_PATHS = [
   /^\/auth\/email\/(?:verify|resend)$/,
   /^\/auth\/recovery\/email\/(?:enroll|verify)$/,
   /^\/auth\/password\/recovery\/(?:request|reset)$/,
+  /^\/auth\/mfa\/(?:status|enroll|confirm|verify|disable)$/,
+  /^\/auth\/mfa\/recovery-codes\/regenerate$/,
 ];
 
 function isGoogleGoPath(path: string): boolean {

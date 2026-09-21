@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import {
@@ -94,6 +94,16 @@ export function ProfilePage() {
   const [recoveryCode, setRecoveryCode] = useState('');
   const [recoveryStep, setRecoveryStep] = useState<'idle' | 'verify'>('idle');
   const [savingRecoveryEmail, setSavingRecoveryEmail] = useState(false);
+
+  // MFA enrollment and recovery-code state. Secrets remain in transient component state only.
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [mfaStep, setMfaStep] = useState<'idle' | 'confirm' | 'codes'>('idle');
+  const [mfaSecret, setMfaSecret] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaPassword, setMfaPassword] = useState('');
+  const [mfaRecoveryCode, setMfaRecoveryCode] = useState('');
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
+  const [mfaBusy, setMfaBusy] = useState(false);
 
   // Action states
   const [disconnecting, setDisconnecting] = useState<'calendar' | 'gmail' | null>(null);
@@ -219,6 +229,106 @@ export function ProfilePage() {
       });
     } finally {
       setSavingRecoveryEmail(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    fetch(`${basePath}/api/auth/mfa/status`, { credentials: 'include' })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as { enabled?: boolean };
+        setMfaEnabled(payload.enabled === true);
+      })
+      .catch(() => undefined);
+  }, [isLoaded, user]);
+
+  const postMFA = async (path: string, body: Record<string, string>) => {
+    const response = await fetch(`${basePath}${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      secret?: string;
+      recoveryCodes?: string[];
+    } | null;
+    if (!response.ok) throw new Error(payload?.error || 'MFA request failed');
+    return payload ?? {};
+  };
+
+  const startMFAEnrollment = async () => {
+    if (!mfaPassword) return;
+    setMfaBusy(true);
+    try {
+      const payload = await postMFA('/api/auth/mfa/enroll', { currentPassword: mfaPassword });
+      setMfaSecret(payload.secret || '');
+      setMfaCode('');
+      setMfaStep('confirm');
+      toast({ title: 'MFA enrollment started', description: 'Add the secret to your authenticator app, then enter its code.' });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : 'MFA enrollment failed', variant: 'destructive' });
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const confirmMFAEnrollment = async () => {
+    if (mfaCode.length !== 6) return;
+    setMfaBusy(true);
+    try {
+      const payload = await postMFA('/api/auth/mfa/confirm', { code: mfaCode });
+      setMfaEnabled(true);
+      setMfaSecret('');
+      setMfaCode('');
+      setMfaRecoveryCodes(payload.recoveryCodes || []);
+      setMfaStep('codes');
+      toast({ title: 'MFA enabled', description: 'Save your recovery codes before leaving this page.' });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : 'MFA confirmation failed', variant: 'destructive' });
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const regenerateMFARecoveryCodes = async () => {
+    if (!mfaPassword || !mfaRecoveryCode) return;
+    setMfaBusy(true);
+    try {
+      const payload = await postMFA('/api/auth/mfa/recovery-codes/regenerate', {
+        currentPassword: mfaPassword,
+        recoveryCode: mfaRecoveryCode,
+      });
+      setMfaPassword('');
+      setMfaRecoveryCode('');
+      setMfaRecoveryCodes(payload.recoveryCodes || []);
+      setMfaStep('codes');
+      toast({ title: 'Recovery codes regenerated', description: 'Your previous recovery codes no longer work.' });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : 'Recovery-code regeneration failed', variant: 'destructive' });
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const disableMFA = async () => {
+    if (!mfaPassword || !mfaRecoveryCode) return;
+    setMfaBusy(true);
+    try {
+      await postMFA('/api/auth/mfa/disable', {
+        currentPassword: mfaPassword,
+        recoveryCode: mfaRecoveryCode,
+      });
+      setMfaEnabled(false);
+      setMfaPassword('');
+      setMfaRecoveryCode('');
+      toast({ title: 'MFA disabled' });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : 'MFA disable failed', variant: 'destructive' });
+    } finally {
+      setMfaBusy(false);
     }
   };
 
@@ -473,6 +583,115 @@ export function ProfilePage() {
                 {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
                 Send verification code
               </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Multi-factor authentication ───────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-4 w-4 text-primary" /> Multi-factor authentication
+          </CardTitle>
+          <CardDescription>
+            Protect sign-in with an authenticator app. Recovery codes are shown once and cannot be restored.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {mfaStep === 'codes' ? (
+            <>
+              <p className="text-sm text-foreground font-medium">Save these recovery codes somewhere secure.</p>
+              <p className="text-xs text-muted-foreground">
+                Each code works once. Askolo will not show them again after you continue.
+              </p>
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-muted/30 p-3" aria-label="MFA recovery codes">
+                {mfaRecoveryCodes.map((code) => (
+                  <code key={code} className="text-sm font-mono text-foreground">{code}</code>
+                ))}
+              </div>
+              <Button size="sm" onClick={() => { setMfaRecoveryCodes([]); setMfaStep('idle'); }}>
+                I saved my recovery codes
+              </Button>
+            </>
+          ) : !mfaEnabled && mfaStep === 'confirm' ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Add this setup key to your authenticator app. It is shown only during enrollment.
+              </p>
+              <code className="block break-all rounded-lg border border-border bg-muted/30 p-3 text-sm font-mono select-all">
+                {mfaSecret}
+              </code>
+              <div className="space-y-1.5">
+                <Label htmlFor="mfa-enrollment-code">Authenticator code</Label>
+                <Input
+                  id="mfa-enrollment-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  maxLength={6}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={confirmMFAEnrollment} disabled={mfaBusy || mfaCode.length !== 6}>
+                  {mfaBusy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                  Confirm MFA
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setMfaSecret(''); setMfaCode(''); setMfaStep('idle'); }} disabled={mfaBusy}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : !mfaEnabled ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="mfa-enrollment-password">Current password</Label>
+                <Input
+                  id="mfa-enrollment-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={mfaPassword}
+                  onChange={(event) => setMfaPassword(event.target.value)}
+                />
+              </div>
+              <Button size="sm" onClick={startMFAEnrollment} disabled={mfaBusy || !mfaPassword}>
+                {mfaBusy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                Set up authenticator app
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-green-400">MFA is enabled for this account.</p>
+              <div className="space-y-1.5">
+                <Label htmlFor="mfa-management-password">Current password</Label>
+                <Input
+                  id="mfa-management-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={mfaPassword}
+                  onChange={(event) => setMfaPassword(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mfa-recovery-code">Recovery code</Label>
+                <Input
+                  id="mfa-recovery-code"
+                  autoComplete="one-time-code"
+                  value={mfaRecoveryCode}
+                  onChange={(event) => setMfaRecoveryCode(event.target.value.toUpperCase())}
+                  placeholder="ABCD-1234-5678-9ABC"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={regenerateMFARecoveryCodes} disabled={mfaBusy || !mfaPassword || !mfaRecoveryCode}>
+                  Regenerate recovery codes
+                </Button>
+                <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={disableMFA} disabled={mfaBusy || !mfaPassword || !mfaRecoveryCode}>
+                  Disable MFA
+                </Button>
+              </div>
             </>
           )}
         </CardContent>

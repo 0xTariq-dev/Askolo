@@ -27,6 +27,10 @@ export async function requireAuth(
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
+  if (nativeSession.mfaRequired === true && nativeSession.mfaVerified !== true) {
+    res.status(403).json({ code: 'MFA_REQUIRED', error: 'Complete MFA before accessing the app.' });
+    return;
+  }
 
   const [dbUser] = await db
     .select()
