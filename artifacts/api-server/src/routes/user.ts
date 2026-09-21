@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { clearCookie, deleteNativeSession } from "../lib/nativeAuth";
 import {
   db,
@@ -13,6 +13,14 @@ import {
   gmailTokensTable,
   googleConnectionsTable,
   usersTable,
+  sessionsTable,
+  providerAccountsTable,
+  authPasswordsTable,
+  authEmailChallengesTable,
+  authRecoveryMethodsTable,
+  authTotpTable,
+  authRecoveryCodesTable,
+  authSecurityEventsTable,
 } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -28,6 +36,17 @@ async function deleteAllUserData(userId: string) {
   await db.delete(dailyPlansTable).where(eq(dailyPlansTable.userId, userId));
   await db.delete(gmailTokensTable).where(eq(gmailTokensTable.userId, userId));
   await db.delete(googleConnectionsTable).where(eq(googleConnectionsTable.userId, userId));
+}
+
+async function deleteAuthenticationData(userId: string) {
+  await db.delete(authSecurityEventsTable).where(eq(authSecurityEventsTable.userId, userId));
+  await db.delete(authEmailChallengesTable).where(eq(authEmailChallengesTable.userId, userId));
+  await db.delete(authRecoveryCodesTable).where(eq(authRecoveryCodesTable.userId, userId));
+  await db.delete(authRecoveryMethodsTable).where(eq(authRecoveryMethodsTable.userId, userId));
+  await db.delete(authTotpTable).where(eq(authTotpTable.userId, userId));
+  await db.delete(authPasswordsTable).where(eq(authPasswordsTable.userId, userId));
+  await db.delete(providerAccountsTable).where(eq(providerAccountsTable.userId, userId));
+  await db.delete(sessionsTable).where(sql`${sessionsTable.sess}->>'userId' = ${userId}`);
 }
 
 // DELETE /user/data
@@ -81,6 +100,7 @@ router.patch("/user/profile", async (req, res): Promise<void> => {
 router.delete("/user/account", async (req, res): Promise<void> => {
   try {
     await deleteAllUserData(req.dbUser.id);
+    await deleteAuthenticationData(req.dbUser.id);
     await db.delete(usersTable).where(eq(usersTable.id, req.dbUser.id));
     await deleteNativeSession(req.nativeSessionId);
     clearCookie(res, "sid");

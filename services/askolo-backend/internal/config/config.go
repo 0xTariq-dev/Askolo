@@ -23,9 +23,19 @@ type Config struct {
 	InternalAuthToken string
 	DatabaseURL       string
 	SessionSecret     string
+	Email             EmailConfig
 	Google            GoogleOAuthConfig
 	GitHub            GitHubOAuthConfig
 	AllowedOAuthHosts map[string]struct{}
+}
+
+type EmailConfig struct {
+	SMTPHost        string
+	SMTPPort        int
+	SMTPUsername    string
+	SMTPPassword    string
+	FromAddress     string
+	ChallengeSecret string
 }
 
 type GoogleOAuthConfig struct {
@@ -54,6 +64,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	smtpPort, err := envPort("AUTH_SMTP_PORT", 587)
+	if err != nil {
+		return Config{}, err
+	}
 
 	environment := strings.TrimSpace(os.Getenv("APP_ENV"))
 	if environment == "" {
@@ -73,6 +87,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	challengeSecret := strings.TrimSpace(os.Getenv("AUTH_CHALLENGE_SECRET"))
+	if challengeSecret == "" {
+		challengeSecret = strings.TrimSpace(os.Getenv("SESSION_SECRET"))
+	}
 
 	return Config{
 		ServiceName:       "askolo-backend",
@@ -82,6 +100,14 @@ func Load() (Config, error) {
 		InternalAuthToken: strings.TrimSpace(os.Getenv("ASKOLO_INTERNAL_TOKEN")),
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		SessionSecret:     strings.TrimSpace(os.Getenv("SESSION_SECRET")),
+		Email: EmailConfig{
+			SMTPHost:        strings.TrimSpace(os.Getenv("AUTH_SMTP_HOST")),
+			SMTPPort:        smtpPort,
+			SMTPUsername:    strings.TrimSpace(os.Getenv("AUTH_SMTP_USERNAME")),
+			SMTPPassword:    os.Getenv("AUTH_SMTP_PASSWORD"),
+			FromAddress:     strings.TrimSpace(os.Getenv("AUTH_EMAIL_FROM")),
+			ChallengeSecret: challengeSecret,
+		},
 		Google: GoogleOAuthConfig{
 			LoginClientID:       strings.TrimSpace(os.Getenv("GOOGLE_LOGIN_CLIENT_ID")),
 			LoginClientSecret:   strings.TrimSpace(os.Getenv("GOOGLE_LOGIN_CLIENT_SECRET")),

@@ -88,6 +88,13 @@ export function ProfilePage() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordFormOpen, setPasswordFormOpen] = useState(false);
 
+  // Independent recovery email state
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryReauthPassword, setRecoveryReauthPassword] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [recoveryStep, setRecoveryStep] = useState<'idle' | 'verify'>('idle');
+  const [savingRecoveryEmail, setSavingRecoveryEmail] = useState(false);
+
   // Action states
   const [disconnecting, setDisconnecting] = useState<'calendar' | 'gmail' | null>(null);
   const [deletingData, setDeletingData] = useState(false);
@@ -158,6 +165,60 @@ export function ProfilePage() {
       toast({ title: err?.errors?.[0]?.message || 'Failed to change password', variant: 'destructive' });
     } finally {
       setChangingPassword(false);
+    }
+  };
+
+  const enrollRecoveryEmail = async () => {
+    if (!recoveryEmail || !recoveryReauthPassword) return;
+    setSavingRecoveryEmail(true);
+    try {
+      const response = await fetch(`${basePath}/api/auth/recovery/email/enroll`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: recoveryEmail,
+          currentPassword: recoveryReauthPassword,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) throw new Error(payload?.error || 'Recovery email setup failed');
+      setRecoveryStep('verify');
+      toast({ title: 'Check your recovery email', description: 'Enter the verification code to finish setup.' });
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : 'Recovery email setup failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingRecoveryEmail(false);
+    }
+  };
+
+  const verifyRecoveryEmail = async () => {
+    if (!recoveryEmail || recoveryCode.length !== 6) return;
+    setSavingRecoveryEmail(true);
+    try {
+      const response = await fetch(`${basePath}/api/auth/recovery/email/verify`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: recoveryEmail, code: recoveryCode }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) throw new Error(payload?.error || 'Recovery email verification failed');
+      setRecoveryStep('idle');
+      setRecoveryEmail('');
+      setRecoveryReauthPassword('');
+      setRecoveryCode('');
+      toast({ title: 'Recovery email verified' });
+    } catch (err) {
+      toast({
+        title: err instanceof Error ? err.message : 'Recovery email verification failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingRecoveryEmail(false);
     }
   };
 
@@ -338,6 +399,81 @@ export function ProfilePage() {
               </Button>
             )}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Recovery email ────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-4 w-4 text-primary" /> Independent recovery
+          </CardTitle>
+          <CardDescription>
+            Add a separate verified email for password recovery. Recent reauthentication is required.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {recoveryStep === 'verify' ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Enter the six-digit code sent to <span className="font-medium text-foreground">{recoveryEmail}</span>.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="recovery-code">Verification code</Label>
+                <Input
+                  id="recovery-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={recoveryCode}
+                  onChange={(event) => setRecoveryCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength={6}
+                  placeholder="123456"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={verifyRecoveryEmail} disabled={savingRecoveryEmail || recoveryCode.length !== 6}>
+                  {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                  Verify recovery email
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setRecoveryStep('idle')} disabled={savingRecoveryEmail}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="recovery-email">Recovery email</Label>
+                <Input
+                  id="recovery-email"
+                  type="email"
+                  autoComplete="email"
+                  value={recoveryEmail}
+                  onChange={(event) => setRecoveryEmail(event.target.value)}
+                  placeholder="recovery@example.com"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="recovery-reauth-password">Current password</Label>
+                <Input
+                  id="recovery-reauth-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={recoveryReauthPassword}
+                  onChange={(event) => setRecoveryReauthPassword(event.target.value)}
+                  placeholder="Confirm your current password"
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={enrollRecoveryEmail}
+                disabled={savingRecoveryEmail || !recoveryEmail || !recoveryReauthPassword}
+              >
+                {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                Send verification code
+              </Button>
+            </>
           )}
         </CardContent>
       </Card>

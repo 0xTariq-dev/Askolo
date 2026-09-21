@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
@@ -36,10 +38,27 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 		})
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"service":                cfg.ServiceName,
-			"status":                 "ready",
-			"internalAuthConfigured": cfg.InternalAuthToken != "",
+		databaseReachable := false
+		if store != nil {
+			pingContext, cancel := context.WithTimeout(r.Context(), 750*time.Millisecond)
+			databaseReachable = store.Ping(pingContext) == nil
+			cancel()
+		}
+		emailDeliveryConfigured := cfg.Email.SMTPHost != "" &&
+			cfg.Email.FromAddress != "" &&
+			cfg.Email.ChallengeSecret != ""
+		status := "ready"
+		statusCode := http.StatusOK
+		if !databaseReachable {
+			status = "degraded"
+			statusCode = http.StatusServiceUnavailable
+		}
+		writeJSON(w, statusCode, map[string]any{
+			"service":                 cfg.ServiceName,
+			"status":                  status,
+			"internalAuthConfigured":  cfg.InternalAuthToken != "",
+			"databaseReachable":       databaseReachable,
+			"emailDeliveryConfigured": emailDeliveryConfigured,
 		})
 	})
 

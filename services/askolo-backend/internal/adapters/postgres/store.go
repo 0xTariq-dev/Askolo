@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,9 @@ import (
 var ErrNotFound = errors.New("record not found")
 var ErrOwnership = errors.New("record does not belong to user")
 var ErrEmailExists = errors.New("email already belongs to an account")
+var ErrChallengeInvalid = errors.New("email challenge is invalid")
+var ErrChallengeLocked = errors.New("email challenge is locked")
+var ErrRecoveryUnavailable = errors.New("recovery method is unavailable")
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -224,6 +228,17 @@ func (s *Store) DeleteSession(ctx context.Context, sessionID string) error {
 	return err
 }
 
+func (s *Store) DeleteUserSessions(ctx context.Context, userID string) error {
+	if s == nil || userID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM sessions
+		WHERE sess->>'userId' = $1
+	`, userID)
+	return err
+}
+
 func sessionStorageKey(sessionID string) string {
 	sum := sha256.Sum256([]byte(sessionID))
 	return hex.EncodeToString(sum[:])
@@ -346,6 +361,243 @@ func (s *Store) SetPassword(ctx context.Context, userID, passwordHash string) er
 			updated_at = NOW()
 	`, userID, passwordHash)
 	return err
+}
+
+func (s *Store) CreateEmailChallenge(
+	ctx context.Context,
+	challengeID, userID, email, purpose, codeHash string,
+	expiresAt time.Time,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO auth_email_challenges
+			(id, user_id, email, purpose, code_hash, expires_at)
+		VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6)
+	`, challengeID, userID, strings.ToLower(strings.TrimSpace(email)), purpose, codeHash, expiresAt)
+	return err
+}
+
+func (s *Store) HasRecentEmailChallenge(
+	ctx context.Context, email, purpose string, since time.Time,
+) (bool, error) {
+	if s == nil {
+		return false, errors.New("database is not configured")
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM auth_email_challenges
+			WHERE lower(email) = lower($1)
+			  AND purpose = $2
+			  AND created_at >= $3
+		)
+	`, strings.TrimSpace(email), purpose, since).Scan(&exists)
+	return exists, err
+}
+
+func (s *Store) ConsumeEmailChallenge(
+	ctx context.Context, email, purpose, codeHash string, maxAttempts int,
+) (string, error) {
+	if s == nil {
+		return "", errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var challengeID, userID, storedHash string
+	var attempts int
+	err = tx.QueryRow(ctx, `
+		SELECT id, COALESCE(user_id, ''), code_hash, attempt_count
+		FROM auth_email_challenges
+		WHERE lower(email) = lower($1)
+		  AND purpose = $2
+		  AND consumed_at IS NULL
+		  AND expires_at > NOW()
+		ORDER BY created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, strings.TrimSpace(email), purpose).Scan(&challengeID, &userID, &storedHash, &attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrChallengeInvalid
+	}
+	if err != nil {
+		return "", err
+	}
+	if attempts >= maxAttempts {
+		return "", ErrChallengeLocked
+	}
+
+	attempts++
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_email_challenges
+		SET attempt_count = $2
+		WHERE id = $1
+	`, challengeID, attempts); err != nil {
+		return "", err
+	}
+	if !secureStringEqual(storedHash, codeHash) {
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		return "", ErrChallengeInvalid
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_email_challenges
+		SET consumed_at = NOW()
+		WHERE id = $1
+	`, challengeID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return userID, nil
+}
+
+func (s *Store) MarkEmailVerified(ctx context.Context, userID string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE users
+		SET email_verified_at = COALESCE(email_verified_at, NOW()),
+		    status = CASE
+		        WHEN status = 'pending_email_verification' THEN 'active'
+		        ELSE status
+		    END,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, userID)
+	return err
+}
+
+func (s *Store) UpsertVerifiedRecoveryEmail(ctx context.Context, userID, email string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	methodID, err := id.New()
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO auth_recovery_methods
+			(id, user_id, kind, address, verified_at, revoked_at)
+		VALUES ($1, $2, 'email', $3, NOW(), NULL)
+		ON CONFLICT (user_id, kind, address) DO UPDATE SET
+			verified_at = NOW(),
+			revoked_at = NULL,
+			updated_at = NOW()
+	`, methodID, userID, strings.ToLower(strings.TrimSpace(email)))
+	return err
+}
+
+func (s *Store) VerifiedRecoveryEmail(ctx context.Context, userID string) (string, error) {
+	if s == nil {
+		return "", errors.New("database is not configured")
+	}
+	var email string
+	err := s.pool.QueryRow(ctx, `
+		SELECT address
+		FROM auth_recovery_methods
+		WHERE user_id = $1
+		  AND kind = 'email'
+		  AND verified_at IS NOT NULL
+		  AND revoked_at IS NULL
+		ORDER BY verified_at DESC
+		LIMIT 1
+	`, userID).Scan(&email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrRecoveryUnavailable
+	}
+	return email, err
+}
+
+func (s *Store) FindUserByRecoveryEmail(ctx context.Context, email string) (User, error) {
+	if s == nil {
+		return User{}, errors.New("database is not configured")
+	}
+	var user User
+	err := s.pool.QueryRow(ctx, `
+		SELECT u.id, COALESCE(u.email, ''), COALESCE(u.first_name, ''),
+		       COALESCE(u.last_name, ''), COALESCE(u.profile_image_url, ''),
+		       COALESCE(u.status, 'active'), u.email_verified_at,
+		       COALESCE(u.account_created_via, '')
+		FROM users u
+		INNER JOIN auth_recovery_methods m ON m.user_id = u.id
+		WHERE lower(m.address) = lower($1)
+		  AND m.kind = 'email'
+		  AND m.verified_at IS NOT NULL
+		  AND m.revoked_at IS NULL
+		ORDER BY m.verified_at DESC
+		LIMIT 1
+	`, strings.TrimSpace(email)).Scan(
+		&user.ID, &user.Email, &user.FirstName, &user.LastName,
+		&user.ProfileImageURL, &user.Status, &user.EmailVerifiedAt, &user.AccountCreatedVia,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	return user, err
+}
+
+func (s *Store) ActivateProviderUserIfReady(ctx context.Context, userID string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE users
+		SET status = 'active', updated_at = NOW()
+		WHERE id = $1
+		  AND status = 'pending_provider_onboarding'
+		  AND email_verified_at IS NOT NULL
+		  AND EXISTS (
+		      SELECT 1 FROM auth_passwords p WHERE p.user_id = users.id
+		  )
+		  AND EXISTS (
+		      SELECT 1
+		      FROM auth_recovery_methods m
+		      WHERE m.user_id = users.id
+		        AND m.kind = 'email'
+		        AND m.verified_at IS NOT NULL
+		        AND m.revoked_at IS NULL
+		  )
+	`, userID)
+	return err
+}
+
+func (s *Store) CreateSecurityEvent(
+	ctx context.Context, userID, eventType, requestID string, metadata map[string]any,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	eventID, err := id.New()
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO auth_security_events
+			(id, user_id, event_type, request_id, metadata)
+		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5::jsonb)
+	`, eventID, userID, eventType, requestID, encoded)
+	return err
+}
+
+func secureStringEqual(left, right string) bool {
+	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
 }
 
 func (s *Store) PasswordHash(ctx context.Context, userID string) (string, error) {

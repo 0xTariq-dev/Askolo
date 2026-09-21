@@ -21,6 +21,12 @@ to become Askolo's primary backend without a second structural rewrite.
 - `DATABASE_URL` and `SESSION_SECRET` are required for OAuth and account
   operations. Without them, health checks still work but OAuth returns a safe
   configuration error.
+- Password signup and recovery require an SMTP delivery configuration:
+  `AUTH_SMTP_HOST`, `AUTH_SMTP_PORT` (default `587`), `AUTH_SMTP_USERNAME`,
+  `AUTH_SMTP_PASSWORD`, and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
+  set separately; otherwise the challenge hashes use `SESSION_SECRET`.
+  Challenge values, passwords, email bodies, and SMTP credentials are never
+  written to logs or returned by the API.
 - The web API proxies `/api/auth/google` and `/api/integrations/google/*` to
   `ASKOLO_GOOGLE_BACKEND_URL` when configured. Development defaults to the
   local Go service at `http://127.0.0.1:8090`; production must use the

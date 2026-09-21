@@ -38,6 +38,24 @@ func TestHealthAndRequestID(t *testing.T) {
 	}
 }
 
+func TestReadinessReportsMissingDependencies(t *testing.T) {
+	handler := New(testConfig("secret"), slog.Default(), nil)
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", response.Code)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"status":"degraded"`) ||
+		!strings.Contains(body, `"databaseReachable":false`) ||
+		!strings.Contains(body, `"emailDeliveryConfigured":false`) {
+		t.Fatalf("expected dependency readiness signals, got %q", body)
+	}
+}
+
 func TestInternalRestRequiresAndAcceptsServiceAuth(t *testing.T) {
 	handler := New(testConfig("secret"), slog.Default(), nil)
 

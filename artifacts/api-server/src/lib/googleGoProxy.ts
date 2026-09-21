@@ -20,6 +20,9 @@ const GOOGLE_PATHS = [
 const AUTH_PATHS = [
   /^\/auth\/(?:user|session|logout)$/,
   /^\/auth\/password\/(?:login|set|signup)$/,
+  /^\/auth\/email\/(?:verify|resend)$/,
+  /^\/auth\/recovery\/email\/(?:enroll|verify)$/,
+  /^\/auth\/password\/recovery\/(?:request|reset)$/,
 ];
 
 function isGoogleGoPath(path: string): boolean {
