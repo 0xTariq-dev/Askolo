@@ -9,6 +9,7 @@ test_tmpdir="$fixture_root/tmp"
 fake_postgres_pid_file="$fixture_root/fake-postgres.pid"
 fake_postgres_stopped="$fixture_root/fake-postgres-stopped"
 go_started="$fixture_root/go-started"
+go_args_log="$fixture_root/go-args.log"
 validation_pid=""
 postgres_pid=""
 
@@ -139,7 +140,11 @@ cat >"$fake_bin/go" <<'STUB'
 set -Eeuo pipefail
 
 touch -- "$GO_STARTED"
+printf '%s\n' "$*" >>"$GO_ARGS_LOG"
 case "$GO_MODE" in
+  success)
+    exit 0
+    ;;
   early-exit)
     exit 37
     ;;
@@ -191,6 +196,7 @@ run_validation() {
     "FAKE_POSTGRES_STOPPED=$fake_postgres_stopped" \
     "GO_MODE=$go_mode" \
     "GO_STARTED=$go_started" \
+    "GO_ARGS_LOG=$go_args_log" \
     bash "$validation_script" >"$log_file" 2>&1 &
   validation_pid=$!
 
@@ -234,6 +240,26 @@ run_interruption_case() {
   assert_clean interrupted-validation
 }
 
+run_success_case() {
+  local status
+
+  run_validation success success
+
+  set +e
+  wait "$validation_pid"
+  status=$?
+  set -e
+  validation_pid=""
+
+  [[ "$status" -eq 0 ]] ||
+    fail "successful validation returned status $status"
+  grep -Fq -- "./internal/modules/auth" "$go_args_log" ||
+    fail "successful validation did not run native email auth checks"
+  grep -Fq -- "./internal/app" "$go_args_log" ||
+    fail "successful validation did not run cleanup readiness checks"
+  assert_clean successful-validation
+}
+
 run_early_exit_case() {
   local status
 
@@ -250,6 +276,7 @@ run_early_exit_case() {
   assert_clean early-go-test-exit
 }
 
+run_success_case
 run_interruption_case
 run_early_exit_case
 

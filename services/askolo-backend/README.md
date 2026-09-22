@@ -186,7 +186,7 @@ the managed process under `tmp/askolo-backend.pid`, cleans stale PID state,
 forwards shutdown signals, and terminates the child if graceful shutdown
 fails. The `bin/` and `tmp/` directories are ignored generated state.
 
-### Native email auth integration validation
+### Native email auth and cleanup readiness integration validation
 
 The native email auth integration suite uses a capture-only sender and creates a
 unique temporary schema in the PostgreSQL database; it never sends real email.
@@ -205,10 +205,11 @@ with `CASCADE` during cleanup. It does not need `SUPERUSER`, `CREATEDB`,
 other schema. Regular `go test ./...` skips these tests when
 `ASKOLO_TEST_DATABASE_URL` is not set.
 
-Release validation runs the same checks automatically through
+Release validation runs the native auth checks and the cleanup readiness
+failure/recovery check automatically through
 `scripts/run-native-email-auth-validation.sh`. With no environment override,
 that script creates a temporary local PostgreSQL cluster and a dedicated
-non-superuser test role with exactly that database contract, runs the checks
+non-superuser test role with exactly that database contract, runs both checks
 once with `-count=1`, and stops and removes the cluster on success or failure.
 The test's temporary schema is also dropped by the test cleanup. A release
 environment may provide `ASKOLO_TEST_DATABASE_URL` instead, but it must point

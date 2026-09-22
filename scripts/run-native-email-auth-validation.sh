@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Run the database-backed native email auth checks against a disposable
-# PostgreSQL instance. The test suite uses a capture-only sender, so this
-# validation never contacts a real email provider.
+# Run the database-backed native email auth and cleanup readiness checks
+# against a disposable PostgreSQL instance. The test suites use a
+# capture-only sender, so this validation never contacts a real email
+# provider.
 
 die() {
-  echo "native email auth validation failed: $*" >&2
+  echo "native email auth and cleanup readiness validation failed: $*" >&2
   exit 1
 }
 
@@ -104,6 +105,9 @@ fi
 
 cd -- "$service_root"
 ASKOLO_TEST_DATABASE_URL="$test_database_url" \
-  go test ./internal/modules/auth -run '^(TestNativeEmailAuth|TestEmailChallengeCleanup)' -count=1 -v
+  go test ./internal/modules/auth -run '^TestNativeEmailAuth' -count=1 -v
 
-echo "Native email auth release validation passed"
+ASKOLO_TEST_DATABASE_URL="$test_database_url" \
+  go test ./internal/app -run '^TestEmailChallengeCleanupReadinessRecoversAfterDatabaseInterruption$' -count=1 -v
+
+echo "Native email auth and cleanup readiness release validation passed"
