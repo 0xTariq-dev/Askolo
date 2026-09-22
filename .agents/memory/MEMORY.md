@@ -27,4 +27,5 @@
 - [Auth email delivery retry safety](auth-email-delivery-retry.md) — release challenges only for retry-safe failures; retain uncertain handoffs so cooldowns prevent duplicates.
 - [Password recovery verification](password-recovery-verification.md) — validate recovery codes on the code page, then atomically consume them during the final password reset.
 - [Deployment health probes](deployment-health-probes.md) — use a cold-start-safe health endpoint for publishing startup probes, not transient operational readiness.
+- [Bare remote test fixtures](bare-remote-test-fixtures.md) — clone temporary bare remotes with an explicit branch because the first push may not set symbolic HEAD.
 
