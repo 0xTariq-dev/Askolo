@@ -64,12 +64,10 @@ production routing. The local artifact preview path is `/`.
 .
 ├── artifacts/
 │   ├── personal-assistant/       # Askolo React/Vite web application
-│   └── mockup-sandbox/           # Isolated component preview environment
 ├── lib/
 │   ├── api-spec/                 # OpenAPI source and Orval configuration
 │   ├── api-client-react/         # React Query API client package
-│   ├── api-zod/                  # Shared Zod schemas and generated schemas
-│   └── db/                       # Archived Drizzle schema and migrations
+│   └── api-zod/                  # Shared Zod schemas and generated schemas
 ├── scripts/                      # Small workspace utility package
 ├── attached_assets/              # User-provided assets; do not commit secrets
 ├── pnpm-workspace.yaml           # Workspace membership and dependency policy
@@ -200,8 +198,8 @@ the dependent packages rather than hand-editing generated files.
 
 - Go 1.25 HTTP server
 - PostgreSQL
-- Archived Drizzle schema and migration files for historical recovery
-- Zod and drizzle-zod for archived schema tooling
+- Go-owned database schema and migrations
+- Zod for API contract validation
 - Go structured logging and request middleware
 - Orval-generated API contracts and clients
 
@@ -309,8 +307,6 @@ when testing authenticated or data-backed pages.
 | `pnpm run typecheck:libs`                       | Typecheck TypeScript project references under `lib/`          |
 | `pnpm run build`                                | Typecheck, then build all packages that expose a build script |
 | `pnpm --filter @workspace/api-spec run codegen` | Regenerate API clients and schemas                            |
-| `pnpm --filter @workspace/db run push`          | Push development database schema changes                      |
-| `pnpm --filter @workspace/db run push-force`    | Force a development schema push; use carefully                |
 
 ### Web commands
 
@@ -350,17 +346,6 @@ cd services/askolo-backend && bash ./scripts/run.sh
 The Go backend uses port `8090` by default and reads database and provider
 configuration from protected environment variables.
 
-### Optional component preview environment
-
-The mockup sandbox is a separate development artifact for isolated component
-previews:
-
-```bash
-pnpm --filter @workspace/mockup-sandbox run dev
-```
-
-It is not required to run the main Askolo web application.
-
 ### Managed Replit workflows
 
 The workspace currently defines these relevant workflows:
@@ -369,7 +354,6 @@ The workspace currently defines these relevant workflows:
 | ---------------------------------------------------- | -------------------------------------- |
 | `artifacts/personal-assistant: web`                  | Runs the Vite web application          |
 | `go-askolo-backend: compile`                         | Builds and validates the Go API        |
-| `artifacts/mockup-sandbox: Component Preview Server` | Runs isolated component previews       |
 | `go-askolo-backend: run`                             | Runs the Go API edge                   |
 
 Prefer the managed workflows in Replit when working inside the hosted
@@ -502,61 +486,9 @@ unless a product requirement explicitly changes that behavior.
 
 ## Database
 
-The archived database package contains PostgreSQL/Drizzle schema and migration
-history for recovery and comparison. It is not imported by the Go runtime.
-
-### Schema location
-
-Database schema modules live in:
-
-```text
-lib/db/src/schema/
-```
-
-The archived schema areas include:
-
-- users and authentication
-- habits and habit completions
-- goals
-- daily plans
-- calendar events
-- chores
-- notes
-- action items
-- conversations and messages
-- Gmail tokens
-- Google connections
-- AI credits
-- voice preferences
-
-### Development schema commands
-
-The database package exposes:
-
-```bash
-# Push the current schema to the development database
-pnpm --filter @workspace/db run push
-
-# Force the schema push when Drizzle requires confirmation
-pnpm --filter @workspace/db run push-force
-```
-
-Use `push-force` only when you understand the schema change and its impact.
-Never point a development schema command at production without following the
-project's production database migration procedure.
-
-The Drizzle configuration is:
-
-```text
-lib/db/drizzle.config.ts
-```
-
-It uses `DATABASE_URL`. Keep the connection string out of shell history,
-source control, and documentation.
-
-The Go service is the only runtime database owner. See
-`docs/go-only-migration-boundary.md` before changing or deleting archived
-schema files.
+The Go service is the only database owner. Database schemas, migrations, and
+database access code live with the Go backend under
+`services/askolo-backend/internal/`.
 
 ## API reference and code generation
 

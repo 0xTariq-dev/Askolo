@@ -17,8 +17,6 @@ contract or database migration history.
 
 | Area | Owner | Reason and removal condition |
 | --- | --- | --- |
-| `lib/db/drizzle/` and `lib/db/src/schema/` | Go backend migration owner | Retained as archived schema and migration history. The Go store is the only runtime database owner; remove the archive only after an explicit data-retention and recovery decision. |
-| `lib/db` package and Drizzle commands | Go backend migration owner | Retained as offline development/recovery tooling for the archived schema. It is not imported by the Go service, frontend, or runtime workflows. |
 | `lib/api-client-react`, `lib/api-zod`, and OpenAPI outputs | Frontend/API contract owner | Retained because active frontend pages import the generated client and schemas. |
 | `/api/google/*` aliases | Go Google integration owner | Retained until active callers are migrated and route smoke tests prove the compatibility surface is no longer needed. |
 
@@ -29,5 +27,3 @@ contract or database migration history.
 - The frontend calls same-origin `/api` routes and contains no competing
   TypeScript session issuer.
 - No TypeScript backend process or provider startup workflow remains.
-- The archived Drizzle files do not grant runtime authority and must not be
-  imported into new product code.

@@ -11,16 +11,14 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - Web: React, Vite, Tailwind CSS v4, shadcn/ui, Framer Motion, Wouter
 - API: Go HTTP backend
-- DB: PostgreSQL with a Go-owned runtime store; archived Drizzle history is retained for recovery
-- Validation: Zod (`zod/v4`), `drizzle-zod`
+- DB: PostgreSQL with a Go-owned runtime store
+- Validation: Zod (`zod/v4`)
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle for API), Vite (for web)
 
@@ -30,14 +28,13 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 - Google OAuth & API helpers: `services/askolo-backend/internal/modules/google/`
 - Web pages: `artifacts/personal-assistant/src/pages/`
 - Shared layouts: `artifacts/personal-assistant/src/components/layout/`
-- DB schema: `lib/db/src/schema/`
 - API client hooks: `lib/api-client-react/src/generated/`
 - Public assets (logo, favicon): `artifacts/personal-assistant/public/`
 
 ## Architecture decisions
 
 - **Native Go auth:** the Go backend owns sign-in/up, OAuth callbacks, sessions, MFA, and authorization.
-- **Google services via custom OAuth app:** Calendar and Gmail use the user's own Google Cloud OAuth app and store a single token per user in `gmail_tokens`.
+- **Google services via custom OAuth app:** Calendar and Gmail use the user's own Google Cloud OAuth app and store a single token per user in the Go-owned database.
 - **Dynamic redirect URI:** OAuth redirect URIs are built from the request host so dev and production share the same code.
 - **SPA path routing:** The app is a Vite SPA; route paths are absolute and match the artifact preview path (`/`).
 - **Optional Google integrations:** Calendar and Gmail are opt-in; the app works without them.
