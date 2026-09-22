@@ -14,6 +14,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
 artifact_config="$repo_root/artifacts/personal-assistant/.replit-artifact/artifact.toml"
 api_build_script="$repo_root/services/askolo-backend/scripts/build.sh"
+api_root="$repo_root/services/askolo-backend"
 
 [[ -f "$artifact_config" ]] ||
   die "artifact config not found at artifacts/personal-assistant/.replit-artifact/artifact.toml"
@@ -39,9 +40,71 @@ require_artifact_line \
 require_artifact_line \
   'build = ["bash", "services/askolo-backend/scripts/build.sh"]' \
   "API production build command"
-require_artifact_line \
-  'paths = ["/api", "/healthz", "/readyz", "/ws", "/webhooks"]' \
-  "published API routing paths"
+extract_paths() {
+  sed -E 's/^[^[]*\[//; s/\].*$//' |
+    tr ',' '\n' |
+    sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' |
+    sed '/^$/d'
+}
+
+contains_path() {
+  local needle="$1"
+  shift
+  local path
+  for path in "$@"; do
+    [[ "$path" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+backend_route_paths="$(
+  cd -- "$api_root"
+  go run ./cmd/published-route-paths
+)" || die "could not read the backend published route registry"
+
+artifact_route_paths_line="$(
+  awk '
+    /^\[\[services\]\]$/ {
+      in_service = 1
+      is_api = 0
+      next
+    }
+    in_service && /^name = "api"$/ {
+      is_api = 1
+      next
+    }
+    in_service && is_api && /^paths = / {
+      print
+      exit
+    }
+  ' "$artifact_config"
+)"
+[[ -n "$artifact_route_paths_line" ]] ||
+  die "API service paths are missing from artifacts/personal-assistant/.replit-artifact/artifact.toml"
+
+mapfile -t backend_route_paths_array < <(printf '%s\n' "$backend_route_paths" | extract_paths)
+mapfile -t artifact_route_paths_array < <(printf '%s\n' "$artifact_route_paths_line" | extract_paths)
+
+[[ "${#backend_route_paths_array[@]}" -gt 0 ]] ||
+  die "backend published route registry is empty"
+
+missing_route_paths=()
+for path in "${backend_route_paths_array[@]}"; do
+  contains_path "$path" "${artifact_route_paths_array[@]}" ||
+    missing_route_paths+=("$path")
+done
+if [[ "${#missing_route_paths[@]}" -gt 0 ]]; then
+  die "backend route registry declares published path(s) missing from artifacts/personal-assistant/.replit-artifact/artifact.toml: ${missing_route_paths[*]}; add them to the API service paths list"
+fi
+
+unexpected_route_paths=()
+for path in "${artifact_route_paths_array[@]}"; do
+  contains_path "$path" "${backend_route_paths_array[@]}" ||
+    unexpected_route_paths+=("$path")
+done
+if [[ "${#unexpected_route_paths[@]}" -gt 0 ]]; then
+  die "artifact publishes path(s) absent from the backend route registry: ${unexpected_route_paths[*]}; remove them or register the backend routes before publishing"
+fi
 
 validate_port_override() {
   local variable_name="$1"

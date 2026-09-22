@@ -60,7 +60,7 @@ func New(
 			"mode":    "companion",
 		})
 	})
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+PublishedHealthzPath, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"service":     cfg.ServiceName,
 			"status":      "ok",
@@ -70,7 +70,7 @@ func New(
 			"origin":      cfg.CanonicalOrigin,
 		})
 	})
-	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+PublishedAPIPath+"/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"service":     cfg.ServiceName,
 			"status":      "ok",
@@ -80,7 +80,7 @@ func New(
 			"origin":      cfg.CanonicalOrigin,
 		})
 	})
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+PublishedReadyzPath, func(w http.ResponseWriter, r *http.Request) {
 		databaseReachable := false
 		authorizationStorageReady := false
 		mfaSecurityReadiness := authmodule.MFASecurityReadiness{
@@ -131,10 +131,10 @@ func New(
 
 	websocketHandler := websocket.New(logger, cfg.ServiceName, store, cfg.SessionCookieName)
 	mux.Handle("/internal/ws", internalAuth.Wrap(websocketHandler))
-	mux.Handle("/ws", websocketHandler)
+	mux.Handle(PublishedWebsocketPath, websocketHandler)
 
 	webhookHandler := webhooks.New(logger, cfg.ServiceName)
-	mux.Handle("/webhooks/", webhookHandler)
+	mux.Handle(PublishedWebhooksPath+"/", webhookHandler)
 	apiMux := http.NewServeMux()
 	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
 	googleRoutes := googleoauth.NewHandler(cfg, store, logger).Routes()
@@ -147,7 +147,7 @@ func New(
 	apiMux.Handle("/api/auth/github", githubRoutes)
 	apiMux.Handle("/api/auth/github/", githubRoutes)
 	productRoutes := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName).Routes()
-	apiMux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.Handle(PublishedAPIPath+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/habits"),
 			strings.HasPrefix(r.URL.Path, "/api/goals"),
@@ -164,7 +164,7 @@ func New(
 			googleRoutes.ServeHTTP(w, r)
 		}
 	}))
-	mux.Handle("/api/", apiMux)
+	mux.Handle(PublishedAPIPath+"/", apiMux)
 	mux.HandleFunc("/", notFound)
 
 	return httpx.Middleware(logger, mux)

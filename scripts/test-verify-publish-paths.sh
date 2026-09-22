@@ -24,10 +24,6 @@ cp "$repo_root/artifacts/personal-assistant/.replit-artifact/artifact.toml" \
   "$fixture_artifact/artifact.toml"
 cp "$repo_root/services/askolo-backend/scripts/build.sh" "$fixture_api/build.sh"
 
-# Change only the frontend production path in the temporary artifact config.
-sed -i 's#publicDir = "artifacts/personal-assistant/dist/public"#publicDir = "artifacts/personal-assistant/dist/changed-public"#' \
-  "$fixture_artifact/artifact.toml"
-
 # If either production build starts, leave a marker that the test can detect.
 cat >"$fixture_bin/pnpm" <<'STUB'
 #!/usr/bin/env bash
@@ -35,7 +31,37 @@ touch -- "${BUILD_SENTINEL:?}"
 exit 99
 STUB
 chmod +x "$fixture_bin/pnpm"
+cat >"$fixture_bin/go" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${PUBLISH_ROUTE_REGISTRY_EXTRA-}" == "1" ]]; then
+  printf '%s\n' 'paths = ["/api", "/healthz", "/readyz", "/ws", "/webhooks", "/metrics"]'
+else
+  printf '%s\n' 'paths = ["/api", "/healthz", "/readyz", "/ws", "/webhooks"]'
+fi
+STUB
+chmod +x "$fixture_bin/go"
 sed -i "1i touch -- \"\${BUILD_SENTINEL:?}\"" "$fixture_api/build.sh"
+
+set +e
+output="$(
+  PATH="$fixture_bin:$PATH" BUILD_SENTINEL="$sentinel" PUBLISH_ROUTE_REGISTRY_EXTRA=1 \
+    bash "$fixture_scripts/verify-publish-paths.sh" 2>&1
+)"
+status=$?
+set -e
+
+[[ "$status" -ne 0 ]] ||
+  { echo "expected an unpublished backend route to fail validation" >&2; exit 1; }
+grep -Fq \
+  "backend route registry declares published path(s) missing from artifacts/personal-assistant/.replit-artifact/artifact.toml: /metrics; add them to the API service paths list" \
+  <<<"$output" ||
+  { echo "validation failure did not identify the unpublished backend route:" >&2; echo "$output" >&2; exit 1; }
+[[ ! -e "$sentinel" ]] ||
+  { echo "a production build started before the backend route contract failed" >&2; exit 1; }
+
+# Change only the frontend production path in the temporary artifact config.
+sed -i 's#publicDir = "artifacts/personal-assistant/dist/public"#publicDir = "artifacts/personal-assistant/dist/changed-public"#' \
+  "$fixture_artifact/artifact.toml"
 
 set +e
 output="$(
@@ -73,7 +99,7 @@ set -e
 [[ "$status" -ne 0 ]] ||
   { echo "expected changed API routing paths to fail validation" >&2; exit 1; }
 grep -Fq \
-  "published API routing paths changed in artifacts/personal-assistant/.replit-artifact/artifact.toml; expected: paths = [\"/api\", \"/healthz\", \"/readyz\", \"/ws\", \"/webhooks\"]" \
+  "backend route registry declares published path(s) missing from artifacts/personal-assistant/.replit-artifact/artifact.toml: /webhooks; add them to the API service paths list" \
   <<<"$output" ||
   { echo "validation failure did not identify the changed API route contract:" >&2; echo "$output" >&2; exit 1; }
 [[ ! -e "$sentinel" ]] ||
