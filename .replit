@@ -80,12 +80,12 @@ GOOGLE_REDIRECT_URI = "https://5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvh
 [userenv.production]
 VITE_CLERK_PROXY_URL = "/api/__clerk"
 ASKOLO_CANONICAL_ORIGIN = "https://dev.askolo.app"
-ASKOLO_COMMIT_SHA = "c3990a09572561433023693946be6db33699a1f0"
+ASKOLO_COMMIT_SHA = "255a0139a0337e5e41b2e4a9e870eb6265a54bae"
 ASKOLO_COOKIE_NAMESPACE = "askolo_prod"
 ASKOLO_DATABASE_ID = "production-database"
 ASKOLO_ENVIRONMENT = "production"
 ASKOLO_RELEASE_MODE = "normal"
-ASKOLO_RELEASE_TAG = "c3990a0"
+ASKOLO_RELEASE_TAG = "255a013"
 
 [nix]
 channel = "stable-25_05"
