@@ -21,4 +21,5 @@
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Same-origin auth routing](same-origin-auth-routing.md) — render app routes locally when public and app origins share a host; otherwise redirects can loop forever.
 - [Production autoscale configuration](production-autoscale-config.md) — verify required Go production env vars and internal-auth secret before Autoscale promotion.
+- [Static Go binaries for Autoscale](go-autoscale-static-binary.md) — avoid Nix-loader “not found” crashes by producing and verifying a static production executable.
 
