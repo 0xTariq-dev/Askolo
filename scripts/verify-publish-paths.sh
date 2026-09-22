@@ -10,6 +10,20 @@ die() {
   exit 1
 }
 
+contract_errors=()
+
+record_contract_error() {
+  contract_errors+=("$1")
+}
+
+report_contract_errors() {
+  [[ "${#contract_errors[@]}" -gt 0 ]] || return 0
+
+  echo "publish path verification failed:" >&2
+  printf ' - %s\n' "${contract_errors[@]}" >&2
+  exit 1
+}
+
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
 artifact_config="$repo_root/artifacts/personal-assistant/.replit-artifact/artifact.toml"
@@ -25,8 +39,10 @@ require_artifact_line() {
   local expected="$1"
   local description="$2"
 
-  grep -Fqx "$expected" "$artifact_config" ||
-    die "$description changed in artifacts/personal-assistant/.replit-artifact/artifact.toml; expected: $expected"
+  grep -Fqx "$expected" "$artifact_config" || {
+    record_contract_error \
+      "$description changed in artifacts/personal-assistant/.replit-artifact/artifact.toml; expected: $expected"
+  }
 }
 
 # These values are consumed from the publishing repository root. A changed
@@ -94,7 +110,8 @@ for path in "${backend_route_paths_array[@]}"; do
     missing_route_paths+=("$path")
 done
 if [[ "${#missing_route_paths[@]}" -gt 0 ]]; then
-  die "backend route registry declares published path(s) missing from artifacts/personal-assistant/.replit-artifact/artifact.toml: ${missing_route_paths[*]}; add them to the API service paths list"
+  record_contract_error \
+    "backend route registry declares published path(s) missing from artifacts/personal-assistant/.replit-artifact/artifact.toml: ${missing_route_paths[*]}; add them to the API service paths list"
 fi
 
 unexpected_route_paths=()
@@ -103,8 +120,11 @@ for path in "${artifact_route_paths_array[@]}"; do
     unexpected_route_paths+=("$path")
 done
 if [[ "${#unexpected_route_paths[@]}" -gt 0 ]]; then
-  die "artifact publishes path(s) absent from the backend route registry: ${unexpected_route_paths[*]}; remove them or register the backend routes before publishing"
+  record_contract_error \
+    "artifact publishes path(s) absent from the backend route registry: ${unexpected_route_paths[*]}; remove them or register the backend routes before publishing"
 fi
+
+report_contract_errors
 
 validate_port_override() {
   local variable_name="$1"
