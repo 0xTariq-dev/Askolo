@@ -7,6 +7,7 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "validate:publish-paths": "pnpm run test:publish-paths && bash scripts/verify-publish-paths.sh",
     "test:publish-paths": "bash scripts/test-verify-publish-paths.sh && bash scripts/test-native-email-auth-validation.sh",
+    "test:release": "bash scripts/test-verify-release.sh",
     "test:publish-cleanup": "bash scripts/test-drop-published-app-commits.sh",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"

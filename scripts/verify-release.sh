@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Fail-closed promotion check. It validates the release contract without
 # printing any secret values. Run it from the repository root in the target
-# Repl before starting a staging or production deployment.
+# Repl after the staging or production deployment is live.
 
 die() {
   echo "release verification failed: $*" >&2
@@ -60,5 +60,48 @@ case "$release_mode" in
     die "ASKOLO_RELEASE_MODE must be normal or hotfix"
     ;;
 esac
+
+published_origin="${ASKOLO_CANONICAL_ORIGIN%/}"
+published_check_dir="$(mktemp -d)"
+
+cleanup_published_check() {
+  local exit_code=$?
+  rm -rf -- "$published_check_dir"
+  exit "$exit_code"
+}
+trap cleanup_published_check EXIT INT TERM
+
+check_published_path() {
+  local path="$1"
+  local description="$2"
+  local expected="$3"
+  local url="$published_origin$path"
+  local body_file="$published_check_dir/response-${description//[^a-zA-Z0-9]/-}.body"
+
+  if ! curl \
+    --fail \
+    --silent \
+    --show-error \
+    --location \
+    --retry 5 \
+    --retry-delay 2 \
+    --retry-max-time 30 \
+    --connect-timeout 5 \
+    --max-time 15 \
+    --output "$body_file" \
+    "$url"; then
+    die "published $description failed at $url"
+  fi
+
+  grep -Fq -- "$expected" "$body_file" ||
+    die "published $description returned an unexpected response at $url"
+
+  echo "published path verified: $path"
+}
+
+echo "Verifying published routing at $published_origin"
+check_published_path "/" "root path" "<!doctype html>"
+check_published_path "/dashboard" "client-side route" "<!doctype html>"
+check_published_path "/api/healthz" "API health endpoint" '"status":"ok"'
 
 echo "release verified: environment=$environment tag=$ASKOLO_RELEASE_TAG commit=$ASKOLO_COMMIT_SHA mode=$release_mode"
