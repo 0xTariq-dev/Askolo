@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { Toaster } from '@/components/ui/toaster';
 
 import {
+  isAppProductionHost,
   isPublicProductionHost,
   toAppUrl,
   toPublicUrl,
@@ -72,6 +73,9 @@ function PublicSiteRoutes() {
   }
 
   if (!['/', '/privacy', '/terms'].includes(currentPath)) {
+    if (isAppProductionHost()) {
+      return <NativeAuthWithRoutes />;
+    }
     return <ExternalRedirect href={toAppUrl(currentPathWithQuery())} />;
   }
 
