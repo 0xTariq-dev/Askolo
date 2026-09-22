@@ -28,6 +28,11 @@ const (
 	emailChallengeMaxAttempts    = 5
 	passwordRecoveryPrimaryEmail = "primary_email"
 	passwordRecoveryEmail        = "recovery_email"
+	mfaSecurityWindow            = 15 * time.Minute
+	mfaFailureAlertThreshold     = 20
+	mfaReplayAlertThreshold      = 5
+	mfaLockoutAlertThreshold     = 5
+	mfaDecryptionAlertThreshold  = 3
 )
 
 type Handler struct {
@@ -37,6 +42,9 @@ type Handler struct {
 	limiter      *rateLimiter
 	emailSender  EmailSender
 	emailMonitor *EmailDeliveryMonitor
+	mfaAlertMu   sync.Mutex
+	mfaAlertKey  string
+	mfaAlertAt   time.Time
 }
 
 type rateLimiter struct {
@@ -95,6 +103,21 @@ type EmailDeliveryReadiness struct {
 	EmailDeliverySnapshot
 }
 
+// MFASecurityReadiness is a bounded operational signal for MFA abuse and
+// authenticator-path failures. It never returns secrets, codes, or identities.
+type MFASecurityReadiness struct {
+	Status                  string   `json:"status"`
+	Environment             string   `json:"environment"`
+	WindowMinutes           int      `json:"windowMinutes"`
+	FailureEvents           int64    `json:"failureEvents"`
+	ReplayEvents            int64    `json:"replayEvents"`
+	LockoutEvents           int64    `json:"lockoutEvents"`
+	DecryptionFailureEvents int64    `json:"decryptionFailureEvents"`
+	AffectedUsers           int64    `json:"affectedUsers"`
+	Alert                   bool     `json:"alert"`
+	AlertReasons            []string `json:"alertReasons,omitempty"`
+}
+
 func (h *Handler) EmailDeliveryReadiness() EmailDeliveryReadiness {
 	resendStatus := h.cfg.Email.ResendConfigurationStatus()
 	challengeStatus := h.cfg.Email.ChallengeConfigurationStatus()
@@ -120,6 +143,91 @@ func (h *Handler) EmailDeliveryReadiness() EmailDeliveryReadiness {
 		ChallengeConfiguration: challengeStatus,
 		EmailDeliverySnapshot:  snapshot,
 	}
+}
+
+// MFASecurityReadiness reads the current rolling MFA signal. A signal query
+// failure is reported as unavailable without affecting dependency readiness.
+func (h *Handler) MFASecurityReadiness(ctx context.Context) MFASecurityReadiness {
+	signal := MFASecurityReadiness{
+		Status:        "unavailable",
+		Environment:   h.cfg.Environment,
+		WindowMinutes: int(mfaSecurityWindow / time.Minute),
+	}
+	if h.store == nil {
+		return signal
+	}
+	summary, err := h.store.MFAEventSummary(ctx, time.Now().UTC().Add(-mfaSecurityWindow))
+	if err != nil {
+		h.logger.Warn("MFA security signal unavailable",
+			"environment", h.cfg.Environment,
+			"window_minutes", signal.WindowMinutes,
+		)
+		return signal
+	}
+	signal.Status = "available"
+	signal.FailureEvents = summary.FailureEvents
+	signal.ReplayEvents = summary.ReplayEvents
+	signal.LockoutEvents = summary.LockoutEvents
+	signal.DecryptionFailureEvents = summary.DecryptionFailureEvents
+	signal.AffectedUsers = summary.AffectedUsers
+	signal.AlertReasons = mfaAlertReasons(summary)
+	signal.Alert = len(signal.AlertReasons) > 0
+	if signal.Alert {
+		h.logMFAAlert(signal)
+	} else {
+		h.resetMFAAlert()
+	}
+	return signal
+}
+
+func mfaAlertReasons(summary postgres.MFAEventSummary) []string {
+	reasons := make([]string, 0, 4)
+	if summary.FailureEvents >= mfaFailureAlertThreshold {
+		reasons = append(reasons, "failure_events")
+	}
+	if summary.ReplayEvents >= mfaReplayAlertThreshold {
+		reasons = append(reasons, "replay_events")
+	}
+	if summary.LockoutEvents >= mfaLockoutAlertThreshold {
+		reasons = append(reasons, "lockout_events")
+	}
+	if summary.DecryptionFailureEvents >= mfaDecryptionAlertThreshold {
+		reasons = append(reasons, "decryption_failure_events")
+	}
+	return reasons
+}
+
+func (h *Handler) logMFAAlert(signal MFASecurityReadiness) {
+	key := strings.Join(signal.AlertReasons, ",")
+	now := time.Now()
+	h.mfaAlertMu.Lock()
+	shouldLog := key != h.mfaAlertKey || now.Sub(h.mfaAlertAt) >= mfaSecurityWindow
+	if shouldLog {
+		h.mfaAlertKey = key
+		h.mfaAlertAt = now
+	}
+	h.mfaAlertMu.Unlock()
+	if !shouldLog {
+		return
+	}
+	h.logger.Warn("MFA verification failure spike",
+		"alert", true,
+		"environment", signal.Environment,
+		"window_minutes", signal.WindowMinutes,
+		"failure_events", signal.FailureEvents,
+		"replay_events", signal.ReplayEvents,
+		"lockout_events", signal.LockoutEvents,
+		"decryption_failure_events", signal.DecryptionFailureEvents,
+		"affected_users", signal.AffectedUsers,
+		"alert_reasons", key,
+	)
+}
+
+func (h *Handler) resetMFAAlert() {
+	h.mfaAlertMu.Lock()
+	h.mfaAlertKey = ""
+	h.mfaAlertAt = time.Time{}
+	h.mfaAlertMu.Unlock()
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -833,6 +941,7 @@ func (h *Handler) confirmMFA(w http.ResponseWriter, r *http.Request) {
 	secretBytes, err := authcrypto.Open(h.cfg.TOTPEncryptionKey, encryptedSecret)
 	if err != nil {
 		h.logger.Error("MFA secret decryption failed", "operation", "mfa_confirmation", "request_id", requestID(r), "user_id", userID, "error", err)
+		h.recordSecurityEvent(r, userID, "mfa_decryption_failed", map[string]any{"operation": "mfa_confirmation"})
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
@@ -911,6 +1020,7 @@ func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
 		secretBytes, err := authcrypto.Open(h.cfg.TOTPEncryptionKey, encryptedSecret)
 		if err != nil {
 			h.logger.Error("MFA challenge secret decryption failed", "operation", "mfa_challenge", "request_id", requestID(r), "user_id", state.UserID, "error", err)
+			h.recordSecurityEvent(r, state.UserID, "mfa_decryption_failed", map[string]any{"operation": "mfa_challenge"})
 			writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 			return
 		}
@@ -1239,6 +1349,9 @@ func (h *Handler) hashChallenge(code string) string {
 }
 
 func (h *Handler) recordSecurityEvent(r *http.Request, userID, eventType string, metadata map[string]any) {
+	if h.store == nil {
+		return
+	}
 	if err := h.store.CreateSecurityEvent(r.Context(), userID, eventType, requestID(r), metadata); err != nil {
 		h.logger.Warn("auth security event persistence failed", "operation", eventType, "request_id", requestID(r), "user_id", userID, "error", err)
 	}

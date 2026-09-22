@@ -53,6 +53,17 @@ type SessionMFAState struct {
 	ExpiresAt time.Time
 }
 
+// MFAEventSummary contains bounded, aggregate MFA security-event counts for
+// an observation window. It intentionally does not include user IDs, request
+// IDs, event metadata, or any submitted authentication material.
+type MFAEventSummary struct {
+	FailureEvents           int64
+	ReplayEvents            int64
+	LockoutEvents           int64
+	DecryptionFailureEvents int64
+	AffectedUsers           int64
+}
+
 type ProviderConnection struct {
 	ID              string
 	UserID          string
@@ -1323,6 +1334,58 @@ func (s *Store) CreateSecurityEvent(
 		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5::jsonb)
 	`, eventID, userID, eventType, requestID, encoded)
 	return err
+}
+
+// MFAEventSummary returns aggregate MFA security-event counts since since.
+// Keep the event types in this query explicit so unrelated authentication
+// events cannot unexpectedly change the signal.
+func (s *Store) MFAEventSummary(ctx context.Context, since time.Time) (MFAEventSummary, error) {
+	if s == nil {
+		return MFAEventSummary{}, errors.New("database is not configured")
+	}
+	var summary MFAEventSummary
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE event_type IN (
+				'mfa_challenge_failed',
+				'mfa_recovery_code_failed',
+				'mfa_enrollment_failed',
+				'mfa_disable_failed',
+				'recovery_code_regeneration_failed'
+			)),
+			COUNT(*) FILTER (WHERE event_type = 'mfa_replay_rejected'),
+			COUNT(*) FILTER (WHERE event_type = 'mfa_challenge_locked'),
+			COUNT(*) FILTER (WHERE event_type = 'mfa_decryption_failed'),
+			COUNT(DISTINCT user_id) FILTER (WHERE event_type IN (
+				'mfa_challenge_failed',
+				'mfa_recovery_code_failed',
+				'mfa_enrollment_failed',
+				'mfa_disable_failed',
+				'recovery_code_regeneration_failed',
+				'mfa_replay_rejected',
+				'mfa_challenge_locked',
+				'mfa_decryption_failed'
+			))
+		FROM auth_security_events
+		WHERE created_at >= $1
+		  AND event_type IN (
+			'mfa_challenge_failed',
+			'mfa_recovery_code_failed',
+			'mfa_enrollment_failed',
+			'mfa_disable_failed',
+			'recovery_code_regeneration_failed',
+			'mfa_replay_rejected',
+			'mfa_challenge_locked',
+			'mfa_decryption_failed'
+		  )
+	`, since).Scan(
+		&summary.FailureEvents,
+		&summary.ReplayEvents,
+		&summary.LockoutEvents,
+		&summary.DecryptionFailureEvents,
+		&summary.AffectedUsers,
+	)
+	return summary, err
 }
 
 func secureStringEqual(left, right string) bool {

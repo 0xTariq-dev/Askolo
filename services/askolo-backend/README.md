@@ -156,6 +156,30 @@ contain only the categorized outcome and whether the challenge can be retried;
 they never include recipient addresses, codes, message bodies, or raw provider
 errors. Latency is capped at 30 seconds in telemetry.
 
+### MFA failure-spike signal
+
+`GET /readyz` includes an `mfaSecurity` object built from the most recent
+15-minute rolling window of MFA security events. It is intentionally bounded
+to the configured environment, event counts, and the number of affected users;
+it never includes user IDs, request IDs, codes, encrypted secrets, or event
+metadata. MFA decryption failures are recorded with only a fixed operation
+label (`mfa_confirmation` or `mfa_challenge`).
+
+Operators should alert on `mfaSecurity.alert == true`, or on the structured
+`MFA verification failure spike` warning with `environment` as a required
+aggregation label. The default thresholds are:
+
+- 20 or more MFA failure events in 15 minutes;
+- 5 or more replay rejections in 15 minutes;
+- 5 or more challenge lockouts in 15 minutes; or
+- 3 or more MFA decryption failures in 15 minutes.
+
+The signal logs at most once per threshold-reason set per 15 minutes per
+backend process. Counts are aggregated across users, so an individual code,
+secret, email address, and request is never an alert dimension. A missing or
+unavailable signal is reported as `status: "unavailable"` and does not make a
+cold-start readiness check fail.
+
 ### Delivery retry and release checks
 
 1. Confirm `GET /readyz` from an authorized operational path and inspect

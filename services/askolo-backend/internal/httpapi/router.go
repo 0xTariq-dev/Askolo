@@ -58,11 +58,17 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		databaseReachable := false
 		authorizationStorageReady := false
+		mfaSecurityReadiness := authmodule.MFASecurityReadiness{
+			Status:        "unavailable",
+			Environment:   cfg.Environment,
+			WindowMinutes: 15,
+		}
 		if store != nil {
 			pingContext, cancel := context.WithTimeout(r.Context(), 750*time.Millisecond)
 			databaseReachable = store.Ping(pingContext) == nil
 			if databaseReachable {
 				authorizationStorageReady = store.AuthorizationSchemaReady(pingContext)
+				mfaSecurityReadiness = authHandler.MFASecurityReadiness(pingContext)
 			}
 			cancel()
 		}
@@ -85,6 +91,7 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 			"authorizationStorageReady": authorizationStorageReady,
 			"emailDeliveryConfigured":   emailDeliveryConfigured,
 			"emailDelivery":             emailDeliveryReadiness,
+			"mfaSecurity":               mfaSecurityReadiness,
 		})
 	})
 
