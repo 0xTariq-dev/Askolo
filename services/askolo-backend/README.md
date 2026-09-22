@@ -179,3 +179,18 @@ errors. Latency is capped at 30 seconds in telemetry.
    `AUTH_CHALLENGE_SECRET` (or `SESSION_SECRET`) in the target environment.
    Never paste credentials or message content into
    logs, tickets, or release records.
+
+### Email challenge retention cleanup
+
+The backend retains terminal native email challenges for 24 hours after their
+terminal timestamp: `expires_at` for an unused expired challenge or
+`consumed_at` for a consumed challenge. This applies to email verification,
+recovery-email enrollment, and password-recovery challenges. Recent expired and
+consumed records, active challenges, and other challenge purposes are preserved.
+
+Cleanup runs immediately at service startup and every 15 minutes afterward. Each
+transaction deletes at most 100 rows and uses row locks with `SKIP LOCKED`, so
+it does not wait for or remove a challenge involved in an active verification
+transaction. Each run emits an aggregate structured log with the deleted count,
+batch limit, retention period, and duration; failures emit only the operation
+and aggregate policy fields.

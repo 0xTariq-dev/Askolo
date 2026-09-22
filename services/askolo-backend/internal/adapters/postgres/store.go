@@ -17,6 +17,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// EmailChallengeRetention is the minimum time a terminal email challenge is
+// retained for security investigation and operational troubleshooting.
+const EmailChallengeRetention = 24 * time.Hour
+
+// EmailChallengeCleanupBatchSize bounds the amount of work in one cleanup
+// transaction. The service repeats cleanup on its next interval if needed.
+const EmailChallengeCleanupBatchSize = 100
+
 var ErrNotFound = errors.New("record not found")
 var ErrOwnership = errors.New("record does not belong to user")
 var ErrEmailExists = errors.New("email already belongs to an account")
@@ -991,6 +999,58 @@ DELETE FROM auth_email_challenges
 WHERE id = $1
 `, challengeID)
 	return err
+}
+
+// CleanupEmailChallenges deletes only terminal email challenges whose terminal
+// timestamp is older than EmailChallengeRetention. Active challenges,
+// recently expired challenges, recently consumed challenges, and other
+// challenge purposes are preserved. Candidates are locked with SKIP LOCKED so
+// cleanup cannot wait on or delete a row being consumed by another transaction.
+//
+// The caller supplies now to keep the cutoff deterministic in tests.
+func (s *Store) CleanupEmailChallenges(ctx context.Context, now time.Time, limit int) (int, error) {
+	if s == nil {
+		return 0, errors.New("database is not configured")
+	}
+	if limit <= 0 {
+		return 0, errors.New("email challenge cleanup limit must be positive")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	cutoff := now.Add(-EmailChallengeRetention)
+	result, err := tx.Exec(ctx, `
+		WITH candidates AS (
+			SELECT id
+			FROM auth_email_challenges
+			WHERE purpose IN (
+				'email_verification',
+				'recovery_email_enrollment',
+				'password_recovery'
+			)
+			  AND COALESCE(consumed_at, expires_at) < $1
+			ORDER BY COALESCE(consumed_at, expires_at), id
+			FOR UPDATE SKIP LOCKED
+			LIMIT $2
+		)
+		DELETE FROM auth_email_challenges AS challenges
+		USING candidates
+		WHERE challenges.id = candidates.id
+	`, cutoff, limit)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return int(result.RowsAffected()), nil
 }
 
 func (s *Store) HasRecentEmailChallenge(

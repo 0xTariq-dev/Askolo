@@ -665,3 +665,75 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 		t.Fatalf("delivery retry sent %d messages, want one", retrySender.count())
 	}
 }
+
+func TestEmailChallengeCleanupRetainsRecentAndActiveRecords(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	oldTerminalAt := now.Add(-postgres.EmailChallengeRetention - time.Hour)
+	recentTerminalAt := now.Add(-time.Hour)
+
+	type challengeFixture struct {
+		id           string
+		purpose      string
+		expiresAt    time.Time
+		consumedAt   *time.Time
+		shouldDelete bool
+	}
+	oldConsumedExpiry := now.Add(time.Hour)
+	challenges := []challengeFixture{
+		{id: "cleanup-expired-verification", purpose: "email_verification", expiresAt: oldTerminalAt, shouldDelete: true},
+		{id: "cleanup-expired-recovery-enrollment", purpose: "recovery_email_enrollment", expiresAt: oldTerminalAt, shouldDelete: true},
+		{id: "cleanup-expired-password-recovery", purpose: "password_recovery", expiresAt: oldTerminalAt, shouldDelete: true},
+		{id: "cleanup-consumed-verification", purpose: "email_verification", expiresAt: oldConsumedExpiry, consumedAt: timePtr(oldTerminalAt), shouldDelete: true},
+		{id: "cleanup-consumed-recovery-enrollment", purpose: "recovery_email_enrollment", expiresAt: oldConsumedExpiry, consumedAt: timePtr(oldTerminalAt), shouldDelete: true},
+		{id: "cleanup-consumed-password-recovery", purpose: "password_recovery", expiresAt: oldConsumedExpiry, consumedAt: timePtr(oldTerminalAt), shouldDelete: true},
+		{id: "cleanup-recent-expired", purpose: "email_verification", expiresAt: recentTerminalAt},
+		{id: "cleanup-recent-consumed", purpose: "password_recovery", expiresAt: oldConsumedExpiry, consumedAt: timePtr(recentTerminalAt)},
+		{id: "cleanup-active", purpose: "recovery_email_enrollment", expiresAt: now.Add(time.Hour)},
+		{id: "cleanup-unrelated-purpose", purpose: "unrelated_auth_purpose", expiresAt: oldTerminalAt},
+	}
+	for _, challenge := range challenges {
+		if _, err := fixture.pool.Exec(ctx, `
+			INSERT INTO auth_email_challenges (id, email, purpose, code_hash, expires_at, consumed_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, challenge.id, challenge.id+"@example.com", challenge.purpose, "hash-"+challenge.id, challenge.expiresAt, challenge.consumedAt); err != nil {
+			t.Fatalf("insert %s: %v", challenge.id, err)
+		}
+	}
+
+	deleted, err := fixture.store.CleanupEmailChallenges(ctx, now, 2)
+	if err != nil {
+		t.Fatalf("bounded cleanup: %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("bounded cleanup deleted %d rows, want 2", deleted)
+	}
+
+	for {
+		deleted, err = fixture.store.CleanupEmailChallenges(ctx, now, postgres.EmailChallengeCleanupBatchSize)
+		if err != nil {
+			t.Fatalf("drain cleanup: %v", err)
+		}
+		if deleted == 0 {
+			break
+		}
+	}
+
+	for _, challenge := range challenges {
+		var count int
+		if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM auth_email_challenges WHERE id = $1`, challenge.id).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", challenge.id, err)
+		}
+		if challenge.shouldDelete && count != 0 {
+			t.Errorf("terminal challenge %s remains", challenge.id)
+		}
+		if !challenge.shouldDelete && count != 1 {
+			t.Errorf("protected challenge %s was deleted", challenge.id)
+		}
+	}
+}
+
+func timePtr(value time.Time) *time.Time {
+	return &value
+}
