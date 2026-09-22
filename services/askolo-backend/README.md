@@ -24,6 +24,8 @@ to become Askolo's primary backend without a second structural rewrite.
 - Password signup and recovery require a Resend delivery configuration:
   `RESEND_API_KEY` and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
   set separately; otherwise the challenge hashes use `SESSION_SECRET`.
+  The sender is normalized to `Askolo <AUTH_EMAIL_FROM>` so mail clients show
+  the app name even when the configured value is only an address.
   Challenge values, passwords, email bodies, and Resend credentials are never
   written to logs or returned by the API. `/readyz` reports Resend and challenge
   configuration separately; `configured` means settings are present, not that

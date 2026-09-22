@@ -23,7 +23,7 @@ import (
 
 const (
 	sessionTTL                 = 7 * 24 * time.Hour
-	emailChallengeTTL          = 15 * time.Minute
+	emailChallengeTTL          = 3 * time.Minute
 	emailChallengeResendWindow = 60 * time.Second
 	emailChallengeMaxAttempts  = 5
 )
@@ -1059,10 +1059,11 @@ func (h *Handler) sendChallenge(
 		return err
 	}
 	startedAt := time.Now()
+	expiryMinutes := int(emailChallengeTTL / time.Minute)
 	err = h.emailSender.Send(r.Context(), EmailMessage{
 		To:      email,
 		Subject: subject,
-		Body:    fmt.Sprintf("%s\n\nYour one-time code is: %s\n\nThis code expires in 15 minutes. If you did not request this, you can ignore this message.", instruction, code),
+		Body:    fmt.Sprintf("%s\n\nYour one-time code is: %s\n\nThis code expires in %d minutes. If you did not request this, you can ignore this message.", instruction, code, expiryMinutes),
 		Code:    code,
 	})
 	err = normalizeEmailDeliveryError(err)
