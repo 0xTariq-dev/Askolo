@@ -28,6 +28,7 @@ const (
 	emailChallengeMaxAttempts    = 5
 	passwordRecoveryPrimaryEmail = "primary_email"
 	passwordRecoveryEmail        = "recovery_email"
+	mfaRecoverySupportPurpose    = "mfa_recovery_support"
 	mfaSecurityWindow            = 15 * time.Minute
 	mfaFailureAlertThreshold     = 20
 	mfaReplayAlertThreshold      = 5
@@ -245,6 +246,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/password/recovery/request", h.requestPasswordRecovery)
 	mux.HandleFunc("POST /api/auth/password/recovery/verify", h.verifyPasswordRecovery)
 	mux.HandleFunc("POST /api/auth/password/recovery/reset", h.resetPassword)
+	mux.HandleFunc("POST /api/auth/mfa/recovery-support/request", h.requestMFARecoverySupport)
+	mux.HandleFunc("POST /api/auth/mfa/recovery-support/verify", h.verifyMFARecoverySupport)
 	mux.HandleFunc("GET /api/auth/mfa/status", h.mfaStatus)
 	mux.HandleFunc("POST /api/auth/mfa/enroll", h.enrollMFA)
 	mux.HandleFunc("POST /api/auth/mfa/confirm", h.confirmMFA)
@@ -803,6 +806,150 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 	h.recordSecurityEvent(r, userID, "password_reset", map[string]any{"purpose": "password_recovery"})
 	h.clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+// requestMFARecoverySupport starts a support review without granting access.
+// The request is intentionally based only on the account's already-verified
+// primary email. Passwords, recovery emails, and unverified addresses are not
+// accepted as substitutes for identity verification.
+func (h *Handler) requestMFARecoverySupport(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(r, 3, 15*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many recovery requests. Try again later.")
+		return
+	}
+	var input struct {
+		Email string `json:"email"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "A valid account email is required.")
+		return
+	}
+
+	email := normalizeEmail(input.Email)
+	user, err := h.store.FindUserByEmail(r.Context(), email)
+	if errors.Is(err, postgres.ErrNotFound) ||
+		err == nil && (user.EmailVerifiedAt == nil || user.Status == "suspended" || user.Status == "deleted") {
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "mfa_recovery_if_available"})
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery support lookup failed", err)
+		return
+	}
+	enabled, err := h.store.TOTPEnabled(r.Context(), user.ID)
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery support MFA lookup failed", err)
+		return
+	}
+	if !enabled {
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "mfa_recovery_if_available"})
+		return
+	}
+	if recent, err := h.store.HasRecentEmailChallenge(
+		r.Context(), email, mfaRecoverySupportPurpose, time.Now().Add(-emailChallengeResendWindow),
+	); err != nil {
+		h.writeStoreError(w, "MFA recovery support rate check failed", err)
+		return
+	} else if recent {
+		setEmailChallengeRetryAfter(w)
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
+		return
+	}
+	if err := h.challengeConfiguration(); err != nil {
+		h.logChallengeFailure(r, "mfa_recovery_support", err)
+		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
+		return
+	}
+	if err := h.sendChallenge(
+		r,
+		user.ID,
+		email,
+		"mfa_recovery_support",
+		mfaRecoverySupportPurpose,
+		"Verify your Askolo MFA recovery request",
+		"This code verifies control of your already-verified primary email. It does not sign you in or disable MFA.",
+		true,
+	); err != nil {
+		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
+			setEmailChallengeRetryAfter(w)
+			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
+			return
+		}
+		h.logChallengeFailure(r, "mfa_recovery_support", err)
+		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
+		return
+	}
+	h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_challenge_sent", map[string]any{
+		"purpose": mfaRecoverySupportPurpose,
+	})
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "mfa_recovery_support_verification_required"})
+}
+
+// verifyMFARecoverySupport proves control of the primary email, records the
+// request, and revokes sessions. It deliberately stops before any MFA change
+// or session creation so support must perform an additional identity review.
+func (h *Handler) verifyMFARecoverySupport(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(r, 10, 10*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many verification attempts. Try again later.")
+		return
+	}
+	var input struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) || !validChallengeCode(input.Code) {
+		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY", "The recovery request is invalid or expired.")
+		return
+	}
+
+	email := normalizeEmail(input.Email)
+	user, err := h.store.FindUserByEmail(r.Context(), email)
+	if errors.Is(err, postgres.ErrNotFound) || err == nil && user.EmailVerifiedAt == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY", "The recovery request is invalid or expired.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery support verification lookup failed", err)
+		return
+	}
+	enabled, err := h.store.TOTPEnabled(r.Context(), user.ID)
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery support MFA lookup failed", err)
+		return
+	}
+	if !enabled {
+		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY", "The recovery request is invalid or expired.")
+		return
+	}
+	challengeUserID, err := h.consumeChallenge(r, email, mfaRecoverySupportPurpose, input.Code)
+	if errors.Is(err, postgres.ErrChallengeLocked) {
+		writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
+		return
+	}
+	if errors.Is(err, postgres.ErrChallengeInvalid) || (err == nil && challengeUserID != user.ID) {
+		h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_verification_failed", nil)
+		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY", "The recovery request is invalid or expired.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery support code verification failed", err)
+		return
+	}
+	if err := h.store.DeleteUserSessions(r.Context(), user.ID); err != nil {
+		h.logger.Error("MFA recovery support session revocation failed", "operation", "mfa_recovery_support", "request_id", requestID(r), "user_id", user.ID, "error", err)
+		h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_session_revocation_failed", nil)
+		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
+		return
+	}
+	h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_verified", map[string]any{
+		"identity_method":  "verified_primary_email",
+		"sessions_revoked": true,
+		"mfa_changed":      false,
+	})
+	h.clearSessionCookie(w, r)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "mfa_recovery_support_review_required"})
 }
 
 func normalizePasswordRecoveryMethod(method string) string {

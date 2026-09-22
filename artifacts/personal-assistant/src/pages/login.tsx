@@ -16,7 +16,10 @@ type PasswordMode =
   | 'recovery-method'
   | 'recovery-verify'
   | 'recovery-reset'
-  | 'mfa';
+  | 'mfa'
+  | 'mfa-support-request'
+  | 'mfa-support-verify'
+  | 'mfa-support-complete';
 
 type RecoveryMethod = 'primary_email' | 'recovery_email';
 
@@ -165,6 +168,19 @@ export function LoginPage() {
         setMode('recovery-reset');
         setResendAvailableAt(null);
         setNotice('Code verified. Choose a new password for your Askolo account.');
+      } else if (mode === 'mfa-support-request') {
+        await postAuth('/api/auth/mfa/recovery-support/request', { email });
+        setMode('mfa-support-verify');
+        startResendCooldown();
+        setNotice('If this account is eligible, a verification code is on its way to its verified primary email.');
+      } else if (mode === 'mfa-support-verify') {
+        const payload = await postAuth('/api/auth/mfa/recovery-support/verify', { email, code });
+        if (payload.status !== 'mfa_recovery_support_review_required') {
+          throw new Error('Your recovery request could not be completed.');
+        }
+        setMode('mfa-support-complete');
+        setResendAvailableAt(null);
+        setNotice(null);
       } else if (mode === 'mfa') {
         await postAuth('/api/auth/mfa/verify', { code });
         window.location.assign(`${basePath}/dashboard`);
@@ -227,9 +243,28 @@ export function LoginPage() {
     }
   };
 
+  const resendMFARecoverySupport = async () => {
+    if (submitting || resendSeconds > 0) return;
+    setError(null);
+    setNotice(null);
+    setSubmitting(true);
+    try {
+      await postAuth('/api/auth/mfa/recovery-support/request', { email });
+      startResendCooldown();
+      setNotice('If this account is eligible, a new verification code is on its way to its verified primary email.');
+    } catch (err) {
+      applyRetryAfter(err);
+      setError(err instanceof Error ? err.message : 'Unable to resend the recovery verification code.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const isPasswordMode = mode === 'signin' || mode === 'signup';
-  const showEmailInput = mode === 'verify' || mode === 'recovery-request';
-  const showCodeInput = mode === 'verify' || mode === 'recovery-verify' || mode === 'mfa';
+  const showEmailInput =
+    mode === 'verify' || mode === 'recovery-request' || mode === 'mfa-support-request';
+  const showCodeInput =
+    mode === 'verify' || mode === 'recovery-verify' || mode === 'mfa' || mode === 'mfa-support-verify';
   const showPasswordReset = mode === 'recovery-reset';
   const showRecoveryEmailSummary =
     mode === 'recovery-method' || mode === 'recovery-verify' || mode === 'recovery-reset';
@@ -244,6 +279,9 @@ export function LoginPage() {
     'recovery-verify': 'Enter your recovery code',
     'recovery-reset': 'Set a new password',
     mfa: 'Verify your identity',
+    'mfa-support-request': 'Recover access safely',
+    'mfa-support-verify': 'Verify your recovery request',
+    'mfa-support-complete': 'Recovery request submitted',
   }[mode];
 
   const cooldownLabel = `${Math.floor(resendSeconds / 60)}:${String(resendSeconds % 60).padStart(2, '0')}`;
@@ -336,6 +374,21 @@ export function LoginPage() {
               </Button>
             </div>
           </div>
+        ) : mode === 'mfa-support-complete' ? (
+          <div className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-card p-6 text-left">
+            <h2 className="text-lg font-semibold text-foreground">{heading}</h2>
+            <p className="text-sm text-muted-foreground">
+              We verified control of your primary email and signed out all active sessions.
+              Askolo has not disabled MFA or created a new session.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Support must complete an additional identity review before restoring access.
+              An email address or password-only request cannot bypass MFA.
+            </p>
+            <Button type="button" onClick={() => changeMode('signin')}>
+              Back to sign in
+            </Button>
+          </div>
         ) : (
           <div className="flex w-full max-w-xs flex-col gap-3">
             <form onSubmit={submitPasswordFlow} className="space-y-3 rounded-xl border border-border bg-card p-4 text-left">
@@ -351,6 +404,10 @@ export function LoginPage() {
                       ? `Enter the six-digit code sent to ${recoveryMethodLabel}.`
                       : mode === 'recovery-reset'
                         ? 'Choose a strong password you have not used elsewhere.'
+                          : mode === 'mfa-support-request'
+                            ? 'If you have lost both your authenticator and every recovery code, we can verify control of your already-verified primary email and send the request to support. This will not sign you in.'
+                            : mode === 'mfa-support-verify'
+                              ? 'Enter the six-digit code sent to your verified primary email. This confirms email control only; support still must verify your identity.'
                         : mode === 'mfa'
                           ? 'Enter the six-digit code from your authenticator app, or use a recovery code.'
                           : ''}
@@ -497,12 +554,27 @@ export function LoginPage() {
                         ? 'Send recovery code'
                         : mode === 'recovery-verify'
                           ? 'Verify code'
+                          : mode === 'mfa-support-request'
+                            ? 'Send verification code'
+                            : mode === 'mfa-support-verify'
+                              ? 'Verify and contact support'
                           : mode === 'mfa'
                             ? 'Verify MFA'
                             : 'Set new password'}
               </Button>
             </form>
-            {(mode === 'verify' || mode === 'recovery-verify') && (
+            {mode === 'mfa' && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-left">
+                <p className="text-sm font-medium text-foreground">Lost your authenticator and all recovery codes?</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Use the support review path. It verifies your primary email, revokes sessions, and never bypasses MFA automatically.
+                </p>
+                <Button type="button" variant="link" className="h-auto px-0 pt-2" onClick={() => changeMode('mfa-support-request')}>
+                  Start a safe recovery review
+                </Button>
+              </div>
+            )}
+            {(mode === 'verify' || mode === 'recovery-verify' || mode === 'mfa-support-verify') && (
               <div className="flex flex-col items-center gap-1 text-center">
                 <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
                   {resendSeconds > 0 ? `Resend available in ${cooldownLabel}` : 'Didn’t receive the code?'}
@@ -510,10 +582,16 @@ export function LoginPage() {
                 <Button
                   type="button"
                   variant="link"
-                  onClick={mode === 'verify' ? resendVerification : resendRecovery}
+                  onClick={
+                    mode === 'verify'
+                      ? resendVerification
+                      : mode === 'mfa-support-verify'
+                        ? resendMFARecoverySupport
+                        : resendRecovery
+                  }
                   disabled={submitting || resendSeconds > 0}
                 >
-                  Resend {mode === 'verify' ? 'verification' : 'recovery'} code
+                  Resend {mode === 'verify' ? 'verification' : mode === 'mfa-support-verify' ? 'recovery' : 'password recovery'} code
                 </Button>
               </div>
             )}
@@ -522,7 +600,7 @@ export function LoginPage() {
                 Use a different email
               </Button>
             )}
-            <Button type="button" variant="link" onClick={() => changeMode('signin')}>
+            <Button type="button" variant="link" onClick={() => changeMode(mode === 'mfa-support-request' || mode === 'mfa-support-verify' ? 'mfa' : 'signin')}>
               Back to sign in
             </Button>
           </div>

@@ -521,6 +521,50 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	}
 }
 
+func TestMFARecoverySupportVerifiesPrimaryEmailAndRevokesSessions(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	sender := &captureEmailSender{}
+	authHandler := testAuthHandler(fixture, sender, slog.Default())
+	email := "mfa-support@example.com"
+	userID := createVerifiedUser(t, fixture, email, "correct horse battery staple")
+	if _, err := fixture.pool.Exec(context.Background(), `
+		INSERT INTO auth_totp (user_id, secret_encrypted, enabled_at)
+		VALUES ($1, 'fixture-secret', NOW())
+	`, userID); err != nil {
+		t.Fatalf("enable fixture MFA: %v", err)
+	}
+
+	request := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+		"email": email,
+	}, nil, "192.0.2.80:1000")
+	if request.Code != http.StatusAccepted {
+		t.Fatalf("MFA recovery support request status = %d, body = %s", request.Code, request.Body.String())
+	}
+	code := sender.codeForSubject(t, "Verify your Askolo MFA recovery request")
+	assertResponseDoesNotContain(t, request, email, code)
+
+	sessionID, err := fixture.store.CreateSession(context.Background(), userID, "password", time.Hour)
+	if err != nil {
+		t.Fatalf("create session before MFA recovery support verification: %v", err)
+	}
+	sessionCookie := &http.Cookie{Name: "askolo.sid", Value: sessionID}
+	verify := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+		"email": email,
+		"code":  code,
+	}, sessionCookie, "192.0.2.81:1000")
+	if verify.Code != http.StatusOK || !strings.Contains(verify.Body.String(), "mfa_recovery_support_review_required") {
+		t.Fatalf("MFA recovery support verification = %d, body = %s", verify.Code, verify.Body.String())
+	}
+	if _, err := fixture.store.SessionUserID(context.Background(), sessionID); !errors.Is(err, postgres.ErrNotFound) {
+		t.Fatalf("session after MFA recovery support verification error = %v, want session revoked", err)
+	}
+	for _, cookie := range verify.Result().Cookies() {
+		if cookie.Name == "askolo.sid" && cookie.Value != "" {
+			t.Fatalf("MFA recovery support verification issued a session cookie: %+v", cookie)
+		}
+	}
+}
+
 func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	sender := &captureEmailSender{}

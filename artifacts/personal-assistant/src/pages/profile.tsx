@@ -596,6 +596,7 @@ export function ProfilePage() {
           </CardTitle>
           <CardDescription>
             Protect sign-in with an authenticator app. Recovery codes are shown once and cannot be restored.
+            If you lose both your authenticator and every recovery code, sign out and use the safe support review path on the sign-in screen.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
