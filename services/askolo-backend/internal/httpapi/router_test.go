@@ -56,6 +56,50 @@ func TestReadinessReportsMissingDependencies(t *testing.T) {
 	}
 }
 
+func TestReadinessDoesNotRequireEmailHandoff(t *testing.T) {
+	status, statusCode := dependencyReadinessStatus(true, true, true)
+	if status != "ready" || statusCode != http.StatusOK {
+		t.Fatalf("configured fresh instance = %q/%d, want ready/200", status, statusCode)
+	}
+
+	for _, test := range []struct {
+		name                      string
+		databaseReachable         bool
+		authorizationStorageReady bool
+		emailDeliveryConfigured   bool
+	}{
+		{
+			name:                      "database unavailable",
+			databaseReachable:         false,
+			authorizationStorageReady: true,
+			emailDeliveryConfigured:   true,
+		},
+		{
+			name:                      "authorization schema unavailable",
+			databaseReachable:         true,
+			authorizationStorageReady: false,
+			emailDeliveryConfigured:   true,
+		},
+		{
+			name:                      "email configuration unavailable",
+			databaseReachable:         true,
+			authorizationStorageReady: true,
+			emailDeliveryConfigured:   false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			status, statusCode := dependencyReadinessStatus(
+				test.databaseReachable,
+				test.authorizationStorageReady,
+				test.emailDeliveryConfigured,
+			)
+			if status != "degraded" || statusCode != http.StatusServiceUnavailable {
+				t.Fatalf("dependency failure = %q/%d, want degraded/503", status, statusCode)
+			}
+		})
+	}
+}
+
 func TestInternalRestRequiresAndAcceptsServiceAuth(t *testing.T) {
 	handler := New(testConfig("secret"), slog.Default(), nil)
 

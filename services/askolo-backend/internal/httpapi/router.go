@@ -69,13 +69,11 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 		emailDeliveryReadiness := authHandler.EmailDeliveryReadiness()
 		emailDeliveryConfigured := emailDeliveryReadiness.ResendConfiguration == "configured" &&
 			emailDeliveryReadiness.ChallengeConfiguration == "configured"
-		status := "ready"
-		statusCode := http.StatusOK
-		if !databaseReachable || !authorizationStorageReady ||
-			emailDeliveryReadiness.Status != "healthy" {
-			status = "degraded"
-			statusCode = http.StatusServiceUnavailable
-		}
+		status, statusCode := dependencyReadinessStatus(
+			databaseReachable,
+			authorizationStorageReady,
+			emailDeliveryConfigured,
+		)
 		writeJSON(w, statusCode, map[string]any{
 			"environment":               cfg.Environment,
 			"release":                   cfg.ReleaseTag,
@@ -130,6 +128,21 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 	mux.HandleFunc("/", notFound)
 
 	return httpx.Middleware(logger, mux)
+}
+
+func dependencyReadinessStatus(
+	databaseReachable bool,
+	authorizationStorageReady bool,
+	emailDeliveryConfigured bool,
+) (string, int) {
+	// A fresh Autoscale instance has no in-memory delivery history yet, so
+	// "unknown" is expected before the first real email attempt. Readiness
+	// validates static email configuration here; provider outcomes remain
+	// visible in the response without making cold starts depend on them.
+	if !databaseReachable || !authorizationStorageReady || !emailDeliveryConfigured {
+		return "degraded", http.StatusServiceUnavailable
+	}
+	return "ready", http.StatusOK
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
