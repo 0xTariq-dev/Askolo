@@ -55,7 +55,7 @@ stop_recorded_process
 
 go test ./...
 go vet ./...
-go build -trimpath -o "$tmp_binary" ./cmd/askolo-backend
+CGO_ENABLED=0 go build -trimpath -o "$tmp_binary" ./cmd/askolo-backend
 chmod 755 "$tmp_binary"
 mv -f -- "$tmp_binary" "$binary"
 
