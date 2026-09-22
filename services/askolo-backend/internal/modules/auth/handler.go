@@ -48,7 +48,7 @@ type rateEntry struct {
 }
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger) *Handler {
-	return NewHandlerWithEmailSenderAndMonitor(cfg, store, logger, NewSMTPEmailSender(cfg), NewEmailDeliveryMonitor())
+	return NewHandlerWithEmailSenderAndMonitor(cfg, store, logger, NewResendEmailSender(cfg), NewEmailDeliveryMonitor())
 }
 
 func NewHandlerWithEmailSender(
@@ -71,7 +71,7 @@ func NewHandlerWithEmailSenderAndMonitor(
 		logger = slog.Default()
 	}
 	if emailSender == nil {
-		emailSender = NewSMTPEmailSender(cfg)
+		emailSender = NewResendEmailSender(cfg)
 	}
 	if emailMonitor == nil {
 		emailMonitor = NewEmailDeliveryMonitor()
@@ -88,20 +88,20 @@ func NewHandlerWithEmailSenderAndMonitor(
 
 type EmailDeliveryReadiness struct {
 	Status                 string `json:"status"`
-	SMTPConfiguration      string `json:"smtpConfiguration"`
+	ResendConfiguration    string `json:"resendConfiguration"`
 	ChallengeConfiguration string `json:"challengeConfiguration"`
 	EmailDeliverySnapshot
 }
 
 func (h *Handler) EmailDeliveryReadiness() EmailDeliveryReadiness {
-	smtpStatus := h.cfg.Email.SMTPConfigurationStatus()
+	resendStatus := h.cfg.Email.ResendConfigurationStatus()
 	challengeStatus := h.cfg.Email.ChallengeConfigurationStatus()
 	snapshot := h.emailMonitor.Snapshot()
 	status := "unknown"
 	switch {
-	case smtpStatus == "missing" || challengeStatus == "missing":
+	case resendStatus == "missing" || challengeStatus == "missing":
 		status = "not_configured"
-	case smtpStatus == "invalid" || challengeStatus == "invalid":
+	case resendStatus == "invalid" || challengeStatus == "invalid":
 		status = "configuration_invalid"
 	case snapshot.Attempts == 0:
 		status = "unknown"
@@ -114,7 +114,7 @@ func (h *Handler) EmailDeliveryReadiness() EmailDeliveryReadiness {
 	}
 	return EmailDeliveryReadiness{
 		Status:                 status,
-		SMTPConfiguration:      smtpStatus,
+		ResendConfiguration:    resendStatus,
 		ChallengeConfiguration: challengeStatus,
 		EmailDeliverySnapshot:  snapshot,
 	}

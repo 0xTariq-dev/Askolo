@@ -3,10 +3,14 @@ package auth
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
+	"net/http"
+	"net/mail"
 	"net/smtp"
 	"strings"
 	"sync"
@@ -171,6 +175,143 @@ type EmailMessage struct {
 
 type EmailSender interface {
 	Send(context.Context, EmailMessage) error
+}
+
+const (
+	resendEmailEndpoint       = "https://api.resend.com/emails"
+	resendRequestTimeout      = 15 * time.Second
+	resendResponseBodyMaxSize = 64 * 1024
+)
+
+type resendEmailSender struct {
+	apiKey   string
+	from     string
+	endpoint string
+	client   *http.Client
+}
+
+type resendEmailRequest struct {
+	From    string   `json:"from"`
+	To      []string `json:"to"`
+	Subject string   `json:"subject"`
+	Text    string   `json:"text"`
+	HTML    string   `json:"html"`
+}
+
+type resendEmailResponse struct {
+	ID string `json:"id"`
+}
+
+func NewResendEmailSender(cfg config.Config) EmailSender {
+	return newResendEmailSender(
+		cfg.Email.ResendAPIKey,
+		cfg.Email.FromAddress,
+		resendEmailEndpoint,
+		&http.Client{Timeout: resendRequestTimeout},
+	)
+}
+
+func newResendEmailSender(apiKey, from, endpoint string, client *http.Client) EmailSender {
+	if client == nil {
+		client = &http.Client{Timeout: resendRequestTimeout}
+	}
+	return &resendEmailSender{
+		apiKey:   strings.TrimSpace(apiKey),
+		from:     strings.TrimSpace(from),
+		endpoint: endpoint,
+		client:   client,
+	}
+}
+
+func (s *resendEmailSender) Send(ctx context.Context, message EmailMessage) error {
+	if s == nil || s.apiKey == "" || s.from == "" {
+		return ErrEmailDeliveryNotConfigured
+	}
+	if strings.ContainsAny(s.apiKey, "\r\n") ||
+		!validEmailAddress(s.from, true) || !validEmailAddress(message.To, false) ||
+		strings.TrimSpace(message.Subject) == "" || strings.ContainsAny(message.Subject, "\r\n") {
+		return emailDeliveryError(
+			EmailDeliveryConfigurationInvalid,
+			true,
+			errors.New("email message contains invalid values"),
+		)
+	}
+
+	payload, err := json.Marshal(resendEmailRequest{
+		From:    s.from,
+		To:      []string{strings.TrimSpace(message.To)},
+		Subject: message.Subject,
+		Text:    message.Body,
+		HTML:    brandedEmailHTML(message.Body),
+	})
+	if err != nil {
+		return emailDeliveryError(EmailDeliveryInternalFailure, false, err)
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.endpoint, strings.NewReader(string(payload)))
+	if err != nil {
+		return emailDeliveryError(EmailDeliveryConfigurationInvalid, true, err)
+	}
+	request.Header.Set("Authorization", "Bearer "+s.apiKey)
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || isNetTimeout(err) {
+			return emailDeliveryError(EmailDeliveryTimeout, false, err)
+		}
+		if errors.Is(err, context.Canceled) {
+			return emailDeliveryError(EmailDeliveryConnectionFailure, false, err)
+		}
+		return emailDeliveryError(EmailDeliveryConnectionFailure, false, err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		retrySafe := response.StatusCode < http.StatusInternalServerError
+		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+			return emailDeliveryError(EmailDeliveryAuthenticationFailure, retrySafe, fmt.Errorf("resend returned status %d", response.StatusCode))
+		}
+		return emailDeliveryError(EmailDeliveryProviderRejection, retrySafe, fmt.Errorf("resend returned status %d", response.StatusCode))
+	}
+
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, resendResponseBodyMaxSize))
+	if err != nil {
+		return emailDeliveryError(EmailDeliveryInternalFailure, false, err)
+	}
+	var result resendEmailResponse
+	if err := json.Unmarshal(responseBody, &result); err != nil || !validProviderMessageID(result.ID) {
+		if err == nil {
+			err = errors.New("resend response did not include a valid message id")
+		}
+		return emailDeliveryError(EmailDeliveryInternalFailure, false, err)
+	}
+	return nil
+}
+
+func validEmailAddress(value string, allowDisplayName bool) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, "\r\n") {
+		return false
+	}
+	parsed, err := mail.ParseAddress(value)
+	if err != nil || parsed.Address == "" {
+		return false
+	}
+	return allowDisplayName || parsed.Address == value
+}
+
+func validProviderMessageID(value string) bool {
+	return value != "" && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\r\n")
+}
+
+func brandedEmailHTML(body string) string {
+	escapedBody := html.EscapeString(strings.ReplaceAll(body, "\r\n", "\n"))
+	escapedBody = strings.ReplaceAll(escapedBody, "\n", "<br>\n")
+	return `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17202a;max-width:600px">` +
+		`<div style="font-weight:700;font-size:20px;margin-bottom:24px">Askolo</div>` +
+		`<div>` + escapedBody + `</div>` +
+		`</div>`
 }
 
 type smtpEmailSender struct {

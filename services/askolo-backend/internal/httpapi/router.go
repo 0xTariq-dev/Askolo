@@ -67,15 +67,12 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 			cancel()
 		}
 		emailDeliveryReadiness := authHandler.EmailDeliveryReadiness()
-		emailDeliveryConfigured := emailDeliveryReadiness.SMTPConfiguration == "configured" &&
+		emailDeliveryConfigured := emailDeliveryReadiness.ResendConfiguration == "configured" &&
 			emailDeliveryReadiness.ChallengeConfiguration == "configured"
 		status := "ready"
 		statusCode := http.StatusOK
 		if !databaseReachable || !authorizationStorageReady ||
-			emailDeliveryReadiness.Status == "not_configured" ||
-			emailDeliveryReadiness.Status == "configuration_invalid" ||
-			emailDeliveryReadiness.Status == "transient_failure" ||
-			emailDeliveryReadiness.Status == "persistent_failure" {
+			emailDeliveryReadiness.Status != "healthy" {
 			status = "degraded"
 			statusCode = http.StatusServiceUnavailable
 		}

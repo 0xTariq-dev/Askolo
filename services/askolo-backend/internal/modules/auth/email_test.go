@@ -2,8 +2,12 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,8 +61,8 @@ func TestChallengeCodeValidation(t *testing.T) {
 	}
 }
 
-func TestSMTPEmailSenderRequiresConfiguration(t *testing.T) {
-	sender := NewSMTPEmailSender(config.Config{})
+func TestResendEmailSenderRequiresConfiguration(t *testing.T) {
+	sender := NewResendEmailSender(config.Config{})
 	err := sender.Send(context.Background(), EmailMessage{
 		To:      "user@example.com",
 		Subject: "Test",
@@ -66,6 +70,66 @@ func TestSMTPEmailSenderRequiresConfiguration(t *testing.T) {
 	})
 	if !errors.Is(err, ErrEmailDeliveryNotConfigured) {
 		t.Fatalf("Send() error = %v, want ErrEmailDeliveryNotConfigured", err)
+	}
+}
+
+func TestResendEmailSenderSendsPayloadAndRequiresProviderMessageID(t *testing.T) {
+	var request resendEmailRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/emails" {
+			t.Errorf("request = %s %s, want POST /emails", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer unit-test-key" {
+			t.Errorf("authorization = %q, want bearer token", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"message-unit-test"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	sender := newResendEmailSender(
+		"unit-test-key",
+		"Askolo <noreply@example.com>",
+		server.URL+"/emails",
+		server.Client(),
+	)
+	err := sender.Send(context.Background(), EmailMessage{
+		To:      "user@example.com",
+		Subject: "Verify your Askolo account",
+		Body:    "Use <123456>.\nDo not share this code.",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v, want nil", err)
+	}
+	if request.From != "Askolo <noreply@example.com>" ||
+		len(request.To) != 1 || request.To[0] != "user@example.com" ||
+		request.Subject != "Verify your Askolo account" ||
+		request.Text != "Use <123456>.\nDo not share this code." {
+		t.Fatalf("request payload = %+v, want expected message", request)
+	}
+	if !strings.Contains(request.HTML, "&lt;123456&gt;") ||
+		strings.Contains(request.HTML, "<123456>") {
+		t.Fatalf("request HTML is not safely escaped: %q", request.HTML)
+	}
+}
+
+func TestResendEmailSenderRejectsSuccessfulResponseWithoutMessageID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+
+	sender := newResendEmailSender("unit-test-key", "noreply@example.com", server.URL+"/emails", server.Client())
+	err := sender.Send(context.Background(), EmailMessage{
+		To:      "user@example.com",
+		Subject: "Test",
+		Body:    "Test",
+	})
+	if emailDeliveryState(err) != EmailDeliveryInternalFailure || emailDeliveryRetrySafe(err) {
+		t.Fatalf("Send() error = %v, want non-retry-safe internal failure", err)
 	}
 }
 
@@ -102,10 +166,7 @@ func TestEmailDeliveryMonitorBoundsLatencyAndTracksFailures(t *testing.T) {
 func TestEmailDeliveryReadinessDistinguishesConfigurationAndProviderState(t *testing.T) {
 	cfg := config.Config{
 		Email: config.EmailConfig{
-			SMTPHost:        "smtp.example.com",
-			SMTPPort:        587,
-			SMTPUsername:    "mailer",
-			SMTPPassword:    "secret",
+			ResendAPIKey:    "unit-test-key",
 			FromAddress:     "no-reply@example.com",
 			ChallengeSecret: "challenge-secret",
 		},
@@ -114,7 +175,7 @@ func TestEmailDeliveryReadinessDistinguishesConfigurationAndProviderState(t *tes
 	handler := NewHandlerWithEmailSenderAndMonitor(cfg, nil, nil, nil, monitor)
 
 	readiness := handler.EmailDeliveryReadiness()
-	if readiness.Status != "unknown" || readiness.SMTPConfiguration != "configured" ||
+	if readiness.Status != "unknown" || readiness.ResendConfiguration != "configured" ||
 		readiness.ChallengeConfiguration != "configured" {
 		t.Fatalf("initial readiness = %+v, want configured but unknown", readiness)
 	}
@@ -132,7 +193,7 @@ func TestEmailDeliveryReadinessDistinguishesConfigurationAndProviderState(t *tes
 	}
 
 	missing := NewHandler(config.Config{}, nil, nil).EmailDeliveryReadiness()
-	if missing.Status != "not_configured" || missing.SMTPConfiguration != "missing" ||
+	if missing.Status != "not_configured" || missing.ResendConfiguration != "missing" ||
 		missing.ChallengeConfiguration != "missing" {
 		t.Fatalf("missing readiness = %+v, want not_configured", missing)
 	}

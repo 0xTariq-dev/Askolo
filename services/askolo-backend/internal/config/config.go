@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -44,8 +45,22 @@ type EmailConfig struct {
 	SMTPPort        int
 	SMTPUsername    string
 	SMTPPassword    string
+	ResendAPIKey    string
 	FromAddress     string
 	ChallengeSecret string
+}
+
+func (e EmailConfig) ResendConfigurationStatus() string {
+	if strings.TrimSpace(e.ResendAPIKey) == "" || strings.TrimSpace(e.FromAddress) == "" {
+		return "missing"
+	}
+	if strings.ContainsAny(e.ResendAPIKey, "\r\n") || strings.ContainsAny(e.FromAddress, "\r\n") {
+		return "invalid"
+	}
+	if parsed, err := mail.ParseAddress(e.FromAddress); err != nil || parsed.Address == "" {
+		return "invalid"
+	}
+	return "configured"
 }
 
 func (e EmailConfig) SMTPConfigurationStatus() string {
@@ -212,6 +227,7 @@ func Load() (Config, error) {
 			SMTPPort:        smtpPort,
 			SMTPUsername:    strings.TrimSpace(os.Getenv("AUTH_SMTP_USERNAME")),
 			SMTPPassword:    os.Getenv("AUTH_SMTP_PASSWORD"),
+			ResendAPIKey:    strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
 			FromAddress:     strings.TrimSpace(os.Getenv("AUTH_EMAIL_FROM")),
 			ChallengeSecret: challengeSecret,
 		},

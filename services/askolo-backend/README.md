@@ -21,14 +21,14 @@ to become Askolo's primary backend without a second structural rewrite.
 - `DATABASE_URL` and `SESSION_SECRET` are required for OAuth and account
   operations. Without them, health checks still work but OAuth returns a safe
   configuration error.
-- Password signup and recovery require an SMTP delivery configuration:
-  `AUTH_SMTP_HOST`, `AUTH_SMTP_PORT` (default `587`), `AUTH_SMTP_USERNAME`,
-  `AUTH_SMTP_PASSWORD`, and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
+- Password signup and recovery require a Resend delivery configuration:
+  `RESEND_API_KEY` and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
   set separately; otherwise the challenge hashes use `SESSION_SECRET`.
-  Challenge values, passwords, email bodies, and SMTP credentials are never
-  written to logs or returned by the API. `/readyz` reports SMTP and challenge
+  Challenge values, passwords, email bodies, and Resend credentials are never
+  written to logs or returned by the API. `/readyz` reports Resend and challenge
   configuration separately; `configured` means settings are present, not that
-  a provider has accepted a message. After a delivery attempt, it also reports
+  a provider has accepted a message. Readiness remains degraded until a
+  successful provider handoff. After a delivery attempt, it also reports
   aggregate attempt/handoff counts, bounded latency, the last safe outcome, and
   failure counts. The public response never includes an address, code, body,
   provider error, or credential.
@@ -141,14 +141,12 @@ The native auth sender reports these safe delivery outcomes:
 
 - `configuration_missing` or `configuration_invalid`: settings are absent or
   inconsistent. Fix the environment configuration before retrying.
-- `connection_failure`: the SMTP server could not be reached or the session
-  could not be established.
-- `authentication_failure`: SMTP credentials were rejected.
-- `provider_rejection`: the SMTP server rejected the sender, recipient, or
-  message.
+- `connection_failure`: Resend could not be reached.
+- `authentication_failure`: Resend rejected the API credential.
+- `provider_rejection`: Resend rejected the sender, recipient, or message.
 - `timeout`: the bounded network or request deadline elapsed.
-- `handoff`: the SMTP server accepted the message data. This is a handoff, not
-  proof of inbox delivery.
+- `handoff`: Resend accepted the message and returned a message ID. This is a
+  handoff, not proof of inbox delivery.
 
 Every attempted challenge emits one structured, privacy-safe event with
 `operation`, `purpose`, `outcome`, `duration_ms`, and `count=1`. Failure logs
@@ -159,14 +157,14 @@ errors. Latency is capped at 30 seconds in telemetry.
 ### Delivery retry and release checks
 
 1. Confirm `GET /readyz` from an authorized operational path and inspect
-   `emailDelivery.status`, `smtpConfiguration`, and
+   `emailDelivery.status`, `resendConfiguration`, and
    `challengeConfiguration`. `unknown` means configuration is present but no
    delivery has been attempted; it is not a delivery guarantee.
 2. Check the aggregate `deliveryFailures`, `consecutiveFailures`, and
    `lastOutcome` values. One or two recent failures are reported as
    `transient_failure`; three consecutive failures are reported as
    `persistent_failure` and should trigger provider investigation.
-3. A challenge is written before SMTP handoff so verification remains
+3. A challenge is written before Resend handoff so verification remains
    single-use. If the sender reports a retry-safe failure, that exact pending
    challenge is removed, allowing a later resend while preserving the
    per-address 60-second cooldown for successful sends and concurrent requests.
@@ -175,7 +173,7 @@ errors. Latency is capped at 30 seconds in telemetry.
 4. Validate in staging with a test mailbox and a disposable account. Confirm
    one successful handoff, a resend during cooldown is rate-limited, and a
    forced provider rejection can be retried without leaving a stale challenge.
-5. Before production promotion, verify SMTP host/port, optional credential
-   pairing, from address, and `AUTH_CHALLENGE_SECRET` (or `SESSION_SECRET`) in
-   the target environment. Never paste credentials or message content into
+5. Before production promotion, verify `RESEND_API_KEY`, from address, and
+   `AUTH_CHALLENGE_SECRET` (or `SESSION_SECRET`) in the target environment.
+   Never paste credentials or message content into
    logs, tickets, or release records.
