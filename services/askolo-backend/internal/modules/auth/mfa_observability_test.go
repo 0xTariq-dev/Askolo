@@ -332,3 +332,140 @@ func TestMFAEventSummaryAggregatesConcurrentTraffic(t *testing.T) {
 		}
 	}
 }
+
+func TestMFAEventSummaryAggregatesRecoverySupportTraffic(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	since := now.Add(-15 * time.Minute)
+
+	currentEvents := []struct {
+		userID    string
+		eventType string
+		requestID string
+		metadata  map[string]any
+	}{
+		{
+			userID:    "recovery-user-1",
+			eventType: "mfa_recovery_support_challenge_sent",
+			requestID: "recovery-request-1",
+			metadata:  map[string]any{"marker": "request-metadata"},
+		},
+		{
+			userID:    "recovery-user-1",
+			eventType: "mfa_recovery_support_challenge_sent",
+			requestID: "recovery-request-2",
+			metadata:  map[string]any{"marker": "request-metadata-2"},
+		},
+		{
+			userID:    "recovery-user-1",
+			eventType: "mfa_recovery_support_verification_failed",
+			requestID: "recovery-verification-1",
+			metadata:  map[string]any{"submittedCode": "123456"},
+		},
+		{
+			userID:    "recovery-user-2",
+			eventType: "mfa_recovery_support_verification_failed",
+			requestID: "recovery-verification-2",
+			metadata:  map[string]any{"submittedCode": "654321"},
+		},
+		{
+			userID:    "recovery-user-2",
+			eventType: "mfa_recovery_support_rate_limited",
+			requestID: "recovery-rate-limit-1",
+			metadata:  map[string]any{"clientKey": "hashed-client-key"},
+		},
+		{
+			userID:    "recovery-user-3",
+			eventType: "mfa_recovery_support_session_revocation_failed",
+			requestID: "recovery-revocation-1",
+			metadata:  map[string]any{"sessionID": "session-secret"},
+		},
+		{
+			userID:    "recovery-user-4",
+			eventType: "login_failed",
+			requestID: "unrelated-auth-event",
+			metadata:  map[string]any{"marker": "unrelated-event"},
+		},
+	}
+	for _, event := range currentEvents {
+		if err := fixture.store.CreateSecurityEvent(
+			ctx,
+			event.userID,
+			event.eventType,
+			event.requestID,
+			event.metadata,
+		); err != nil {
+			t.Fatalf("insert current %s event: %v", event.eventType, err)
+		}
+	}
+
+	staleEvents := []struct {
+		id        string
+		userID    string
+		eventType string
+	}{
+		{
+			id:        "stale-recovery-request",
+			userID:    "stale-recovery-user-1",
+			eventType: "mfa_recovery_support_challenge_sent",
+		},
+		{
+			id:        "stale-recovery-verification",
+			userID:    "stale-recovery-user-2",
+			eventType: "mfa_recovery_support_verification_failed",
+		},
+		{
+			id:        "stale-recovery-rate-limit",
+			userID:    "stale-recovery-user-3",
+			eventType: "mfa_recovery_support_rate_limited",
+		},
+		{
+			id:        "stale-recovery-revocation",
+			userID:    "stale-recovery-user-4",
+			eventType: "mfa_recovery_support_session_revocation_failed",
+		},
+	}
+	for _, event := range staleEvents {
+		if _, err := fixture.pool.Exec(ctx, `
+			INSERT INTO auth_security_events
+				(id, user_id, event_type, request_id, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+		`, event.id, event.userID, event.eventType, "stale-recovery-request",
+			`{"marker":"stale-recovery-metadata"}`, now.Add(-16*time.Minute)); err != nil {
+			t.Fatalf("insert stale %s event: %v", event.eventType, err)
+		}
+	}
+
+	summary, err := fixture.store.MFAEventSummary(ctx, since)
+	if err != nil {
+		t.Fatalf("read recovery support MFA event summary: %v", err)
+	}
+	want := postgres.MFAEventSummary{
+		RecoverySupportRequests:                  2,
+		RecoverySupportVerificationFailures:      2,
+		RecoverySupportRateLimited:               1,
+		RecoverySupportSessionRevocationFailures: 1,
+		AffectedUsers:                            3,
+	}
+	if summary != want {
+		t.Fatalf("recovery support MFA event summary = %+v, want %+v", summary, want)
+	}
+
+	encoded, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatalf("marshal recovery support MFA event summary: %v", err)
+	}
+	encodedSummary := string(encoded)
+	for _, secret := range []string{
+		"recovery-user-1",
+		"recovery-request-1",
+		"request-metadata",
+		"123456",
+		"stale-recovery-metadata",
+	} {
+		if strings.Contains(encodedSummary, secret) {
+			t.Fatalf("recovery support MFA event summary exposed event metadata or identifier %q: %s", secret, encodedSummary)
+		}
+	}
+}
