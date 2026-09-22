@@ -18,6 +18,7 @@ readonly SCRIPT_NAME="$(basename "$0")"
 readonly DEFAULT_PATTERN='^Published your App$'
 
 apply_changes=false
+check_upstream=false
 pattern="$DEFAULT_PATTERN"
 requested_branch=""
 
@@ -52,20 +53,70 @@ die() {
   exit 1
 }
 
+warn() {
+  printf '%sWarning:%s %s\n' "$COLOR_YELLOW" "$COLOR_RESET" "$*" >&2
+}
+
 styled() {
   local style="$1"
   local text="$2"
   printf '%s%s%s' "$style" "$text" "$COLOR_RESET"
 }
 
+check_upstream_freshness() {
+  local remote_name
+  local merge_ref
+  local remote_output
+  local remote_tip
+  local local_tip
+  local refresh_command
+
+  remote_name="$(git config --get "branch.$branch.remote" || true)"
+  merge_ref="$(git config --get "branch.$branch.merge" || true)"
+
+  if [[ -z "$remote_name" || -z "$merge_ref" || "$remote_name" == "." ]]; then
+    warn "could not compare configured upstream '$upstream_ref' with a remote tip; it may be stale."
+    warn "This check did not fetch or change refs. Configure a remote-tracking upstream, then retry with --check-upstream."
+    return 1
+  fi
+
+  refresh_command="git fetch $remote_name"
+  if ! remote_output="$(git ls-remote --heads "$remote_name" "$merge_ref" 2>/dev/null)"; then
+    warn "could not read remote tip '$remote_name/$merge_ref' for configured upstream '$upstream_ref'; it may be stale."
+    warn "This check did not fetch or change refs. Refresh it with '$refresh_command', then retry with --check-upstream."
+    return 1
+  fi
+
+  remote_tip="$(printf '%s\n' "$remote_output" | awk -v expected_ref="$merge_ref" '$2 == expected_ref { print $1; exit }')"
+  if [[ -z "$remote_tip" ]]; then
+    warn "remote '$remote_name' has no tip for '$merge_ref'; configured upstream '$upstream_ref' may no longer be current."
+    warn "This check did not fetch or change refs. Confirm the remote branch, refresh with '$refresh_command', then retry with --check-upstream."
+    return 1
+  fi
+
+  local_tip="$(git rev-parse "$upstream_ref^{commit}")"
+  if [[ "$local_tip" != "$remote_tip" ]]; then
+    warn "configured upstream '$upstream_ref' may be stale."
+    warn "Local upstream tip:  $local_tip"
+    warn "Current remote tip: $remote_tip"
+    warn "No refs were fetched or changed. Refresh it with '$refresh_command', then retry with --check-upstream."
+    return 1
+  fi
+
+  printf '%s\n' "$(styled "$COLOR_GREEN" "Upstream freshness check passed: '$upstream_ref' matches the current '$remote_name' tip.")"
+  return 0
+}
+
 usage() {
   cat <<EOF
 Usage:
-  $SCRIPT_NAME [--dry-run] [--apply] [--branch BRANCH] [--pattern REGEX]
+  $SCRIPT_NAME [--dry-run] [--apply] [--check-upstream] [--branch BRANCH] [--pattern REGEX]
 
 Options:
   --dry-run          Inspect candidates only. This is the default.
   --apply            Build the detached rewrite and prompt to update BRANCH.
+  --check-upstream   Read the configured remote tip and warn if the local
+                     upstream may be stale. This never fetches or updates refs.
   --branch BRANCH   Branch to inspect and optionally update. Defaults to the
                      current branch; detached HEAD requires this option.
   --pattern REGEX   Commit-subject regex. Defaults to:
@@ -89,6 +140,9 @@ while (($# > 0)); do
       ;;
     --apply)
       apply_changes=true
+      ;;
+    --check-upstream)
+      check_upstream=true
       ;;
     --branch)
       (($# >= 2)) || die "--branch requires a branch name"
@@ -145,6 +199,11 @@ upstream_ref="$(git for-each-ref --format='%(upstream)' "refs/heads/$branch")"
 
 git rev-parse --verify "$upstream_ref^{commit}" >/dev/null 2>&1 ||
   die "configured upstream '$upstream_ref' for '$branch' is unavailable locally; fetch it before retrying"
+
+if $check_upstream && ! check_upstream_freshness; then
+  $apply_changes &&
+    die "refusing --apply while the configured upstream may be stale; refresh it and retry with --check-upstream"
+fi
 
 git rev-parse --verify "refs/heads/$branch^{commit}" >/dev/null 2>&1 ||
   die "could not resolve the tip of local branch '$branch'"
