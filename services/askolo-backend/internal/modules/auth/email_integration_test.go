@@ -387,14 +387,15 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		)
 	}
 
+	messagesBeforeDuplicateSignup := sender.count()
 	duplicateSignup := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/signup", map[string]string{
 		"email": integrationEmail, "password": "a different password",
 	}, nil, "192.0.2.111:1000")
 	if duplicateSignup.Code != http.StatusAccepted || duplicateSignup.Body.String() != `{"status":"verification_required"}`+"\n" {
 		t.Fatalf("duplicate signup response = %d %q", duplicateSignup.Code, duplicateSignup.Body.String())
 	}
-	if sender.count() != 1 {
-		t.Fatalf("duplicate signup sent %d messages, want one", sender.count())
+	if sender.count() != messagesBeforeDuplicateSignup {
+		t.Fatalf("duplicate signup sent a new message (total messages: %d, before request: %d)", sender.count(), messagesBeforeDuplicateSignup)
 	}
 	assertResponseDoesNotContain(t, duplicateSignup, integrationEmail, "a different password")
 

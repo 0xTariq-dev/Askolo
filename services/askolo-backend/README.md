@@ -137,6 +137,16 @@ The test role needs permission to create and drop schemas. The suite drops its
 temporary schema during cleanup. Regular `go test ./...` skips these tests when
 `ASKOLO_TEST_DATABASE_URL` is not set.
 
+Release validation runs the same checks automatically through
+`scripts/run-native-email-auth-validation.sh`. With no environment override,
+that script creates a temporary local PostgreSQL cluster, grants the test its
+own database superuser connection, runs the checks once with `-count=1`, and
+stops and removes the cluster on success or failure. The test's temporary
+schema is also dropped by the test cleanup. A release environment may provide
+`ASKOLO_TEST_DATABASE_URL` instead, but it must point to a disposable database
+whose role can create and drop schemas. The validation never uses
+`DATABASE_URL`, sends email, or contacts Resend.
+
 ### Native email delivery operations
 
 The native auth sender reports these safe delivery outcomes:

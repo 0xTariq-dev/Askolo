@@ -70,4 +70,7 @@ PORT=18131 BASE_PATH=/ pnpm --filter @workspace/personal-assistant run build
 echo "Verifying API production build from repository root"
 bash services/askolo-backend/scripts/build.sh
 
+echo "Verifying native email auth lifecycle against disposable PostgreSQL"
+bash scripts/run-native-email-auth-validation.sh
+
 echo "Publish path verification passed"
