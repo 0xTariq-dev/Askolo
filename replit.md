@@ -12,6 +12,19 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 
+## Workspace environment decision
+
+This Repl is the **development Repl**. Use it for active work, local previews,
+development integrations, and the development database only.
+
+- Local workflows must use `ASKOLO_ENVIRONMENT=development`,
+  `ASKOLO_COOKIE_NAMESPACE=askolo_dev`, and `ASKOLO_DATABASE_ID=development-database`.
+- Do not attach staging or production databases, OAuth clients, cookies, provider
+  targets, deployment secrets, or webhook destinations to this Repl.
+- Staging and production are separate Replit projects. Their later attachment
+  and release checks are documented in
+  [`docs/three-repl-attachment-plan.md`](docs/three-repl-attachment-plan.md).
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9

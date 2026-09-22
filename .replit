@@ -70,6 +70,8 @@ timeoutMs = 20000
 [userenv.shared]
 AUTH_EMAIL_FROM = "noreply@mail.askolo.app"
 
+# This workspace is the development Repl. Staging and production use separate
+# Replit projects and their own environment-specific resources.
 [userenv.development]
 ASKOLO_ENVIRONMENT = "development"
 ASKOLO_COOKIE_NAMESPACE = "askolo_dev"
