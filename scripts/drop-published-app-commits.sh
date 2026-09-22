@@ -21,9 +21,41 @@ apply_changes=false
 pattern="$DEFAULT_PATTERN"
 requested_branch=""
 
+if [[ -t 1 && -z "${NO_COLOR+x}" ]]; then
+  readonly COLOR_BOLD=$'\033[1m'
+  readonly COLOR_CYAN=$'\033[36m'
+  readonly COLOR_DIM=$'\033[2m'
+  readonly COLOR_GREEN=$'\033[32m'
+  readonly COLOR_MAGENTA=$'\033[35m'
+  readonly COLOR_YELLOW=$'\033[33m'
+  readonly COLOR_RESET=$'\033[0m'
+else
+  readonly COLOR_BOLD=''
+  readonly COLOR_CYAN=''
+  readonly COLOR_DIM=''
+  readonly COLOR_GREEN=''
+  readonly COLOR_MAGENTA=''
+  readonly COLOR_YELLOW=''
+  readonly COLOR_RESET=''
+fi
+
+if [[ -t 2 && -z "${NO_COLOR+x}" ]]; then
+  readonly ERROR_COLOR=$'\033[31m'
+  readonly ERROR_RESET=$'\033[0m'
+else
+  readonly ERROR_COLOR=''
+  readonly ERROR_RESET=''
+fi
+
 die() {
-  printf 'Error: %s\n' "$*" >&2
+  printf '%sError:%s %s\n' "$ERROR_COLOR" "$ERROR_RESET" "$*" >&2
   exit 1
+}
+
+styled() {
+  local style="$1"
+  local text="$2"
+  printf '%s%s%s' "$style" "$text" "$COLOR_RESET"
 }
 
 usage() {
@@ -107,28 +139,56 @@ if [[ "$branch" != "$current_branch" ]] &&
   die "'$branch' is checked out in another worktree; detach that worktree first"
 fi
 
+upstream_ref="$(git for-each-ref --format='%(upstream)' "refs/heads/$branch")"
+[[ -n "$upstream_ref" ]] ||
+  die "'$branch' has no configured upstream; configure one before inspecting unpushed commits"
+
+git rev-parse --verify "$upstream_ref^{commit}" >/dev/null 2>&1 ||
+  die "configured upstream '$upstream_ref' for '$branch' is unavailable locally; fetch it before retrying"
+
+git rev-parse --verify "refs/heads/$branch^{commit}" >/dev/null 2>&1 ||
+  die "could not resolve the tip of local branch '$branch'"
+
+if printf '%s' '' | grep -Eq -- "$pattern"; then
+  :
+else
+  regex_status=$?
+  ((regex_status == 1)) ||
+    die "invalid commit-subject regular expression: $pattern"
+fi
+
 mapfile -t matching_rows < <(
-  git log --topo-order --format='%H%x09%P%x09%s' "$branch" |
-    awk -F '\t' -v pattern="$pattern" '$3 ~ pattern { print }'
+  while IFS= read -r row; do
+    IFS=$'\t' read -r hash parents commit_date subject <<<"$row"
+    if [[ "$subject" =~ $pattern ]]; then
+      printf '%s\n' "$row"
+    fi
+  done < <(
+    git log --topo-order --date=iso-strict \
+      --format='%H%x09%P%x09%cI%x09%s' \
+      "$upstream_ref..refs/heads/$branch"
+  )
 )
 
 if ((${#matching_rows[@]} == 0)); then
-  printf "No commits matching /%s/ were found on %s.\n" "$pattern" "$branch"
+  printf '%s\n' "$(styled "$COLOR_YELLOW" "No commits matching /$pattern/ were found in the unpushed range of $branch (upstream: $upstream_ref).")"
   exit 0
 fi
 
-printf "Matching commits on %s:\n\n" "$branch"
-printf '%-4s %-16s %-8s %s\n' '#' 'type' 'commit' 'subject'
-printf '%-4s %-16s %-8s %s\n' '----' '----------------' '--------' '-------'
+printf '%s\n\n' "$(styled "$COLOR_BOLD$COLOR_CYAN" "Unpushed matching commits on $branch:")"
+printf '%-4s %-25s %-16s %-10s %s\n' '#' 'date' 'type' 'commit' 'subject'
+printf '%-4s %-25s %-16s %-10s %s\n' '----' '-------------------------' '----------------' '----------' '-------'
 
 declare -a hashes=()
 declare -a subjects=()
 declare -a commit_types=()
+declare -a commit_dates=()
 
 for row in "${matching_rows[@]}"; do
-  IFS=$'\t' read -r hash parents subject <<<"$row"
+  IFS=$'\t' read -r hash parents commit_date subject <<<"$row"
   hashes+=("$hash")
   subjects+=("$subject")
+  commit_dates+=("$commit_date")
 
   if [[ "$parents" == *" "* ]]; then
     commit_types+=(merge)
@@ -141,15 +201,19 @@ for row in "${matching_rows[@]}"; do
     type="linear-changes"
   fi
 
-  printf '%-4s %-16s %-8s %s\n' "${#hashes[@]}" "$type" "${hash:0:8}" "$subject"
+  styled_date="$(styled "$COLOR_DIM" "$commit_date")"
+  styled_type="$(styled "$COLOR_YELLOW" "$type")"
+  styled_hash="$(styled "$COLOR_MAGENTA" "${hash:0:8}")"
+  printf '%-4s %-25s %-16s %-10s %s\n' \
+    "${#hashes[@]}" "$styled_date" "$styled_type" "$styled_hash" "$subject"
 done
 
-printf '\nChoose exactly one commit number to drop, or [n]one: '
+printf '\n%s' "$(styled "$COLOR_BOLD" 'Choose exactly one commit number to drop, or [n]one: ')"
 read -r selection
 
 case "${selection,,}" in
   n|none|'')
-    printf 'No changes made.\n'
+    printf '%s\n' "$(styled "$COLOR_YELLOW" 'No changes made.')"
     exit 0
     ;;
 esac
@@ -163,6 +227,7 @@ index=$((selection - 1))
 selected_hash="${hashes[$index]}"
 selected_subject="${subjects[$index]}"
 selected_type="${commit_types[$index]}"
+selected_date="${commit_dates[$index]}"
 
 [[ "$selected_type" == linear-empty ]] ||
   die "selected commit $selected_hash is $selected_type; only linear empty commits are safe to drop automatically"
@@ -171,28 +236,31 @@ parent_hash="$(git rev-parse "$selected_hash^")"
 branch_tip="$(git rev-parse "refs/heads/$branch")"
 descendant_count="$(git rev-list --count "$selected_hash..$branch")"
 
-printf '\nSelected commit:\n'
-printf '  %s %s\n' "$selected_hash" "$selected_subject"
-printf 'Parent commit:\n'
+printf '\n%s\n' "$(styled "$COLOR_BOLD$COLOR_CYAN" 'Selected commit:')"
+printf '  %s %s %s\n' \
+  "$(styled "$COLOR_MAGENTA" "$selected_hash")" \
+  "$(styled "$COLOR_DIM" "$selected_date")" \
+  "$selected_subject"
+printf '%s\n' "$(styled "$COLOR_BOLD$COLOR_CYAN" 'Parent commit:')"
 printf '  %s %s\n' "$parent_hash" "$(git show -s --format=%s "$parent_hash")"
 printf 'Descendant commits to replay: %s\n' "$descendant_count"
 
 if ((descendant_count > 0)); then
-  printf '\nOnly descendants receive new commit IDs because their parent changes.\n'
+  printf '\n%s\n' "$(styled "$COLOR_YELLOW" 'Only descendants receive new commit IDs because their parent changes.')"
 fi
 
 if ! $apply_changes; then
-  printf '\nDry run complete. Re-run with --apply to build the detached rewrite.\n'
+  printf '\n%s\n' "$(styled "$COLOR_GREEN" 'Dry run complete. Re-run with --apply to build the detached rewrite.')"
   exit 0
 fi
 
 original_head="$(git rev-parse HEAD)"
 backup_ref="refs/backup/drop-published-app/$branch/$(date -u +%Y%m%dT%H%M%SZ)"
 
-printf '\nThe requested branch will not move during the rebase.\n'
+printf '\n%s\n' "$(styled "$COLOR_YELLOW" 'The requested branch will not move during the rebase.')"
 printf 'HEAD will detach at %s, then run:\n' "$branch"
 printf '  git rebase --onto %s %s HEAD\n' "$parent_hash" "$selected_hash"
-printf 'Continue? Type REWRITE to build the detached rewrite: '
+printf '%s' "$(styled "$COLOR_BOLD" 'Continue? Type REWRITE to build the detached rewrite: ')"
 read -r confirmation
 [[ "$confirmation" == REWRITE ]] ||
   die "confirmation did not match REWRITE; no changes made"
@@ -218,18 +286,19 @@ fi
 if ! git rebase --onto "$parent_hash" "$selected_hash" HEAD; then
   git rebase --abort >/dev/null 2>&1 || true
   git update-ref -d "$backup_ref"
-  printf '\nThe detached rebase failed; no branch was updated.\n' >&2
+  printf '\n%sThe detached rebase failed; no branch was updated.%s\n' \
+    "$ERROR_COLOR" "$ERROR_RESET" >&2
   exit 1
 fi
 
-printf '\nRewritten detached HEAD:\n'
+printf '\n%s\n' "$(styled "$COLOR_BOLD$COLOR_CYAN" 'Rewritten detached HEAD:')"
 git log --oneline -n 10 HEAD
 
-printf '\nMove local branch %s to this detached HEAD? Type MERGE to continue: ' "$branch"
+printf '\n%s' "$(styled "$COLOR_BOLD" "Move local branch $branch to this detached HEAD? Type MERGE to continue: ")"
 read -r merge_confirmation
 if [[ "$merge_confirmation" != MERGE ]]; then
   git update-ref -d "$backup_ref"
-  printf 'Declined. The requested branch was not changed.\n'
+  printf '%s\n' "$(styled "$COLOR_YELLOW" 'Declined. The requested branch was not changed.')"
   exit 0
 fi
 
@@ -242,7 +311,7 @@ else
   checkout_restored=true
 fi
 
-printf '\nUpdated local branch: %s\n' "$branch"
-printf 'New tip: %s\n' "$(git rev-parse "$branch")"
-printf 'Backup ref: %s\n' "$backup_ref"
-printf 'Recover the previous tip with: git reset --hard %s\n' "$backup_ref"
+printf '\n%s\n' "$(styled "$COLOR_GREEN" "Updated local branch: $branch")"
+printf '%s\n' "$(styled "$COLOR_GREEN" "New tip: $(git rev-parse "$branch")")"
+printf '%s\n' "$(styled "$COLOR_DIM" "Backup ref: $backup_ref")"
+printf '%s\n' "$(styled "$COLOR_DIM" "Recover the previous tip with: git reset --hard $backup_ref")"
