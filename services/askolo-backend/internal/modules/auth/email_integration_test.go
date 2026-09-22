@@ -91,7 +91,7 @@ func (s *captureEmailSender) codeForSubject(t *testing.T, subject string) string
 type emailAuthFixture struct {
 	store      *postgres.Store
 	pool       *pgxpool.Pool
-	adminPool  *pgxpool.Pool
+	testPool   *pgxpool.Pool
 	schema     string
 	baseURL    string
 	authConfig config.Config
@@ -106,27 +106,27 @@ func newEmailAuthFixture(t *testing.T) *emailAuthFixture {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	adminPool, err := pgxpool.New(ctx, baseURL)
+	testPool, err := pgxpool.New(ctx, baseURL)
 	if err != nil {
 		t.Fatalf("open integration database: %v", err)
 	}
-	if err := adminPool.Ping(ctx); err != nil {
-		adminPool.Close()
+	if err := testPool.Ping(ctx); err != nil {
+		testPool.Close()
 		t.Fatalf("ping integration database: %v", err)
 	}
 
 	schema := fmt.Sprintf("askolo_native_auth_%d", time.Now().UnixNano())
-	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+quoteIdentifier(schema)); err != nil {
-		adminPool.Close()
+	if _, err := testPool.Exec(ctx, `CREATE SCHEMA `+quoteIdentifier(schema)); err != nil {
+		testPool.Close()
 		t.Fatalf("create integration schema: %v", err)
 	}
 	cleanupSchema := func() {
-		_, _ = adminPool.Exec(context.Background(), `DROP SCHEMA `+quoteIdentifier(schema)+` CASCADE`)
-		adminPool.Close()
+		_, _ = testPool.Exec(context.Background(), `DROP SCHEMA `+quoteIdentifier(schema)+` CASCADE`)
+		testPool.Close()
 	}
 	t.Cleanup(cleanupSchema)
 
-	if _, err := adminPool.Exec(ctx, integrationSchemaSQL(schema)); err != nil {
+	if _, err := testPool.Exec(ctx, integrationSchemaSQL(schema)); err != nil {
 		t.Fatalf("create integration tables: %v", err)
 	}
 	schemaURL := databaseURLWithSearchPath(t, baseURL, schema)
@@ -147,11 +147,11 @@ func newEmailAuthFixture(t *testing.T) *emailAuthFixture {
 	t.Cleanup(store.Close)
 
 	return &emailAuthFixture{
-		store:     store,
-		pool:      pool,
-		adminPool: adminPool,
-		schema:    schema,
-		baseURL:   schemaURL,
+		store:    store,
+		pool:     pool,
+		testPool: testPool,
+		schema:   schema,
+		baseURL:  schemaURL,
 		authConfig: config.Config{
 			Environment:       "test",
 			SessionCookieName: "askolo.sid",

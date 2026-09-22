@@ -40,10 +40,12 @@ test_database_url="${ASKOLO_TEST_DATABASE_URL:-}"
 if [[ -z "$test_database_url" ]]; then
   initdb_path="$(command -v initdb || true)"
   pg_ctl_path="$(command -v pg_ctl || true)"
+  psql_path="$(command -v psql || true)"
   python_path="$(command -v python3 || true)"
 
   [[ -n "$initdb_path" ]] || die "initdb is required to provision the disposable PostgreSQL instance"
   [[ -n "$pg_ctl_path" ]] || die "pg_ctl is required to provision the disposable PostgreSQL instance"
+  [[ -n "$psql_path" ]] || die "psql is required to provision the disposable PostgreSQL instance"
   [[ -n "$python_path" ]] || die "python3 is required to select a free local PostgreSQL port"
 
   temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/askolo-native-email-auth.XXXXXX")"
@@ -77,7 +79,24 @@ PY
     start >/dev/null
   pg_started=true
 
-  test_database_url="postgresql://postgres@127.0.0.1:${postgres_port}/postgres?sslmode=disable"
+  test_role="askolo_native_auth_test"
+  admin_database_url="postgresql://postgres@127.0.0.1:${postgres_port}/postgres?sslmode=disable"
+  "$psql_path" \
+    --dbname="$admin_database_url" \
+    --set=ON_ERROR_STOP=1 \
+    <<SQL
+CREATE ROLE "$test_role"
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOINHERIT
+  NOREPLICATION
+  NOBYPASSRLS;
+GRANT CONNECT, CREATE ON DATABASE postgres TO "$test_role";
+SQL
+
+  test_database_url="postgresql://${test_role}@127.0.0.1:${postgres_port}/postgres?sslmode=disable"
   echo "Disposable PostgreSQL instance is ready"
 else
   echo "Using caller-provided disposable PostgreSQL test database"

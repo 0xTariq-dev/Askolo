@@ -127,6 +127,13 @@ rm -f -- "$FAKE_POSTGRES_PID_FILE"
 touch -- "$FAKE_POSTGRES_STOPPED"
 STUB
 
+cat >"$fake_bin/psql" <<'STUB'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+cat >/dev/null
+STUB
+
 cat >"$fake_bin/go" <<'STUB'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -164,7 +171,7 @@ while :; do
 done
 STUB
 
-chmod +x "$fake_bin/initdb" "$fake_bin/pg_ctl" "$fake_bin/go" \
+chmod +x "$fake_bin/initdb" "$fake_bin/pg_ctl" "$fake_bin/psql" "$fake_bin/go" \
   "$fixture_root/fake-postgres"
 
 run_validation() {
