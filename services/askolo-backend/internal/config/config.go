@@ -48,6 +48,26 @@ type EmailConfig struct {
 	ChallengeSecret string
 }
 
+func (e EmailConfig) SMTPConfigurationStatus() string {
+	if strings.TrimSpace(e.SMTPHost) == "" || strings.TrimSpace(e.FromAddress) == "" {
+		return "missing"
+	}
+	if e.SMTPPort < 1 || e.SMTPPort > 65535 {
+		return "invalid"
+	}
+	if (strings.TrimSpace(e.SMTPUsername) == "") != (strings.TrimSpace(e.SMTPPassword) == "") {
+		return "invalid"
+	}
+	return "configured"
+}
+
+func (e EmailConfig) ChallengeConfigurationStatus() string {
+	if strings.TrimSpace(e.ChallengeSecret) == "" {
+		return "missing"
+	}
+	return "configured"
+}
+
 type GoogleOAuthConfig struct {
 	LoginClientID       string
 	LoginClientSecret   string

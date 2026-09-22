@@ -26,6 +26,7 @@ import (
 func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Handler {
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
+	authHandler := authmodule.NewHandler(cfg, store, logger)
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
@@ -65,12 +66,16 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 			}
 			cancel()
 		}
-		emailDeliveryConfigured := cfg.Email.SMTPHost != "" &&
-			cfg.Email.FromAddress != "" &&
-			cfg.Email.ChallengeSecret != ""
+		emailDeliveryReadiness := authHandler.EmailDeliveryReadiness()
+		emailDeliveryConfigured := emailDeliveryReadiness.SMTPConfiguration == "configured" &&
+			emailDeliveryReadiness.ChallengeConfiguration == "configured"
 		status := "ready"
 		statusCode := http.StatusOK
-		if !databaseReachable || !authorizationStorageReady {
+		if !databaseReachable || !authorizationStorageReady ||
+			emailDeliveryReadiness.Status == "not_configured" ||
+			emailDeliveryReadiness.Status == "configuration_invalid" ||
+			emailDeliveryReadiness.Status == "transient_failure" ||
+			emailDeliveryReadiness.Status == "persistent_failure" {
 			status = "degraded"
 			statusCode = http.StatusServiceUnavailable
 		}
@@ -84,6 +89,7 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 			"databaseReachable":         databaseReachable,
 			"authorizationStorageReady": authorizationStorageReady,
 			"emailDeliveryConfigured":   emailDeliveryConfigured,
+			"emailDelivery":             emailDeliveryReadiness,
 		})
 	})
 
@@ -100,7 +106,7 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 	webhookHandler := webhooks.New(logger, cfg.ServiceName)
 	mux.Handle("/webhooks/", webhookHandler)
 	apiMux := http.NewServeMux()
-	apiMux.Handle("/api/auth/", authmodule.NewHandler(cfg, store, logger).Routes())
+	apiMux.Handle("/api/auth/", authHandler.Routes())
 	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
 	apiMux.Handle("/api/auth/github", githubRoutes)
 	apiMux.Handle("/api/auth/github/", githubRoutes)

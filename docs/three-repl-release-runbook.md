@@ -107,6 +107,34 @@ not automated here:
 - Google client, callback allowlist, webhook target, and cookie namespace are
   environment-specific
 - health and readiness endpoints report environment, commit, and release
+- native auth email readiness distinguishes missing/invalid SMTP or challenge
+  settings from unknown, transient, and persistent provider delivery failures;
+  aggregate counts and latency contain no user data
 - non-production hosts are not indexable and staging tester access is enforced
 - root-domain app routing is not assumed
 - missing required configuration fails closed before serving traffic
+
+## Native auth email delivery checks
+
+Before staging or production promotion, verify the target environment has
+`AUTH_SMTP_HOST`, `AUTH_SMTP_PORT`, `AUTH_EMAIL_FROM`, and
+`AUTH_CHALLENGE_SECRET` (or `SESSION_SECRET`). SMTP credentials must be
+configured as a complete pair when authentication is required. Do not include
+credential values, addresses, codes, message bodies, or raw provider errors in
+release records.
+
+Use `/readyz` to check `emailDelivery.smtpConfiguration`,
+`emailDelivery.challengeConfiguration`, and `emailDelivery.status`. `unknown`
+means configuration is present but no message has been attempted; it is not
+evidence of delivery. After a staging test, confirm one `handoff`, bounded
+latency, and an incremented aggregate handoff count. A resend during the
+60-second cooldown must be rate-limited.
+
+To exercise failure handling safely, use a disposable staging account and a
+provider rejection or unreachable SMTP target. The sender classifies
+configuration, connection, authentication, provider rejection, and timeout
+failures without logging private data. Retry-safe failures release the
+persisted pending challenge so a later resend can proceed; uncertain handoff
+failures retain it and the cooldown prevents duplicate sends. One or two
+consecutive failures are transient; three are persistent and require provider
+investigation before promotion.

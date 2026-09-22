@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -28,11 +29,12 @@ const (
 )
 
 type Handler struct {
-	cfg         config.Config
-	store       *postgres.Store
-	logger      *slog.Logger
-	limiter     *rateLimiter
-	emailSender EmailSender
+	cfg          config.Config
+	store        *postgres.Store
+	logger       *slog.Logger
+	limiter      *rateLimiter
+	emailSender  EmailSender
+	emailMonitor *EmailDeliveryMonitor
 }
 
 type rateLimiter struct {
@@ -46,7 +48,7 @@ type rateEntry struct {
 }
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger) *Handler {
-	return NewHandlerWithEmailSender(cfg, store, logger, NewSMTPEmailSender(cfg))
+	return NewHandlerWithEmailSenderAndMonitor(cfg, store, logger, NewSMTPEmailSender(cfg), NewEmailDeliveryMonitor())
 }
 
 func NewHandlerWithEmailSender(
@@ -55,18 +57,66 @@ func NewHandlerWithEmailSender(
 	logger *slog.Logger,
 	emailSender EmailSender,
 ) *Handler {
+	return NewHandlerWithEmailSenderAndMonitor(cfg, store, logger, emailSender, NewEmailDeliveryMonitor())
+}
+
+func NewHandlerWithEmailSenderAndMonitor(
+	cfg config.Config,
+	store *postgres.Store,
+	logger *slog.Logger,
+	emailSender EmailSender,
+	emailMonitor *EmailDeliveryMonitor,
+) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if emailSender == nil {
 		emailSender = NewSMTPEmailSender(cfg)
 	}
+	if emailMonitor == nil {
+		emailMonitor = NewEmailDeliveryMonitor()
+	}
 	return &Handler{
-		cfg:         cfg,
-		store:       store,
-		logger:      logger,
-		limiter:     &rateLimiter{entries: make(map[string]rateEntry)},
-		emailSender: emailSender,
+		cfg:          cfg,
+		store:        store,
+		logger:       logger,
+		limiter:      &rateLimiter{entries: make(map[string]rateEntry)},
+		emailSender:  emailSender,
+		emailMonitor: emailMonitor,
+	}
+}
+
+type EmailDeliveryReadiness struct {
+	Status                 string `json:"status"`
+	SMTPConfiguration      string `json:"smtpConfiguration"`
+	ChallengeConfiguration string `json:"challengeConfiguration"`
+	EmailDeliverySnapshot
+}
+
+func (h *Handler) EmailDeliveryReadiness() EmailDeliveryReadiness {
+	smtpStatus := h.cfg.Email.SMTPConfigurationStatus()
+	challengeStatus := h.cfg.Email.ChallengeConfigurationStatus()
+	snapshot := h.emailMonitor.Snapshot()
+	status := "unknown"
+	switch {
+	case smtpStatus == "missing" || challengeStatus == "missing":
+		status = "not_configured"
+	case smtpStatus == "invalid" || challengeStatus == "invalid":
+		status = "configuration_invalid"
+	case snapshot.Attempts == 0:
+		status = "unknown"
+	case snapshot.LastOutcome == EmailDeliveryHandoff:
+		status = "healthy"
+	case snapshot.ConsecutiveFailures >= 3:
+		status = "persistent_failure"
+	default:
+		status = "transient_failure"
+	}
+	return EmailDeliveryReadiness{
+		Status:                 status,
+		SMTPConfiguration:      smtpStatus,
+		ChallengeConfiguration: challengeStatus,
+		EmailDeliverySnapshot:  snapshot,
 	}
 }
 
@@ -225,7 +275,7 @@ func (h *Handler) passwordSignup(w http.ResponseWriter, r *http.Request) {
 		h.writeStoreError(w, "password signup failed", err)
 		return
 	}
-	if err := h.sendChallenge(r, userID, email, "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email.", false); err != nil {
+	if err := h.sendChallenge(r, userID, email, "password_signup", "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email.", false); err != nil {
 		h.logChallengeFailure(r, "password_signup", err)
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
@@ -351,7 +401,7 @@ func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
-	if err := h.sendChallenge(r, user.ID, email, "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email.", true); err != nil {
+	if err := h.sendChallenge(r, user.ID, email, "verification_resend", "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email.", true); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
 			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A verification message was sent recently. Try again later.")
 			return
@@ -418,7 +468,7 @@ func (h *Handler) enrollRecoveryEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
-	if err := h.sendChallenge(r, userID, email, "recovery_email_enrollment", "Confirm your Askolo recovery email", "Use this code to confirm your recovery email.", true); err != nil {
+	if err := h.sendChallenge(r, userID, email, "recovery_email_enrollment", "recovery_email_enrollment", "Confirm your Askolo recovery email", "Use this code to confirm your recovery email.", true); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
 			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A verification message was sent recently. Try again later.")
 			return
@@ -508,7 +558,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
-	if err := h.sendChallenge(r, user.ID, email, "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password.", true); err != nil {
+	if err := h.sendChallenge(r, user.ID, email, "password_recovery", "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password.", true); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
 			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
 			return
@@ -974,14 +1024,14 @@ func (h *Handler) writeMFAChallengeLocked(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) challengeConfiguration() error {
 	if h.store == nil || h.emailSender == nil || strings.TrimSpace(h.cfg.Email.ChallengeSecret) == "" {
-		return errors.New("email challenge dependencies are not configured")
+		return ErrEmailDeliveryNotConfigured
 	}
 	return nil
 }
 
 func (h *Handler) sendChallenge(
 	r *http.Request,
-	userID, email, purpose, subject, instruction string,
+	userID, email, operation, purpose, subject, instruction string,
 	preventRecent bool,
 ) error {
 	if err := h.challengeConfiguration(); err != nil {
@@ -1008,11 +1058,40 @@ func (h *Handler) sendChallenge(
 	); err != nil {
 		return err
 	}
-	return h.emailSender.Send(r.Context(), EmailMessage{
+	startedAt := time.Now()
+	err = h.emailSender.Send(r.Context(), EmailMessage{
 		To:      email,
 		Subject: subject,
 		Body:    fmt.Sprintf("%s\n\nYour one-time code is: %s\n\nThis code expires in 15 minutes. If you did not request this, you can ignore this message.", instruction, code),
 	})
+	err = normalizeEmailDeliveryError(err)
+	outcome := emailDeliveryState(err)
+	latency := time.Since(startedAt)
+	h.emailMonitor.Observe(outcome, latency)
+	h.logger.Info("email challenge delivery attempt",
+		"operation", operation,
+		"purpose", purpose,
+		"outcome", outcome,
+		"duration_ms", boundedEmailDeliveryLatency(latency),
+		"count", 1,
+	)
+	if err == nil {
+		return nil
+	}
+	if emailDeliveryRetrySafe(err) {
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		deleteErr := h.store.DeleteEmailChallenge(cleanupContext, challengeID)
+		cancel()
+		if deleteErr != nil {
+			h.logger.Warn("failed to release email challenge after delivery failure",
+				"operation", operation,
+				"purpose", purpose,
+				"outcome", outcome,
+				"request_id", requestID(r),
+			)
+		}
+	}
+	return err
 }
 
 func (h *Handler) consumeChallenge(r *http.Request, email, purpose, code string) (string, error) {
@@ -1040,11 +1119,27 @@ func (h *Handler) recordSecurityEvent(r *http.Request, userID, eventType string,
 	}
 }
 
-func (h *Handler) logChallengeFailure(r *http.Request, operation string, _ error) {
+func (h *Handler) logChallengeFailure(r *http.Request, operation string, err error) {
 	// Sender errors may contain recipient addresses or provider-reflected
-	// message content. Keep the operational signal, but never log the raw
-	// provider error alongside an authentication challenge.
-	h.logger.Error("email challenge delivery failed", "operation", operation, "request_id", requestID(r))
+	// message content. Keep only the bounded category and retry signal.
+	h.logger.Error("email challenge delivery failed",
+		"operation", operation,
+		"request_id", requestID(r),
+		"failure_category", emailDeliveryState(err),
+		"retry_safe", emailDeliveryRetrySafe(err),
+		"count", 1,
+	)
+}
+
+func boundedEmailDeliveryLatency(latency time.Duration) int64 {
+	if latency < 0 {
+		return 0
+	}
+	const maxObservedLatency = 30 * time.Second
+	if latency > maxObservedLatency {
+		latency = maxObservedLatency
+	}
+	return latency.Milliseconds()
 }
 
 func newChallengeCode() (string, error) {

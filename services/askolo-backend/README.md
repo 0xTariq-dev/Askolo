@@ -26,7 +26,12 @@ to become Askolo's primary backend without a second structural rewrite.
   `AUTH_SMTP_PASSWORD`, and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
   set separately; otherwise the challenge hashes use `SESSION_SECRET`.
   Challenge values, passwords, email bodies, and SMTP credentials are never
-  written to logs or returned by the API.
+  written to logs or returned by the API. `/readyz` reports SMTP and challenge
+  configuration separately; `configured` means settings are present, not that
+  a provider has accepted a message. After a delivery attempt, it also reports
+  aggregate attempt/handoff counts, bounded latency, the last safe outcome, and
+  failure counts. The public response never includes an address, code, body,
+  provider error, or credential.
 - The web API proxies `/api/auth/google` and `/api/integrations/google/*` to
   `ASKOLO_GOOGLE_BACKEND_URL` when configured. Development defaults to the
   local Go service at `http://127.0.0.1:8090`; production must use the
@@ -129,3 +134,48 @@ ASKOLO_TEST_DATABASE_URL='postgres://...' \
 The test role needs permission to create and drop schemas. The suite drops its
 temporary schema during cleanup. Regular `go test ./...` skips these tests when
 `ASKOLO_TEST_DATABASE_URL` is not set.
+
+### Native email delivery operations
+
+The native auth sender reports these safe delivery outcomes:
+
+- `configuration_missing` or `configuration_invalid`: settings are absent or
+  inconsistent. Fix the environment configuration before retrying.
+- `connection_failure`: the SMTP server could not be reached or the session
+  could not be established.
+- `authentication_failure`: SMTP credentials were rejected.
+- `provider_rejection`: the SMTP server rejected the sender, recipient, or
+  message.
+- `timeout`: the bounded network or request deadline elapsed.
+- `handoff`: the SMTP server accepted the message data. This is a handoff, not
+  proof of inbox delivery.
+
+Every attempted challenge emits one structured, privacy-safe event with
+`operation`, `purpose`, `outcome`, `duration_ms`, and `count=1`. Failure logs
+contain only the categorized outcome and whether the challenge can be retried;
+they never include recipient addresses, codes, message bodies, or raw provider
+errors. Latency is capped at 30 seconds in telemetry.
+
+### Delivery retry and release checks
+
+1. Confirm `GET /readyz` from an authorized operational path and inspect
+   `emailDelivery.status`, `smtpConfiguration`, and
+   `challengeConfiguration`. `unknown` means configuration is present but no
+   delivery has been attempted; it is not a delivery guarantee.
+2. Check the aggregate `deliveryFailures`, `consecutiveFailures`, and
+   `lastOutcome` values. One or two recent failures are reported as
+   `transient_failure`; three consecutive failures are reported as
+   `persistent_failure` and should trigger provider investigation.
+3. A challenge is written before SMTP handoff so verification remains
+   single-use. If the sender reports a retry-safe failure, that exact pending
+   challenge is removed, allowing a later resend while preserving the
+   per-address 60-second cooldown for successful sends and concurrent requests.
+   If handoff is uncertain, the challenge is retained and the normal cooldown
+   prevents duplicate sends.
+4. Validate in staging with a test mailbox and a disposable account. Confirm
+   one successful handoff, a resend during cooldown is rate-limited, and a
+   forced provider rejection can be retried without leaving a stale challenge.
+5. Before production promotion, verify SMTP host/port, optional credential
+   pairing, from address, and `AUTH_CHALLENGE_SECRET` (or `SESSION_SECRET`) in
+   the target environment. Never paste credentials or message content into
+   logs, tickets, or release records.

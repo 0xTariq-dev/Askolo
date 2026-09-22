@@ -600,13 +600,28 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 	`, failureEmail).Scan(&persisted); err != nil {
 		t.Fatalf("count persisted delivery-failure challenge: %v", err)
 	}
-	if persisted != 1 {
-		t.Fatalf("delivery failure persisted %d challenges, want one", persisted)
+	if persisted != 0 {
+		t.Fatalf("delivery failure persisted %d challenges, want zero", persisted)
 	}
 	failureCode := failureSender.codeForSubject(t, "Verify your Askolo email")
 	if strings.Contains(failureLogs.String(), failureEmail) ||
 		strings.Contains(failureLogs.String(), integrationPassword) ||
 		strings.Contains(failureLogs.String(), failureCode) {
 		t.Fatalf("delivery failure logs exposed sensitive values: %s", failureLogs.String())
+	}
+	if !strings.Contains(failureLogs.String(), "failure_category=provider_rejection") {
+		t.Fatalf("delivery failure logs omitted safe failure category: %s", failureLogs.String())
+	}
+
+	retrySender := &captureEmailSender{}
+	retryHandler := testAuthHandler(fixture, retrySender, slog.Default())
+	retry := jsonRequest(t, retryHandler, http.MethodPost, "/api/auth/email/resend", map[string]string{
+		"email": failureEmail,
+	}, nil, "192.0.2.51:5000")
+	if retry.Code != http.StatusAccepted {
+		t.Fatalf("delivery retry status = %d, body = %s", retry.Code, retry.Body.String())
+	}
+	if retrySender.count() != 1 {
+		t.Fatalf("delivery retry sent %d messages, want one", retrySender.count())
 	}
 }

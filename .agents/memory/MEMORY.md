@@ -23,4 +23,5 @@
 - [Production autoscale configuration](production-autoscale-config.md) — verify required Go production env vars and internal-auth secret before Autoscale promotion.
 - [Static Go binaries for Autoscale](go-autoscale-static-binary.md) — avoid Nix-loader “not found” crashes by producing and verifying a static production executable.
 - [PostgreSQL test search paths](postgres-test-search-path.md) — encode spaces as `%20` in libpq `options`; `+` can become part of the PostgreSQL setting name.
+- [Auth email delivery retry safety](auth-email-delivery-retry.md) — release challenges only for retry-safe failures; retain uncertain handoffs so cooldowns prevent duplicates.
 

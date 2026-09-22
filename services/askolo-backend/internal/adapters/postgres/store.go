@@ -982,6 +982,17 @@ func (s *Store) CreateEmailChallengeIfAllowed(
 	return tx.Commit(ctx)
 }
 
+func (s *Store) DeleteEmailChallenge(ctx context.Context, challengeID string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	_, err := s.pool.Exec(ctx, `
+DELETE FROM auth_email_challenges
+WHERE id = $1
+`, challengeID)
+	return err
+}
+
 func (s *Store) HasRecentEmailChallenge(
 	ctx context.Context, email, purpose string, since time.Time,
 ) (bool, error) {
