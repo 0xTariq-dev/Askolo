@@ -38,6 +38,21 @@ func TestHealthAndRequestID(t *testing.T) {
 	}
 }
 
+func TestPublishedAPIHealthAlias(t *testing.T) {
+	handler := New(testConfig("secret"), slog.Default(), nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), `"status":"ok"`) {
+		t.Fatalf("expected health response, got %q", response.Body.String())
+	}
+}
+
 func TestReadinessReportsMissingDependencies(t *testing.T) {
 	handler := New(testConfig("secret"), slog.Default(), nil)
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)

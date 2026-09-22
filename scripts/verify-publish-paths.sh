@@ -39,6 +39,9 @@ require_artifact_line \
 require_artifact_line \
   'build = ["bash", "services/askolo-backend/scripts/build.sh"]' \
   "API production build command"
+require_artifact_line \
+  'paths = ["/api", "/healthz", "/readyz", "/ws", "/webhooks"]' \
+  "published API routing paths"
 
 line_number() {
   local needle="$1"
@@ -69,6 +72,144 @@ PORT=18131 BASE_PATH=/ pnpm --filter @workspace/personal-assistant run build
 
 echo "Verifying API production build from repository root"
 bash services/askolo-backend/scripts/build.sh
+
+smoke_dir="$(mktemp -d)"
+frontend_pid=""
+api_pid=""
+router_pid=""
+frontend_port=18131
+api_port=18090
+router_port=18130
+
+cleanup_smoke() {
+  local exit_code=$?
+
+  for pid in "$router_pid" "$api_pid" "$frontend_pid"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+  wait "$router_pid" "$api_pid" "$frontend_pid" 2>/dev/null || true
+
+  if (( exit_code != 0 )); then
+    for log in "$smoke_dir"/*.log; do
+      [[ -f "$log" ]] || continue
+      echo "--- $(basename "$log") ---" >&2
+      tail -n 40 "$log" >&2 || true
+    done
+  fi
+
+  rm -rf -- "$smoke_dir"
+  exit "$exit_code"
+}
+trap cleanup_smoke EXIT INT TERM
+
+wait_for_http() {
+  local url="$1"
+  local description="$2"
+
+  for _ in {1..60}; do
+    if curl --fail --silent --show-error --max-time 2 "$url" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.2
+  done
+
+  die "$description did not respond successfully at $url"
+}
+
+echo "Starting built frontend and API for published routing smoke check"
+(
+  cd "$repo_root"
+  PORT="$frontend_port" BASE_PATH=/ NODE_ENV=production \
+    pnpm --filter @workspace/personal-assistant run serve
+) >"$smoke_dir/frontend.log" 2>&1 &
+frontend_pid=$!
+
+(
+  cd "$repo_root"
+  env \
+    -u DATABASE_URL \
+    ASKOLO_ENVIRONMENT=development \
+    ASKOLO_INTERNAL_TOKEN=publish-smoke-token \
+    BACKEND_HOST=127.0.0.1 \
+    PORT="$api_port" \
+    "$repo_root/services/askolo-backend/bin/askolo-backend"
+) >"$smoke_dir/api.log" 2>&1 &
+api_pid=$!
+
+node - "$frontend_port" "$api_port" "$router_port" >"$smoke_dir/router.log" 2>&1 <<'NODE' &
+const http = require("node:http");
+
+const frontendPort = Number(process.argv[2]);
+const apiPort = Number(process.argv[3]);
+const routerPort = Number(process.argv[4]);
+const apiPrefixes = ["/api", "/healthz", "/readyz", "/ws", "/webhooks"];
+
+const isApiPath = (requestUrl) => {
+  const pathname = new URL(requestUrl, "http://published-smoke").pathname;
+  return apiPrefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+};
+
+const server = http.createServer((request, response) => {
+  const targetPort = isApiPath(request.url || "/") ? apiPort : frontendPort;
+  const proxy = http.request(
+    {
+      hostname: "127.0.0.1",
+      port: targetPort,
+      path: request.url,
+      method: request.method,
+      headers: request.headers,
+    },
+    (targetResponse) => {
+      response.writeHead(targetResponse.statusCode || 502, targetResponse.headers);
+      targetResponse.pipe(response);
+    },
+  );
+
+  proxy.on("error", (error) => {
+    response.statusCode = 502;
+    response.end(`published smoke router error: ${error.message}`);
+  });
+  request.pipe(proxy);
+});
+
+server.listen(routerPort, "127.0.0.1");
+NODE
+router_pid=$!
+
+wait_for_http "http://127.0.0.1:$frontend_port/" "built frontend"
+wait_for_http "http://127.0.0.1:$api_port/healthz" "built API"
+wait_for_http "http://127.0.0.1:$router_port/" "published smoke router"
+
+root_body="$smoke_dir/root.html"
+route_body="$smoke_dir/route.html"
+health_body="$smoke_dir/health.json"
+api_health_body="$smoke_dir/api-health.json"
+
+curl --fail --silent --show-error "http://127.0.0.1:$router_port/" >"$root_body" ||
+  die "published root path failed"
+grep -Fq "<!doctype html>" "$root_body" ||
+  die "published root path did not return the built frontend"
+
+curl --fail --silent --show-error "http://127.0.0.1:$router_port/dashboard" >"$route_body" ||
+  die "published SPA route failed"
+grep -Fq "<!doctype html>" "$route_body" ||
+  die "published SPA route did not receive the frontend fallback"
+
+curl --fail --silent --show-error "http://127.0.0.1:$router_port/healthz" >"$health_body" ||
+  die "published API health path failed"
+grep -Fq '"status":"ok"' "$health_body" ||
+  die "published API health path did not return the API health response"
+
+curl --fail --silent --show-error "http://127.0.0.1:$router_port/api/healthz" >"$api_health_body" ||
+  die "published API health alias failed"
+grep -Fq '"status":"ok"' "$api_health_body" ||
+  die "published API health alias did not return the API health response"
+
+echo "Published frontend/API routing smoke check passed"
 
 echo "Verifying native email auth lifecycle against disposable PostgreSQL"
 bash scripts/run-native-email-auth-validation.sh
