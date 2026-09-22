@@ -230,9 +230,25 @@ it never includes user IDs, request IDs, codes, encrypted secrets, or event
 metadata. MFA decryption failures are recorded with only a fixed operation
 label (`mfa_confirmation` or `mfa_challenge`).
 
-Operators should alert on `mfaSecurity.alert == true`, or on the structured
-`MFA verification failure spike` warning with `environment` as a required
-aggregation label. The default thresholds are:
+The backend sends this signal to the deployment's structured-log alert
+destination. Operators should alert on `mfaSecurity.alert == true`, or on the
+structured `MFA verification failure spike` warning. The stable
+`operation="mfa_security_spike"` label identifies this alert family, and
+`environment` is the only routing dimension. Configure one log-alert rule for
+each environment:
+
+| Environment | Alert filter |
+| --- | --- |
+| `development` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="development"` |
+| `staging` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="staging"` |
+| `production` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="production"` |
+
+Route all three rules to the team's configured on-call destination. The
+aggregate fields in the event are the counts below; the destination must not
+forward or group on any user, request, code, email, secret, or raw event
+metadata.
+
+The default thresholds are:
 
 - 20 or more MFA failure events in 15 minutes;
 - 5 or more replay rejections in 15 minutes;
@@ -240,10 +256,23 @@ aggregation label. The default thresholds are:
 - 3 or more MFA decryption failures in 15 minutes.
 
 The signal logs at most once per threshold-reason set per 15 minutes per
-backend process. Counts are aggregated across users, so an individual code,
-secret, email address, and request is never an alert dimension. A missing or
+backend process. The on-call destination should deduplicate by
+`environment` plus `operation` plus the active `alert_reasons` set. This
+prevents multiple backend instances and readiness probes from opening
+duplicate incidents while still allowing a new threshold reason to update the
+incident. Counts are aggregated across users, so an individual code, secret,
+email address, and request is never an alert dimension. A missing or
 unavailable signal is reported as `status: "unavailable"` and does not make a
 cold-start readiness check fail.
+
+When a later readiness evaluation finds no active threshold, the backend emits
+one `MFA verification failure spike recovered` event with
+`operation="mfa_security_spike"`, `recovery=true`, `alert=false`, the
+environment, and aggregate counts. Use that event as the explicit recovery
+condition for all three rules. Recovery is emitted only after the signal is
+available again; a database or signal outage does not falsely close an active
+incident. If the destination cannot consume explicit recovery events, resolve
+after one complete 15-minute evaluation window with no matching alert event.
 
 MFA recovery support is included in the same bounded signal. The readiness
 payload reports aggregate `recoverySupportRequests`,

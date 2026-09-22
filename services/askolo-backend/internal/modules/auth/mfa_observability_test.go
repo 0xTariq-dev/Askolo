@@ -81,6 +81,48 @@ func TestMFAAlertLogIsDeduplicatedWithoutUserIdentifiers(t *testing.T) {
 	if strings.Contains(logs.String(), "user_id") || strings.Contains(logs.String(), "request_id") {
 		t.Fatalf("alert log exposed an individual identifier: %q", logs.String())
 	}
+	if !strings.Contains(logs.String(), "operation=mfa_security_spike") {
+		t.Fatalf("alert log did not expose the stable operation label: %q", logs.String())
+	}
+}
+
+func TestMFARecoveryLogIsBoundedAndEmittedOnce(t *testing.T) {
+	var logs bytes.Buffer
+	handler := NewHandler(
+		config.Config{Environment: "production"},
+		nil,
+		slog.New(slog.NewJSONHandler(&logs, nil)),
+	)
+	alert := MFASecurityReadiness{
+		Environment:   "production",
+		WindowMinutes: 15,
+		FailureEvents: 20,
+		AffectedUsers: 4,
+		AlertReasons:  []string{"failure_events"},
+		Alert:         true,
+	}
+	handler.logMFAAlert(alert)
+	handler.logMFAAlert(alert)
+	recovered := alert
+	recovered.Alert = false
+	recovered.AlertReasons = nil
+	recovered.FailureEvents = 0
+	recovered.AffectedUsers = 0
+	if !handler.resetMFAAlert() {
+		t.Fatal("expected an active alert to reset")
+	}
+	handler.logMFARecovery(recovered)
+	if handler.resetMFAAlert() {
+		t.Fatal("recovery reset should be idempotent")
+	}
+	if got := strings.Count(logs.String(), "MFA verification failure spike recovered"); got != 1 {
+		t.Fatalf("recovery log count = %d, want 1; logs=%q", got, logs.String())
+	}
+	recoveryLog := strings.Split(logs.String(), "\n")[1]
+	if strings.Contains(recoveryLog, "user_id") || strings.Contains(recoveryLog, "request_id") ||
+		strings.Contains(recoveryLog, "alert_reasons") {
+		t.Fatalf("recovery log exposed an individual or alert-only field: %q", recoveryLog)
+	}
 }
 
 func TestMFASecurityReadinessReportsUnavailableWithoutStore(t *testing.T) {
