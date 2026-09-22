@@ -20,6 +20,8 @@ service_root="$repo_root/services/askolo-backend"
 temporary_root=""
 pg_data=""
 pg_started=false
+pg_ctl_path=""
+pg_start_options=""
 
 cleanup() {
   local exit_code=$?
@@ -79,6 +81,7 @@ PY
     --wait \
     start >/dev/null
   pg_started=true
+  pg_start_options="-h 127.0.0.1 -p $postgres_port -k $socket_dir"
 
   test_role="askolo_native_auth_test"
   admin_database_url="postgresql://postgres@127.0.0.1:${postgres_port}/postgres?sslmode=disable"
@@ -101,13 +104,29 @@ SQL
   echo "Disposable PostgreSQL instance is ready"
 else
   echo "Using caller-provided disposable PostgreSQL test database"
+  pg_data="${ASKOLO_TEST_DATABASE_PGDATA:-}"
+  pg_ctl_path="${ASKOLO_TEST_DATABASE_PGCTL:-}"
+  pg_start_options="${ASKOLO_TEST_DATABASE_PG_START_OPTIONS:-}"
+fi
+
+test_environment=(
+  "ASKOLO_TEST_DATABASE_URL=$test_database_url"
+)
+if [[ -n "$pg_data" || -n "$pg_ctl_path" || -n "$pg_start_options" ]]; then
+  [[ -n "$pg_data" && -n "$pg_ctl_path" && -n "$pg_start_options" ]] ||
+    die "database outage controls require ASKOLO_TEST_DATABASE_PGDATA, ASKOLO_TEST_DATABASE_PGCTL, and ASKOLO_TEST_DATABASE_PG_START_OPTIONS"
+  test_environment+=(
+    "ASKOLO_TEST_DATABASE_PGDATA=$pg_data"
+    "ASKOLO_TEST_DATABASE_PGCTL=$pg_ctl_path"
+    "ASKOLO_TEST_DATABASE_PG_START_OPTIONS=$pg_start_options"
+  )
 fi
 
 cd -- "$service_root"
-ASKOLO_TEST_DATABASE_URL="$test_database_url" \
+env "${test_environment[@]}" \
   go test ./internal/modules/auth -run '^TestNativeEmailAuth' -count=1 -v
 
-ASKOLO_TEST_DATABASE_URL="$test_database_url" \
-  go test ./internal/app -run '^TestEmailChallengeCleanupReadinessRecoversAfterDatabaseInterruption$' -count=1 -v
+env "${test_environment[@]}" \
+  go test ./internal/app -run '^TestEmailChallengeCleanupReadinessRecoversAfterDatabase' -count=1 -v
 
 echo "Native email auth and cleanup readiness release validation passed"

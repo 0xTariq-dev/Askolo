@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -20,9 +21,10 @@ import (
 )
 
 type cleanupIntegrationFixture struct {
-	store     *postgres.Store
-	adminPool *pgxpool.Pool
-	schema    string
+	store              *postgres.Store
+	adminPool          *pgxpool.Pool
+	schema             string
+	postgresController *cleanupPostgresController
 }
 
 func newCleanupIntegrationFixture(t *testing.T) *cleanupIntegrationFixture {
@@ -95,9 +97,10 @@ CREATE TABLE %sauth_security_events (
 	t.Cleanup(store.Close)
 
 	return &cleanupIntegrationFixture{
-		store:     store,
-		adminPool: adminPool,
-		schema:    schema,
+		store:              store,
+		adminPool:          adminPool,
+		schema:             schema,
+		postgresController: cleanupPostgresControllerFromEnvironment(),
 	}
 }
 
@@ -199,6 +202,151 @@ func TestEmailChallengeCleanupReadinessRecoversAfterDatabaseInterruption(t *test
 	}
 }
 
+func TestEmailChallengeCleanupReadinessRecoversAfterDatabaseConnectionOutage(t *testing.T) {
+	fixture := newCleanupIntegrationFixture(t)
+	if fixture.postgresController == nil {
+		t.Skip("set ASKOLO_TEST_DATABASE_PGDATA, ASKOLO_TEST_DATABASE_PGCTL, and ASKOLO_TEST_DATABASE_PG_START_OPTIONS to run database outage cleanup readiness tests")
+	}
+
+	appConfig := config.Config{
+		ServiceName:                   "askolo-backend",
+		Environment:                   "test",
+		Host:                          "127.0.0.1",
+		EmailChallengeCleanupInterval: 100 * time.Millisecond,
+		Email: config.EmailConfig{
+			ResendAPIKey:    "integration-test-key",
+			FromAddress:     "Askolo <no-reply@example.com>",
+			ChallengeSecret: "integration-only-challenge-secret",
+		},
+	}
+	application := New(appConfig, slog.Default(), fixture.store)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cleanupDone := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		<-cleanupDone
+	})
+	go application.runEmailChallengeCleanup(ctx, cleanupDone)
+
+	initial := waitForCleanupReadiness(t, application, "healthy", 0)
+	if initial.EmailChallengeCleanup.LastSuccessfulCleanupAt == nil {
+		t.Fatal("initial cleanup readiness did not include a successful cleanup timestamp")
+	}
+	initialSuccess := *initial.EmailChallengeCleanup.LastSuccessfulCleanupAt
+
+	databaseStopped := false
+	t.Cleanup(func() {
+		if databaseStopped {
+			if err := fixture.postgresController.start(); err != nil {
+				t.Errorf("restore disposable PostgreSQL instance during cleanup: %v", err)
+			}
+		}
+	})
+
+	if err := fixture.postgresController.stop(); err != nil {
+		t.Fatalf("stop disposable PostgreSQL instance: %v", err)
+	}
+	databaseStopped = true
+
+	for _, expectedFailures := range []int{1, 2} {
+		readiness := waitForCleanupReadinessWithin(t, application, "transient_failure", expectedFailures, 10*time.Second)
+		if readiness.EmailChallengeCleanup.LastSuccessfulCleanupAt == nil ||
+			!readiness.EmailChallengeCleanup.LastSuccessfulCleanupAt.Equal(initialSuccess) {
+			t.Fatalf("database outage failure %d lost last successful timestamp: %+v, want %v",
+				expectedFailures,
+				readiness.EmailChallengeCleanup,
+				initialSuccess,
+			)
+		}
+	}
+
+	persistent := waitForCleanupReadinessWithin(
+		t,
+		application,
+		"persistent_failure",
+		httpapi.EmailChallengeCleanupPersistentFailureThreshold,
+		10*time.Second,
+	)
+	if persistent.HTTPStatus != http.StatusServiceUnavailable {
+		t.Fatalf("persistent database outage readiness HTTP status = %d, want %d",
+			persistent.HTTPStatus,
+			http.StatusServiceUnavailable,
+		)
+	}
+	if persistent.EmailChallengeCleanup.LastSuccessfulCleanupAt == nil ||
+		!persistent.EmailChallengeCleanup.LastSuccessfulCleanupAt.Equal(initialSuccess) {
+		t.Fatalf("persistent database outage lost last successful timestamp: %+v, want %v",
+			persistent.EmailChallengeCleanup,
+			initialSuccess,
+		)
+	}
+
+	if err := fixture.postgresController.start(); err != nil {
+		t.Fatalf("restart disposable PostgreSQL instance: %v", err)
+	}
+	databaseStopped = false
+
+	recovered := waitForCleanupReadinessWithin(t, application, "healthy", 0, 10*time.Second)
+	if recovered.EmailChallengeCleanup.LastSuccessfulCleanupAt == nil ||
+		recovered.EmailChallengeCleanup.LastSuccessfulCleanupAt.Before(initialSuccess) {
+		t.Fatalf("recovered cleanup timestamp = %v, want retained or advanced from %v",
+			recovered.EmailChallengeCleanup.LastSuccessfulCleanupAt,
+			initialSuccess,
+		)
+	}
+}
+
+type cleanupPostgresController struct {
+	pgdata       string
+	pgctl        string
+	startOptions string
+}
+
+func cleanupPostgresControllerFromEnvironment() *cleanupPostgresController {
+	pgdata := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_PGDATA"))
+	pgctl := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_PGCTL"))
+	startOptions := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_PG_START_OPTIONS"))
+	if pgdata == "" || pgctl == "" || startOptions == "" {
+		return nil
+	}
+	return &cleanupPostgresController{
+		pgdata:       pgdata,
+		pgctl:        pgctl,
+		startOptions: startOptions,
+	}
+}
+
+func (c *cleanupPostgresController) stop() error {
+	return c.run(
+		"-D", c.pgdata,
+		"-m", "immediate",
+		"-w",
+		"stop",
+	)
+}
+
+func (c *cleanupPostgresController) start() error {
+	return c.run(
+		"-D", c.pgdata,
+		"-o", c.startOptions,
+		"-l", "/dev/null",
+		"-w",
+		"start",
+	)
+}
+
+func (c *cleanupPostgresController) run(arguments ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, c.pgctl, arguments...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 type cleanupReadinessHTTPResponse struct {
 	HTTPStatus            int
 	Body                  string
@@ -211,8 +359,18 @@ func waitForCleanupReadiness(
 	expectedStatus string,
 	expectedFailures int,
 ) cleanupReadinessHTTPResponse {
+	return waitForCleanupReadinessWithin(t, application, expectedStatus, expectedFailures, 5*time.Second)
+}
+
+func waitForCleanupReadinessWithin(
+	t *testing.T,
+	application *App,
+	expectedStatus string,
+	expectedFailures int,
+	timeout time.Duration,
+) cleanupReadinessHTTPResponse {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(timeout)
 	var last cleanupReadinessHTTPResponse
 	for time.Now().Before(deadline) {
 		request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
