@@ -54,6 +54,31 @@ grep -Fq \
 [[ ! -e "$sentinel" ]] ||
   { echo "a production build started before the path contract failed" >&2; exit 1; }
 
+# Reset the temporary artifact config, then change only the API production
+# paths so the API routing contract gets the same pre-build coverage.
+rm -f -- "$sentinel"
+cp "$repo_root/artifacts/personal-assistant/.replit-artifact/artifact.toml" \
+  "$fixture_artifact/artifact.toml"
+sed -i 's#paths = \["/api", "/healthz", "/readyz", "/ws", "/webhooks"\]#paths = ["/api", "/healthz", "/readyz", "/ws", "/changed-webhooks"]#' \
+  "$fixture_artifact/artifact.toml"
+
+set +e
+output="$(
+  PATH="$fixture_bin:$PATH" BUILD_SENTINEL="$sentinel" \
+    bash "$fixture_scripts/verify-publish-paths.sh" 2>&1
+)"
+status=$?
+set -e
+
+[[ "$status" -ne 0 ]] ||
+  { echo "expected changed API routing paths to fail validation" >&2; exit 1; }
+grep -Fq \
+  "published API routing paths changed in artifacts/personal-assistant/.replit-artifact/artifact.toml; expected: paths = [\"/api\", \"/healthz\", \"/readyz\", \"/ws\", \"/webhooks\"]" \
+  <<<"$output" ||
+  { echo "validation failure did not identify the changed API route contract:" >&2; echo "$output" >&2; exit 1; }
+[[ ! -e "$sentinel" ]] ||
+  { echo "a production build started before the API route contract failed" >&2; exit 1; }
+
 after_status="$(git -C "$repo_root" status --porcelain=v1)"
 [[ "$before_status" == "$after_status" ]] ||
   { echo "publish path fixture changed the working tree" >&2; git -C "$repo_root" status --short >&2; exit 1; }
