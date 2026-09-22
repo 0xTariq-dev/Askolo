@@ -28,7 +28,7 @@ app.use(
 
 const allowedOrigins = new Set(
   [runtimeEnvironment.canonicalOrigin, ...(process.env.ASKOLO_ALLOWED_ORIGINS || '').split(',')]
-    .map((value) => value.trim())
+    .map((value) => value?.trim())
     .filter(Boolean),
 );
 
