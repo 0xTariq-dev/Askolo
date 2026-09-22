@@ -14,7 +14,7 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-runButton = "artifacts/personal-assistant: web"
+runButton = "Project"
 
 [[workflows.workflow]]
 name = "artifacts/personal-assistant: web"
@@ -58,6 +58,26 @@ router = "path"
 [workflows.workflow.tasks.env]
 PORT = "8081"
 BASE_PATH = "/__mockup"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "publish-paths"
+
+[[workflows.workflow]]
+name = "publish-paths"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm run validate:publish-paths"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 stack = "PNPM_WORKSPACE"
