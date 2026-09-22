@@ -157,21 +157,63 @@ else
     die "invalid commit-subject regular expression: $pattern"
 fi
 
-mapfile -t matching_rows < <(
-  while IFS= read -r row; do
-    IFS=$'\t' read -r hash parents commit_date subject <<<"$row"
-    if [[ "$subject" =~ $pattern ]]; then
-      printf '%s\n' "$row"
-    fi
-  done < <(
-    git log --topo-order --date=iso-strict \
-      --format='%H%x09%P%x09%cI%x09%s' \
-      "$upstream_ref..refs/heads/$branch"
-  )
+mapfile -t unpushed_hashes < <(
+  git rev-list --topo-order "refs/heads/$branch" --not "$upstream_ref"
 )
 
-if ((${#matching_rows[@]} == 0)); then
-  printf '%s\n' "$(styled "$COLOR_YELLOW" "No commits matching /$pattern/ were found in the unpushed range of $branch (upstream: $upstream_ref).")"
+declare -a hashes=()
+declare -a subjects=()
+declare -a commit_types=()
+declare -a commit_dates=()
+
+for candidate_hash in "${unpushed_hashes[@]}"; do
+  # Keep each metadata field NUL-delimited. Commit subjects can contain tabs
+  # and other whitespace, so tab-delimited rows are not safe to parse here.
+  mapfile -d '' -t candidate_fields < <(
+    git show -s --date=iso-strict \
+      --format='%H%x00%P%x00%cI%x00%s%x00' "$candidate_hash"
+  )
+
+  hash="${candidate_fields[0]}"
+  parents="${candidate_fields[1]}"
+  commit_date="${candidate_fields[2]}"
+  subject="${candidate_fields[3]}"
+
+  [[ "$subject" =~ $pattern ]] || continue
+
+  hashes+=("$hash")
+  subjects+=("$subject")
+  commit_dates+=("$commit_date")
+
+  if [[ "$parents" == *" "* ]]; then
+    commit_types+=(merge)
+  elif git diff-tree --no-commit-id --quiet -r "$hash"; then
+    commit_types+=(linear-empty)
+  else
+    commit_types+=(linear-changes)
+  fi
+done
+
+if ((${#hashes[@]} == 0)); then
+  if ((${#unpushed_hashes[@]} == 0)); then
+    printf '%s\n' "$(styled "$COLOR_YELLOW" "No selectable commits matching /$pattern/ were found: local branch '$branch' has no commits outside upstream '$upstream_ref'. Matching commits already reachable from that upstream are excluded.")"
+  else
+    mapfile -t local_subjects < <(
+      git log --topo-order --format='%s' "refs/heads/$branch"
+    )
+    local_match_count=0
+    for local_subject in "${local_subjects[@]}"; do
+      if [[ "$local_subject" =~ $pattern ]]; then
+        ((local_match_count += 1))
+      fi
+    done
+
+    if ((local_match_count == 0)); then
+      printf '%s\n' "$(styled "$COLOR_YELLOW" "No commits matching /$pattern/ exist on local branch '$branch'; compared it against upstream '$upstream_ref' and found no selectable candidates.")"
+    else
+      printf '%s\n' "$(styled "$COLOR_YELLOW" "No selectable commits matching /$pattern/ were found on local-only history for '$branch' versus upstream '$upstream_ref'; matching commits are already reachable from that upstream.")"
+    fi
+  fi
   exit 0
 fi
 
@@ -179,33 +221,17 @@ printf '%s\n\n' "$(styled "$COLOR_BOLD$COLOR_CYAN" "Unpushed matching commits on
 printf '%-4s %-25s %-16s %-10s %s\n' '#' 'date' 'type' 'commit' 'subject'
 printf '%-4s %-25s %-16s %-10s %s\n' '----' '-------------------------' '----------------' '----------' '-------'
 
-declare -a hashes=()
-declare -a subjects=()
-declare -a commit_types=()
-declare -a commit_dates=()
-
-for row in "${matching_rows[@]}"; do
-  IFS=$'\t' read -r hash parents commit_date subject <<<"$row"
-  hashes+=("$hash")
-  subjects+=("$subject")
-  commit_dates+=("$commit_date")
-
-  if [[ "$parents" == *" "* ]]; then
-    commit_types+=(merge)
-    type="merge"
-  elif git diff-tree --no-commit-id --quiet -r "$hash"; then
-    commit_types+=(linear-empty)
-    type="linear-empty"
-  else
-    commit_types+=(linear-changes)
-    type="linear-changes"
-  fi
+for index in "${!hashes[@]}"; do
+  hash="${hashes[$index]}"
+  subject="${subjects[$index]}"
+  commit_date="${commit_dates[$index]}"
+  type="${commit_types[$index]}"
 
   styled_date="$(styled "$COLOR_DIM" "$commit_date")"
   styled_type="$(styled "$COLOR_YELLOW" "$type")"
   styled_hash="$(styled "$COLOR_MAGENTA" "${hash:0:8}")"
   printf '%-4s %-25s %-16s %-10s %s\n' \
-    "${#hashes[@]}" "$styled_date" "$styled_type" "$styled_hash" "$subject"
+    "$((index + 1))" "$styled_date" "$styled_type" "$styled_hash" "$subject"
 done
 
 printf '\n%s' "$(styled "$COLOR_BOLD" 'Choose exactly one commit number to drop, or [n]one: ')"
