@@ -104,6 +104,21 @@ run_apply_check() {
   set -e
 }
 
+run_required_freshness_check() {
+  local repo="$1"
+
+  set +e
+  test_output="$(
+    cd "$repo"
+    printf 'n\n' |
+      NO_COLOR=1 bash "$cleanup_script" \
+        --dry-run --require-fresh --pattern '^Published your App$' \
+        2>&1
+  )"
+  test_status=$?
+  set -e
+}
+
 test_matching_tips() {
   local repo
   local before_refs
@@ -119,6 +134,24 @@ $test_output"
   assert_contains "$test_output" \
     "Upstream freshness check passed: 'refs/remotes/origin/main' matches the current 'origin' tip."
   assert_contains "$test_output" "Dry run complete."
+  assert_refs_unchanged "$repo" "$before_refs"
+}
+
+test_required_freshness_matching_tips() {
+  local repo
+  local before_refs
+
+  repo="$(setup_remote_fixture required-freshness-matching-tips)"
+  before_refs="$(git -C "$repo" for-each-ref \
+    --format='%(refname) %(objectname)' refs/heads refs/remotes)"
+
+  run_required_freshness_check "$repo"
+  [[ "$test_status" -eq 0 ]] ||
+    fail "required freshness check failed with matching tips:
+$test_output"
+  assert_contains "$test_output" \
+    "Upstream freshness check passed: 'refs/remotes/origin/main' matches the current 'origin' tip."
+  assert_contains "$test_output" "No changes made."
   assert_refs_unchanged "$repo" "$before_refs"
 }
 
@@ -156,6 +189,32 @@ $test_output"
   assert_refs_unchanged "$repo" "$before_refs"
 }
 
+test_required_freshness_remote_ahead_tips() {
+  local case_root="$fixture_root/required-freshness-remote-ahead-tips"
+  local repo
+  local remote_clone="$case_root/remote-clone"
+  local before_refs
+
+  repo="$(setup_remote_fixture required-freshness-remote-ahead-tips)"
+  git clone -q --branch main "$case_root/remote.git" "$remote_clone"
+  git -C "$remote_clone" config user.name "Publish cleanup remote test"
+  git -C "$remote_clone" config user.email "publish-cleanup-remote@example.invalid"
+  git -C "$remote_clone" commit --allow-empty -q -m "Remote-only commit"
+  git -C "$remote_clone" push -q origin main
+
+  before_refs="$(git -C "$repo" for-each-ref \
+    --format='%(refname) %(objectname)' refs/heads refs/remotes)"
+  run_required_freshness_check "$repo"
+  [[ "$test_status" -eq 2 ]] ||
+    fail "required freshness check did not return status 2 for a stale upstream:
+$test_output"
+  assert_contains "$test_output" \
+    "configured upstream 'refs/remotes/origin/main' may be stale."
+  assert_contains "$test_output" \
+    "freshness is required; refresh the configured upstream and retry."
+  assert_refs_unchanged "$repo" "$before_refs"
+}
+
 test_unavailable_remote() {
   local case_root="$fixture_root/unavailable-remote"
   local repo
@@ -181,6 +240,45 @@ $test_output"
     fail "apply continued when the remote was unavailable"
   assert_contains "$test_output" \
     "refusing --apply while the configured upstream may be stale"
+  assert_refs_unchanged "$repo" "$before_refs"
+}
+
+test_required_freshness_unavailable_remote() {
+  local case_root="$fixture_root/required-freshness-unavailable-remote"
+  local repo
+  local before_refs
+
+  repo="$(setup_remote_fixture required-freshness-unavailable-remote)"
+  rm -rf -- "$case_root/remote.git"
+  before_refs="$(git -C "$repo" for-each-ref \
+    --format='%(refname) %(objectname)' refs/heads refs/remotes)"
+
+  run_required_freshness_check "$repo"
+  [[ "$test_status" -eq 2 ]] ||
+    fail "required freshness check did not return status 2 when the remote was unavailable:
+$test_output"
+  assert_contains "$test_output" \
+    "could not read remote tip 'origin/refs/heads/main'"
+  assert_contains "$test_output" \
+    "freshness is required; refresh the configured upstream and retry."
+  assert_refs_unchanged "$repo" "$before_refs"
+}
+
+test_required_freshness_unavailable_local_upstream() {
+  local repo
+  local before_refs
+
+  repo="$(setup_remote_fixture required-freshness-unavailable-local-upstream)"
+  git -C "$repo" update-ref -d refs/remotes/origin/main
+  before_refs="$(git -C "$repo" for-each-ref \
+    --format='%(refname) %(objectname)' refs/heads refs/remotes)"
+
+  run_required_freshness_check "$repo"
+  [[ "$test_status" -eq 2 ]] ||
+    fail "required freshness check did not return status 2 when the local upstream was unavailable:
+$test_output"
+  assert_contains "$test_output" \
+    "freshness is required, but configured upstream 'refs/remotes/origin/main' is unavailable locally."
   assert_refs_unchanged "$repo" "$before_refs"
 }
 
@@ -215,9 +313,39 @@ $test_output"
   assert_refs_unchanged "$repo" "$before_refs"
 }
 
+test_required_freshness_local_only_upstream() {
+  local case_root="$fixture_root/required-freshness-local-only-upstream"
+  local repo="$case_root/repo"
+  local before_refs
+
+  mkdir -p "$case_root"
+  init_repo "$repo"
+  git -C "$repo" branch upstream
+  git -C "$repo" config branch.main.remote .
+  git -C "$repo" config branch.main.merge refs/heads/upstream
+  add_candidate_commit "$repo"
+
+  before_refs="$(git -C "$repo" for-each-ref \
+    --format='%(refname) %(objectname)' refs/heads refs/remotes)"
+  run_required_freshness_check "$repo"
+  [[ "$test_status" -eq 2 ]] ||
+    fail "required freshness check did not return status 2 with a local-only upstream:
+$test_output"
+  assert_contains "$test_output" \
+    "Configure a remote-tracking upstream, then retry with --check-upstream."
+  assert_contains "$test_output" \
+    "freshness is required; refresh the configured upstream and retry."
+  assert_refs_unchanged "$repo" "$before_refs"
+}
+
 test_matching_tips
+test_required_freshness_matching_tips
 test_remote_ahead_tips
+test_required_freshness_remote_ahead_tips
 test_unavailable_remote
+test_required_freshness_unavailable_remote
+test_required_freshness_unavailable_local_upstream
 test_local_only_upstream
+test_required_freshness_local_only_upstream
 
 echo "Published app cleanup freshness regression checks passed"

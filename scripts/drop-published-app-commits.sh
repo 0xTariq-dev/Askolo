@@ -16,9 +16,11 @@ set -Eeuo pipefail
 
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly DEFAULT_PATTERN='^Published your App$'
+readonly FRESHNESS_REQUIRED_EXIT_STATUS=2
 
 apply_changes=false
 check_upstream=false
+require_fresh=false
 pattern="$DEFAULT_PATTERN"
 requested_branch=""
 
@@ -110,13 +112,17 @@ check_upstream_freshness() {
 usage() {
   cat <<EOF
 Usage:
-  $SCRIPT_NAME [--dry-run] [--apply] [--check-upstream] [--branch BRANCH] [--pattern REGEX]
+  $SCRIPT_NAME [--dry-run] [--apply] [--check-upstream|--require-fresh] [--branch BRANCH] [--pattern REGEX]
 
 Options:
   --dry-run          Inspect candidates only. This is the default.
   --apply            Build the detached rewrite and prompt to update BRANCH.
   --check-upstream   Read the configured remote tip and warn if the local
-                     upstream may be stale. This never fetches or updates refs.
+                     upstream may be stale. The check never fetches or updates refs.
+  --require-fresh    Require the configured upstream to match the current
+                     remote tip. Implies --check-upstream and exits with status
+                     $FRESHNESS_REQUIRED_EXIT_STATUS when freshness cannot be
+                     verified. The check never fetches or updates refs.
   --branch BRANCH   Branch to inspect and optionally update. Defaults to the
                      current branch; detached HEAD requires this option.
   --pattern REGEX   Commit-subject regex. Defaults to:
@@ -143,6 +149,10 @@ while (($# > 0)); do
       ;;
     --check-upstream)
       check_upstream=true
+      ;;
+    --require-fresh)
+      check_upstream=true
+      require_fresh=true
       ;;
     --branch)
       (($# >= 2)) || die "--branch requires a branch name"
@@ -194,13 +204,33 @@ if [[ "$branch" != "$current_branch" ]] &&
 fi
 
 upstream_ref="$(git for-each-ref --format='%(upstream)' "refs/heads/$branch")"
-[[ -n "$upstream_ref" ]] ||
-  die "'$branch' has no configured upstream; configure one before inspecting unpushed commits"
+if [[ -z "$upstream_ref" ]]; then
+  if $require_fresh; then
+    printf '%sError:%s freshness is required, but %s has no configured upstream.\n' \
+      "$ERROR_COLOR" "$ERROR_RESET" "'$branch'" >&2
+    exit "$FRESHNESS_REQUIRED_EXIT_STATUS"
+  fi
 
-git rev-parse --verify "$upstream_ref^{commit}" >/dev/null 2>&1 ||
+  die "'$branch' has no configured upstream; configure one before inspecting unpushed commits"
+fi
+
+if ! git rev-parse --verify "$upstream_ref^{commit}" >/dev/null 2>&1; then
+  if $require_fresh; then
+    printf '%sError:%s freshness is required, but configured upstream %s is unavailable locally.\n' \
+      "$ERROR_COLOR" "$ERROR_RESET" "'$upstream_ref'" >&2
+    exit "$FRESHNESS_REQUIRED_EXIT_STATUS"
+  fi
+
   die "configured upstream '$upstream_ref' for '$branch' is unavailable locally; fetch it before retrying"
+fi
 
 if $check_upstream && ! check_upstream_freshness; then
+  if $require_fresh; then
+    printf '%sError:%s freshness is required; refresh the configured upstream and retry.\n' \
+      "$ERROR_COLOR" "$ERROR_RESET" >&2
+    exit "$FRESHNESS_REQUIRED_EXIT_STATUS"
+  fi
+
   $apply_changes &&
     die "refusing --apply while the configured upstream may be stale; refresh it and retry with --check-upstream"
 fi
