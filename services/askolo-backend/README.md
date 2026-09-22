@@ -257,7 +257,7 @@ each environment:
 | `staging` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="staging"` |
 | `production` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="production"` |
 
-Route all three rules to the team's configured on-call destination. The
+Route all environment rules to the team's configured on-call destination. The
 aggregate fields in the event are the counts below; the destination must not
 forward or group on any user, request, code, email, secret, or raw event
 metadata.
@@ -283,7 +283,7 @@ When a later readiness evaluation finds no active threshold, the backend emits
 one `MFA verification failure spike recovered` event with
 `operation="mfa_security_spike"`, `recovery=true`, `alert=false`, the
 environment, and aggregate counts. Use that event as the explicit recovery
-condition for all three rules. Recovery is emitted only after the signal is
+condition for all policy rules. Recovery is emitted only after the signal is
 available again; a database or signal outage does not falsely close an active
 incident. If the destination cannot consume explicit recovery events, resolve
 after one complete 15-minute evaluation window with no matching alert event.
@@ -302,6 +302,16 @@ thresholds are:
 - 5 or more verification failures (`recovery_support_verification_failures`);
 - 5 or more rate-limited attempts (`recovery_support_rate_limited`); or
 - any session-revocation failure (`recovery_support_session_revocation_failures`).
+
+### MFA recovery-support alert response
+
+The production alert policy is checked into
+[`monitoring/askolo-backend/mfa-recovery-alerts.yaml`](../../monitoring/askolo-backend/mfa-recovery-alerts.yaml).
+It routes recovery-support request and verification-failure spikes as warning
+tickets, rate-limit spikes as high-severity pages, and any session-revocation
+failure as a critical page to `askolo-auth-oncall`. All rules use the same
+15-minute window and recover only from the explicit recovery event described
+above.
 
 For a recovery alert, first inspect the aggregate counts and
 `alertReasons` in `GET /readyz` from the authorized operational path. A
