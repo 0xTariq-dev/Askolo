@@ -735,6 +735,110 @@ func TestEmailChallengeCleanupRetainsRecentAndActiveRecords(t *testing.T) {
 	}
 }
 
+func TestEmailChallengeCleanupSkipsLockedTerminalRecord(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	lockedTerminalAt := now.Add(-postgres.EmailChallengeRetention - 2*time.Hour)
+	otherTerminalAt := now.Add(-postgres.EmailChallengeRetention - time.Hour)
+	lockedID := "cleanup-locked-terminal"
+	otherID := "cleanup-available-terminal"
+
+	for _, challenge := range []struct {
+		id        string
+		expiresAt time.Time
+	}{
+		{id: lockedID, expiresAt: lockedTerminalAt},
+		{id: otherID, expiresAt: otherTerminalAt},
+	} {
+		if _, err := fixture.pool.Exec(ctx, `
+INSERT INTO auth_email_challenges (id, email, purpose, code_hash, expires_at)
+VALUES ($1, $2, 'email_verification', $3, $4)
+`, challenge.id, challenge.id+"@example.com", "hash-"+challenge.id, challenge.expiresAt); err != nil {
+			t.Fatalf("insert %s: %v", challenge.id, err)
+		}
+	}
+
+	verificationTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin verification transaction: %v", err)
+	}
+	defer verificationTx.Rollback(ctx)
+
+	var selectedID string
+	if err := verificationTx.QueryRow(ctx, `
+SELECT id
+FROM auth_email_challenges
+WHERE id = $1
+FOR UPDATE
+`, lockedID).Scan(&selectedID); err != nil {
+		t.Fatalf("lock terminal challenge: %v", err)
+	}
+	if selectedID != lockedID {
+		t.Fatalf("locked challenge = %q, want %q", selectedID, lockedID)
+	}
+
+	cleanupCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	deleted, err := fixture.store.CleanupEmailChallenges(cleanupCtx, now, 1)
+	if err != nil {
+		t.Fatalf("cleanup while verification holds lock: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("cleanup deleted %d rows while locked row was skipped, want 1", deleted)
+	}
+
+	var exists bool
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT EXISTS (
+SELECT 1
+FROM auth_email_challenges
+WHERE id = $1
+)
+`, lockedID).Scan(&exists); err != nil {
+		t.Fatalf("check locked challenge after cleanup: %v", err)
+	}
+	if !exists {
+		t.Fatal("cleanup deleted the challenge held by the active verification transaction")
+	}
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT EXISTS (
+SELECT 1
+FROM auth_email_challenges
+WHERE id = $1
+)
+`, otherID).Scan(&exists); err != nil {
+		t.Fatalf("check available challenge after cleanup: %v", err)
+	}
+	if exists {
+		t.Fatal("cleanup did not delete the available terminal challenge")
+	}
+
+	if err := verificationTx.Commit(ctx); err != nil {
+		t.Fatalf("commit verification transaction: %v", err)
+	}
+
+	deleted, err = fixture.store.CleanupEmailChallenges(ctx, now, 1)
+	if err != nil {
+		t.Fatalf("cleanup after verification completes: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("cleanup deleted %d rows after lock release, want 1", deleted)
+	}
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT EXISTS (
+SELECT 1
+FROM auth_email_challenges
+WHERE id = $1
+)
+`, lockedID).Scan(&exists); err != nil {
+		t.Fatalf("check locked challenge after later cleanup: %v", err)
+	}
+	if exists {
+		t.Fatal("later cleanup did not delete the previously locked terminal challenge")
+	}
+}
+
 func timePtr(value time.Time) *time.Time {
 	return &value
 }

@@ -85,6 +85,6 @@ fi
 
 cd -- "$service_root"
 ASKOLO_TEST_DATABASE_URL="$test_database_url" \
-  go test ./internal/modules/auth -run '^TestNativeEmailAuth' -count=1 -v
+  go test ./internal/modules/auth -run '^(TestNativeEmailAuth|TestEmailChallengeCleanup)' -count=1 -v
 
 echo "Native email auth release validation passed"
