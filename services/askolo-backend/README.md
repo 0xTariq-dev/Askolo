@@ -228,3 +228,13 @@ it does not wait for or remove a challenge involved in an active verification
 transaction. Each run emits an aggregate structured log with the deleted count,
 batch limit, retention period, and duration; failures emit only the operation
 and aggregate policy fields.
+
+The service also tracks cleanup health in memory and exposes it under
+`GET /readyz` as `emailChallengeCleanup`. The signal contains only bounded
+aggregate state: `status`, `consecutiveFailures`,
+`persistentFailureThreshold`, and `lastSuccessfulCleanupAt`. Before the first
+completed run, status is `unknown`. One or two consecutive failures are
+`transient_failure`; three or more are `persistent_failure` and make readiness
+return `503` until a cleanup succeeds. A successful run resets the consecutive
+failure count and records its completion time. Challenge IDs, addresses, and
+error details are never included in this signal.

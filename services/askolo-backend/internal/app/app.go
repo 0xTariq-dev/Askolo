@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
@@ -24,9 +25,10 @@ const (
 )
 
 type App struct {
-	server *http.Server
-	logger *slog.Logger
-	store  *postgres.Store
+	server       *http.Server
+	logger       *slog.Logger
+	store        *postgres.Store
+	cleanupState *emailChallengeCleanupState
 }
 
 func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
@@ -34,17 +36,65 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 		logger = slog.Default()
 	}
 
+	cleanupState := &emailChallengeCleanupState{}
 	return &App{
-		logger: logger,
-		store:  store,
+		logger:       logger,
+		store:        store,
+		cleanupState: cleanupState,
 		server: &http.Server{
 			Addr:              cfg.Host + ":" + strconv.Itoa(cfg.Port),
-			Handler:           httpapi.New(cfg, logger, store),
+			Handler:           httpapi.New(cfg, logger, store, cleanupState.readiness),
 			ReadHeaderTimeout: readHeaderTimeout,
 			ReadTimeout:       readTimeout,
 			WriteTimeout:      writeTimeout,
 			IdleTimeout:       idleTimeout,
 		},
+	}
+}
+
+type emailChallengeCleanupState struct {
+	mu                    sync.RWMutex
+	consecutiveFailures   int
+	lastSuccessfulCleanup time.Time
+}
+
+func (s *emailChallengeCleanupState) recordFailure() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consecutiveFailures++
+}
+
+func (s *emailChallengeCleanupState) recordSuccess(at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consecutiveFailures = 0
+	s.lastSuccessfulCleanup = at.UTC()
+}
+
+func (s *emailChallengeCleanupState) readiness() httpapi.EmailChallengeCleanupReadiness {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	status := "unknown"
+	switch {
+	case s.consecutiveFailures >= httpapi.EmailChallengeCleanupPersistentFailureThreshold:
+		status = "persistent_failure"
+	case s.consecutiveFailures > 0:
+		status = "transient_failure"
+	case !s.lastSuccessfulCleanup.IsZero():
+		status = "healthy"
+	}
+
+	var lastSuccessfulCleanupAt *time.Time
+	if !s.lastSuccessfulCleanup.IsZero() {
+		timestamp := s.lastSuccessfulCleanup
+		lastSuccessfulCleanupAt = &timestamp
+	}
+	return httpapi.EmailChallengeCleanupReadiness{
+		Status:                     status,
+		ConsecutiveFailures:        s.consecutiveFailures,
+		PersistentFailureThreshold: httpapi.EmailChallengeCleanupPersistentFailureThreshold,
+		LastSuccessfulCleanupAt:    lastSuccessfulCleanupAt,
 	}
 }
 
@@ -99,6 +149,7 @@ func (a *App) runEmailChallengeCleanup(ctx context.Context, done chan<- struct{}
 		cancel()
 		if err != nil {
 			if ctx.Err() == nil {
+				a.cleanupState.recordFailure()
 				a.logger.Warn("email challenge cleanup failed",
 					"operation", "email_challenge_cleanup",
 					"error", err,
@@ -108,6 +159,7 @@ func (a *App) runEmailChallengeCleanup(ctx context.Context, done chan<- struct{}
 			}
 			return
 		}
+		a.cleanupState.recordSuccess(time.Now().UTC())
 		a.logger.Info("email challenge cleanup completed",
 			"operation", "email_challenge_cleanup",
 			"deleted_count", deleted,

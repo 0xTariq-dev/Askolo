@@ -23,10 +23,35 @@ import (
 	"askolo/backend/internal/transport/websocket"
 )
 
-func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Handler {
+const EmailChallengeCleanupPersistentFailureThreshold = 3
+
+type EmailChallengeCleanupReadiness struct {
+	Status                     string     `json:"status"`
+	ConsecutiveFailures        int        `json:"consecutiveFailures"`
+	PersistentFailureThreshold int        `json:"persistentFailureThreshold"`
+	LastSuccessfulCleanupAt    *time.Time `json:"lastSuccessfulCleanupAt,omitempty"`
+}
+
+type EmailChallengeCleanupReadinessProvider func() EmailChallengeCleanupReadiness
+
+func New(
+	cfg config.Config,
+	logger *slog.Logger,
+	store *postgres.Store,
+	cleanupReadinessProviders ...EmailChallengeCleanupReadinessProvider,
+) http.Handler {
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
 	authHandler := authmodule.NewHandler(cfg, store, logger)
+	cleanupReadiness := func() EmailChallengeCleanupReadiness {
+		return EmailChallengeCleanupReadiness{
+			Status:                     "unknown",
+			PersistentFailureThreshold: EmailChallengeCleanupPersistentFailureThreshold,
+		}
+	}
+	if len(cleanupReadinessProviders) > 0 && cleanupReadinessProviders[0] != nil {
+		cleanupReadiness = cleanupReadinessProviders[0]
+	}
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
@@ -75,10 +100,12 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 		emailDeliveryReadiness := authHandler.EmailDeliveryReadiness()
 		emailDeliveryConfigured := emailDeliveryReadiness.ResendConfiguration == "configured" &&
 			emailDeliveryReadiness.ChallengeConfiguration == "configured"
+		emailChallengeCleanupReadiness := cleanupReadiness()
 		status, statusCode := dependencyReadinessStatus(
 			databaseReachable,
 			authorizationStorageReady,
 			emailDeliveryConfigured,
+			emailChallengeCleanupReadiness,
 		)
 		writeJSON(w, statusCode, map[string]any{
 			"environment":               cfg.Environment,
@@ -91,6 +118,7 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 			"authorizationStorageReady": authorizationStorageReady,
 			"emailDeliveryConfigured":   emailDeliveryConfigured,
 			"emailDelivery":             emailDeliveryReadiness,
+			"emailChallengeCleanup":     emailChallengeCleanupReadiness,
 			"mfaSecurity":               mfaSecurityReadiness,
 		})
 	})
@@ -141,12 +169,15 @@ func dependencyReadinessStatus(
 	databaseReachable bool,
 	authorizationStorageReady bool,
 	emailDeliveryConfigured bool,
+	cleanupReadiness ...EmailChallengeCleanupReadiness,
 ) (string, int) {
 	// A fresh Autoscale instance has no in-memory delivery history yet, so
 	// "unknown" is expected before the first real email attempt. Readiness
 	// validates static email configuration here; provider outcomes remain
 	// visible in the response without making cold starts depend on them.
-	if !databaseReachable || !authorizationStorageReady || !emailDeliveryConfigured {
+	persistentCleanupFailure := len(cleanupReadiness) > 0 &&
+		cleanupReadiness[0].Status == "persistent_failure"
+	if !databaseReachable || !authorizationStorageReady || !emailDeliveryConfigured || persistentCleanupFailure {
 		return "degraded", http.StatusServiceUnavailable
 	}
 	return "ready", http.StatusOK

@@ -66,7 +66,8 @@ func TestReadinessReportsMissingDependencies(t *testing.T) {
 	body := response.Body.String()
 	if !strings.Contains(body, `"status":"degraded"`) ||
 		!strings.Contains(body, `"databaseReachable":false`) ||
-		!strings.Contains(body, `"emailDeliveryConfigured":false`) {
+		!strings.Contains(body, `"emailDeliveryConfigured":false`) ||
+		!strings.Contains(body, `"emailChallengeCleanup":{"status":"unknown"`) {
 		t.Fatalf("expected dependency readiness signals, got %q", body)
 	}
 }
@@ -112,6 +113,24 @@ func TestReadinessDoesNotRequireEmailHandoff(t *testing.T) {
 				t.Fatalf("dependency failure = %q/%d, want degraded/503", status, statusCode)
 			}
 		})
+	}
+}
+
+func TestReadinessReportsPersistentEmailChallengeCleanupFailure(t *testing.T) {
+	cleanupReadiness := EmailChallengeCleanupReadiness{
+		Status:                     "persistent_failure",
+		ConsecutiveFailures:        EmailChallengeCleanupPersistentFailureThreshold,
+		PersistentFailureThreshold: EmailChallengeCleanupPersistentFailureThreshold,
+	}
+	status, statusCode := dependencyReadinessStatus(true, true, true, cleanupReadiness)
+	if status != "degraded" || statusCode != http.StatusServiceUnavailable {
+		t.Fatalf("persistent cleanup failure = %q/%d, want degraded/503", status, statusCode)
+	}
+
+	cleanupReadiness.Status = "transient_failure"
+	status, statusCode = dependencyReadinessStatus(true, true, true, cleanupReadiness)
+	if status != "ready" || statusCode != http.StatusOK {
+		t.Fatalf("transient cleanup failure = %q/%d, want ready/200", status, statusCode)
 	}
 }
 
