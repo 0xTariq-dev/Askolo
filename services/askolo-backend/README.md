@@ -207,6 +207,31 @@ secret, email address, and request is never an alert dimension. A missing or
 unavailable signal is reported as `status: "unavailable"` and does not make a
 cold-start readiness check fail.
 
+MFA recovery support is included in the same bounded signal. The readiness
+payload reports aggregate `recoverySupportRequests`,
+`recoverySupportVerificationFailures`, `recoverySupportRateLimited`, and
+`recoverySupportSessionRevocationFailures` counts for the same 15-minute
+window. Recovery requests count only after a verification message is handed
+off successfully, so they represent normal human-review volume rather than
+raw probes. Rate-limit counts include the request and verification IP
+guardrails, cooldowns, and locked challenges. The recovery-specific alert
+thresholds are:
+
+- 20 or more recovery-support requests in 15 minutes (`recovery_support_request_spike`);
+- 5 or more verification failures (`recovery_support_verification_failures`);
+- 5 or more rate-limited attempts (`recovery_support_rate_limited`); or
+- any session-revocation failure (`recovery_support_session_revocation_failures`).
+
+For a recovery alert, first inspect the aggregate counts and
+`alertReasons` in `GET /readyz` from the authorized operational path. A
+request spike with no rate-limit or infrastructure failures should be handled
+as increased support-review volume. Rate-limit alerts should be correlated
+with the request and verification guardrails before changing limits.
+Any session-revocation failure is an infrastructure incident: pause manual
+MFA recovery approvals, verify database/session-store health, and retry only
+after revocation succeeds. The telemetry contains no email addresses, codes,
+passwords, user IDs, or request IDs in the readiness response or alert log.
+
 ### Delivery retry and release checks
 
 1. Confirm `GET /readyz` from an authorized operational path and inspect

@@ -28,12 +28,16 @@ func TestMFAAlertReasonsUseBoundedThresholds(t *testing.T) {
 		{
 			name: "all thresholds",
 			summary: postgres.MFAEventSummary{
-				FailureEvents:           20,
-				ReplayEvents:            5,
-				LockoutEvents:           5,
-				DecryptionFailureEvents: 3,
+				FailureEvents:                            20,
+				ReplayEvents:                             5,
+				LockoutEvents:                            5,
+				DecryptionFailureEvents:                  3,
+				RecoverySupportRequests:                  20,
+				RecoverySupportVerificationFailures:      5,
+				RecoverySupportRateLimited:               5,
+				RecoverySupportSessionRevocationFailures: 1,
 			},
-			want: "failure_events,replay_events,lockout_events,decryption_failure_events",
+			want: "failure_events,replay_events,lockout_events,decryption_failure_events,recovery_support_request_spike,recovery_support_verification_failures,recovery_support_rate_limited,recovery_support_session_revocation_failures",
 		},
 	}
 

@@ -22,18 +22,22 @@ import (
 )
 
 const (
-	sessionTTL                   = 7 * 24 * time.Hour
-	emailChallengeTTL            = 3 * time.Minute
-	emailChallengeResendWindow   = 2 * time.Minute
-	emailChallengeMaxAttempts    = 5
-	passwordRecoveryPrimaryEmail = "primary_email"
-	passwordRecoveryEmail        = "recovery_email"
-	mfaRecoverySupportPurpose    = "mfa_recovery_support"
-	mfaSecurityWindow            = 15 * time.Minute
-	mfaFailureAlertThreshold     = 20
-	mfaReplayAlertThreshold      = 5
-	mfaLockoutAlertThreshold     = 5
-	mfaDecryptionAlertThreshold  = 3
+	sessionTTL                                   = 7 * 24 * time.Hour
+	emailChallengeTTL                            = 3 * time.Minute
+	emailChallengeResendWindow                   = 2 * time.Minute
+	emailChallengeMaxAttempts                    = 5
+	passwordRecoveryPrimaryEmail                 = "primary_email"
+	passwordRecoveryEmail                        = "recovery_email"
+	mfaRecoverySupportPurpose                    = "mfa_recovery_support"
+	mfaSecurityWindow                            = 15 * time.Minute
+	mfaFailureAlertThreshold                     = 20
+	mfaReplayAlertThreshold                      = 5
+	mfaLockoutAlertThreshold                     = 5
+	mfaDecryptionAlertThreshold                  = 3
+	mfaRecoveryRequestAlertThreshold             = 20
+	mfaRecoveryVerificationFailureAlertThreshold = 5
+	mfaRecoveryRateLimitAlertThreshold           = 5
+	mfaRecoveryRevocationFailureAlertThreshold   = 1
 )
 
 type Handler struct {
@@ -107,16 +111,20 @@ type EmailDeliveryReadiness struct {
 // MFASecurityReadiness is a bounded operational signal for MFA abuse and
 // authenticator-path failures. It never returns secrets, codes, or identities.
 type MFASecurityReadiness struct {
-	Status                  string   `json:"status"`
-	Environment             string   `json:"environment"`
-	WindowMinutes           int      `json:"windowMinutes"`
-	FailureEvents           int64    `json:"failureEvents"`
-	ReplayEvents            int64    `json:"replayEvents"`
-	LockoutEvents           int64    `json:"lockoutEvents"`
-	DecryptionFailureEvents int64    `json:"decryptionFailureEvents"`
-	AffectedUsers           int64    `json:"affectedUsers"`
-	Alert                   bool     `json:"alert"`
-	AlertReasons            []string `json:"alertReasons,omitempty"`
+	Status                                   string   `json:"status"`
+	Environment                              string   `json:"environment"`
+	WindowMinutes                            int      `json:"windowMinutes"`
+	FailureEvents                            int64    `json:"failureEvents"`
+	ReplayEvents                             int64    `json:"replayEvents"`
+	LockoutEvents                            int64    `json:"lockoutEvents"`
+	DecryptionFailureEvents                  int64    `json:"decryptionFailureEvents"`
+	RecoverySupportRequests                  int64    `json:"recoverySupportRequests"`
+	RecoverySupportVerificationFailures      int64    `json:"recoverySupportVerificationFailures"`
+	RecoverySupportRateLimited               int64    `json:"recoverySupportRateLimited"`
+	RecoverySupportSessionRevocationFailures int64    `json:"recoverySupportSessionRevocationFailures"`
+	AffectedUsers                            int64    `json:"affectedUsers"`
+	Alert                                    bool     `json:"alert"`
+	AlertReasons                             []string `json:"alertReasons,omitempty"`
 }
 
 func (h *Handler) EmailDeliveryReadiness() EmailDeliveryReadiness {
@@ -170,6 +178,10 @@ func (h *Handler) MFASecurityReadiness(ctx context.Context) MFASecurityReadiness
 	signal.ReplayEvents = summary.ReplayEvents
 	signal.LockoutEvents = summary.LockoutEvents
 	signal.DecryptionFailureEvents = summary.DecryptionFailureEvents
+	signal.RecoverySupportRequests = summary.RecoverySupportRequests
+	signal.RecoverySupportVerificationFailures = summary.RecoverySupportVerificationFailures
+	signal.RecoverySupportRateLimited = summary.RecoverySupportRateLimited
+	signal.RecoverySupportSessionRevocationFailures = summary.RecoverySupportSessionRevocationFailures
 	signal.AffectedUsers = summary.AffectedUsers
 	signal.AlertReasons = mfaAlertReasons(summary)
 	signal.Alert = len(signal.AlertReasons) > 0
@@ -182,7 +194,7 @@ func (h *Handler) MFASecurityReadiness(ctx context.Context) MFASecurityReadiness
 }
 
 func mfaAlertReasons(summary postgres.MFAEventSummary) []string {
-	reasons := make([]string, 0, 4)
+	reasons := make([]string, 0, 8)
 	if summary.FailureEvents >= mfaFailureAlertThreshold {
 		reasons = append(reasons, "failure_events")
 	}
@@ -194,6 +206,18 @@ func mfaAlertReasons(summary postgres.MFAEventSummary) []string {
 	}
 	if summary.DecryptionFailureEvents >= mfaDecryptionAlertThreshold {
 		reasons = append(reasons, "decryption_failure_events")
+	}
+	if summary.RecoverySupportRequests >= mfaRecoveryRequestAlertThreshold {
+		reasons = append(reasons, "recovery_support_request_spike")
+	}
+	if summary.RecoverySupportVerificationFailures >= mfaRecoveryVerificationFailureAlertThreshold {
+		reasons = append(reasons, "recovery_support_verification_failures")
+	}
+	if summary.RecoverySupportRateLimited >= mfaRecoveryRateLimitAlertThreshold {
+		reasons = append(reasons, "recovery_support_rate_limited")
+	}
+	if summary.RecoverySupportSessionRevocationFailures >= mfaRecoveryRevocationFailureAlertThreshold {
+		reasons = append(reasons, "recovery_support_session_revocation_failures")
 	}
 	return reasons
 }
@@ -219,6 +243,10 @@ func (h *Handler) logMFAAlert(signal MFASecurityReadiness) {
 		"replay_events", signal.ReplayEvents,
 		"lockout_events", signal.LockoutEvents,
 		"decryption_failure_events", signal.DecryptionFailureEvents,
+		"recovery_support_requests", signal.RecoverySupportRequests,
+		"recovery_support_verification_failures", signal.RecoverySupportVerificationFailures,
+		"recovery_support_rate_limited", signal.RecoverySupportRateLimited,
+		"recovery_support_session_revocation_failures", signal.RecoverySupportSessionRevocationFailures,
 		"affected_users", signal.AffectedUsers,
 		"alert_reasons", key,
 	)
@@ -814,6 +842,10 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 // accepted as substitutes for identity verification.
 func (h *Handler) requestMFARecoverySupport(w http.ResponseWriter, r *http.Request) {
 	if !h.allow(r, 3, 15*time.Minute) {
+		h.recordSecurityEvent(r, "", "mfa_recovery_support_rate_limited", map[string]any{
+			"stage":  "request",
+			"reason": "ip_rate_limit",
+		})
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many recovery requests. Try again later.")
 		return
@@ -852,6 +884,10 @@ func (h *Handler) requestMFARecoverySupport(w http.ResponseWriter, r *http.Reque
 		h.writeStoreError(w, "MFA recovery support rate check failed", err)
 		return
 	} else if recent {
+		h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_rate_limited", map[string]any{
+			"stage":  "request",
+			"reason": "cooldown",
+		})
 		setEmailChallengeRetryAfter(w)
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
 		return
@@ -872,6 +908,10 @@ func (h *Handler) requestMFARecoverySupport(w http.ResponseWriter, r *http.Reque
 		true,
 	); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
+			h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_rate_limited", map[string]any{
+				"stage":  "request",
+				"reason": "cooldown",
+			})
 			setEmailChallengeRetryAfter(w)
 			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
 			return
@@ -891,6 +931,10 @@ func (h *Handler) requestMFARecoverySupport(w http.ResponseWriter, r *http.Reque
 // or session creation so support must perform an additional identity review.
 func (h *Handler) verifyMFARecoverySupport(w http.ResponseWriter, r *http.Request) {
 	if !h.allow(r, 10, 10*time.Minute) {
+		h.recordSecurityEvent(r, "", "mfa_recovery_support_rate_limited", map[string]any{
+			"stage":  "verification",
+			"reason": "ip_rate_limit",
+		})
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many verification attempts. Try again later.")
 		return
@@ -900,6 +944,9 @@ func (h *Handler) verifyMFARecoverySupport(w http.ResponseWriter, r *http.Reques
 		Code  string `json:"code"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) || !validChallengeCode(input.Code) {
+		h.recordSecurityEvent(r, "", "mfa_recovery_support_verification_failed", map[string]any{
+			"reason": "invalid_request",
+		})
 		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY", "The recovery request is invalid or expired.")
 		return
 	}
@@ -907,6 +954,9 @@ func (h *Handler) verifyMFARecoverySupport(w http.ResponseWriter, r *http.Reques
 	email := normalizeEmail(input.Email)
 	user, err := h.store.FindUserByEmail(r.Context(), email)
 	if errors.Is(err, postgres.ErrNotFound) || err == nil && user.EmailVerifiedAt == nil {
+		h.recordSecurityEvent(r, "", "mfa_recovery_support_verification_failed", map[string]any{
+			"reason": "unavailable_account",
+		})
 		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY", "The recovery request is invalid or expired.")
 		return
 	}
@@ -920,11 +970,18 @@ func (h *Handler) verifyMFARecoverySupport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !enabled {
+		h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_verification_failed", map[string]any{
+			"reason": "mfa_not_enabled",
+		})
 		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY", "The recovery request is invalid or expired.")
 		return
 	}
 	challengeUserID, err := h.consumeChallenge(r, email, mfaRecoverySupportPurpose, input.Code)
 	if errors.Is(err, postgres.ErrChallengeLocked) {
+		h.recordSecurityEvent(r, user.ID, "mfa_recovery_support_rate_limited", map[string]any{
+			"stage":  "verification",
+			"reason": "challenge_locked",
+		})
 		writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
 		return
 	}

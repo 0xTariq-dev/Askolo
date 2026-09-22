@@ -57,11 +57,15 @@ type SessionMFAState struct {
 // an observation window. It intentionally does not include user IDs, request
 // IDs, event metadata, or any submitted authentication material.
 type MFAEventSummary struct {
-	FailureEvents           int64
-	ReplayEvents            int64
-	LockoutEvents           int64
-	DecryptionFailureEvents int64
-	AffectedUsers           int64
+	FailureEvents                            int64
+	ReplayEvents                             int64
+	LockoutEvents                            int64
+	DecryptionFailureEvents                  int64
+	RecoverySupportRequests                  int64
+	RecoverySupportVerificationFailures      int64
+	RecoverySupportRateLimited               int64
+	RecoverySupportSessionRevocationFailures int64
+	AffectedUsers                            int64
 }
 
 type ProviderConnection struct {
@@ -1356,6 +1360,10 @@ func (s *Store) MFAEventSummary(ctx context.Context, since time.Time) (MFAEventS
 			COUNT(*) FILTER (WHERE event_type = 'mfa_replay_rejected'),
 			COUNT(*) FILTER (WHERE event_type = 'mfa_challenge_locked'),
 			COUNT(*) FILTER (WHERE event_type = 'mfa_decryption_failed'),
+COUNT(*) FILTER (WHERE event_type = 'mfa_recovery_support_challenge_sent'),
+COUNT(*) FILTER (WHERE event_type = 'mfa_recovery_support_verification_failed'),
+COUNT(*) FILTER (WHERE event_type = 'mfa_recovery_support_rate_limited'),
+COUNT(*) FILTER (WHERE event_type = 'mfa_recovery_support_session_revocation_failed'),
 			COUNT(DISTINCT user_id) FILTER (WHERE event_type IN (
 				'mfa_challenge_failed',
 				'mfa_recovery_code_failed',
@@ -1364,7 +1372,11 @@ func (s *Store) MFAEventSummary(ctx context.Context, since time.Time) (MFAEventS
 				'recovery_code_regeneration_failed',
 				'mfa_replay_rejected',
 				'mfa_challenge_locked',
-				'mfa_decryption_failed'
+'mfa_decryption_failed',
+'mfa_recovery_support_challenge_sent',
+'mfa_recovery_support_verification_failed',
+'mfa_recovery_support_rate_limited',
+'mfa_recovery_support_session_revocation_failed'
 			))
 		FROM auth_security_events
 		WHERE created_at >= $1
@@ -1376,13 +1388,21 @@ func (s *Store) MFAEventSummary(ctx context.Context, since time.Time) (MFAEventS
 			'recovery_code_regeneration_failed',
 			'mfa_replay_rejected',
 			'mfa_challenge_locked',
-			'mfa_decryption_failed'
+'mfa_decryption_failed',
+'mfa_recovery_support_challenge_sent',
+'mfa_recovery_support_verification_failed',
+'mfa_recovery_support_rate_limited',
+'mfa_recovery_support_session_revocation_failed'
 		  )
 	`, since).Scan(
 		&summary.FailureEvents,
 		&summary.ReplayEvents,
 		&summary.LockoutEvents,
 		&summary.DecryptionFailureEvents,
+		&summary.RecoverySupportRequests,
+		&summary.RecoverySupportVerificationFailures,
+		&summary.RecoverySupportRateLimited,
+		&summary.RecoverySupportSessionRevocationFailures,
 		&summary.AffectedUsers,
 	)
 	return summary, err
