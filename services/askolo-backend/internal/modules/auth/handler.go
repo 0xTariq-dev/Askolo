@@ -22,10 +22,12 @@ import (
 )
 
 const (
-	sessionTTL                 = 7 * 24 * time.Hour
-	emailChallengeTTL          = 3 * time.Minute
-	emailChallengeResendWindow = 2 * time.Minute
-	emailChallengeMaxAttempts  = 5
+	sessionTTL                   = 7 * 24 * time.Hour
+	emailChallengeTTL            = 3 * time.Minute
+	emailChallengeResendWindow   = 2 * time.Minute
+	emailChallengeMaxAttempts    = 5
+	passwordRecoveryPrimaryEmail = "primary_email"
+	passwordRecoveryEmail        = "recovery_email"
 )
 
 type Handler struct {
@@ -529,20 +531,23 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var input struct {
-		Email string `json:"email"`
+		Email  string `json:"email"`
+		Method string `json:"method"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "A valid email is required.")
 		return
 	}
+	method := normalizePasswordRecoveryMethod(input.Method)
+	if !validPasswordRecoveryMethod(method) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Choose a valid password recovery method.")
+		return
+	}
 	email := normalizeEmail(input.Email)
-	user, err := h.store.FindUserByRecoveryEmail(r.Context(), email)
-	if errors.Is(err, postgres.ErrNotFound) {
-		user, err = h.store.FindUserByEmail(r.Context(), email)
-		if errors.Is(err, postgres.ErrNotFound) {
-			writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
-			return
-		}
+	user, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), email, method)
+	if errors.Is(err, postgres.ErrNotFound) || errors.Is(err, postgres.ErrRecoveryUnavailable) {
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
+		return
 	}
 	if err != nil {
 		h.writeStoreError(w, "password recovery lookup failed", err)
@@ -552,7 +557,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
 		return
 	}
-	if recent, err := h.store.HasRecentEmailChallenge(r.Context(), email, "password_recovery", time.Now().Add(-emailChallengeResendWindow)); err != nil {
+	if recent, err := h.store.HasRecentEmailChallenge(r.Context(), deliveryEmail, "password_recovery", time.Now().Add(-emailChallengeResendWindow)); err != nil {
 		h.writeStoreError(w, "password recovery rate check failed", err)
 		return
 	} else if recent {
@@ -565,7 +570,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
-	if err := h.sendChallenge(r, user.ID, email, "password_recovery", "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password.", true); err != nil {
+	if err := h.sendChallenge(r, user.ID, deliveryEmail, "password_recovery", "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password.", true); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
 			setEmailChallengeRetryAfter(w)
 			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
@@ -586,14 +591,29 @@ func (h *Handler) verifyPasswordRecovery(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var input struct {
-		Email string `json:"email"`
-		Code  string `json:"code"`
+		Email  string `json:"email"`
+		Method string `json:"method"`
+		Code   string `json:"code"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) || !validChallengeCode(input.Code) {
 		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
 		return
 	}
-	userID, err := h.verifyChallenge(r, input.Email, "password_recovery", input.Code)
+	method := normalizePasswordRecoveryMethod(input.Method)
+	if !validPasswordRecoveryMethod(method) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	_, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), input.Email, method)
+	if errors.Is(err, postgres.ErrNotFound) || errors.Is(err, postgres.ErrRecoveryUnavailable) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "password recovery lookup failed", err)
+		return
+	}
+	userID, err := h.verifyChallenge(r, deliveryEmail, "password_recovery", input.Code)
 	if errors.Is(err, postgres.ErrChallengeLocked) {
 		writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
 		return
@@ -618,6 +638,7 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		Email    string `json:"email"`
+		Method   string `json:"method"`
 		Code     string `json:"code"`
 		Password string `json:"password"`
 	}
@@ -629,7 +650,21 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_PASSWORD", "Password does not meet the security requirements.")
 		return
 	}
-	userID, err := h.consumeChallenge(r, input.Email, "password_recovery", input.Code)
+	method := normalizePasswordRecoveryMethod(input.Method)
+	if !validPasswordRecoveryMethod(method) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	_, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), input.Email, method)
+	if errors.Is(err, postgres.ErrNotFound) || errors.Is(err, postgres.ErrRecoveryUnavailable) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "password recovery lookup failed", err)
+		return
+	}
+	userID, err := h.consumeChallenge(r, deliveryEmail, "password_recovery", input.Code)
 	if errors.Is(err, postgres.ErrChallengeLocked) {
 		writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
 		return
@@ -660,6 +695,33 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 	h.recordSecurityEvent(r, userID, "password_reset", map[string]any{"purpose": "password_recovery"})
 	h.clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+func normalizePasswordRecoveryMethod(method string) string {
+	method = strings.TrimSpace(method)
+	if method == "" {
+		return passwordRecoveryPrimaryEmail
+	}
+	return method
+}
+
+func validPasswordRecoveryMethod(method string) bool {
+	return method == passwordRecoveryPrimaryEmail || method == passwordRecoveryEmail
+}
+
+func (h *Handler) passwordRecoveryTarget(ctx context.Context, primaryEmail, method string) (postgres.User, string, error) {
+	user, err := h.store.FindUserByEmail(ctx, primaryEmail)
+	if err != nil {
+		return postgres.User{}, "", err
+	}
+	deliveryEmail := normalizeEmail(primaryEmail)
+	if method == passwordRecoveryEmail {
+		deliveryEmail, err = h.store.VerifiedRecoveryEmail(ctx, user.ID)
+		if err != nil {
+			return postgres.User{}, "", err
+		}
+	}
+	return user, normalizeEmail(deliveryEmail), nil
 }
 
 func (h *Handler) mfaStatus(w http.ResponseWriter, r *http.Request) {

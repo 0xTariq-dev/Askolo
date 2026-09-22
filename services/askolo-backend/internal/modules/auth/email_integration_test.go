@@ -435,8 +435,20 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	}
 	assertResponseDoesNotContain(t, unknownRecovery, "unknown@example.com")
 
-	recoveryRequest := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+	deliveryCountBeforeDirectRecovery := sender.count()
+	directRecoveryAddress := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
 		"email": recoveryEmail,
+	}, nil, "192.0.2.161:1000")
+	if directRecoveryAddress.Code != http.StatusAccepted || directRecoveryAddress.Body.String() != unknownRecovery.Body.String() {
+		t.Fatalf("direct recovery address response = %d %q, want generic accepted response", directRecoveryAddress.Code, directRecoveryAddress.Body.String())
+	}
+	if sender.count() != deliveryCountBeforeDirectRecovery {
+		t.Fatalf("direct recovery address unexpectedly sent a message")
+	}
+
+	recoveryRequest := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+		"email":  integrationEmail,
+		"method": "recovery_email",
 	}, nil, "192.0.2.17:1000")
 	if recoveryRequest.Code != http.StatusAccepted {
 		t.Fatalf("recovery request status = %d, body = %s", recoveryRequest.Code, recoveryRequest.Body.String())
@@ -448,7 +460,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	assertResponseDoesNotContain(t, recoveryRequest, recoveryEmail, recoveryCode, integrationPassword)
 
 	recoveryVerify := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/verify", map[string]string{
-		"email": recoveryEmail, "code": recoveryCode,
+		"email": integrationEmail, "method": "recovery_email", "code": recoveryCode,
 	}, nil, "192.0.2.171:1000")
 	if recoveryVerify.Code != http.StatusOK {
 		t.Fatalf("recovery code verification status = %d, body = %s", recoveryVerify.Code, recoveryVerify.Body.String())
@@ -457,7 +469,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 
 	resetPassword := "new correct horse battery staple"
 	reset := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/reset", map[string]string{
-		"email": recoveryEmail, "code": recoveryCode, "password": resetPassword,
+		"email": integrationEmail, "method": "recovery_email", "code": recoveryCode, "password": resetPassword,
 	}, nil, "192.0.2.18:1000")
 	if reset.Code != http.StatusOK {
 		t.Fatalf("password reset status = %d, body = %s", reset.Code, reset.Body.String())

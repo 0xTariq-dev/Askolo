@@ -13,9 +13,12 @@ type PasswordMode =
   | 'signup'
   | 'verify'
   | 'recovery-request'
+  | 'recovery-method'
   | 'recovery-verify'
   | 'recovery-reset'
   | 'mfa';
+
+type RecoveryMethod = 'primary_email' | 'recovery_email';
 
 type AuthPayload = {
   error?: string;
@@ -71,6 +74,8 @@ export function LoginPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [code, setCode] = useState('');
+  const [recoveryMethod, setRecoveryMethod] = useState<RecoveryMethod>('primary_email');
+  const [moreWaysOpen, setMoreWaysOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -112,6 +117,8 @@ export function LoginPage() {
       setCode('');
       setNewPassword('');
       setConfirmPassword('');
+      setRecoveryMethod('primary_email');
+      setMoreWaysOpen(false);
       setResendAvailableAt(null);
       setResendSeconds(0);
     }
@@ -145,12 +152,16 @@ export function LoginPage() {
         setResendAvailableAt(null);
         setNotice('Your email is verified. You can sign in now.');
       } else if (mode === 'recovery-request') {
-        await postAuth('/api/auth/password/recovery/request', { email });
+        setMode('recovery-method');
+        setMoreWaysOpen(false);
+        setRecoveryMethod('primary_email');
+      } else if (mode === 'recovery-method') {
+        await postAuth('/api/auth/password/recovery/request', { email, method: recoveryMethod });
         setMode('recovery-verify');
         startResendCooldown();
-        setNotice('If an eligible verified email matches, a reset code is on its way.');
+        setNotice('If an eligible recovery method matches, a reset code is on its way.');
       } else if (mode === 'recovery-verify') {
-        await postAuth('/api/auth/password/recovery/verify', { email, code });
+        await postAuth('/api/auth/password/recovery/verify', { email, method: recoveryMethod, code });
         setMode('recovery-reset');
         setResendAvailableAt(null);
         setNotice('Code verified. Choose a new password for your Askolo account.');
@@ -161,7 +172,12 @@ export function LoginPage() {
         if (newPassword !== confirmPassword) {
           throw new Error('The passwords do not match.');
         }
-        await postAuth('/api/auth/password/recovery/reset', { email, code, password: newPassword });
+        await postAuth('/api/auth/password/recovery/reset', {
+          email,
+          method: recoveryMethod,
+          code,
+          password: newPassword,
+        });
         setMode('signin');
         setPassword('');
         setNewPassword('');
@@ -200,9 +216,9 @@ export function LoginPage() {
     setNotice(null);
     setSubmitting(true);
     try {
-      await postAuth('/api/auth/password/recovery/request', { email });
+      await postAuth('/api/auth/password/recovery/request', { email, method: recoveryMethod });
       startResendCooldown();
-      setNotice('If an eligible verified email matches, a new reset code is on its way.');
+      setNotice('If an eligible recovery method matches, a new reset code is on its way.');
     } catch (err) {
       applyRetryAfter(err);
       setError(err instanceof Error ? err.message : 'Unable to resend the recovery code.');
@@ -215,12 +231,16 @@ export function LoginPage() {
   const showEmailInput = mode === 'verify' || mode === 'recovery-request';
   const showCodeInput = mode === 'verify' || mode === 'recovery-verify' || mode === 'mfa';
   const showPasswordReset = mode === 'recovery-reset';
-  const showRecoveryEmailSummary = mode === 'recovery-verify' || mode === 'recovery-reset';
+  const showRecoveryEmailSummary =
+    mode === 'recovery-method' || mode === 'recovery-verify' || mode === 'recovery-reset';
+  const recoveryMethodLabel =
+    recoveryMethod === 'primary_email' ? 'your primary email' : 'your enrolled recovery email';
   const heading = {
     signin: 'Sign in with email',
     signup: 'Create your account',
     verify: 'Verify your email',
     'recovery-request': 'Forgot your password?',
+    'recovery-method': 'Choose how to verify',
     'recovery-verify': 'Enter your recovery code',
     'recovery-reset': 'Set a new password',
     mfa: 'Verify your identity',
@@ -324,9 +344,11 @@ export function LoginPage() {
                 {mode === 'verify'
                   ? 'Enter the six-digit code sent to your email.'
                   : mode === 'recovery-request'
-                    ? 'Enter the verified email address on your Askolo account.'
+                    ? 'Enter the primary email address on your Askolo account.'
+                    : mode === 'recovery-method'
+                      ? 'Choose where to send your recovery code.'
                     : mode === 'recovery-verify'
-                      ? 'Enter the six-digit code sent to your verified email address.'
+                      ? `Enter the six-digit code sent to ${recoveryMethodLabel}.`
                       : mode === 'recovery-reset'
                         ? 'Choose a strong password you have not used elsewhere.'
                         : mode === 'mfa'
@@ -349,8 +371,70 @@ export function LoginPage() {
               )}
               {showRecoveryEmailSummary && (
                 <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                  Resetting the password for <span className="font-medium text-foreground">{email}</span>
+                  Account email: <span className="font-medium text-foreground">{email}</span>
                 </div>
+              )}
+              {mode === 'recovery-method' && (
+                <fieldset className="space-y-2">
+                  <legend className="text-sm font-medium text-foreground">Recovery method</legend>
+                  <label
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                      recoveryMethod === 'primary_email'
+                        ? 'border-primary/50 bg-primary/10'
+                        : 'border-border'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="recovery-method"
+                      value="primary_email"
+                      checked={recoveryMethod === 'primary_email'}
+                      onChange={() => setRecoveryMethod('primary_email')}
+                      className="mt-1 accent-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-foreground">Email a code to my primary email</span>
+                      <span className="block text-xs text-muted-foreground">Recommended</span>
+                    </span>
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-auto w-full justify-between px-2 py-2 text-sm"
+                    onClick={() => setMoreWaysOpen((open) => !open)}
+                    aria-expanded={moreWaysOpen}
+                    aria-controls="more-recovery-methods"
+                  >
+                    More ways to verify
+                    <span aria-hidden="true">{moreWaysOpen ? '−' : '+'}</span>
+                  </Button>
+                  {moreWaysOpen && (
+                    <div id="more-recovery-methods">
+                      <label
+                        className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                          recoveryMethod === 'recovery_email'
+                            ? 'border-primary/50 bg-primary/10'
+                            : 'border-border'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="recovery-method"
+                          value="recovery_email"
+                          checked={recoveryMethod === 'recovery_email'}
+                          onChange={() => setRecoveryMethod('recovery_email')}
+                          className="mt-1 accent-primary"
+                        />
+                        <span>
+                          <span className="block text-sm font-medium text-foreground">Use my enrolled recovery email</span>
+                          <span className="block text-xs text-muted-foreground">
+                            This option is available only if you previously added and verified one.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </fieldset>
               )}
               {showCodeInput && (
                 <>
@@ -409,11 +493,13 @@ export function LoginPage() {
                     ? 'Verify email'
                     : mode === 'recovery-request'
                       ? 'Send recovery code'
-                    : mode === 'recovery-verify'
-                      ? 'Verify code'
-                      : mode === 'mfa'
-                        ? 'Verify MFA'
-                        : 'Set new password'}
+                      : mode === 'recovery-method'
+                        ? 'Send recovery code'
+                        : mode === 'recovery-verify'
+                          ? 'Verify code'
+                          : mode === 'mfa'
+                            ? 'Verify MFA'
+                            : 'Set new password'}
               </Button>
             </form>
             {(mode === 'verify' || mode === 'recovery-verify') && (
