@@ -136,11 +136,16 @@ func New(
 	webhookHandler := webhooks.New(logger, cfg.ServiceName)
 	mux.Handle("/webhooks/", webhookHandler)
 	apiMux := http.NewServeMux()
-	apiMux.Handle("/api/auth/", authHandler.Routes())
 	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
+	googleRoutes := googleoauth.NewHandler(cfg, store, logger).Routes()
+	// Google login owns these public paths. Register them before the generic
+	// auth subtree so the native OAuth start and callback handlers receive the
+	// frontend's requests instead of the password-auth mux returning 404.
+	apiMux.Handle("/api/auth/google", googleRoutes)
+	apiMux.Handle("/api/auth/google/", googleRoutes)
+	apiMux.Handle("/api/auth/", authHandler.Routes())
 	apiMux.Handle("/api/auth/github", githubRoutes)
 	apiMux.Handle("/api/auth/github/", githubRoutes)
-	googleRoutes := googleoauth.NewHandler(cfg, store, logger).Routes()
 	productRoutes := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName).Routes()
 	apiMux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

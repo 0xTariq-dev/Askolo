@@ -29,8 +29,9 @@ to become Askolo's primary backend without a second structural rewrite.
   Challenge values, passwords, email bodies, and Resend credentials are never
   written to logs or returned by the API. `/readyz` reports Resend and challenge
   configuration separately; `configured` means settings are present, not that
-  a provider has accepted a message. Readiness remains degraded until a
-  successful provider handoff. After a delivery attempt, it also reports
+   a provider has accepted a message. A fresh process can become ready before
+   its first delivery attempt; `emailDelivery.status: "unknown"` means no
+   attempt has happened yet. After a delivery attempt, it also reports
   aggregate attempt/handoff counts, bounded latency, the last safe outcome, and
   failure counts. The public response never includes an address, code, body,
   provider error, or credential.
@@ -89,7 +90,12 @@ implementations together.
 
 The Go service exposes:
 
-- `GET /api/auth/google` and `/api/auth/google/callback` for login
+- `GET /api/auth/google` and `/api/auth/google/callback` for native login. The
+  optional `intent=signin|signup` query selects the login or explicit signup
+  flow, and `returnTo` must be a same-origin path such as `/dashboard`; unsafe
+  or missing values fall back to `/dashboard`.
+- `GET /api/auth/google/link` and `/api/auth/google/link/callback` for linking
+  a Google identity to an existing session
 - `GET /api/integrations/google` and `/api/integrations/google/callback` for
   Calendar and Gmail-send authorization
 - `GET /api/integrations/google/status` and `/accounts`
@@ -104,6 +110,17 @@ The Go service exposes:
 
 Mailbox reading, metadata, drafts, sync, push notifications, and imported-data
 deletion are intentionally not enabled by these routes.
+
+The public Google login routes are registered ahead of the generic
+`/api/auth/` password and session routes. The callback validates the signed
+state cookie, matches the persisted one-time state, and exchanges the
+authorization code with PKCE before creating the native session. Google login
+uses the separate login client and only requests `openid`, `email`, and
+`profile`; Calendar and Gmail consent uses the separately configured
+integration client and scopes. Outside development, `ASKOLO_CANONICAL_ORIGIN`
+must be an HTTPS origin and its host must be registered with Google. Callback
+failures clear the state cookie and redirect only to the validated same-origin
+`returnTo` path.
 
 ## Commands
 

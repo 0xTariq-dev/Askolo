@@ -2,7 +2,9 @@ package google
 
 import (
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,5 +87,85 @@ func TestCallbackBaseURLOnlyAllowsConfiguredHosts(t *testing.T) {
 	request.Host = "attacker.example"
 	if _, err := handler.callbackBaseURL(request); err == nil {
 		t.Fatal("expected unconfigured host to be rejected")
+	}
+}
+
+func TestGoogleCallbackRejectsExpiredState(t *testing.T) {
+	handler := testOAuthHandler()
+	encoded, err := handler.encodeState(statePayload{
+		Nonce:        "expired-nonce",
+		CodeVerifier: "verifier",
+		ReturnTo:     "/dashboard",
+		Flow:         "login",
+		IssuedAt:     time.Now().Add(-stateTTL - time.Second).Unix(),
+	})
+	if err != nil {
+		t.Fatalf("encode expired state: %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"http://localhost/api/auth/google/callback?state=expired-nonce",
+		nil,
+	)
+	request.Host = "localhost"
+	request.AddCookie(&http.Cookie{Name: stateCookieName, Value: encoded})
+	response := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected expired callback to return 400, got %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), `"code":"INVALID_STATE"`) {
+		t.Fatalf("expected generic invalid-state response, got %q", response.Body.String())
+	}
+	if !strings.Contains(response.Header().Get("Set-Cookie"), "Max-Age=0") {
+		t.Fatalf("expected expired state cookie to be cleared, got %q", response.Header().Get("Set-Cookie"))
+	}
+}
+
+func TestGoogleCallbackRejectsTamperedState(t *testing.T) {
+	handler := testOAuthHandler()
+	encoded, err := handler.encodeState(statePayload{
+		Nonce:        "tampered-nonce",
+		CodeVerifier: "verifier",
+		ReturnTo:     "/dashboard",
+		Flow:         "login",
+		IssuedAt:     time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("encode state: %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"http://localhost/api/auth/google/callback?state=tampered-nonce",
+		nil,
+	)
+	request.Host = "localhost"
+	request.AddCookie(&http.Cookie{Name: stateCookieName, Value: encoded + "tampered"})
+	response := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest ||
+		!strings.Contains(response.Body.String(), `"code":"INVALID_STATE"`) {
+		t.Fatalf("expected tampered callback to return generic 400, got %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestGoogleFailureRedirectUsesSafeSameOriginPath(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://localhost/api/auth/google/callback", nil)
+	request.Host = "localhost"
+	response := httptest.NewRecorder()
+
+	redirectStatus(response, request, "https://evil.example/account", "error")
+
+	if response.Code != http.StatusFound {
+		t.Fatalf("expected failure redirect, got %d", response.Code)
+	}
+	if location := response.Header().Get("Location"); location != "/dashboard?google=error" {
+		t.Fatalf("expected safe dashboard redirect, got %q", location)
 	}
 }
