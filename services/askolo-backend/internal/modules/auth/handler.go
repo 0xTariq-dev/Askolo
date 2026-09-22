@@ -225,7 +225,7 @@ func (h *Handler) passwordSignup(w http.ResponseWriter, r *http.Request) {
 		h.writeStoreError(w, "password signup failed", err)
 		return
 	}
-	if err := h.sendChallenge(r, userID, email, "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email."); err != nil {
+	if err := h.sendChallenge(r, userID, email, "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email.", false); err != nil {
 		h.logChallengeFailure(r, "password_signup", err)
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
@@ -351,7 +351,11 @@ func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
-	if err := h.sendChallenge(r, user.ID, email, "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email."); err != nil {
+	if err := h.sendChallenge(r, user.ID, email, "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email.", true); err != nil {
+		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
+			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A verification message was sent recently. Try again later.")
+			return
+		}
 		h.logChallengeFailure(r, "verification_resend", err)
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
@@ -414,7 +418,11 @@ func (h *Handler) enrollRecoveryEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
-	if err := h.sendChallenge(r, userID, email, "recovery_email_enrollment", "Confirm your Askolo recovery email", "Use this code to confirm your recovery email."); err != nil {
+	if err := h.sendChallenge(r, userID, email, "recovery_email_enrollment", "Confirm your Askolo recovery email", "Use this code to confirm your recovery email.", true); err != nil {
+		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
+			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A verification message was sent recently. Try again later.")
+			return
+		}
 		h.logChallengeFailure(r, "recovery_email_enrollment", err)
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
@@ -500,7 +508,11 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
 	}
-	if err := h.sendChallenge(r, user.ID, email, "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password."); err != nil {
+	if err := h.sendChallenge(r, user.ID, email, "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password.", true); err != nil {
+		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
+			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
+			return
+		}
 		h.logChallengeFailure(r, "password_recovery", err)
 		writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
 		return
@@ -970,6 +982,7 @@ func (h *Handler) challengeConfiguration() error {
 func (h *Handler) sendChallenge(
 	r *http.Request,
 	userID, email, purpose, subject, instruction string,
+	preventRecent bool,
 ) error {
 	if err := h.challengeConfiguration(); err != nil {
 		return err
@@ -982,14 +995,16 @@ func (h *Handler) sendChallenge(
 	if err != nil {
 		return err
 	}
-	if err := h.store.CreateEmailChallenge(
-		r.Context(),
-		challengeID,
-		userID,
-		email,
-		purpose,
-		h.hashChallenge(code),
-		time.Now().Add(emailChallengeTTL),
+	expiresAt := time.Now().Add(emailChallengeTTL)
+	if preventRecent {
+		if err := h.store.CreateEmailChallengeIfAllowed(
+			r.Context(), challengeID, userID, email, purpose, h.hashChallenge(code),
+			expiresAt, time.Now().Add(-emailChallengeResendWindow),
+		); err != nil {
+			return err
+		}
+	} else if err := h.store.CreateEmailChallenge(
+		r.Context(), challengeID, userID, email, purpose, h.hashChallenge(code), expiresAt,
 	); err != nil {
 		return err
 	}
@@ -1025,8 +1040,11 @@ func (h *Handler) recordSecurityEvent(r *http.Request, userID, eventType string,
 	}
 }
 
-func (h *Handler) logChallengeFailure(r *http.Request, operation string, err error) {
-	h.logger.Error("email challenge delivery failed", "operation", operation, "request_id", requestID(r), "error", err)
+func (h *Handler) logChallengeFailure(r *http.Request, operation string, _ error) {
+	// Sender errors may contain recipient addresses or provider-reflected
+	// message content. Keep the operational signal, but never log the raw
+	// provider error alongside an authentication challenge.
+	h.logger.Error("email challenge delivery failed", "operation", operation, "request_id", requestID(r))
 }
 
 func newChallengeCode() (string, error) {

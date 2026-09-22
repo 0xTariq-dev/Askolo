@@ -389,11 +389,26 @@ func (s *Store) DeleteAccount(ctx context.Context, userID string) error {
 	if s == nil || s.pool == nil {
 		return errors.New("database is not configured")
 	}
-	if err := s.DeleteUserSessions(ctx, userID); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
-	return err
+	defer tx.Rollback(ctx)
+	for _, query := range []string{
+		`DELETE FROM sessions WHERE sess->>'userId' = $1`,
+		`DELETE FROM auth_email_challenges WHERE user_id = $1`,
+		`DELETE FROM auth_passwords WHERE user_id = $1`,
+		`DELETE FROM auth_recovery_codes WHERE user_id = $1`,
+		`DELETE FROM auth_recovery_methods WHERE user_id = $1`,
+		`DELETE FROM auth_security_events WHERE user_id = $1`,
+		`DELETE FROM auth_totp WHERE user_id = $1`,
+		`DELETE FROM users WHERE id = $1`,
+	} {
+		if _, err := tx.Exec(ctx, query, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func productColumns(spec ProductSpec) string {

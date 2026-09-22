@@ -22,6 +22,7 @@ var ErrOwnership = errors.New("record does not belong to user")
 var ErrEmailExists = errors.New("email already belongs to an account")
 var ErrChallengeInvalid = errors.New("email challenge is invalid")
 var ErrChallengeLocked = errors.New("email challenge is locked")
+var ErrChallengeRecentlySent = errors.New("email challenge was sent recently")
 var ErrRecoveryUnavailable = errors.New("recovery method is unavailable")
 var ErrMFAAlreadyEnabled = errors.New("multi-factor authentication is already enabled")
 var ErrMFANotEnrolled = errors.New("multi-factor authentication is not enrolled")
@@ -933,6 +934,52 @@ func (s *Store) CreateEmailChallenge(
 		VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6)
 	`, challengeID, userID, strings.ToLower(strings.TrimSpace(email)), purpose, codeHash, expiresAt)
 	return err
+}
+
+func (s *Store) CreateEmailChallengeIfAllowed(
+	ctx context.Context,
+	challengeID, userID, email, purpose, codeHash string,
+	expiresAt, since time.Time,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Serialize challenge creation for an address and purpose so two
+	// concurrent resend requests cannot both pass the recent-send check.
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtextextended(lower($1) || ':' || $2, 0))
+	`, email, purpose); err != nil {
+		return err
+	}
+	var recent bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM auth_email_challenges
+			WHERE lower(email) = lower($1)
+			  AND purpose = $2
+			  AND created_at >= $3
+		)
+	`, strings.TrimSpace(email), purpose, since).Scan(&recent); err != nil {
+		return err
+	}
+	if recent {
+		return ErrChallengeRecentlySent
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO auth_email_challenges
+			(id, user_id, email, purpose, code_hash, expires_at)
+		VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6)
+	`, challengeID, userID, strings.ToLower(strings.TrimSpace(email)), purpose, codeHash, expiresAt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) HasRecentEmailChallenge(

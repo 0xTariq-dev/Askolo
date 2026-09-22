@@ -114,3 +114,18 @@ It also stops a recorded running backend before rebuilding. `run.sh` records
 the managed process under `tmp/askolo-backend.pid`, cleans stale PID state,
 forwards shutdown signals, and terminates the child if graceful shutdown
 fails. The `bin/` and `tmp/` directories are ignored generated state.
+
+### Native email auth integration validation
+
+The native email auth integration suite uses a capture-only sender and creates a
+unique temporary schema in the PostgreSQL database; it never sends real email.
+Run it against a disposable PostgreSQL database or isolated test database role:
+
+```sh
+ASKOLO_TEST_DATABASE_URL='postgres://...' \
+  go test ./internal/modules/auth -run 'TestNativeEmailAuth' -count=1 -v
+```
+
+The test role needs permission to create and drop schemas. The suite drops its
+temporary schema during cleanup. Regular `go test ./...` skips these tests when
+`ASKOLO_TEST_DATABASE_URL` is not set.

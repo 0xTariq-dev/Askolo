@@ -22,4 +22,5 @@
 - [Same-origin auth routing](same-origin-auth-routing.md) — render app routes locally when public and app origins share a host; otherwise redirects can loop forever.
 - [Production autoscale configuration](production-autoscale-config.md) — verify required Go production env vars and internal-auth secret before Autoscale promotion.
 - [Static Go binaries for Autoscale](go-autoscale-static-binary.md) — avoid Nix-loader “not found” crashes by producing and verifying a static production executable.
+- [PostgreSQL test search paths](postgres-test-search-path.md) — encode spaces as `%20` in libpq `options`; `+` can become part of the PostgreSQL setting name.
 
