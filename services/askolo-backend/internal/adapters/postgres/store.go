@@ -1074,6 +1074,61 @@ func (s *Store) ConsumeEmailChallenge(
 	return userID, nil
 }
 
+func (s *Store) VerifyEmailChallenge(
+	ctx context.Context, email, purpose, codeHash string, maxAttempts int,
+) (string, error) {
+	if s == nil {
+		return "", errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var challengeID, userID, storedHash string
+	var attempts int
+	err = tx.QueryRow(ctx, `
+		SELECT id, COALESCE(user_id, ''), code_hash, attempt_count
+		FROM auth_email_challenges
+		WHERE lower(email) = lower($1)
+		  AND purpose = $2
+		  AND consumed_at IS NULL
+		  AND expires_at > NOW()
+		ORDER BY created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, strings.TrimSpace(email), purpose).Scan(&challengeID, &userID, &storedHash, &attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrChallengeInvalid
+	}
+	if err != nil {
+		return "", err
+	}
+	if attempts >= maxAttempts {
+		return "", ErrChallengeLocked
+	}
+
+	attempts++
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_email_challenges
+		SET attempt_count = $2
+		WHERE id = $1
+	`, challengeID, attempts); err != nil {
+		return "", err
+	}
+	if !secureStringEqual(storedHash, codeHash) {
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		return "", ErrChallengeInvalid
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return userID, nil
+}
+
 func (s *Store) MarkEmailVerified(ctx context.Context, userID string) error {
 	if s == nil {
 		return errors.New("database is not configured")

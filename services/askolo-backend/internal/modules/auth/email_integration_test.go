@@ -367,6 +367,26 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	}
 	assertResponseDoesNotContain(t, verify, integrationEmail, signupCode, integrationPassword)
 
+	primaryRecoveryRequest := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+		"email": integrationEmail,
+	}, nil, "192.0.2.121:1000")
+	if primaryRecoveryRequest.Code != http.StatusAccepted {
+		t.Fatalf("primary email recovery request status = %d, body = %s", primaryRecoveryRequest.Code, primaryRecoveryRequest.Body.String())
+	}
+	primaryRecoveryCode := sender.codeForSubject(t, "Reset your Askolo password")
+	assertResponseDoesNotContain(t, primaryRecoveryRequest, integrationEmail, primaryRecoveryCode, integrationPassword)
+
+	primaryRecoveryCooldown := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+		"email": integrationEmail,
+	}, nil, "192.0.2.122:1000")
+	if primaryRecoveryCooldown.Code != http.StatusTooManyRequests || primaryRecoveryCooldown.Header().Get("Retry-After") != "120" {
+		t.Fatalf("primary recovery cooldown = %d, retry-after=%q, body=%s",
+			primaryRecoveryCooldown.Code,
+			primaryRecoveryCooldown.Header().Get("Retry-After"),
+			primaryRecoveryCooldown.Body.String(),
+		)
+	}
+
 	duplicateSignup := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/signup", map[string]string{
 		"email": integrationEmail, "password": "a different password",
 	}, nil, "192.0.2.111:1000")
@@ -426,6 +446,14 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	}
 	recoveryCode := sender.codeForSubject(t, "Reset your Askolo password")
 	assertResponseDoesNotContain(t, recoveryRequest, recoveryEmail, recoveryCode, integrationPassword)
+
+	recoveryVerify := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/verify", map[string]string{
+		"email": recoveryEmail, "code": recoveryCode,
+	}, nil, "192.0.2.171:1000")
+	if recoveryVerify.Code != http.StatusOK {
+		t.Fatalf("recovery code verification status = %d, body = %s", recoveryVerify.Code, recoveryVerify.Body.String())
+	}
+	assertResponseDoesNotContain(t, recoveryVerify, recoveryEmail, recoveryCode, integrationPassword)
 
 	resetPassword := "new correct horse battery staple"
 	reset := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/reset", map[string]string{

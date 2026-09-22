@@ -24,7 +24,7 @@ import (
 const (
 	sessionTTL                 = 7 * 24 * time.Hour
 	emailChallengeTTL          = 3 * time.Minute
-	emailChallengeResendWindow = 60 * time.Second
+	emailChallengeResendWindow = 2 * time.Minute
 	emailChallengeMaxAttempts  = 5
 )
 
@@ -133,6 +133,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/recovery/email/enroll", h.enrollRecoveryEmail)
 	mux.HandleFunc("POST /api/auth/recovery/email/verify", h.verifyRecoveryEmail)
 	mux.HandleFunc("POST /api/auth/password/recovery/request", h.requestPasswordRecovery)
+	mux.HandleFunc("POST /api/auth/password/recovery/verify", h.verifyPasswordRecovery)
 	mux.HandleFunc("POST /api/auth/password/recovery/reset", h.resetPassword)
 	mux.HandleFunc("GET /api/auth/mfa/status", h.mfaStatus)
 	mux.HandleFunc("POST /api/auth/mfa/enroll", h.enrollMFA)
@@ -393,6 +394,7 @@ func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
 		h.writeStoreError(w, "verification resend rate check failed", err)
 		return
 	} else if recent {
+		setEmailChallengeRetryAfter(w)
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A verification message was sent recently. Try again later.")
 		return
 	}
@@ -403,6 +405,7 @@ func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.sendChallenge(r, user.ID, email, "verification_resend", "email_verification", "Verify your Askolo email", "Use this code to verify your Askolo email.", true); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
+			setEmailChallengeRetryAfter(w)
 			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A verification message was sent recently. Try again later.")
 			return
 		}
@@ -535,14 +538,17 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 	email := normalizeEmail(input.Email)
 	user, err := h.store.FindUserByRecoveryEmail(r.Context(), email)
 	if errors.Is(err, postgres.ErrNotFound) {
-		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
-		return
+		user, err = h.store.FindUserByEmail(r.Context(), email)
+		if errors.Is(err, postgres.ErrNotFound) {
+			writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
+			return
+		}
 	}
 	if err != nil {
 		h.writeStoreError(w, "password recovery lookup failed", err)
 		return
 	}
-	if user.Status == "suspended" || user.Status == "deleted" {
+	if user.Status == "suspended" || user.Status == "deleted" || user.EmailVerifiedAt == nil {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
 		return
 	}
@@ -550,6 +556,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		h.writeStoreError(w, "password recovery rate check failed", err)
 		return
 	} else if recent {
+		setEmailChallengeRetryAfter(w)
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
 		return
 	}
@@ -560,6 +567,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 	}
 	if err := h.sendChallenge(r, user.ID, email, "password_recovery", "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password.", true); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
+			setEmailChallengeRetryAfter(w)
 			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
 			return
 		}
@@ -571,7 +579,43 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
 }
 
+func (h *Handler) verifyPasswordRecovery(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(r, 10, 10*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many verification attempts. Try again later.")
+		return
+	}
+	var input struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) || !validChallengeCode(input.Code) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	userID, err := h.verifyChallenge(r, input.Email, "password_recovery", input.Code)
+	if errors.Is(err, postgres.ErrChallengeLocked) {
+		writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
+		return
+	}
+	if errors.Is(err, postgres.ErrChallengeInvalid) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	if err != nil {
+		h.writeStoreError(w, "password recovery code verification failed", err)
+		return
+	}
+	h.recordSecurityEvent(r, userID, "password_recovery_code_verified", map[string]any{"purpose": "password_recovery"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "recovery_code_verified"})
+}
+
 func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
+	if !h.allow(r, 10, 10*time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many password reset attempts. Try again later.")
+		return
+	}
 	var input struct {
 		Email    string `json:"email"`
 		Code     string `json:"code"`
@@ -1107,6 +1151,23 @@ func (h *Handler) consumeChallenge(r *http.Request, email, purpose, code string)
 		h.hashChallenge(code),
 		emailChallengeMaxAttempts,
 	)
+}
+
+func (h *Handler) verifyChallenge(r *http.Request, email, purpose, code string) (string, error) {
+	if err := h.challengeConfiguration(); err != nil {
+		return "", err
+	}
+	return h.store.VerifyEmailChallenge(
+		r.Context(),
+		normalizeEmail(email),
+		purpose,
+		h.hashChallenge(code),
+		emailChallengeMaxAttempts,
+	)
+}
+
+func setEmailChallengeRetryAfter(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", int(emailChallengeResendWindow/time.Second)))
 }
 
 func (h *Handler) hashChallenge(code string) string {

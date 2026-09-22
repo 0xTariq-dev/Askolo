@@ -2,18 +2,37 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { motion } from 'framer-motion';
 import { Github, KeyRound, Sparkles, UserPlus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppAuth } from '@/contexts/auth-context';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 import logoUrl from '/logo.png';
 
-type PasswordMode = 'signin' | 'signup' | 'verify' | 'recovery-request' | 'recovery-reset' | 'mfa';
+type PasswordMode =
+  | 'signin'
+  | 'signup'
+  | 'verify'
+  | 'recovery-request'
+  | 'recovery-verify'
+  | 'recovery-reset'
+  | 'mfa';
 
 type AuthPayload = {
   error?: string;
   status?: string;
 };
+
+const resendCooldownSeconds = 2 * 60;
+
+class AuthRequestError extends Error {
+  retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds = 0) {
+    super(message);
+    this.name = 'AuthRequestError';
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
 
 async function postAuth(path: string, body: Record<string, string>): Promise<AuthPayload> {
   const response = await fetch(`${basePath}${path}`, {
@@ -24,7 +43,11 @@ async function postAuth(path: string, body: Record<string, string>): Promise<Aut
   });
   const payload = (await response.json().catch(() => null)) as AuthPayload | null;
   if (!response.ok) {
-    throw new Error(payload?.error || 'Unable to complete that request right now.');
+    const retryAfterHeader = Number.parseInt(response.headers.get('Retry-After') || '', 10);
+    throw new AuthRequestError(
+      payload?.error || 'Unable to complete that request right now.',
+      Number.isFinite(retryAfterHeader) ? retryAfterHeader : 0,
+    );
   }
   return payload ?? {};
 }
@@ -51,16 +74,46 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const providerIntent = mode === 'signup' ? 'signup' : 'signin';
+
+  const startResendCooldown = (seconds = resendCooldownSeconds) => {
+    setResendAvailableAt(Date.now() + seconds * 1000);
+    setResendSeconds(seconds);
+  };
+
+  const applyRetryAfter = (err: unknown) => {
+    if (err instanceof AuthRequestError && err.retryAfterSeconds > 0) {
+      startResendCooldown(err.retryAfterSeconds);
+    }
+  };
+
+  useEffect(() => {
+    if (!resendAvailableAt) {
+      setResendSeconds(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000));
+      setResendSeconds(remaining);
+      if (remaining === 0) {
+        setResendAvailableAt(null);
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendAvailableAt]);
 
   const changeMode = (nextMode: PasswordMode) => {
     setMode(nextMode);
     setError(null);
     setNotice(null);
-    if (nextMode === 'signin' || nextMode === 'signup') {
+    if (nextMode === 'signin' || nextMode === 'signup' || nextMode === 'recovery-request') {
       setCode('');
       setNewPassword('');
       setConfirmPassword('');
+      setResendAvailableAt(null);
+      setResendSeconds(0);
     }
   };
 
@@ -82,17 +135,25 @@ export function LoginPage() {
       } else if (mode === 'signup') {
         await postAuth('/api/auth/password/signup', { email, password });
         setMode('verify');
+        startResendCooldown();
         setNotice('If an account can be created for this address, a verification code is on its way.');
       } else if (mode === 'verify') {
         await postAuth('/api/auth/email/verify', { email, code });
         setMode('signin');
         setPassword('');
         setCode('');
+        setResendAvailableAt(null);
         setNotice('Your email is verified. You can sign in now.');
       } else if (mode === 'recovery-request') {
         await postAuth('/api/auth/password/recovery/request', { email });
+        setMode('recovery-verify');
+        startResendCooldown();
+        setNotice('If an eligible verified email matches, a reset code is on its way.');
+      } else if (mode === 'recovery-verify') {
+        await postAuth('/api/auth/password/recovery/verify', { email, code });
         setMode('recovery-reset');
-        setNotice('If a verified recovery address matches, a reset code is on its way.');
+        setResendAvailableAt(null);
+        setNotice('Code verified. Choose a new password for your Askolo account.');
       } else if (mode === 'mfa') {
         await postAuth('/api/auth/mfa/verify', { code });
         window.location.assign(`${basePath}/dashboard`);
@@ -109,6 +170,7 @@ export function LoginPage() {
         setNotice('Your password was reset. Sign in with the new password.');
       }
     } catch (err) {
+      applyRetryAfter(err);
       setError(err instanceof Error ? err.message : 'Unable to complete that request right now.');
     } finally {
       setSubmitting(false);
@@ -116,29 +178,55 @@ export function LoginPage() {
   };
 
   const resendVerification = async () => {
-    if (submitting) return;
+    if (submitting || resendSeconds > 0) return;
     setError(null);
     setNotice(null);
     setSubmitting(true);
     try {
       await postAuth('/api/auth/email/resend', { email });
+      startResendCooldown();
       setNotice('If this account is waiting for verification, a new code is on its way.');
     } catch (err) {
+      applyRetryAfter(err);
       setError(err instanceof Error ? err.message : 'Unable to resend the verification code.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const resendRecovery = async () => {
+    if (submitting || resendSeconds > 0) return;
+    setError(null);
+    setNotice(null);
+    setSubmitting(true);
+    try {
+      await postAuth('/api/auth/password/recovery/request', { email });
+      startResendCooldown();
+      setNotice('If an eligible verified email matches, a new reset code is on its way.');
+    } catch (err) {
+      applyRetryAfter(err);
+      setError(err instanceof Error ? err.message : 'Unable to resend the recovery code.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const isPasswordMode = mode === 'signin' || mode === 'signup';
+  const showEmailInput = mode === 'verify' || mode === 'recovery-request';
+  const showCodeInput = mode === 'verify' || mode === 'recovery-verify' || mode === 'mfa';
+  const showPasswordReset = mode === 'recovery-reset';
+  const showRecoveryEmailSummary = mode === 'recovery-verify' || mode === 'recovery-reset';
   const heading = {
     signin: 'Sign in with email',
     signup: 'Create your account',
     verify: 'Verify your email',
-    'recovery-request': 'Recover your account',
-    'recovery-reset': 'Choose a new password',
+    'recovery-request': 'Forgot your password?',
+    'recovery-verify': 'Enter your recovery code',
+    'recovery-reset': 'Set a new password',
     mfa: 'Verify your identity',
   }[mode];
+
+  const cooldownLabel = `${Math.floor(resendSeconds / 60)}:${String(resendSeconds % 60).padStart(2, '0')}`;
 
   return (
     <main className="min-h-screen w-full flex bg-background relative overflow-hidden flex-col items-center justify-center p-4">
@@ -236,12 +324,16 @@ export function LoginPage() {
                 {mode === 'verify'
                   ? 'Enter the six-digit code sent to your email.'
                   : mode === 'recovery-request'
-                    ? 'Use the independently verified recovery email on your account.'
-                    : mode === 'mfa'
-                      ? 'Enter the six-digit code from your authenticator app, or use a recovery code.'
-                    : 'Enter the code from your recovery email and choose a strong password.'}
+                    ? 'Enter the verified email address on your Askolo account.'
+                    : mode === 'recovery-verify'
+                      ? 'Enter the six-digit code sent to your verified email address.'
+                      : mode === 'recovery-reset'
+                        ? 'Choose a strong password you have not used elsewhere.'
+                        : mode === 'mfa'
+                          ? 'Enter the six-digit code from your authenticator app, or use a recovery code.'
+                          : ''}
               </p>
-              {mode !== 'mfa' && (
+              {showEmailInput && (
                 <>
                   <label htmlFor="flow-email" className="sr-only">Email address</label>
                   <Input
@@ -255,7 +347,12 @@ export function LoginPage() {
                   />
                 </>
               )}
-              {mode !== 'recovery-request' && (
+              {showRecoveryEmailSummary && (
+                <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  Resetting the password for <span className="font-medium text-foreground">{email}</span>
+                </div>
+              )}
+              {showCodeInput && (
                 <>
                   <label htmlFor="flow-code" className="sr-only">
                     {mode === 'mfa' ? 'Authenticator or recovery code' : 'Six-digit verification code'}
@@ -279,7 +376,7 @@ export function LoginPage() {
                   />
                 </>
               )}
-              {mode === 'recovery-reset' && (
+              {showPasswordReset && (
                 <>
                   <label htmlFor="new-password" className="sr-only">New password</label>
                   <Input
@@ -312,14 +409,31 @@ export function LoginPage() {
                     ? 'Verify email'
                     : mode === 'recovery-request'
                       ? 'Send recovery code'
+                    : mode === 'recovery-verify'
+                      ? 'Verify code'
                       : mode === 'mfa'
                         ? 'Verify MFA'
-                        : 'Reset password'}
+                        : 'Set new password'}
               </Button>
             </form>
-            {mode === 'verify' && (
-              <Button type="button" variant="link" onClick={resendVerification} disabled={submitting}>
-                Resend verification code
+            {(mode === 'verify' || mode === 'recovery-verify') && (
+              <div className="flex flex-col items-center gap-1 text-center">
+                <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+                  {resendSeconds > 0 ? `Resend available in ${cooldownLabel}` : 'Didn’t receive the code?'}
+                </p>
+                <Button
+                  type="button"
+                  variant="link"
+                  onClick={mode === 'verify' ? resendVerification : resendRecovery}
+                  disabled={submitting || resendSeconds > 0}
+                >
+                  Resend {mode === 'verify' ? 'verification' : 'recovery'} code
+                </Button>
+              </div>
+            )}
+            {showRecoveryEmailSummary && (
+              <Button type="button" variant="link" onClick={() => changeMode('recovery-request')}>
+                Use a different email
               </Button>
             )}
             <Button type="button" variant="link" onClick={() => changeMode('signin')}>
