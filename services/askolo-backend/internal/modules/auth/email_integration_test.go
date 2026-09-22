@@ -341,6 +341,19 @@ func createChallenge(t *testing.T, fixture *emailAuthFixture, handler *Handler, 
 	}
 }
 
+func securityEventCount(t *testing.T, fixture *emailAuthFixture, userID, eventType string) int {
+	t.Helper()
+	var count int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT count(*)
+		FROM auth_security_events
+		WHERE user_id = $1 AND event_type = $2
+	`, userID, eventType).Scan(&count); err != nil {
+		t.Fatalf("count %s security events: %v", eventType, err)
+	}
+	return count
+}
+
 func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	sender := &captureEmailSender{}
@@ -542,12 +555,30 @@ func TestMFARecoverySupportVerifiesPrimaryEmailAndRevokesSessions(t *testing.T) 
 	}
 	code := sender.codeForSubject(t, "Verify your Askolo MFA recovery request")
 	assertResponseDoesNotContain(t, request, email, code)
+	if got := securityEventCount(t, fixture, userID, "mfa_recovery_support_challenge_sent"); got != 1 {
+		t.Fatalf("MFA recovery support challenge-sent events = %d, want one", got)
+	}
 
 	sessionID, err := fixture.store.CreateSession(context.Background(), userID, "password", time.Hour)
 	if err != nil {
 		t.Fatalf("create session before MFA recovery support verification: %v", err)
 	}
 	sessionCookie := &http.Cookie{Name: "askolo.sid", Value: sessionID}
+	invalidCode := "000001"
+	if invalidCode == code {
+		invalidCode = "000002"
+	}
+	invalid := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+		"email": email,
+		"code":  invalidCode,
+	}, sessionCookie, "192.0.2.82:1000")
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), `"code":"INVALID_RECOVERY"`) {
+		t.Fatalf("invalid MFA recovery support verification = %d, body = %s", invalid.Code, invalid.Body.String())
+	}
+	if got := securityEventCount(t, fixture, userID, "mfa_recovery_support_verification_failed"); got != 1 {
+		t.Fatalf("invalid MFA recovery support events = %d, want one", got)
+	}
+
 	verify := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
 		"email": email,
 		"code":  code,
@@ -558,10 +589,120 @@ func TestMFARecoverySupportVerifiesPrimaryEmailAndRevokesSessions(t *testing.T) 
 	if _, err := fixture.store.SessionUserID(context.Background(), sessionID); !errors.Is(err, postgres.ErrNotFound) {
 		t.Fatalf("session after MFA recovery support verification error = %v, want session revoked", err)
 	}
+	if got := securityEventCount(t, fixture, userID, "mfa_recovery_support_verified"); got != 1 {
+		t.Fatalf("MFA recovery support verified events = %d, want one", got)
+	}
+	var sessions int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM sessions WHERE sess->>'userId' = $1
+	`, userID).Scan(&sessions); err != nil {
+		t.Fatalf("count sessions after MFA recovery support verification: %v", err)
+	}
+	if sessions != 0 {
+		t.Fatalf("MFA recovery support left %d active sessions, want zero", sessions)
+	}
 	for _, cookie := range verify.Result().Cookies() {
 		if cookie.Name == "askolo.sid" && cookie.Value != "" {
 			t.Fatalf("MFA recovery support verification issued a session cookie: %+v", cookie)
 		}
+	}
+}
+
+func TestMFARecoverySupportRejectsEnumerationAndPasswordOnlyPayloads(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	sender := &captureEmailSender{}
+	authHandler := testAuthHandler(fixture, sender, slog.Default())
+	unverifiedEmail := "mfa-unverified@example.com"
+	if _, err := fixture.store.CreatePasswordUser(context.Background(), unverifiedEmail, "fixture-password-hash"); err != nil {
+		t.Fatalf("create unverified fixture user: %v", err)
+	}
+
+	unknownRequest := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+		"email": "mfa-unknown@example.com",
+	}, nil, "192.0.2.90:1000")
+	unverifiedRequest := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+		"email": unverifiedEmail,
+	}, nil, "192.0.2.91:1000")
+	if unknownRequest.Code != http.StatusAccepted || unverifiedRequest.Code != http.StatusAccepted ||
+		unknownRequest.Body.String() != `{"status":"mfa_recovery_if_available"}`+"\n" ||
+		unverifiedRequest.Body.String() != unknownRequest.Body.String() {
+		t.Fatalf("unknown/unverified MFA recovery responses differ: unknown=%d %q unverified=%d %q",
+			unknownRequest.Code, unknownRequest.Body.String(), unverifiedRequest.Code, unverifiedRequest.Body.String())
+	}
+	if sender.count() != 0 {
+		t.Fatalf("unknown or unverified MFA recovery request sent %d messages", sender.count())
+	}
+
+	passwordOnly := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+		"password": integrationPassword,
+	}, nil, "192.0.2.92:1000")
+	if passwordOnly.Code != http.StatusBadRequest || !strings.Contains(passwordOnly.Body.String(), `"code":"INVALID_REQUEST"`) {
+		t.Fatalf("password-only MFA recovery request = %d, body = %s", passwordOnly.Code, passwordOnly.Body.String())
+	}
+	if sender.count() != 0 {
+		t.Fatalf("password-only MFA recovery request sent a message")
+	}
+
+	unknownVerification := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+		"email": "mfa-unknown@example.com",
+		"code":  "000001",
+	}, nil, "192.0.2.93:1000")
+	unverifiedVerification := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+		"email": unverifiedEmail,
+		"code":  "000001",
+	}, nil, "192.0.2.94:1000")
+	if unknownVerification.Code != http.StatusBadRequest ||
+		unverifiedVerification.Code != unknownVerification.Code ||
+		unverifiedVerification.Body.String() != unknownVerification.Body.String() {
+		t.Fatalf("unknown/unverified MFA verification responses differ: unknown=%d %q unverified=%d %q",
+			unknownVerification.Code, unknownVerification.Body.String(),
+			unverifiedVerification.Code, unverifiedVerification.Body.String())
+	}
+	if sender.count() != 0 {
+		t.Fatalf("unknown or unverified MFA verification sent %d messages", sender.count())
+	}
+}
+
+func TestMFARecoverySupportRateLimitsRequestAndVerification(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	authHandler := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		response := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+			"email": "rate-limit-unknown@example.com",
+		}, nil, "192.0.2.100:1000")
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("MFA recovery request attempt %d status = %d, body = %s", attempt, response.Code, response.Body.String())
+		}
+	}
+	requestLimited := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+		"email": "rate-limit-unknown@example.com",
+	}, nil, "192.0.2.100:1000")
+	if requestLimited.Code != http.StatusTooManyRequests ||
+		requestLimited.Header().Get("Retry-After") != "60" ||
+		!strings.Contains(requestLimited.Body.String(), `"code":"RATE_LIMITED"`) {
+		t.Fatalf("MFA recovery request rate limit = %d, retry-after=%q, body=%s",
+			requestLimited.Code, requestLimited.Header().Get("Retry-After"), requestLimited.Body.String())
+	}
+
+	for attempt := 1; attempt <= 10; attempt++ {
+		response := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+			"email": "rate-limit-unknown@example.com",
+			"code":  "000001",
+		}, nil, "192.0.2.101:1000")
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("MFA recovery verification attempt %d status = %d, body = %s", attempt, response.Code, response.Body.String())
+		}
+	}
+	verificationLimited := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+		"email": "rate-limit-unknown@example.com",
+		"code":  "000001",
+	}, nil, "192.0.2.101:1000")
+	if verificationLimited.Code != http.StatusTooManyRequests ||
+		verificationLimited.Header().Get("Retry-After") != "60" ||
+		!strings.Contains(verificationLimited.Body.String(), `"code":"RATE_LIMITED"`) {
+		t.Fatalf("MFA recovery verification rate limit = %d, retry-after=%q, body=%s",
+			verificationLimited.Code, verificationLimited.Header().Get("Retry-After"), verificationLimited.Body.String())
 	}
 }
 
