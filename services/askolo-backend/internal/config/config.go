@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -18,26 +19,27 @@ const (
 )
 
 type Config struct {
-	ServiceName       string
-	Environment       string
-	Host              string
-	Port              int
-	InternalAuthToken string
-	DatabaseURL       string
-	DatabaseIdentity  string
-	SessionSecret     string
-	CanonicalOrigin   string
-	SessionCookieName string
-	BuildCommit       string
-	ReleaseTag        string
-	ReleaseMode       string
-	ParentReleaseTag  string
-	TOTPEncryptionKey []byte
-	Email             EmailConfig
-	Google            GoogleOAuthConfig
-	GitHub            GitHubOAuthConfig
-	AssemblyAIKey     string
-	AllowedOAuthHosts map[string]struct{}
+	ServiceName                   string
+	Environment                   string
+	Host                          string
+	Port                          int
+	InternalAuthToken             string
+	DatabaseURL                   string
+	DatabaseIdentity              string
+	SessionSecret                 string
+	CanonicalOrigin               string
+	SessionCookieName             string
+	BuildCommit                   string
+	ReleaseTag                    string
+	ReleaseMode                   string
+	ParentReleaseTag              string
+	EmailChallengeCleanupInterval time.Duration
+	TOTPEncryptionKey             []byte
+	Email                         EmailConfig
+	Google                        GoogleOAuthConfig
+	GitHub                        GitHubOAuthConfig
+	AssemblyAIKey                 string
+	AllowedOAuthHosts             map[string]struct{}
 }
 
 type EmailConfig struct {

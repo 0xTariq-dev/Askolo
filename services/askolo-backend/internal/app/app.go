@@ -25,12 +25,13 @@ const (
 )
 
 type App struct {
-	server       *http.Server
-	logger       *slog.Logger
-	store        *postgres.Store
-	cleanupState *emailChallengeCleanupState
-	environment  string
-	serviceName  string
+	server                    *http.Server
+	logger                    *slog.Logger
+	store                     *postgres.Store
+	cleanupState              *emailChallengeCleanupState
+	configuredCleanupInterval time.Duration
+	environment               string
+	serviceName               string
 }
 
 func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
@@ -40,11 +41,12 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 
 	cleanupState := &emailChallengeCleanupState{}
 	return &App{
-		logger:       logger,
-		store:        store,
-		cleanupState: cleanupState,
-		environment:  cfg.Environment,
-		serviceName:  cfg.ServiceName,
+		logger:                    logger,
+		store:                     store,
+		cleanupState:              cleanupState,
+		configuredCleanupInterval: cfg.EmailChallengeCleanupInterval,
+		environment:               cfg.Environment,
+		serviceName:               cfg.ServiceName,
 		server: &http.Server{
 			Addr:              cfg.Host + ":" + strconv.Itoa(cfg.Port),
 			Handler:           httpapi.New(cfg, logger, store, cleanupState.readiness),
@@ -190,7 +192,8 @@ func (a *App) runEmailChallengeCleanup(ctx context.Context, done chan<- struct{}
 	}
 
 	cleanup()
-	ticker := time.NewTicker(emailChallengeCleanupInterval)
+	interval := a.cleanupInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -200,6 +203,13 @@ func (a *App) runEmailChallengeCleanup(ctx context.Context, done chan<- struct{}
 			cleanup()
 		}
 	}
+}
+
+func (a *App) cleanupInterval() time.Duration {
+	if a != nil && a.configuredCleanupInterval > 0 {
+		return a.configuredCleanupInterval
+	}
+	return emailChallengeCleanupInterval
 }
 
 func (a *App) logCleanupFailureAlert(consecutiveFailures int) {
