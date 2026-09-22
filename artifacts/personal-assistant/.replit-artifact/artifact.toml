@@ -35,5 +35,5 @@ localPort = 8090
 run = "cd ../.. && cd services/askolo-backend && bash ./scripts/run.sh"
 
 [services.production]
-build = ["bash", "../../../services/askolo-backend/scripts/build.sh"]
-run = "../../../services/askolo-backend/bin/askolo-backend"
+build = ["bash", "services/askolo-backend/scripts/build.sh"]
+run = "services/askolo-backend/bin/askolo-backend"
