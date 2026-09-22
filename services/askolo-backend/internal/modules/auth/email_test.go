@@ -92,7 +92,7 @@ func TestResendEmailSenderSendsPayloadAndRequiresProviderMessageID(t *testing.T)
 
 	sender := newResendEmailSender(
 		"unit-test-key",
-		"Askolo <noreply@example.com>",
+		"noreply@example.com",
 		server.URL+"/emails",
 		server.Client(),
 	)
@@ -100,6 +100,7 @@ func TestResendEmailSenderSendsPayloadAndRequiresProviderMessageID(t *testing.T)
 		To:      "user@example.com",
 		Subject: "Verify your Askolo account",
 		Body:    "Use <123456>.\nDo not share this code.",
+		Code:    "123456",
 	})
 	if err != nil {
 		t.Fatalf("Send() error = %v, want nil", err)
@@ -113,6 +114,10 @@ func TestResendEmailSenderSendsPayloadAndRequiresProviderMessageID(t *testing.T)
 	if !strings.Contains(request.HTML, "&lt;123456&gt;") ||
 		strings.Contains(request.HTML, "<123456>") {
 		t.Fatalf("request HTML is not safely escaped: %q", request.HTML)
+	}
+	if !strings.Contains(request.HTML, "Your verification code") ||
+		!strings.Contains(request.HTML, ">123456</div>") {
+		t.Fatalf("request HTML is missing the verification code block: %q", request.HTML)
 	}
 }
 

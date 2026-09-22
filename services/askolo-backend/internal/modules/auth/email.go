@@ -169,6 +169,7 @@ type EmailMessage struct {
 	To      string
 	Subject string
 	Body    string
+	Code    string
 }
 
 type EmailSender interface {
@@ -213,9 +214,10 @@ func newResendEmailSender(apiKey, from, endpoint string, client *http.Client) Em
 	if client == nil {
 		client = &http.Client{Timeout: resendRequestTimeout}
 	}
+	from = askoloFromAddress(from)
 	return &resendEmailSender{
 		apiKey:   strings.TrimSpace(apiKey),
-		from:     strings.TrimSpace(from),
+		from:     from,
 		endpoint: endpoint,
 		client:   client,
 	}
@@ -240,7 +242,7 @@ func (s *resendEmailSender) Send(ctx context.Context, message EmailMessage) erro
 		To:      []string{strings.TrimSpace(message.To)},
 		Subject: message.Subject,
 		Text:    message.Body,
-		HTML:    brandedEmailHTML(message.Body),
+		HTML:    brandedEmailHTML(message),
 	})
 	if err != nil {
 		return emailDeliveryError(EmailDeliveryInternalFailure, false, err)
@@ -287,6 +289,15 @@ func (s *resendEmailSender) Send(ctx context.Context, message EmailMessage) erro
 	return nil
 }
 
+func askoloFromAddress(value string) string {
+	value = strings.TrimSpace(value)
+	parsed, err := mail.ParseAddress(value)
+	if err != nil || parsed.Address == "" {
+		return value
+	}
+	return "Askolo <" + parsed.Address + ">"
+}
+
 func validEmailAddress(value string, allowDisplayName bool) bool {
 	value = strings.TrimSpace(value)
 	if value == "" || strings.ContainsAny(value, "\r\n") {
@@ -303,13 +314,62 @@ func validProviderMessageID(value string) bool {
 	return value != "" && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\r\n")
 }
 
-func brandedEmailHTML(body string) string {
-	escapedBody := html.EscapeString(strings.ReplaceAll(body, "\r\n", "\n"))
-	escapedBody = strings.ReplaceAll(escapedBody, "\n", "<br>\n")
-	return `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17202a;max-width:600px">` +
-		`<div style="font-weight:700;font-size:20px;margin-bottom:24px">Askolo</div>` +
-		`<div>` + escapedBody + `</div>` +
-		`</div>`
+func brandedEmailHTML(message EmailMessage) string {
+	body := strings.ReplaceAll(message.Body, "\r\n", "\n")
+	if message.Code != "" {
+		body = strings.Replace(body, "Your one-time code is: "+message.Code, "", 1)
+	}
+	body = strings.Replace(body, " If you did not request this, you can ignore this message.", "", 1)
+
+	codeBlock := ""
+	if message.Code != "" {
+		codeBlock = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:28px 0">` +
+			`<tr><td align="center" style="background:#eef5ff;border:1px solid #cfe0ff;border-radius:14px;padding:20px">` +
+			`<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.8px;color:#54709a;text-transform:uppercase">Your verification code</div>` +
+			`<div style="font-family:Arial,sans-serif;font-size:36px;font-weight:700;letter-spacing:10px;line-height:1.2;color:#173f7a;margin:10px 0 0 10px">` +
+			html.EscapeString(message.Code) +
+			`</div></td></tr></table>`
+	}
+
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+		`<meta name="viewport" content="width=device-width,initial-scale=1">` +
+		`<title>` + html.EscapeString(message.Subject) + `</title></head>` +
+		`<body style="margin:0;padding:0;background:#f4f7fb">` +
+		`<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">` +
+		`Your Askolo verification code</div>` +
+		`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb">` +
+		`<tr><td align="center" style="padding:32px 16px">` +
+		`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#fff;border:1px solid #e3eaf3;border-radius:20px">` +
+		`<tr><td style="padding:40px 36px 32px">` +
+		`<div style="font-family:Arial,sans-serif;font-size:18px;font-weight:800;letter-spacing:2.5px;color:#2367d1">ASKOLO</div>` +
+		`<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.6px;color:#7b8da5;text-transform:uppercase;margin-top:28px">Secure account access</div>` +
+		`<h1 style="font-family:Arial,sans-serif;font-size:28px;line-height:1.2;color:#17202a;margin:10px 0 20px">` +
+		html.EscapeString(message.Subject) +
+		`</h1>` +
+		emailBodyHTML(body) +
+		codeBlock +
+		`<p style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6;color:#718096;margin:28px 0 0">` +
+		`If you did not request this email, you can safely ignore it.</p>` +
+		`</td></tr><tr><td style="border-top:1px solid #edf1f6;padding:20px 36px">` +
+		`<p style="font-family:Arial,sans-serif;font-size:12px;line-height:1.5;color:#9aa8ba;margin:0">` +
+		`Askolo · Secure access for your account</p>` +
+		`</td></tr></table></td></tr></table></body></html>`
+}
+
+func emailBodyHTML(body string) string {
+	var markup strings.Builder
+	for _, paragraph := range strings.Split(strings.TrimSpace(body), "\n\n") {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			continue
+		}
+		escaped := html.EscapeString(paragraph)
+		escaped = strings.ReplaceAll(escaped, "\n", "<br>\n")
+		markup.WriteString(`<p style="font-family:Arial,sans-serif;font-size:16px;line-height:1.6;color:#3c4a5c;margin:0 0 16px">`)
+		markup.WriteString(escaped)
+		markup.WriteString(`</p>`)
+	}
+	return markup.String()
 }
 
 func isNetTimeout(err error) bool {

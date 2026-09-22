@@ -1063,6 +1063,7 @@ func (h *Handler) sendChallenge(
 		To:      email,
 		Subject: subject,
 		Body:    fmt.Sprintf("%s\n\nYour one-time code is: %s\n\nThis code expires in 15 minutes. If you did not request this, you can ignore this message.", instruction, code),
+		Code:    code,
 	})
 	err = normalizeEmailDeliveryError(err)
 	outcome := emailDeliveryState(err)
