@@ -70,6 +70,7 @@ timeoutMs = 20000
 [userenv]
 
 [userenv.shared]
+AUTH_EMAIL_FROM = "noreply@mail.askolo.app"
 
 [userenv.development]
 ASKOLO_ENVIRONMENT = "development"
