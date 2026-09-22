@@ -762,6 +762,17 @@ func (h *Handler) clientSecret(flow string) (string, error) {
 }
 
 func (h *Handler) callbackBaseURL(r *http.Request) (string, error) {
+	if canonicalOrigin := strings.TrimRight(strings.TrimSpace(h.cfg.CanonicalOrigin), "/"); canonicalOrigin != "" {
+		parsed, err := url.Parse(canonicalOrigin)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
+			parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return "", errors.New("canonical origin is invalid")
+		}
+		if _, ok := h.cfg.AllowedOAuthHosts[parsed.Hostname()]; !ok {
+			return "", errors.New("canonical origin host is not allowed")
+		}
+		return canonicalOrigin, nil
+	}
 	host := strings.TrimSpace(firstHeader(r.Header.Get("X-Forwarded-Host")))
 	if host == "" {
 		host = strings.TrimSpace(r.Host)

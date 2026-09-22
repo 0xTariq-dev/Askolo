@@ -90,6 +90,39 @@ func TestCallbackBaseURLOnlyAllowsConfiguredHosts(t *testing.T) {
 	}
 }
 
+func TestCallbackBaseURLUsesCanonicalOriginForStaging(t *testing.T) {
+	handler := testOAuthHandler()
+	handler.cfg.Environment = "staging"
+	handler.cfg.CanonicalOrigin = "https://staging.askolo.example"
+	handler.cfg.AllowedOAuthHosts = map[string]struct{}{
+		"staging.askolo.example": {},
+	}
+	request := httptest.NewRequest("GET", "https://proxy.example/api/auth/google", nil)
+	request.Host = "proxy.example"
+	request.Header.Set("X-Forwarded-Host", "proxy.example")
+	request.Header.Set("X-Forwarded-Proto", "https")
+
+	base, err := handler.callbackBaseURL(request)
+	if err != nil {
+		t.Fatalf("expected canonical staging origin, got error: %v", err)
+	}
+	if base != "https://staging.askolo.example" {
+		t.Fatalf("expected canonical origin, got %q", base)
+	}
+}
+
+func TestCallbackBaseURLRejectsCanonicalOriginOutsideAllowedHosts(t *testing.T) {
+	handler := testOAuthHandler()
+	handler.cfg.CanonicalOrigin = "https://staging.askolo.example"
+	handler.cfg.AllowedOAuthHosts = map[string]struct{}{"localhost": {}}
+	request := httptest.NewRequest("GET", "https://staging.askolo.example/api/auth/google", nil)
+	request.Host = "staging.askolo.example"
+
+	if _, err := handler.callbackBaseURL(request); err == nil {
+		t.Fatal("expected canonical origin outside allowed hosts to be rejected")
+	}
+}
+
 func TestGoogleCallbackRejectsExpiredState(t *testing.T) {
 	handler := testOAuthHandler()
 	encoded, err := handler.encodeState(statePayload{

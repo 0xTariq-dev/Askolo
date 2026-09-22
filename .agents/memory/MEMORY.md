@@ -1,5 +1,6 @@
 - [Orval codegen dedup](orval-codegen-dedup.md) — after codegen, trim `lib/api-zod/src/index.ts` to a single `generated/api` export to avoid duplicate-name TS2308 errors.
 - [Google OAuth scope preservation](google-oauth-scope-preservation.md) — merge existing scopes with new token responses to avoid losing Calendar/Gmail access on refresh or incremental auth.
+- [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — generated schemas may emit Zod 4 APIs while the workspace runtime remains on Zod 3.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.

@@ -122,6 +122,44 @@ must be an HTTPS origin and its host must be registered with Google. Callback
 failures clear the state cookie and redirect only to the validated same-origin
 `returnTo` path.
 
+### Staging Google OAuth verification
+
+Use a disposable Google OAuth web client for staging. Register exactly this
+redirect URI on that client:
+
+```text
+https://<staging-canonical-host>/api/auth/google/callback
+```
+
+Set `ASKOLO_CANONICAL_ORIGIN` to the same HTTPS origin in the staging backend.
+The Go handler uses this configured origin for both the authorization request and
+the token exchange, even when a reverse proxy supplies a different forwarded
+host. Do not use the frontend preview host or the integration client for native
+login.
+
+Run the check with a disposable Google account and remove the account/client
+afterward:
+
+1. Open `/api/auth/google?returnTo=/dashboard` and complete Google sign-in.
+   Confirm the browser lands on `/dashboard?google=success` (or
+   `google=mfa_required`) and that the native session cookie is present.
+2. In a clean browser session, open
+   `/api/auth/google?intent=signup&returnTo=/sign-up` and complete consent.
+   Confirm `/sign-up?google=success` and verify that the new account has a
+   verified Google email identity.
+3. Repeat with a previously used account to confirm sign-in preserves the
+   existing native account instead of creating a duplicate.
+4. Confirm denied consent redirects to the validated local path with the
+   generic `google=error` status. Replay an expired or already-consumed
+   callback and confirm it returns the generic `INVALID_STATE` response.
+5. Start each flow with an unsafe `returnTo` such as
+   `https://example.invalid/account` and confirm failures land at
+   `/dashboard?google=error`, never at the external URL.
+
+Capture only the staging origin, redirect URI, result status, and timestamp in
+the release record. Never record authorization codes, tokens, client secrets,
+or the disposable account's credentials.
+
 ## Commands
 
 ```sh
