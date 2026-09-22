@@ -26,13 +26,24 @@ import (
 const EmailChallengeCleanupPersistentFailureThreshold = 3
 
 type EmailChallengeCleanupReadiness struct {
-	Status                     string     `json:"status"`
-	ConsecutiveFailures        int        `json:"consecutiveFailures"`
-	PersistentFailureThreshold int        `json:"persistentFailureThreshold"`
-	LastSuccessfulCleanupAt    *time.Time `json:"lastSuccessfulCleanupAt,omitempty"`
+	Status                       string     `json:"status"`
+	ConsecutiveFailures          int        `json:"consecutiveFailures"`
+	PersistentFailureThreshold   int        `json:"persistentFailureThreshold"`
+	LastSuccessfulCleanupAt      *time.Time `json:"lastSuccessfulCleanupAt,omitempty"`
+	PersistentFailureOccurrences int        `json:"persistentFailureOccurrences"`
+	RecoveryEvents               int        `json:"recoveryEvents"`
 }
 
 type EmailChallengeCleanupReadinessProvider func() EmailChallengeCleanupReadiness
+
+type EmailChallengeCleanupDashboard struct {
+	Environment                  string                         `json:"environment"`
+	Service                      string                         `json:"service"`
+	Operation                    string                         `json:"operation"`
+	PersistentFailureOccurrences int                            `json:"persistentFailureOccurrences"`
+	RecoveryEvents               int                            `json:"recoveryEvents"`
+	Readiness                    EmailChallengeCleanupReadiness `json:"readiness"`
+}
 
 func New(
 	cfg config.Config,
@@ -47,6 +58,17 @@ func New(
 		return EmailChallengeCleanupReadiness{
 			Status:                     "unknown",
 			PersistentFailureThreshold: EmailChallengeCleanupPersistentFailureThreshold,
+		}
+	}
+	cleanupDashboard := func() EmailChallengeCleanupDashboard {
+		readiness := cleanupReadiness()
+		return EmailChallengeCleanupDashboard{
+			Environment:                  cfg.Environment,
+			Service:                      cfg.ServiceName,
+			Operation:                    "email_challenge_cleanup",
+			PersistentFailureOccurrences: readiness.PersistentFailureOccurrences,
+			RecoveryEvents:               readiness.RecoveryEvents,
+			Readiness:                    readiness,
 		}
 	}
 	if len(cleanupReadinessProviders) > 0 && cleanupReadinessProviders[0] != nil {
@@ -122,6 +144,11 @@ func New(
 			"mfaSecurity":               mfaSecurityReadiness,
 		})
 	})
+
+	cleanupDashboardHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, cleanupDashboard())
+	})
+	mux.Handle("/internal/monitoring/cleanup", internalAuth.Wrap(cleanupDashboardHandler))
 
 	restHandler := rest.New(logger, cfg.ServiceName)
 	mux.Handle("/internal/rest/", internalAuth.Wrap(http.StripPrefix("/internal/rest", restHandler)))

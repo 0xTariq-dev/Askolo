@@ -59,10 +59,12 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 }
 
 type emailChallengeCleanupState struct {
-	mu                    sync.RWMutex
-	consecutiveFailures   int
-	lastSuccessfulCleanup time.Time
-	alertActive           bool
+	mu                           sync.RWMutex
+	consecutiveFailures          int
+	lastSuccessfulCleanup        time.Time
+	persistentFailureOccurrences int
+	recoveryEvents               int
+	alertActive                  bool
 }
 
 func (s *emailChallengeCleanupState) recordFailure() (int, bool) {
@@ -73,6 +75,7 @@ func (s *emailChallengeCleanupState) recordFailure() (int, bool) {
 		!s.alertActive
 	if shouldAlert {
 		s.alertActive = true
+		s.persistentFailureOccurrences++
 	}
 	return s.consecutiveFailures, shouldAlert
 }
@@ -84,6 +87,9 @@ func (s *emailChallengeCleanupState) recordSuccess(at time.Time) bool {
 	s.consecutiveFailures = 0
 	s.lastSuccessfulCleanup = at.UTC()
 	s.alertActive = false
+	if recovered {
+		s.recoveryEvents++
+	}
 	return recovered
 }
 
@@ -107,10 +113,12 @@ func (s *emailChallengeCleanupState) readiness() httpapi.EmailChallengeCleanupRe
 		lastSuccessfulCleanupAt = &timestamp
 	}
 	return httpapi.EmailChallengeCleanupReadiness{
-		Status:                     status,
-		ConsecutiveFailures:        s.consecutiveFailures,
-		PersistentFailureThreshold: httpapi.EmailChallengeCleanupPersistentFailureThreshold,
-		LastSuccessfulCleanupAt:    lastSuccessfulCleanupAt,
+		Status:                       status,
+		ConsecutiveFailures:          s.consecutiveFailures,
+		PersistentFailureThreshold:   httpapi.EmailChallengeCleanupPersistentFailureThreshold,
+		LastSuccessfulCleanupAt:      lastSuccessfulCleanupAt,
+		PersistentFailureOccurrences: s.persistentFailureOccurrences,
+		RecoveryEvents:               s.recoveryEvents,
 	}
 }
 

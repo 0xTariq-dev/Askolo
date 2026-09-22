@@ -53,6 +53,54 @@ func TestPublishedAPIHealthAlias(t *testing.T) {
 	}
 }
 
+func TestCleanupMonitoringDashboardRequiresInternalAuthAndIsAggregateOnly(t *testing.T) {
+	cfg := testConfig("secret")
+	cleanupReadiness := EmailChallengeCleanupReadiness{
+		Status:                       "persistent_failure",
+		ConsecutiveFailures:          EmailChallengeCleanupPersistentFailureThreshold,
+		PersistentFailureThreshold:   EmailChallengeCleanupPersistentFailureThreshold,
+		PersistentFailureOccurrences: 2,
+		RecoveryEvents:               1,
+	}
+	handler := New(cfg, slog.Default(), nil, func() EmailChallengeCleanupReadiness {
+		return cleanupReadiness
+	})
+
+	unauthorizedRequest := httptest.NewRequest(http.MethodGet, "/internal/monitoring/cleanup", nil)
+	unauthorizedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorizedResponse, unauthorizedRequest)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d", unauthorizedResponse.Code)
+	}
+
+	authorizedRequest := httptest.NewRequest(http.MethodGet, "/internal/monitoring/cleanup", nil)
+	authorizedRequest.Header.Set("X-Askolo-Internal-Token", "secret")
+	authorizedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(authorizedResponse, authorizedRequest)
+	if authorizedResponse.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d with body %q", authorizedResponse.Code, authorizedResponse.Body.String())
+	}
+
+	body := authorizedResponse.Body.String()
+	for _, field := range []string{
+		`"environment":"test"`,
+		`"service":"askolo-backend"`,
+		`"operation":"email_challenge_cleanup"`,
+		`"persistentFailureOccurrences":2`,
+		`"recoveryEvents":1`,
+		`"status":"persistent_failure"`,
+	} {
+		if !strings.Contains(body, field) {
+			t.Fatalf("dashboard response missing %q: %s", field, body)
+		}
+	}
+	for _, field := range []string{"challenge_id", "challengeId", "address", "error", "request_id", "requestId"} {
+		if strings.Contains(body, field) {
+			t.Fatalf("dashboard response exposed %q: %s", field, body)
+		}
+	}
+}
+
 func TestGoogleAuthRoutesPrecedeGenericAuthRoutes(t *testing.T) {
 	cfg := testConfig("secret")
 	cfg.SessionSecret = "test-session-secret"

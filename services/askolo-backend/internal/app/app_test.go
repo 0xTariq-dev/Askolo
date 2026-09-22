@@ -27,6 +27,9 @@ func TestEmailChallengeCleanupStateTracksBoundedReadiness(t *testing.T) {
 		readiness.Status != "transient_failure" || readiness.ConsecutiveFailures != 1 {
 		t.Fatalf("first cleanup failure = %+v, want transient_failure/1", readiness)
 	}
+	if readiness.PersistentFailureOccurrences != 0 || readiness.RecoveryEvents != 0 {
+		t.Fatalf("initial cleanup event counts = %+v, want zero counts", readiness)
+	}
 
 	consecutiveFailures, shouldAlert = state.recordFailure()
 	readiness = state.readiness()
@@ -45,6 +48,16 @@ func TestEmailChallengeCleanupStateTracksBoundedReadiness(t *testing.T) {
 			httpapi.EmailChallengeCleanupPersistentFailureThreshold,
 		)
 	}
+	if readiness.PersistentFailureOccurrences != 1 || readiness.RecoveryEvents != 0 {
+		t.Fatalf("persistent cleanup event counts = %+v, want 1/0", readiness)
+	}
+	consecutiveFailures, shouldAlert = state.recordFailure()
+	readiness = state.readiness()
+	if consecutiveFailures != httpapi.EmailChallengeCleanupPersistentFailureThreshold+1 ||
+		shouldAlert ||
+		readiness.PersistentFailureOccurrences != 1 {
+		t.Fatalf("duplicate persistent cleanup event = %+v, want one occurrence without a new alert", readiness)
+	}
 
 	successfulAt := time.Date(2026, time.September, 22, 12, 34, 56, 123456789, time.FixedZone("test", 3600))
 	if !state.recordSuccess(successfulAt) {
@@ -56,6 +69,9 @@ func TestEmailChallengeCleanupStateTracksBoundedReadiness(t *testing.T) {
 	}
 	if readiness.LastSuccessfulCleanupAt == nil || !readiness.LastSuccessfulCleanupAt.Equal(successfulAt.UTC()) {
 		t.Fatalf("last successful cleanup = %v, want %v", readiness.LastSuccessfulCleanupAt, successfulAt.UTC())
+	}
+	if readiness.PersistentFailureOccurrences != 1 || readiness.RecoveryEvents != 1 {
+		t.Fatalf("recovered cleanup event counts = %+v, want 1/1", readiness)
 	}
 
 	consecutiveFailures, shouldAlert = state.recordFailure()
@@ -70,6 +86,10 @@ func TestEmailChallengeCleanupStateTracksBoundedReadiness(t *testing.T) {
 
 	if state.recordSuccess(successfulAt) {
 		t.Fatal("healthy cleanup incorrectly reported alert recovery")
+	}
+	readiness = state.readiness()
+	if readiness.PersistentFailureOccurrences != 1 || readiness.RecoveryEvents != 1 {
+		t.Fatalf("healthy cleanup changed event counts = %+v, want 1/1", readiness)
 	}
 }
 

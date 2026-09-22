@@ -354,7 +354,8 @@ and aggregate policy fields.
 The service also tracks cleanup health in memory and exposes it under
 `GET /readyz` as `emailChallengeCleanup`. The signal contains only bounded
 aggregate state: `status`, `consecutiveFailures`,
-`persistentFailureThreshold`, and `lastSuccessfulCleanupAt`. Before the first
+`persistentFailureThreshold`, `lastSuccessfulCleanupAt`,
+`persistentFailureOccurrences`, and `recoveryEvents`. Before the first
 completed run, status is `unknown`. One or two consecutive failures are
 `transient_failure`; three or more are `persistent_failure` and make readiness
 return `503` until a cleanup succeeds. A successful run resets the consecutive
@@ -374,3 +375,14 @@ Configure the operational alert to match
 (`operation="email_challenge_cleanup"` and `recovery=true`) as its explicit
 recovery condition. Neither event contains a challenge ID, address, or error
 detail.
+
+For a deployment monitoring view, poll the token-protected
+`GET /internal/monitoring/cleanup` endpoint with the internal service token.
+It returns the deployment `environment`, `service`, fixed
+`operation: "email_challenge_cleanup"`, the number of persistent-failure
+alert occurrences, the number of recovery events, and the latest bounded
+`readiness` state. The counters are process-lifetime aggregates: a new
+instance starts at zero, while the structured alert and recovery logs remain
+the durable deployment history. A dashboard should group or filter by
+`environment`, `service`, and `operation`, and must not display challenge IDs,
+addresses, or error details.
