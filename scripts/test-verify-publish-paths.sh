@@ -79,6 +79,29 @@ grep -Fq \
 [[ ! -e "$sentinel" ]] ||
   { echo "a production build started before the API route contract failed" >&2; exit 1; }
 
+# Invalid smoke-port overrides must fail before any production build starts.
+rm -f -- "$sentinel"
+cp "$repo_root/artifacts/personal-assistant/.replit-artifact/artifact.toml" \
+  "$fixture_artifact/artifact.toml"
+
+set +e
+output="$(
+  PATH="$fixture_bin:$PATH" BUILD_SENTINEL="$sentinel" \
+    PUBLISH_SMOKE_FRONTEND_PORT=not-a-port \
+    bash "$fixture_scripts/verify-publish-paths.sh" 2>&1
+)"
+status=$?
+set -e
+
+[[ "$status" -ne 0 ]] ||
+  { echo "expected invalid smoke frontend port override to fail validation" >&2; exit 1; }
+grep -Fq \
+  'PUBLISH_SMOKE_FRONTEND_PORT must be a port number between 1 and 65535; received "not-a-port"' \
+  <<<"$output" ||
+  { echo "invalid smoke frontend port override was not identified:" >&2; echo "$output" >&2; exit 1; }
+[[ ! -e "$sentinel" ]] ||
+  { echo "a production build started before the invalid smoke port override failed" >&2; exit 1; }
+
 after_status="$(git -C "$repo_root" status --porcelain=v1)"
 [[ "$before_status" == "$after_status" ]] ||
   { echo "publish path fixture changed the working tree" >&2; git -C "$repo_root" status --short >&2; exit 1; }

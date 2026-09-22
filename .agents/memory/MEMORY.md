@@ -28,4 +28,5 @@
 - [Password recovery verification](password-recovery-verification.md) — validate recovery codes on the code page, then atomically consume them during the final password reset.
 - [Deployment health probes](deployment-health-probes.md) — use a cold-start-safe health endpoint for publishing startup probes, not transient operational readiness.
 - [Bare remote test fixtures](bare-remote-test-fixtures.md) — clone temporary bare remotes with an explicit branch because the first push may not set symbolic HEAD.
+- [Publish path smoke isolation](publish-path-smoke-isolation.md) — release smoke checks must choose their own ports and never stop the managed preview API.
 

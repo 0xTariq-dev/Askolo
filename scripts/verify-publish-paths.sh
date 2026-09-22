@@ -43,6 +43,29 @@ require_artifact_line \
   'paths = ["/api", "/healthz", "/readyz", "/ws", "/webhooks"]' \
   "published API routing paths"
 
+validate_port_override() {
+  local variable_name="$1"
+  local value="$2"
+
+  [[ "$value" =~ ^[0-9]{1,5}$ ]] ||
+    die "$variable_name must be a port number between 1 and 65535; received \"$value\""
+
+  local port=$((10#$value))
+  (( port >= 1 && port <= 65535 )) ||
+    die "$variable_name must be a port number between 1 and 65535; received \"$value\""
+}
+
+frontend_port_override="${PUBLISH_SMOKE_FRONTEND_PORT-}"
+api_port_override="${PUBLISH_SMOKE_API_PORT-}"
+router_port_override="${PUBLISH_SMOKE_ROUTER_PORT-}"
+
+[[ -z "$frontend_port_override" ]] ||
+  validate_port_override "PUBLISH_SMOKE_FRONTEND_PORT" "$frontend_port_override"
+[[ -z "$api_port_override" ]] ||
+  validate_port_override "PUBLISH_SMOKE_API_PORT" "$api_port_override"
+[[ -z "$router_port_override" ]] ||
+  validate_port_override "PUBLISH_SMOKE_ROUTER_PORT" "$router_port_override"
+
 line_number() {
   local needle="$1"
   local line
@@ -70,16 +93,96 @@ cd -- "$repo_root"
 echo "Verifying frontend production build from repository root"
 PORT=18131 BASE_PATH=/ pnpm --filter @workspace/personal-assistant run build
 
+api_pid_file="$repo_root/services/askolo-backend/tmp/askolo-backend.pid"
+api_pid_file_stash=""
+
+restore_api_pid_file() {
+  [[ -n "$api_pid_file_stash" ]] || return
+
+  if [[ -f "$api_pid_file" ]]; then
+    local current_pid
+    local stashed_pid
+    current_pid="$(cat -- "$api_pid_file" 2>/dev/null || true)"
+    stashed_pid="$(cat -- "$api_pid_file_stash" 2>/dev/null || true)"
+    if [[ "$current_pid" != "$stashed_pid" ]]; then
+      rm -f -- "$api_pid_file_stash"
+      api_pid_file_stash=""
+      return
+    fi
+  fi
+
+  mv -- "$api_pid_file_stash" "$api_pid_file"
+  api_pid_file_stash=""
+}
+
+if [[ -f "$api_pid_file" ]]; then
+  api_pid_file_stash="$(mktemp "${TMPDIR:-/tmp}/askolo-backend-pid.XXXXXX")"
+  rm -f -- "$api_pid_file_stash"
+  mv -- "$api_pid_file" "$api_pid_file_stash"
+  trap restore_api_pid_file EXIT
+fi
+
 echo "Verifying API production build from repository root"
 bash services/askolo-backend/scripts/build.sh
+restore_api_pid_file
+trap - EXIT
 
 smoke_dir="$(mktemp -d)"
 frontend_pid=""
 api_pid=""
 router_pid=""
-frontend_port=18131
-api_port=18090
-router_port=18130
+
+port_is_available() {
+  local port="$1"
+
+  node - "$port" >/dev/null 2>&1 <<'NODE'
+const net = require("node:net");
+
+const port = Number(process.argv[2]);
+const server = net.createServer();
+
+server.once("error", () => process.exit(1));
+server.listen({ host: "0.0.0.0", port }, () => {
+  server.close(() => process.exit(0));
+});
+NODE
+}
+
+port_was_selected() {
+  local port="$1"
+  local selected
+
+  for selected in "${selected_ports[@]}"; do
+    [[ "$selected" == "$port" ]] && return 0
+  done
+  return 1
+}
+
+select_smoke_port() {
+  local variable_name="$1"
+  local override="$2"
+  local first_candidate="$3"
+  local port="$override"
+
+  if [[ -n "$override" ]]; then
+    port_was_selected "$port" &&
+      die "$variable_name is already selected for another smoke service: $port"
+    port_is_available "$port" ||
+      die "$variable_name is already in use: $port"
+    printf '%s\n' "$port"
+    return
+  fi
+
+  for ((port = first_candidate; port <= 65535; port++)); do
+    port_was_selected "$port" && continue
+    if port_is_available "$port"; then
+      printf '%s\n' "$port"
+      return
+    fi
+  done
+
+  die "could not find an unused port for $variable_name"
+}
 
 cleanup_smoke() {
   local exit_code=$?
@@ -103,6 +206,16 @@ cleanup_smoke() {
   exit "$exit_code"
 }
 trap cleanup_smoke EXIT INT TERM
+
+selected_ports=()
+frontend_port="$(select_smoke_port "PUBLISH_SMOKE_FRONTEND_PORT" "$frontend_port_override" 18000)"
+selected_ports+=("$frontend_port")
+api_port="$(select_smoke_port "PUBLISH_SMOKE_API_PORT" "$api_port_override" 18001)"
+selected_ports+=("$api_port")
+router_port="$(select_smoke_port "PUBLISH_SMOKE_ROUTER_PORT" "$router_port_override" 18002)"
+selected_ports+=("$router_port")
+
+echo "Using smoke ports: frontend=$frontend_port api=$api_port router=$router_port"
 
 wait_for_http() {
   local url="$1"
