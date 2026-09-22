@@ -31,6 +31,7 @@ var ErrEmailExists = errors.New("email already belongs to an account")
 var ErrChallengeInvalid = errors.New("email challenge is invalid")
 var ErrChallengeLocked = errors.New("email challenge is locked")
 var ErrChallengeRecentlySent = errors.New("email challenge was sent recently")
+var ErrRateLimitInvalid = errors.New("rate limit configuration is invalid")
 var ErrRecoveryUnavailable = errors.New("recovery method is unavailable")
 var ErrMFAAlreadyEnabled = errors.New("multi-factor authentication is already enabled")
 var ErrMFANotEnrolled = errors.New("multi-factor authentication is not enrolled")
@@ -1085,6 +1086,79 @@ func (s *Store) HasRecentEmailChallenge(
 		)
 	`, strings.TrimSpace(email), purpose, since).Scan(&exists)
 	return exists, err
+}
+
+// AllowMFARecoveryRateLimit atomically consumes one request from a shared
+// per-bucket window. The caller supplies a one-way bucket hash; this table
+// deliberately has no account, email, or authentication-material columns.
+func (s *Store) AllowMFARecoveryRateLimit(
+	ctx context.Context, bucketHash string, max int, window time.Duration,
+) (bool, error) {
+	if s == nil {
+		return false, errors.New("database is not configured")
+	}
+	if strings.TrimSpace(bucketHash) == "" || max <= 0 || window <= 0 {
+		return false, ErrRateLimitInvalid
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Insert first so concurrent requests for a new bucket serialize on the
+	// primary key. The subsequent FOR UPDATE protects the existing row.
+	insertResult, err := tx.Exec(ctx, `
+INSERT INTO auth_mfa_recovery_rate_limits
+(bucket_hash, window_started_at, request_count)
+VALUES ($1, NOW(), 1)
+ON CONFLICT (bucket_hash) DO NOTHING
+`, bucketHash)
+	if err != nil {
+		return false, err
+	}
+	if insertResult.RowsAffected() == 1 {
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	var startedAt, now time.Time
+	var requestCount int
+	if err := tx.QueryRow(ctx, `
+SELECT window_started_at, request_count, NOW()
+FROM auth_mfa_recovery_rate_limits
+WHERE bucket_hash = $1
+FOR UPDATE
+`, bucketHash).Scan(&startedAt, &requestCount, &now); err != nil {
+		return false, err
+	}
+
+	allowed := true
+	if now.Sub(startedAt) >= window {
+		startedAt = now
+		requestCount = 1
+	} else if requestCount >= max {
+		allowed = false
+	} else {
+		requestCount++
+	}
+
+	if allowed {
+		if _, err := tx.Exec(ctx, `
+UPDATE auth_mfa_recovery_rate_limits
+SET window_started_at = $2, request_count = $3
+WHERE bucket_hash = $1
+`, bucketHash, startedAt, requestCount); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return allowed, nil
 }
 
 func (s *Store) ConsumeEmailChallenge(

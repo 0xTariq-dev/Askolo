@@ -195,11 +195,26 @@ run_validation() {
   validation_pid=$!
 
   wait_for_file "$go_started"
-  [[ -f "$fake_postgres_pid_file" ]] ||
-    fail "$case_name did not start the disposable PostgreSQL process"
-  postgres_pid="$(cat -- "$fake_postgres_pid_file")"
-  [[ "$postgres_pid" =~ ^[0-9]+$ ]] ||
-    fail "$case_name recorded an invalid PostgreSQL pid"
+  if [[ -f "$fake_postgres_pid_file" ]]; then
+    postgres_pid=""
+    for _ in {1..20}; do
+      postgres_pid="$(cat -- "$fake_postgres_pid_file" 2>/dev/null || true)"
+      [[ "$postgres_pid" =~ ^[0-9]+$ ]] && break
+      sleep 0.05
+    done
+    if [[ ! "$postgres_pid" =~ ^[0-9]+$ ]]; then
+      grep -q "Disposable PostgreSQL instance is ready" "$log_file" ||
+        fail "$case_name recorded an invalid PostgreSQL pid"
+      postgres_pid=""
+    fi
+  else
+    # The early-exit fake Go process can finish and trigger validation cleanup
+    # between the startup signal and this read. The validation log is the
+    # durable startup marker in that narrow race; cleanup still verifies the
+    # fake PostgreSQL shutdown marker below.
+    grep -q "Disposable PostgreSQL instance is ready" "$log_file" ||
+      fail "$case_name did not start the disposable PostgreSQL process"
+  fi
 }
 
 run_interruption_case() {

@@ -26,6 +26,10 @@ const (
 	emailChallengeTTL                            = 3 * time.Minute
 	emailChallengeResendWindow                   = 2 * time.Minute
 	emailChallengeMaxAttempts                    = 5
+	mfaRecoveryRequestRateLimit                  = 3
+	mfaRecoveryRequestRateWindow                 = 15 * time.Minute
+	mfaRecoveryVerificationRateLimit             = 10
+	mfaRecoveryVerificationRateWindow            = 10 * time.Minute
 	passwordRecoveryPrimaryEmail                 = "primary_email"
 	passwordRecoveryEmail                        = "recovery_email"
 	mfaRecoverySupportPurpose                    = "mfa_recovery_support"
@@ -869,7 +873,12 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 // primary email. Passwords, recovery emails, and unverified addresses are not
 // accepted as substitutes for identity verification.
 func (h *Handler) requestMFARecoverySupport(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 3, 15*time.Minute) {
+	allowed, err := h.allowMFARecovery(r, "request", mfaRecoveryRequestRateLimit, mfaRecoveryRequestRateWindow)
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery support request rate check failed", err)
+		return
+	}
+	if !allowed {
 		h.recordSecurityEvent(r, "", "mfa_recovery_support_rate_limited", map[string]any{
 			"stage":  "request",
 			"reason": "ip_rate_limit",
@@ -958,7 +967,12 @@ func (h *Handler) requestMFARecoverySupport(w http.ResponseWriter, r *http.Reque
 // request, and revokes sessions. It deliberately stops before any MFA change
 // or session creation so support must perform an additional identity review.
 func (h *Handler) verifyMFARecoverySupport(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 10, 10*time.Minute) {
+	allowed, err := h.allowMFARecovery(r, "verification", mfaRecoveryVerificationRateLimit, mfaRecoveryVerificationRateWindow)
+	if err != nil {
+		h.writeStoreError(w, "MFA recovery support verification rate check failed", err)
+		return
+	}
+	if !allowed {
 		h.recordSecurityEvent(r, "", "mfa_recovery_support_rate_limited", map[string]any{
 			"stage":  "verification",
 			"reason": "ip_rate_limit",
@@ -1703,6 +1717,15 @@ func (h *Handler) allow(r *http.Request, max int, window time.Duration) bool {
 	entry.count++
 	h.limiter.entries[key] = entry
 	return true
+}
+
+func (h *Handler) allowMFARecovery(r *http.Request, stage string, max int, window time.Duration) (bool, error) {
+	key := firstHeader(r.Header.Get("X-Forwarded-For"))
+	if key == "" {
+		key = r.RemoteAddr
+	}
+	digest := sha256.Sum256([]byte("mfa-recovery:" + stage + ":" + key))
+	return h.store.AllowMFARecoveryRateLimit(r.Context(), fmt.Sprintf("%x", digest[:]), max, window)
 }
 
 func (h *Handler) writeStoreError(w http.ResponseWriter, operation string, err error) {

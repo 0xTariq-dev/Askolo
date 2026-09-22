@@ -254,7 +254,12 @@ CREATE TABLE %sauth_totp (
 	created_at timestamptz DEFAULT now() NOT NULL,
 	updated_at timestamptz DEFAULT now() NOT NULL
 );
-`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+CREATE TABLE %sauth_mfa_recovery_rate_limits (
+bucket_hash text PRIMARY KEY,
+window_started_at timestamptz NOT NULL,
+request_count integer NOT NULL
+);
+`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
 func testAuthHandler(fixture *emailAuthFixture, sender EmailSender, logger *slog.Logger) http.Handler {
@@ -763,6 +768,98 @@ func TestMFARecoverySupportRateLimitsRequestAndVerification(t *testing.T) {
 		!strings.Contains(verificationLimited.Body.String(), `"code":"RATE_LIMITED"`) {
 		t.Fatalf("MFA recovery verification rate limit = %d, retry-after=%q, body=%s",
 			verificationLimited.Code, verificationLimited.Header().Get("Retry-After"), verificationLimited.Body.String())
+	}
+}
+
+func TestMFARecoverySupportRateLimitsAcrossInstancesConcurrently(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	first := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	second := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	const requestCount = 12
+	results := make(chan int, requestCount)
+	var waitGroup sync.WaitGroup
+
+	for i := 0; i < requestCount; i++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			handler := first
+			if index%2 == 1 {
+				handler = second
+			}
+			response := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+				"email": "cross-instance-unknown@example.com",
+			}, nil, "192.0.2.200:1000")
+			results <- response.Code
+		}(i)
+	}
+	waitGroup.Wait()
+	close(results)
+
+	accepted, limited := 0, 0
+	for status := range results {
+		switch status {
+		case http.StatusAccepted:
+			accepted++
+		case http.StatusTooManyRequests:
+			limited++
+		default:
+			t.Fatalf("cross-instance MFA recovery request returned unexpected status %d", status)
+		}
+	}
+	if accepted != mfaRecoveryRequestRateLimit || limited != requestCount-mfaRecoveryRequestRateLimit {
+		t.Fatalf("cross-instance request limit accepted=%d limited=%d, want accepted=%d limited=%d",
+			accepted, limited, mfaRecoveryRequestRateLimit, requestCount-mfaRecoveryRequestRateLimit)
+	}
+
+	const verificationCount = 16
+	verificationResults := make(chan int, verificationCount)
+	for i := 0; i < verificationCount; i++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			handler := first
+			if index%2 == 1 {
+				handler = second
+			}
+			response := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+				"email": "cross-instance-unknown@example.com",
+				"code":  "000001",
+			}, nil, "192.0.2.201:1000")
+			verificationResults <- response.Code
+		}(i)
+	}
+	waitGroup.Wait()
+	close(verificationResults)
+
+	invalid, verificationLimited := 0, 0
+	for status := range verificationResults {
+		switch status {
+		case http.StatusBadRequest:
+			invalid++
+		case http.StatusTooManyRequests:
+			verificationLimited++
+		default:
+			t.Fatalf("cross-instance MFA recovery verification returned unexpected status %d", status)
+		}
+	}
+	if invalid != mfaRecoveryVerificationRateLimit ||
+		verificationLimited != verificationCount-mfaRecoveryVerificationRateLimit {
+		t.Fatalf("cross-instance verification limit invalid=%d limited=%d, want invalid=%d limited=%d",
+			invalid, verificationLimited, mfaRecoveryVerificationRateLimit, verificationCount-mfaRecoveryVerificationRateLimit)
+	}
+
+	var storedColumns string
+	if err := fixture.pool.QueryRow(context.Background(), `
+SELECT string_agg(column_name, ',' ORDER BY ordinal_position)
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'auth_mfa_recovery_rate_limits'
+`).Scan(&storedColumns); err != nil {
+		t.Fatalf("inspect MFA recovery rate-limit state: %v", err)
+	}
+	if storedColumns != "bucket_hash,window_started_at,request_count" {
+		t.Fatalf("MFA recovery rate-limit state exposed unexpected columns: %q", storedColumns)
 	}
 }
 

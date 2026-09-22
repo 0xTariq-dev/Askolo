@@ -30,4 +30,5 @@
 - [Bare remote test fixtures](bare-remote-test-fixtures.md) — clone temporary bare remotes with an explicit branch because the first push may not set symbolic HEAD.
 - [Publish path smoke isolation](publish-path-smoke-isolation.md) — release smoke checks must choose their own ports and never stop the managed preview API.
 - [Native auth validation timing](native-email-auth-validation.md) — the synthetic cleanup harness can race on fake PostgreSQL pid handoff; distinguish it from backend failures.
+- [MFA recovery throttling](mfa-recovery-rate-limits.md) — enforce recovery request and verification buckets in shared PostgreSQL state using hashed client keys only.
 
