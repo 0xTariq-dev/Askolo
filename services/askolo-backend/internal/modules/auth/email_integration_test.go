@@ -608,6 +608,66 @@ func TestMFARecoverySupportVerifiesPrimaryEmailAndRevokesSessions(t *testing.T) 
 	}
 }
 
+func TestMFARecoverySupportRejectsInactiveAccounts(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	sender := &captureEmailSender{}
+	authHandler := testAuthHandler(fixture, sender, slog.Default())
+	expectedVerification := `{"code":"INVALID_RECOVERY","error":"The recovery request is invalid or expired."}` + "\n"
+
+	for _, status := range []string{"suspended", "deleted"} {
+		t.Run(status, func(t *testing.T) {
+			email := "mfa-" + status + "@example.com"
+			userID := createVerifiedUser(t, fixture, email, "correct horse battery staple")
+			if _, err := fixture.pool.Exec(context.Background(), `
+INSERT INTO auth_totp (user_id, secret_encrypted, enabled_at)
+VALUES ($1, 'fixture-secret', NOW())
+`, userID); err != nil {
+				t.Fatalf("enable fixture MFA: %v", err)
+			}
+			sessionID, err := fixture.store.CreateSession(context.Background(), userID, "password", time.Hour)
+			if err != nil {
+				t.Fatalf("create session for inactive account: %v", err)
+			}
+			if _, err := fixture.pool.Exec(context.Background(), `
+UPDATE users SET status = $2 WHERE id = $1
+`, userID, status); err != nil {
+				t.Fatalf("mark account %s: %v", status, err)
+			}
+
+			request := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
+				"email": email,
+			}, nil, "192.0.2.120:1000")
+			if request.Code != http.StatusAccepted || request.Body.String() != `{"status":"mfa_recovery_if_available"}`+"\n" {
+				t.Fatalf("inactive MFA recovery support request = %d, body = %s", request.Code, request.Body.String())
+			}
+			if sender.count() != 0 {
+				t.Fatalf("inactive MFA recovery support request sent %d messages", sender.count())
+			}
+
+			code := "123456"
+			createChallenge(t, fixture, NewHandler(fixture.authConfig, fixture.store, slog.Default()), userID, email, mfaRecoverySupportPurpose, code, time.Now().Add(emailChallengeTTL))
+			verify := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
+				"email": email,
+				"code":  code,
+			}, &http.Cookie{Name: fixture.authConfig.SessionCookieName, Value: sessionID}, "192.0.2.121:1000")
+			if verify.Code != http.StatusBadRequest || verify.Body.String() != expectedVerification {
+				t.Fatalf("inactive MFA recovery support verification = %d, body = %s", verify.Code, verify.Body.String())
+			}
+			if got := securityEventCount(t, fixture, userID, "mfa_recovery_support_verified"); got != 0 {
+				t.Fatalf("inactive MFA recovery support verified events = %d, want zero", got)
+			}
+			if got, err := fixture.store.SessionUserID(context.Background(), sessionID); err != nil || got != userID {
+				t.Fatalf("session after inactive MFA recovery support verification = user=%q err=%v, want user=%q", got, err, userID)
+			}
+			for _, cookie := range verify.Result().Cookies() {
+				if cookie.Name == fixture.authConfig.SessionCookieName && cookie.Value != "" {
+					t.Fatalf("inactive MFA recovery support verification issued a session cookie: %+v", cookie)
+				}
+			}
+		})
+	}
+}
+
 func TestMFARecoverySupportRejectsEnumerationAndPasswordOnlyPayloads(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	sender := &captureEmailSender{}

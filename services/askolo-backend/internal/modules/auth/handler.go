@@ -981,7 +981,8 @@ func (h *Handler) verifyMFARecoverySupport(w http.ResponseWriter, r *http.Reques
 
 	email := normalizeEmail(input.Email)
 	user, err := h.store.FindUserByEmail(r.Context(), email)
-	if errors.Is(err, postgres.ErrNotFound) || err == nil && user.EmailVerifiedAt == nil {
+	if errors.Is(err, postgres.ErrNotFound) ||
+		err == nil && (user.EmailVerifiedAt == nil || user.Status == "suspended" || user.Status == "deleted") {
 		h.recordSecurityEvent(r, "", "mfa_recovery_support_verification_failed", map[string]any{
 			"reason": "unavailable_account",
 		})
