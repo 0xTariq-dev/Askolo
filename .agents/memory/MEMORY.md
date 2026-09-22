@@ -25,4 +25,5 @@
 - [PostgreSQL test search paths](postgres-test-search-path.md) — encode spaces as `%20` in libpq `options`; `+` can become part of the PostgreSQL setting name.
 - [Auth email delivery retry safety](auth-email-delivery-retry.md) — release challenges only for retry-safe failures; retain uncertain handoffs so cooldowns prevent duplicates.
 - [Password recovery verification](password-recovery-verification.md) — validate recovery codes on the code page, then atomically consume them during the final password reset.
+- [Deployment health probes](deployment-health-probes.md) — use a cold-start-safe health endpoint for publishing startup probes, not transient operational readiness.
 
