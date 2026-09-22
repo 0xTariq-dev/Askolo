@@ -41,10 +41,6 @@ type Config struct {
 }
 
 type EmailConfig struct {
-	SMTPHost        string
-	SMTPPort        int
-	SMTPUsername    string
-	SMTPPassword    string
 	ResendAPIKey    string
 	FromAddress     string
 	ChallengeSecret string
@@ -58,19 +54,6 @@ func (e EmailConfig) ResendConfigurationStatus() string {
 		return "invalid"
 	}
 	if parsed, err := mail.ParseAddress(e.FromAddress); err != nil || parsed.Address == "" {
-		return "invalid"
-	}
-	return "configured"
-}
-
-func (e EmailConfig) SMTPConfigurationStatus() string {
-	if strings.TrimSpace(e.SMTPHost) == "" || strings.TrimSpace(e.FromAddress) == "" {
-		return "missing"
-	}
-	if e.SMTPPort < 1 || e.SMTPPort > 65535 {
-		return "invalid"
-	}
-	if (strings.TrimSpace(e.SMTPUsername) == "") != (strings.TrimSpace(e.SMTPPassword) == "") {
 		return "invalid"
 	}
 	return "configured"
@@ -109,11 +92,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	smtpPort, err := envPort("AUTH_SMTP_PORT", 587)
-	if err != nil {
-		return Config{}, err
-	}
-
 	explicitEnvironment := strings.TrimSpace(os.Getenv("ASKOLO_ENVIRONMENT"))
 	environment := explicitEnvironment
 	if environment == "" {
@@ -223,10 +201,6 @@ func Load() (Config, error) {
 		ParentReleaseTag:  parentReleaseTag,
 		TOTPEncryptionKey: totpEncryptionKey,
 		Email: EmailConfig{
-			SMTPHost:        strings.TrimSpace(os.Getenv("AUTH_SMTP_HOST")),
-			SMTPPort:        smtpPort,
-			SMTPUsername:    strings.TrimSpace(os.Getenv("AUTH_SMTP_USERNAME")),
-			SMTPPassword:    os.Getenv("AUTH_SMTP_PASSWORD"),
 			ResendAPIKey:    strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
 			FromAddress:     strings.TrimSpace(os.Getenv("AUTH_EMAIL_FROM")),
 			ChallengeSecret: challengeSecret,

@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
-	"net/smtp"
 	"strings"
 	"sync"
 	"time"
@@ -312,105 +310,6 @@ func brandedEmailHTML(body string) string {
 		`<div style="font-weight:700;font-size:20px;margin-bottom:24px">Askolo</div>` +
 		`<div>` + escapedBody + `</div>` +
 		`</div>`
-}
-
-type smtpEmailSender struct {
-	host     string
-	port     int
-	username string
-	password string
-	from     string
-}
-
-func NewSMTPEmailSender(cfg config.Config) EmailSender {
-	return &smtpEmailSender{
-		host:     cfg.Email.SMTPHost,
-		port:     cfg.Email.SMTPPort,
-		username: cfg.Email.SMTPUsername,
-		password: cfg.Email.SMTPPassword,
-		from:     cfg.Email.FromAddress,
-	}
-}
-
-func (s *smtpEmailSender) Send(ctx context.Context, message EmailMessage) error {
-	if s == nil || strings.TrimSpace(s.host) == "" || strings.TrimSpace(s.from) == "" {
-		return ErrEmailDeliveryNotConfigured
-	}
-	if strings.ContainsAny(s.from, "\r\n") || strings.ContainsAny(message.To, "\r\n") {
-		return emailDeliveryError(EmailDeliveryConfigurationInvalid, true, errors.New("email address contains invalid header characters"))
-	}
-	if s.port < 1 || s.port > 65535 {
-		return emailDeliveryError(EmailDeliveryConfigurationInvalid, true, errors.New("SMTP port is invalid"))
-	}
-	select {
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return emailDeliveryError(EmailDeliveryTimeout, true, ctx.Err())
-		}
-		return emailDeliveryError(EmailDeliveryConnectionFailure, true, ctx.Err())
-	default:
-	}
-
-	dialer := net.Dialer{Timeout: 10 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(s.host, fmt.Sprintf("%d", s.port)))
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || isNetTimeout(err) {
-			return emailDeliveryError(EmailDeliveryTimeout, true, err)
-		}
-		return emailDeliveryError(EmailDeliveryConnectionFailure, true, err)
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
-
-	client, err := smtp.NewClient(conn, s.host)
-	if err != nil {
-		return emailDeliveryError(EmailDeliveryConnectionFailure, true, err)
-	}
-	defer client.Close()
-
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		if err := client.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.host}); err != nil {
-			if isNetTimeout(err) {
-				return emailDeliveryError(EmailDeliveryTimeout, true, err)
-			}
-			return emailDeliveryError(EmailDeliveryConnectionFailure, true, err)
-		}
-	} else if s.username != "" {
-		return emailDeliveryError(EmailDeliveryConfigurationInvalid, true, errors.New("SMTP server does not support required TLS"))
-	}
-
-	if s.username != "" {
-		if err := client.Auth(smtp.PlainAuth("", s.username, s.password, s.host)); err != nil {
-			return emailDeliveryError(EmailDeliveryAuthenticationFailure, true, err)
-		}
-	}
-	if err := client.Mail(s.from); err != nil {
-		return emailDeliveryError(EmailDeliveryProviderRejection, true, err)
-	}
-	if err := client.Rcpt(message.To); err != nil {
-		return emailDeliveryError(EmailDeliveryProviderRejection, true, err)
-	}
-	writer, err := client.Data()
-	if err != nil {
-		return emailDeliveryError(EmailDeliveryProviderRejection, true, err)
-	}
-	_, writeErr := io.WriteString(writer, strings.Join([]string{
-		"From: " + s.from,
-		"To: " + message.To,
-		"Subject: " + message.Subject,
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		message.Body,
-		"",
-	}, "\r\n"))
-	closeErr := writer.Close()
-	if writeErr != nil {
-		return emailDeliveryError(EmailDeliveryProviderRejection, false, writeErr)
-	}
-	if closeErr != nil {
-		return emailDeliveryError(EmailDeliveryProviderRejection, false, closeErr)
-	}
-	return nil
 }
 
 func isNetTimeout(err error) bool {
