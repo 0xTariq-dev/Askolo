@@ -8,6 +8,8 @@ binary="$bin_dir/askolo-backend"
 tmp_binary="$bin_dir/.askolo-backend.$$.tmp"
 pid_file="$service_root/tmp/askolo-backend.pid"
 
+cd -- "$service_root"
+
 cleanup() {
   rm -f -- "$tmp_binary"
 }
