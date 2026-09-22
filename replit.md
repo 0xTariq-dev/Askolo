@@ -5,8 +5,7 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 ## Run & Operate
 
 - `pnpm --filter @workspace/personal-assistant run dev` — run the web app (requires `PORT` and `BASE_PATH` env vars)
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port from `PORT`, default 8080 in dev)
-- `cd services/askolo-backend && bash ./scripts/run.sh` — run the companion Go backend locally (port 8090 by default)
+- `cd services/askolo-backend && bash ./scripts/run.sh` — run the Go backend locally (port 8090 by default)
 - `cd services/askolo-backend && go test ./...` — run Go backend tests
 - `cd services/askolo-backend && bash ./scripts/build.sh` — test, vet, and atomically replace the compiled Go backend binary
 - `pnpm run typecheck` — full typecheck across all packages
@@ -19,7 +18,7 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - Web: React, Vite, Tailwind CSS v4, shadcn/ui, Framer Motion, Wouter, Clerk
-- API: Express 5 and the companion Go backend during staged migration
+- API: Go HTTP backend
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
@@ -27,8 +26,8 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 
 ## Where things live
 
-- API routes: `artifacts/api-server/src/routes/`
-- Google OAuth & API helpers: `artifacts/api-server/src/lib/googleOAuth.ts`, `googleCalendar.ts`, `gmail.ts`, `googleStatus.ts`
+- API routes: `services/askolo-backend/internal/httpapi/` and `services/askolo-backend/internal/modules/`
+- Google OAuth & API helpers: `services/askolo-backend/internal/modules/google/`
 - Web pages: `artifacts/personal-assistant/src/pages/`
 - Shared layouts: `artifacts/personal-assistant/src/components/layout/`
 - DB schema: `lib/db/src/schema/`

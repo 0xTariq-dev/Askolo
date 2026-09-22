@@ -25,3 +25,15 @@ to = "/index.html"
 [services.env]
 PORT = "18131"
 BASE_PATH = "/"
+
+[[services]]
+name = "api"
+paths = ["/api", "/healthz", "/readyz", "/ws", "/webhooks"]
+localPort = 8090
+
+[services.development]
+run = "cd ../.. && cd services/askolo-backend && bash ./scripts/run.sh"
+
+[services.production]
+build = ["bash", "../../services/askolo-backend/scripts/build.sh"]
+run = "services/askolo-backend/bin/askolo-backend"

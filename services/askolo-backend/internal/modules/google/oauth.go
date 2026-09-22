@@ -106,6 +106,12 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/integrations/google/callback", h.finishIntegration)
 	mux.HandleFunc("GET /api/integrations/google/status", h.status)
 	mux.HandleFunc("GET /api/integrations/google/accounts", h.status)
+	// Legacy frontend contract. These aliases remain Go-owned; they do not
+	// forward to the removed TypeScript service.
+	mux.HandleFunc("GET /api/google/status", h.status)
+	mux.HandleFunc("GET /api/google/gmail/connect", h.startIntegration)
+	mux.HandleFunc("GET /api/google/gmail/callback", h.finishIntegration)
+	mux.HandleFunc("DELETE /api/google/disconnect", h.revokeAll)
 	mux.HandleFunc("DELETE /api/integrations/google/{connectionID}", h.disconnect)
 	mux.HandleFunc("DELETE /api/integrations/google/{connectionID}/services/{service}", h.disconnectService)
 	mux.HandleFunc("PATCH /api/integrations/google/{connectionID}/capabilities/{capability}", h.setCapability)
@@ -117,6 +123,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/integrations/google/calendar/events/{eventID}", h.updateCalendarEvent)
 	mux.HandleFunc("DELETE /api/integrations/google/calendar/events/{eventID}", h.deleteCalendarEvent)
 	mux.HandleFunc("POST /api/integrations/google/gmail/send", h.sendGmail)
+	mux.HandleFunc("GET /api/google/calendar/events", h.listCalendarEvents)
+	mux.HandleFunc("POST /api/google/calendar/events", legacyCalendarEvent(h.createCalendarEvent))
+	mux.HandleFunc("PATCH /api/google/calendar/events/{eventID}", legacyCalendarEvent(h.updateCalendarEvent))
+	mux.HandleFunc("DELETE /api/google/calendar/events/{eventID}", h.deleteCalendarEvent)
+	mux.HandleFunc("POST /api/google/calendar/sync", h.legacyCalendarSync)
+	mux.HandleFunc("GET /api/google/gmail/messages", h.legacyGmailMessages)
+	mux.HandleFunc("POST /api/google/gmail/draft", h.legacyGmailDraft)
+	mux.HandleFunc("POST /api/google/gmail/send", h.sendGmail)
 	return mux
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
@@ -13,6 +14,7 @@ import (
 	authorizationmodule "askolo/backend/internal/modules/authorization"
 	githuboauth "askolo/backend/internal/modules/github"
 	googleoauth "askolo/backend/internal/modules/google"
+	productmodule "askolo/backend/internal/modules/product"
 	"askolo/backend/internal/platform/apierror"
 	"askolo/backend/internal/platform/auth"
 	"askolo/backend/internal/platform/httpx"
@@ -33,6 +35,16 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 		})
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"service":     cfg.ServiceName,
+			"status":      "ok",
+			"environment": cfg.Environment,
+			"release":     cfg.ReleaseTag,
+			"commit":      cfg.BuildCommit,
+			"origin":      cfg.CanonicalOrigin,
+		})
+	})
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"service":     cfg.ServiceName,
 			"status":      "ok",
@@ -92,7 +104,25 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) http.Han
 	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
 	apiMux.Handle("/api/auth/github", githubRoutes)
 	apiMux.Handle("/api/auth/github/", githubRoutes)
-	apiMux.Handle("/api/", googleoauth.NewHandler(cfg, store, logger).Routes())
+	googleRoutes := googleoauth.NewHandler(cfg, store, logger).Routes()
+	productRoutes := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName).Routes()
+	apiMux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/habits"),
+			strings.HasPrefix(r.URL.Path, "/api/goals"),
+			strings.HasPrefix(r.URL.Path, "/api/daily-plans"),
+			strings.HasPrefix(r.URL.Path, "/api/events"),
+			strings.HasPrefix(r.URL.Path, "/api/chores"),
+			strings.HasPrefix(r.URL.Path, "/api/notes"),
+			strings.HasPrefix(r.URL.Path, "/api/action-items"),
+			strings.HasPrefix(r.URL.Path, "/api/dashboard"),
+			strings.HasPrefix(r.URL.Path, "/api/ai/"),
+			strings.HasPrefix(r.URL.Path, "/api/user/"):
+			productRoutes.ServeHTTP(w, r)
+		default:
+			googleRoutes.ServeHTTP(w, r)
+		}
+	}))
 	mux.Handle("/api/", apiMux)
 	mux.HandleFunc("/", notFound)
 

@@ -8,7 +8,7 @@ Google Calendar and Gmail are optional integrations. Users can connect them
 when they want calendar synchronization, inbox triage, or email workflows, but
 the core product is designed to work without Google access.
 
-This repository contains the Askolo web application, its API server, shared
+This repository contains the Askolo web application, its Go API server, shared
 packages, database schema, generated API clients, and Replit artifact
 configuration.
 
@@ -64,7 +64,6 @@ production routing. The local artifact preview path is `/`.
 .
 ├── artifacts/
 │   ├── personal-assistant/       # Askolo React/Vite web application
-│   ├── api-server/               # Express API and production API artifact
 │   └── mockup-sandbox/           # Isolated component preview environment
 ├── lib/
 │   ├── api-spec/                 # OpenAPI source and Orval configuration
@@ -109,33 +108,30 @@ artifacts/personal-assistant/
 ### Important API directories
 
 ```text
-artifacts/api-server/
-├── src/
-│   ├── lib/                      # OAuth, AI, logging, voice, and server helpers
-│   ├── middlewares/              # Clerk proxy and request middleware
-│   ├── routes/                   # Express route modules
-│   ├── app.ts                    # Express app composition
-│   └── index.ts                  # PORT validation and server startup
-├── build.mjs                     # API esbuild entry
-└── .replit-artifact/
-    └── artifact.toml             # API artifact routing and health check
+services/askolo-backend/
+├── internal/
+│   ├── adapters/                 # PostgreSQL persistence and provider adapters
+│   ├── httpapi/                  # Canonical public edge routing
+│   └── modules/                  # Auth, product, provider, and realtime APIs
+├── cmd/                          # Go backend entrypoint
+└── scripts/                      # Build and run helpers
 ```
 
 ## Architecture
 
 ### Web and API boundary
 
-Askolo uses two Replit artifacts:
+Askolo uses a React frontend artifact and a Go public edge:
 
 | Artifact                       | Local port | Routed path | Role                       |
 | ------------------------------ | ---------: | ----------- | -------------------------- |
 | `artifacts/personal-assistant` |    `18131` | `/`         | React/Vite web application |
-| `artifacts/api-server`         |     `8080` | `/api`      | Express API server         |
+| `services/askolo-backend`      |     `8090` | `/api`      | Go API and public edge     |
 
 The browser calls the API through the same application origin using `/api/...`
-paths. In production, Replit routes `/api` to the API artifact and all other
-paths to the web artifact. This avoids hard-coding a localhost address or a
-development domain into browser code.
+paths. Go owns the public `/api` edge while the frontend remains a static
+artifact. This avoids hard-coding a localhost address or a development domain
+into browser code.
 
 ### Frontend routing
 
@@ -152,32 +148,28 @@ their route is needed.
 
 The project intentionally supports two authentication modes:
 
-- **Development and testing:** Clerk is used for the browser and API. Clerk
-  routes are loaded lazily so development authentication does not increase
-  the initial production bundle.
-- **Production:** the application uses the native OAuth/session path. The API
-  handles the browser login, callback, logout, and mobile token exchange
-  endpoints.
+- **Development and testing:** the frontend can load its development auth
+  helpers, but public API requests still target the Go edge.
+- **Production:** the application uses the native OAuth/session path. Go
+  handles browser login, callbacks, logout, and session endpoints.
 
-The API checks `NODE_ENV` to select the production authentication path. Do not
-change the production/development distinction casually; it affects middleware,
-session handling, redirect behavior, and which frontend route tree is loaded.
+The Go configuration selects the environment-aware authentication path. Do not
+change that distinction casually; it affects cookies, redirects, and session
+handling.
 
 ### API and data flow
 
 The normal authenticated request flow is:
 
 1. The browser sends a request to `/api/...`.
-2. Express middleware applies logging, CORS, body parsing, and the appropriate
-   authentication middleware.
+2. Go middleware applies request limits, origin/CSRF checks, and authentication.
 3. The route validates request data and resolves the current user.
-4. The route reads or writes PostgreSQL through Drizzle ORM.
+4. The route reads or writes PostgreSQL through the Go store.
 5. Responses are returned using the API shapes defined by the OpenAPI spec and
    shared Zod schemas.
 
-AI-backed routes may also call the OpenAI integration, AssemblyAI, or other
-provider-specific helpers. AI credit reservation and reconciliation are
-handled server-side.
+AI-backed routes may also call AssemblyAI or other provider-specific helpers.
+Voice consent, limits, and provider access are handled server-side.
 
 ### Shared contracts
 
@@ -221,12 +213,11 @@ the dependent packages rather than hand-editing generated files.
 
 ### API and persistence
 
-- Express 5
+- Go 1.25 HTTP server
 - PostgreSQL
 - Drizzle ORM and Drizzle Kit
 - Zod and drizzle-zod
-- Clerk Express middleware for development
-- Pino and pino-http structured logging
+- Go structured logging and request middleware
 - Orval-generated API contracts and clients
 
 ### External services
@@ -312,9 +303,8 @@ PORT=18131 BASE_PATH=/ \
 ```
 
 ```bash
-# Terminal 2: API
-PORT=8080 \
-  pnpm --filter @workspace/api-server run dev
+# Terminal 2: Go API edge
+cd services/askolo-backend && bash ./scripts/run.sh
 ```
 
 Open the Vite preview at:
@@ -362,24 +352,21 @@ PORT=18131 BASE_PATH=/ \
 `PORT` and `BASE_PATH` are validated by `vite.config.ts`; omitting either
 variable causes the Vite command to fail explicitly.
 
-### API commands
+### Go API commands
 
 ```bash
-# Development mode: build the API, then start the generated bundle
-PORT=8080 pnpm --filter @workspace/api-server run dev
+# Test the Go backend
+cd services/askolo-backend && go test ./...
 
-# Typecheck the API package
-pnpm --filter @workspace/api-server run typecheck
+# Build and refresh the backend binary
+cd services/askolo-backend && bash ./scripts/build.sh
 
-# Build the API bundle
-pnpm --filter @workspace/api-server run build
-
-# Start the built API bundle
-PORT=8080 pnpm --filter @workspace/api-server run start
+# Start the Go backend
+cd services/askolo-backend && bash ./scripts/run.sh
 ```
 
-The API entry point validates that `PORT` is present and is a positive number.
-The managed API artifact uses port `8080`.
+The Go backend uses port `8090` by default and reads database and provider
+configuration from protected environment variables.
 
 ### Optional component preview environment
 
@@ -399,9 +386,9 @@ The workspace currently defines these relevant workflows:
 | Workflow                                             | Command or role                        |
 | ---------------------------------------------------- | -------------------------------------- |
 | `artifacts/personal-assistant: web`                  | Runs the Vite web application          |
-| `artifacts/api-server: API Server`                   | Runs the Express API                   |
+| `go-askolo-backend: compile`                         | Builds and validates the Go API        |
 | `artifacts/mockup-sandbox: Component Preview Server` | Runs isolated component previews       |
-| `ai-credit-ledger`                                   | Runs the AI credit ledger test command |
+| `go-askolo-backend: run`                             | Runs the Go API edge                   |
 
 Prefer the managed workflows in Replit when working inside the hosted
 environment. They provide the artifact ports and preview routing expected by
@@ -507,8 +494,8 @@ support development and production hosts.
 
 If a protected page does not load:
 
-1. Check that the web and API workflows are both running.
-2. Confirm the browser request to `/api/auth/user` is reaching the API artifact.
+1. Check that the web workflow and Go backend are both running.
+2. Confirm the browser request to `/api/auth/user` is reaching the Go edge.
 3. Confirm the correct auth variables are configured for the current
    `NODE_ENV`.
 4. Clear stale development auth state and retry the sign-in flow.
@@ -540,11 +527,9 @@ connection flow.
 Relevant code:
 
 ```text
-artifacts/api-server/src/lib/googleOAuth.ts
-artifacts/api-server/src/lib/googleCalendar.ts
-artifacts/api-server/src/lib/gmail.ts
-artifacts/api-server/src/lib/googleStatus.ts
-artifacts/api-server/src/routes/google.ts
+services/askolo-backend/internal/modules/google/oauth.go
+services/askolo-backend/internal/modules/google/operations.go
+services/askolo-backend/internal/modules/google/legacy.go
 ```
 
 ### OpenAI AI Integrations
@@ -572,7 +557,7 @@ access and the browser-side package provides reusable voice input behavior.
 Relevant code:
 
 ```text
-artifacts/api-server/src/lib/assemblyai.ts
+services/askolo-backend/internal/modules/product/handler.go
 lib/integrations-openai-ai-react/src/audio/
 lib/integrations-openai-ai-server/src/audio/
 ```
@@ -650,8 +635,9 @@ source control, and documentation.
 
 ### API route groups
 
-The Express API is mounted under `/api`. Route modules are in
-`artifacts/api-server/src/routes/`.
+The Go API is mounted under `/api`. Route modules are in
+`services/askolo-backend/internal/modules/` and are dispatched by
+`services/askolo-backend/internal/httpapi/router.go`.
 
 Current route groups include:
 
@@ -674,7 +660,7 @@ Current route groups include:
 The API health endpoint is:
 
 ```bash
-curl -i http://localhost:8080/api/healthz
+curl -i http://localhost:8090/api/healthz
 ```
 
 In a managed Replit preview, use the artifact's routed host rather than
@@ -799,7 +785,7 @@ For a new query:
 1. Add or update the OpenAPI contract in `lib/api-spec/openapi.yaml`.
 2. Regenerate shared API code.
 3. Add the route implementation under
-   `artifacts/api-server/src/routes/`.
+   `services/askolo-backend/internal/modules/`.
 4. Reuse the database schema and shared Zod types.
 5. Apply the appropriate authentication and user ownership checks.
 6. Validate request body, query, and path inputs.
@@ -857,15 +843,12 @@ The root build typechecks first and then runs available package build scripts.
 
 ### API tests
 
-The API package currently exposes focused tests for the AI credit ledger and
-voice consent behavior:
+The Go backend test suite covers the public API modules and persistence
+adapters:
 
 ```bash
-pnpm --filter @workspace/api-server run test:ledger
-pnpm --filter @workspace/api-server run test:voice-consent
+cd services/askolo-backend && go test ./...
 ```
-
-The managed AI ledger workflow runs the ledger test command.
 
 ### Before considering a change complete
 
@@ -901,28 +884,28 @@ Its production behavior is:
 - use `BASE_PATH=/`;
 - expose the local service on port `18131`.
 
-### API artifact
+### Go public edge
 
-The API artifact is defined in:
+The Go backend is defined in:
 
 ```text
-artifacts/api-server/.replit-artifact/artifact.toml
+services/askolo-backend/
 ```
 
 Its production behavior is:
 
-- build with `pnpm --filter @workspace/api-server run build`;
-- start `artifacts/api-server/dist/index.mjs`;
-- use port `8080`;
-- route `/api` requests to the API service;
-- use `/api/healthz` as the startup health check.
+- build with `services/askolo-backend/scripts/build.sh`;
+- start with `services/askolo-backend/scripts/run.sh`;
+- use port `8090` by default;
+- serve `/api` requests and the health/readiness endpoints;
+- keep the React frontend as a separate static artifact.
 
 ### Deployment checklist
 
 Before publishing:
 
 1. Confirm production secrets are configured in the deployment environment.
-2. Confirm `NODE_ENV=production` for the production API.
+2. Confirm the Go backend has production database and provider configuration.
 3. Confirm native OAuth callback URLs match the deployed host.
 4. Confirm Google OAuth redirect URIs include the intended production host.
 5. Run `pnpm run typecheck`.
@@ -996,12 +979,12 @@ PORT=18131 BASE_PATH=/ \
   pnpm --filter @workspace/personal-assistant run dev
 ```
 
-### API refuses to start
+### Go API refuses to start
 
-The API entry point requires a valid positive `PORT`:
+The Go backend uses `PORT=8090` by default:
 
 ```bash
-PORT=8080 pnpm --filter @workspace/api-server run dev
+cd services/askolo-backend && bash ./scripts/run.sh
 ```
 
 If the API starts but database requests fail, check `DATABASE_URL` and confirm
@@ -1016,7 +999,7 @@ Check in this order:
 3. Confirm the preview path is `/`.
 4. Confirm the browser can load the Vite entry module.
 5. Check browser console errors.
-6. If the frontend calls the API, verify the API workflow separately.
+6. If the frontend calls the API, verify the Go backend workflow separately.
 7. Restart the web workflow after changing code, package configuration, or the
    run command.
 
@@ -1026,10 +1009,10 @@ Do not solve a blank preview by adding a second competing web workflow.
 
 Confirm:
 
-- the API workflow is running on port `8080`;
+- the Go backend workflow is running on port `8090`;
 - the request includes the `/api` prefix;
-- the API route exists in `artifacts/api-server/src/routes/`;
-- the API artifact routes `/api` to the API service;
+- the route exists in `services/askolo-backend/internal/modules/`;
+- the Go edge is serving the `/api` path;
 - the frontend is not calling a hard-coded localhost or production URL.
 
 ### Protected pages stay on auth loading

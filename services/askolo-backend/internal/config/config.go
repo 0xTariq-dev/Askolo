@@ -35,6 +35,7 @@ type Config struct {
 	Email             EmailConfig
 	Google            GoogleOAuthConfig
 	GitHub            GitHubOAuthConfig
+	AssemblyAIKey     string
 	AllowedOAuthHosts map[string]struct{}
 }
 
@@ -170,7 +171,6 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("ASKOLO_PARENT_PRODUCTION_TAG is required for hotfix releases")
 		}
 	}
-
 	return Config{
 		ServiceName:       "askolo-backend",
 		Environment:       environment,
@@ -214,6 +214,7 @@ func Load() (Config, error) {
 			UserURL:      "https://api.github.com/user",
 			EmailsURL:    "https://api.github.com/user/emails",
 		},
+		AssemblyAIKey:     strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
 		AllowedOAuthHosts: oauthHosts(environment, canonicalOrigin),
 	}, nil
 }
