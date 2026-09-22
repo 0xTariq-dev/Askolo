@@ -186,7 +186,7 @@ Before deployment work begins, the Go service still needs:
 
 1. Create a separate Replit project for Askolo staging from the same source
    repository.
-2. Configure staging-only database, storage, session, Clerk/auth, and provider
+2. Configure staging-only database, storage, native session, and provider
    secrets.
 3. Publish the staging project.
 4. Attach and verify `staging.askolo.app` in the staging project's Publishing

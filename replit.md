@@ -17,9 +17,9 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- Web: React, Vite, Tailwind CSS v4, shadcn/ui, Framer Motion, Wouter, Clerk
+- Web: React, Vite, Tailwind CSS v4, shadcn/ui, Framer Motion, Wouter
 - API: Go HTTP backend
-- DB: PostgreSQL + Drizzle ORM
+- DB: PostgreSQL with a Go-owned runtime store; archived Drizzle history is retained for recovery
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle for API), Vite (for web)
@@ -36,7 +36,7 @@ Askolo is a beautifully designed personal and family assistant that helps you ma
 
 ## Architecture decisions
 
-- **Clerk for auth:** Replit-managed Clerk handles sign-in/up; the API verifies the session token cookie.
+- **Native Go auth:** the Go backend owns sign-in/up, OAuth callbacks, sessions, MFA, and authorization.
 - **Google services via custom OAuth app:** Calendar and Gmail use the user's own Google Cloud OAuth app and store a single token per user in `gmail_tokens`.
 - **Dynamic redirect URI:** OAuth redirect URIs are built from the request host so dev and production share the same code.
 - **SPA path routing:** The app is a Vite SPA; route paths are absolute and match the artifact preview path (`/`).
@@ -49,7 +49,7 @@ Askolo gives users a calm, focused home for daily life management: track habits,
 ## User preferences
 
 - The app name is **Askolo** everywhere.
-- The logo/icon is the uploaded image at `artifacts/personal-assistant/public/logo.png` and should be used consistently across the app, landing page, and Clerk sign-in UI.
+- The logo/icon is the uploaded image at `artifacts/personal-assistant/public/logo.png` and should be used consistently across the app and landing page.
 - The public home page (`/`) shows a landing page with a "Go to Dashboard" CTA for signed-in users; it does not auto-redirect.
 - The dashboard lives at `/dashboard` and is linked from the sidebar and app logo.
 - Privacy Policy and Terms of Service are public pages and should describe the custom Google OAuth app usage.

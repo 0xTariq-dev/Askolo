@@ -69,13 +69,7 @@ production routing. The local artifact preview path is `/`.
 │   ├── api-spec/                 # OpenAPI source and Orval configuration
 │   ├── api-client-react/         # React Query API client package
 │   ├── api-zod/                  # Shared Zod schemas and generated schemas
-│   ├── db/                       # Drizzle schema and database package
-│   ├── integrations-openai-ai-react/
-│   │                               # Browser-facing AI integration helpers
-│   ├── integrations-openai-ai-server/
-│   │                               # Server-side AI integration helpers
-│   ├── integrations/             # Integration-specific workspace code
-│   └── replit-auth-web/          # Shared Replit auth web helpers
+│   └── db/                       # Archived Drizzle schema and migrations
 ├── scripts/                      # Small workspace utility package
 ├── attached_assets/              # User-provided assets; do not commit secrets
 ├── pnpm-workspace.yaml           # Workspace membership and dependency policy
@@ -141,21 +135,14 @@ client-side routing. Production rewrites send unknown frontend paths to
 loaded directly.
 
 The frontend uses route-level lazy imports. Public pages, the authenticated
-layout, feature pages, and development-only Clerk routes are loaded only when
-their route is needed.
+layout, and feature pages are loaded only when their route is needed.
 
-### Authentication modes
+### Authentication
 
-The project intentionally supports two authentication modes:
-
-- **Development and testing:** the frontend can load its development auth
-  helpers, but public API requests still target the Go edge.
-- **Production:** the application uses the native OAuth/session path. Go
-  handles browser login, callbacks, logout, and session endpoints.
-
-The Go configuration selects the environment-aware authentication path. Do not
-change that distinction casually; it affects cookies, redirects, and session
-handling.
+The application uses the native OAuth/session path. Go handles browser login,
+callbacks, logout, MFA, and session endpoints. The frontend auth context calls
+the Go API through same-origin `/api` paths; there is no competing external
+session issuer.
 
 ### API and data flow
 
@@ -207,27 +194,22 @@ the dependent packages rather than hand-editing generated files.
 - Framer Motion
 - Recharts
 - Lucide React
-- Clerk React for development authentication
-- Appwrite client for startup connectivity checks
 - AssemblyAI client support for voice features
 
 ### API and persistence
 
 - Go 1.25 HTTP server
 - PostgreSQL
-- Drizzle ORM and Drizzle Kit
-- Zod and drizzle-zod
+- Archived Drizzle schema and migration files for historical recovery
+- Zod and drizzle-zod for archived schema tooling
 - Go structured logging and request middleware
 - Orval-generated API contracts and clients
 
 ### External services
 
-- Replit-managed Clerk configuration for development/testing
 - Native OAuth support for production authentication
 - Google Cloud OAuth for optional Calendar and Gmail connections
-- Replit OpenAI AI Integrations for AI functionality
 - AssemblyAI for transcription workflows
-- Appwrite for frontend connectivity verification
 
 ## Prerequisites
 
@@ -404,7 +386,7 @@ provider's protected environment configuration.
 
 | Variable    | Used by                           | Notes                                                               |
 | ----------- | --------------------------------- | ------------------------------------------------------------------- |
-| `NODE_ENV`  | API and build/runtime code        | `production` selects native production auth; development uses Clerk |
+| `NODE_ENV`  | API and build/runtime code        | Selects environment-specific Go runtime behavior                  |
 | `PORT`      | Web and API                       | Required by both server entry points                                |
 | `BASE_PATH` | Vite web build                    | Required by the web config; `/` is the current artifact base        |
 | `REPL_ID`   | Development Vite plugin selection | Managed by Replit when applicable                                   |
@@ -414,17 +396,8 @@ provider's protected environment configuration.
 
 | Variable         | Used by                      | Notes                                                       |
 | ---------------- | ---------------------------- | ----------------------------------------------------------- |
-| `DATABASE_URL`   | `lib/db` and Drizzle Kit     | PostgreSQL connection string; required for database work    |
+| `DATABASE_URL`   | Go API and archived Drizzle Kit | PostgreSQL connection string; required for database work     |
 | `SESSION_SECRET` | Google OAuth/session helpers | Keep private; used to protect signed redirect/session state |
-
-### Development authentication
-
-| Variable                     | Used by                                    | Notes                                        |
-| ---------------------------- | ------------------------------------------ | -------------------------------------------- |
-| `CLERK_PUBLISHABLE_KEY`      | API development middleware                 | Server-side Clerk host/key resolution        |
-| `CLERK_SECRET_KEY`           | API user operations and Clerk server calls | Secret; never expose to the browser          |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Lazy Clerk web routes                      | Browser-safe publishable key for development |
-| `VITE_CLERK_PROXY_URL`       | Lazy Clerk web routes                      | Optional Clerk proxy configuration           |
 
 ### Google integrations
 
@@ -437,14 +410,12 @@ Google Calendar and Gmail are opt-in. The rest of the application should
 remain usable when these variables are not configured, but Google connect
 flows require the corresponding OAuth setup and redirect URIs.
 
-### AI and transcription
+### Transcription
 
 | Variable                          | Used by                           | Notes                                         |
 | --------------------------------- | --------------------------------- | --------------------------------------------- |
-| `AI_INTEGRATIONS_OPENAI_API_KEY`  | Replit OpenAI integration helpers | Secret; use the managed integration secret    |
-| `AI_INTEGRATIONS_OPENAI_BASE_URL` | Replit OpenAI integration helpers | Provider base URL supplied by the integration |
-| `ASSEMBLY_AI_API_KEY`             | AssemblyAI server helper          | Secret required for transcription             |
-| `ASSEMBLYAI_REGION`               | AssemblyAI server helper          | Optional/provider-specific region selection   |
+| `ASSEMBLY_AI_API_KEY` | AssemblyAI server helper | Secret required for transcription           |
+| `ASSEMBLYAI_REGION`   | AssemblyAI server helper | Optional/provider-specific region selection |
 
 ### Environment rules
 
@@ -458,26 +429,9 @@ flows require the corresponding OAuth setup and redirect URIs.
 
 ## Authentication
 
-### Development and testing with Clerk
+### Native OAuth and sessions
 
-Development mode keeps Clerk available for local sign-in and sign-up testing.
-The frontend loads Clerk routes dynamically, and the API adds Clerk middleware
-and the Clerk proxy only outside production mode.
-
-Useful development routes include:
-
-- `/sign-in`
-- `/sign-up`
-- `/sso-callback`
-- `/dashboard` after authentication
-
-Clerk development keys are expected to produce a development-mode warning in
-the browser. Do not deploy development keys to production.
-
-### Production native OAuth
-
-Production uses the native OAuth/session path instead of loading the Clerk
-frontend runtime. The API exposes browser authentication routes under `/api`:
+The API exposes browser authentication routes under `/api`:
 
 - `GET /api/login`
 - `GET /api/callback`
@@ -532,23 +486,6 @@ services/askolo-backend/internal/modules/google/operations.go
 services/askolo-backend/internal/modules/google/legacy.go
 ```
 
-### OpenAI AI Integrations
-
-AI features use Replit-managed OpenAI integration configuration rather than
-hard-coded provider credentials. Shared React and server packages provide
-provider helpers for text, image, audio, and batch-related functionality.
-
-Relevant packages:
-
-```text
-lib/integrations-openai-ai-react/
-lib/integrations-openai-ai-server/
-lib/integrations/openai_ai_integrations/
-```
-
-AI-backed API operations use server-side credit reservation and reconciliation.
-Do not call paid providers directly from the browser.
-
 ### AssemblyAI
 
 AssemblyAI supports voice/transcription workflows. The server owns provider
@@ -558,29 +495,15 @@ Relevant code:
 
 ```text
 services/askolo-backend/internal/modules/product/handler.go
-lib/integrations-openai-ai-react/src/audio/
-lib/integrations-openai-ai-server/src/audio/
 ```
 
 Voice recordings are treated as transient input. Avoid persisting recordings
 unless a product requirement explicitly changes that behavior.
 
-### Appwrite
-
-The frontend performs a lightweight Appwrite startup ping to verify the
-configured Appwrite connection. A successful ping is logged in the browser
-console. A failed ping should be investigated separately from API
-authentication and database failures.
-
-The Appwrite client is in:
-
-```text
-artifacts/personal-assistant/src/lib/appwrite.ts
-```
-
 ## Database
 
-The database package uses PostgreSQL with Drizzle ORM.
+The archived database package contains PostgreSQL/Drizzle schema and migration
+history for recovery and comparison. It is not imported by the Go runtime.
 
 ### Schema location
 
@@ -590,7 +513,7 @@ Database schema modules live in:
 lib/db/src/schema/
 ```
 
-Current schema areas include:
+The archived schema areas include:
 
 - users and authentication
 - habits and habit completions
@@ -630,6 +553,10 @@ lib/db/drizzle.config.ts
 
 It uses `DATABASE_URL`. Keep the connection string out of shell history,
 source control, and documentation.
+
+The Go service is the only runtime database owner. See
+`docs/go-only-migration-boundary.md` before changing or deleting archived
+schema files.
 
 ## API reference and code generation
 
@@ -748,9 +675,8 @@ Route composition is centralized in:
 artifacts/personal-assistant/src/routes/
 ```
 
-`lazy-pages.ts` contains the shared lazy imports. Development-only Clerk
-composition is in `clerk-routes.tsx`. Native production authentication remains
-in the main application path.
+`lazy-pages.ts` contains the shared lazy imports. Native authentication remains
+in the Go API and the main application path.
 
 When adding a new feature page:
 
@@ -802,7 +728,6 @@ The API currently configures:
 - CORS with credentials support;
 - bounded JSON parsing;
 - URL-encoded body parsing;
-- development-only Clerk proxy and middleware;
 - route mounting under `/api`.
 
 Voice fallback uploads use a bounded JSON payload, and individual routes
@@ -938,7 +863,7 @@ Use the artifact and workflow tooling when changing:
 
 The frontend has several intentional performance protections:
 
-- Clerk code is not eagerly loaded in the native production entry.
+- Native auth code is kept in the Go API and is not duplicated in the frontend.
 - Public, authenticated, and feature routes are lazy-loaded.
 - Dashboard AI coaching is deferred until browser idle time.
 - Redundant Google status loading was removed from the dashboard.
@@ -949,7 +874,6 @@ The latest production build produced approximately:
 
 - native entry: `382 KB` uncompressed;
 - native entry: `127 KB` gzip according to Vite's build report;
-- Clerk route chunk: `95 KB` uncompressed;
 - dashboard route chunk: `13 KB` uncompressed;
 - output chunks: `55`, down from `64` before small-chunk consolidation.
 
@@ -1017,9 +941,8 @@ Confirm:
 
 ### Protected pages stay on auth loading
 
-This can happen when the local Clerk development handshake is not complete.
-Check the auth variables, Clerk proxy configuration, browser console, and API
-logs. Direct `/sign-in` rendering is a useful way to distinguish a route
+Check the auth variables, browser console, and API logs. Direct `/sign-in`
+rendering is a useful way to distinguish a route
 loading problem from an authenticated-session problem.
 
 ### Google OAuth redirects to the wrong page
@@ -1064,9 +987,8 @@ user-controlled or sensitive.
 - Store credentials in Replit Secrets or the deployment secret manager.
 - Never commit API keys, OAuth secrets, session secrets, database URLs, or
   private tokens.
-- Never expose `CLERK_SECRET_KEY`, `GOOGLE_CLIENT_SECRET`,
-  `AI_INTEGRATIONS_OPENAI_API_KEY`, `ASSEMBLY_AI_API_KEY`, or `DATABASE_URL`
-  to the browser.
+- Never expose `GOOGLE_CLIENT_SECRET`, `ASSEMBLY_AI_API_KEY`, or
+  `DATABASE_URL` to the browser.
 - Keep publishable browser configuration separate from server secrets.
 
 ### User data

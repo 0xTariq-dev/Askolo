@@ -99,7 +99,6 @@ ASKOLO_DATABASE_ID = "development-database"
 GOOGLE_REDIRECT_URI = "https://5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvhiesj.picard.replit.dev/api/google/gmail/callback"
 
 [userenv.production]
-VITE_CLERK_PROXY_URL = "/api/__clerk"
 ASKOLO_CANONICAL_ORIGIN = "https://dev.askolo.app"
 ASKOLO_COMMIT_SHA = "1317b8f17ad7780405acd5a43eb4ff1f8096a6fb"
 ASKOLO_COOKIE_NAMESPACE = "askolo_prod"

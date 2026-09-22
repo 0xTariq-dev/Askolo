@@ -17,12 +17,6 @@
   "references": [
     {
       "path": "../../lib/api-client-react"
-    },
-    {
-      "path": "../../lib/replit-auth-web"
-    },
-    {
-      "path": "../../lib/integrations-openai-ai-react"
     }
   ]
 }
