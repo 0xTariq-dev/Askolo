@@ -172,10 +172,7 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 		return
 	}
 	returnTo := safeReturnTo(r.URL.Query().Get("returnTo"))
-	scopes, err := requestedScopes(r.URL.Query().Get("scope"))
-	if flow == "login" || flow == "link" {
-		scopes = []string{scopeOpenID, scopeEmail, scopeProfile}
-	}
+	scopes, err := scopesForFlow(flow, r.URL.Query().Get("scope"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_SCOPE", err.Error())
 		return
@@ -935,6 +932,19 @@ func requestedScopes(value string) ([]string, error) {
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmail}, nil
 	default:
 		return nil, errors.New("scope must be calendar, gmail, or all")
+	}
+}
+
+func scopesForFlow(flow, requested string) ([]string, error) {
+	switch flow {
+	case "login", "link":
+		// Native login and identity linking must never inherit integration
+		// scopes from the query string.
+		return []string{scopeOpenID, scopeEmail, scopeProfile}, nil
+	case "integration":
+		return requestedScopes(requested)
+	default:
+		return nil, errors.New("invalid Google OAuth flow")
 	}
 }
 

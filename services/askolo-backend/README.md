@@ -149,10 +149,19 @@ afterward:
    verified Google email identity.
 3. Repeat with a previously used account to confirm sign-in preserves the
    existing native account instead of creating a duplicate.
-4. Confirm denied consent redirects to the validated local path with the
-   generic `google=error` status. Replay an expired or already-consumed
-   callback and confirm it returns the generic `INVALID_STATE` response.
-5. Start each flow with an unsafe `returnTo` such as
+4. Inspect the authorization URL before approving consent. Native login must
+   use the login client and request exactly `openid email profile`; it must not
+   request Calendar or Gmail permissions.
+5. While signed in, open `/api/integrations/google?scope=calendar` and inspect
+   the authorization URL. It must use the separate integration client and the
+   selected Calendar/Gmail service scope set. Deny the consent and confirm the
+   existing native session remains active; approving it must connect the
+   integration without replacing that session.
+6. Confirm denied consent redirects to the validated local path with the
+   generic `google=error` status. Replay an expired, already-consumed, or
+   cross-flow callback and confirm it returns the generic `INVALID_STATE`
+   response.
+7. Start each flow with an unsafe `returnTo` such as
    `https://example.invalid/account` and confirm failures land at
    `/dashboard?google=error`, never at the external URL.
 
