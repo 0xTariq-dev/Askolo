@@ -29,6 +29,8 @@ type App struct {
 	logger       *slog.Logger
 	store        *postgres.Store
 	cleanupState *emailChallengeCleanupState
+	environment  string
+	serviceName  string
 }
 
 func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
@@ -41,6 +43,8 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 		logger:       logger,
 		store:        store,
 		cleanupState: cleanupState,
+		environment:  cfg.Environment,
+		serviceName:  cfg.ServiceName,
 		server: &http.Server{
 			Addr:              cfg.Host + ":" + strconv.Itoa(cfg.Port),
 			Handler:           httpapi.New(cfg, logger, store, cleanupState.readiness),
@@ -56,19 +60,29 @@ type emailChallengeCleanupState struct {
 	mu                    sync.RWMutex
 	consecutiveFailures   int
 	lastSuccessfulCleanup time.Time
+	alertActive           bool
 }
 
-func (s *emailChallengeCleanupState) recordFailure() {
+func (s *emailChallengeCleanupState) recordFailure() (int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.consecutiveFailures++
+	shouldAlert := s.consecutiveFailures >= httpapi.EmailChallengeCleanupPersistentFailureThreshold &&
+		!s.alertActive
+	if shouldAlert {
+		s.alertActive = true
+	}
+	return s.consecutiveFailures, shouldAlert
 }
 
-func (s *emailChallengeCleanupState) recordSuccess(at time.Time) {
+func (s *emailChallengeCleanupState) recordSuccess(at time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	recovered := s.alertActive
 	s.consecutiveFailures = 0
 	s.lastSuccessfulCleanup = at.UTC()
+	s.alertActive = false
+	return recovered
 }
 
 func (s *emailChallengeCleanupState) readiness() httpapi.EmailChallengeCleanupReadiness {
@@ -149,17 +163,23 @@ func (a *App) runEmailChallengeCleanup(ctx context.Context, done chan<- struct{}
 		cancel()
 		if err != nil {
 			if ctx.Err() == nil {
-				a.cleanupState.recordFailure()
+				consecutiveFailures, shouldAlert := a.cleanupState.recordFailure()
 				a.logger.Warn("email challenge cleanup failed",
 					"operation", "email_challenge_cleanup",
-					"error", err,
 					"batch_size", postgres.EmailChallengeCleanupBatchSize,
 					"retention_hours", int(postgres.EmailChallengeRetention/time.Hour),
+					"consecutive_failures", consecutiveFailures,
 				)
+				if shouldAlert {
+					a.logCleanupFailureAlert(consecutiveFailures)
+				}
 			}
 			return
 		}
-		a.cleanupState.recordSuccess(time.Now().UTC())
+		recovered := a.cleanupState.recordSuccess(time.Now().UTC())
+		if recovered {
+			a.logCleanupRecovery()
+		}
 		a.logger.Info("email challenge cleanup completed",
 			"operation", "email_challenge_cleanup",
 			"deleted_count", deleted,
@@ -180,4 +200,28 @@ func (a *App) runEmailChallengeCleanup(ctx context.Context, done chan<- struct{}
 			cleanup()
 		}
 	}
+}
+
+func (a *App) logCleanupFailureAlert(consecutiveFailures int) {
+	a.logger.Warn("Email challenge cleanup failure alert",
+		"alert", true,
+		"environment", a.environment,
+		"service", a.serviceName,
+		"operation", "email_challenge_cleanup",
+		"status", "persistent_failure",
+		"consecutive_failures", consecutiveFailures,
+		"failure_threshold", httpapi.EmailChallengeCleanupPersistentFailureThreshold,
+	)
+}
+
+func (a *App) logCleanupRecovery() {
+	a.logger.Info("Email challenge cleanup recovered",
+		"alert", false,
+		"recovery", true,
+		"environment", a.environment,
+		"service", a.serviceName,
+		"operation", "email_challenge_cleanup",
+		"status", "healthy",
+		"failure_threshold", httpapi.EmailChallengeCleanupPersistentFailureThreshold,
+	)
 }

@@ -255,3 +255,17 @@ completed run, status is `unknown`. One or two consecutive failures are
 return `503` until a cleanup succeeds. A successful run resets the consecutive
 failure count and records its completion time. Challenge IDs, addresses, and
 error details are never included in this signal.
+
+Cleanup failures are also connected to the deployment's structured-log alert
+path. The service emits one `Email challenge cleanup failure alert` event when
+the count reaches the documented threshold of three consecutive failures. Its
+`alert=true` record is intentionally aggregate and contains only the service,
+environment, fixed cleanup operation, failure count, and threshold. Additional
+failures do not create duplicate alert events. After a successful cleanup
+resets a persistent failure, the service emits one `Email challenge cleanup
+recovered` event with `alert=false`, `recovery=true`, and `status: "healthy"`.
+Configure the operational alert to match
+`operation="email_challenge_cleanup"` and `alert=true`; use the recovery event
+(`operation="email_challenge_cleanup"` and `recovery=true`) as its explicit
+recovery condition. Neither event contains a challenge ID, address, or error
+detail.
