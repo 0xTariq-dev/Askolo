@@ -55,28 +55,40 @@ This is the unified reference for reconciling the production-readiness audit wit
 - The Google staging publication draft and production-labelled-hostname guard are the relevant follow-ups for environment isolation and canonical callback correctness.
 - The merged Google callback safety work improves source behavior but does not prove that the current published environment is correctly isolated.
 - The published-route smoke draft checks `/api`, `/healthz`, `/readyz`, `/ws`, and `/webhooks` after forwarding. It is a routing contract check, not an implementation check for WebSockets or webhooks.
+- The development-domain plan now owns the verified artifact inventory: the registered personal-assistant web artifact is authoritative, while its web workflow is a second preview entity for the same frontend rather than a second website. The retired TypeScript API directory and mockup placeholder are unrelated residue.
+- Canonical plans for later product work must use the current Go backend and generated contracts; deleted `artifacts/api-server` and legacy database-package paths are not implementation sources.
 
-## Duplicate or superseded groups
+## Duplicate reconciliation status
 
-These are known overlapping board entries. Do not add another task in any of these groups without first consolidating or explicitly replacing the existing drafts:
+The duplicate pass is complete for the current non-archived board scan. Each exact-title group now has one canonical draft and its older entries are explicitly marked as superseded. No live exact-title or high-similarity duplicate pair remains, and no live task depends on a superseded entry.
 
-- Build durable automation execution / P25 — Build durable automation execution.
-- Add AI credit policy controls and its P07 equivalent.
-- Unify Go AssemblyAI voice platform and the older guarded voice-agent drafts. The unified voice plan is the intended owner.
-- Add TOTP enrollment and challenge and its duplicate P06 enrollment draft.
-- Add conflict-aware planning and its duplicate P13 planning draft.
-- Add the temporary interactive tutorial and its duplicate P14 tutorial draft.
-- Evaluate private Mixpanel analytics and its duplicate analytics draft.
-- Multiple Google accounts and its duplicate account-management draft.
-- Account-aware Google sync and its duplicate synchronization draft.
-- Unified responsibility model and its duplicate responsibility draft.
-- Create workspaces and labels and its P16 workspace draft.
-- Secure persona survey and its duplicate persona-survey draft.
-- Arabic RTL foundation and its duplicate RTL draft.
-- Separate the public landing artifact and its duplicate landing-artifact draft.
-- Landing SEO/GEO work and its duplicate SEO draft.
+Canonical groups now cover:
 
-An older task describing production-complete AI and voice responses is archived. It is the closest match for the canned AI-response gap, but it is not current coverage unless its scope is deliberately restored or replaced.
+- Durable automation execution.
+- AI credit policy controls.
+- Unified Go AssemblyAI voice platform, including the guarded runtime aliases.
+- TOTP enrollment and challenge.
+- Keyboard accessibility baseline.
+- Theme presets.
+- Context menus and commands.
+- MFA recovery and trusted devices.
+- PWA and mobile direction.
+- Multiple Google accounts.
+- Unified responsibility model and responsibility migration.
+- Workspace sharing/filtering and workspaces/labels.
+- Conflict-aware planning.
+- Temporary interactive tutorial.
+- Agent approvals, memory, and audit.
+- Private Mixpanel analytics.
+- Account-aware Google sync.
+- Secure persona survey.
+- Arabic RTL foundation and Arabic UI/metadata rollout.
+- Automation triggers and templates.
+- Private Meilisearch evaluation.
+- Development web/API domain separation and preview-artifact reconciliation.
+- Landing SEO/GEO.
+
+An older task describing production-complete AI and voice responses is archived. It is the closest match for the canned AI-response gap, but it is not current coverage unless its scope is deliberately restored or replaced. Superseded duplicate entries are board history, not additional executable scope.
 
 ## Missing work with implementation-ready scope
 
