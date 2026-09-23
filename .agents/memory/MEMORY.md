@@ -33,5 +33,5 @@
 - [MFA recovery throttling](mfa-recovery-rate-limits.md) — enforce recovery request and verification buckets in shared PostgreSQL state using hashed client keys only.
 - [PostgreSQL test process control](pgctl-test-process-control.md) — redirect restarted server logs when invoking `pg_ctl` through Go command output capture.
 - [Task board coverage map](task-board-coverage.md) — consolidated production-readiness coverage, duplicate groups, and implementation-ready missing-task scope.
-- [Linear task migration](linear-task-migration.md) — preserve Replit tasks and plans; map Drafts to Linear Backlog with explicit provenance.
+- [Linear project management](linear-task-migration.md) — Linear is the project-management source of truth; preserve explicit Replit provenance on migrated work.
 
