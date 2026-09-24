@@ -92,7 +92,7 @@ Credit controls do not replace rate limits, and global abuse controls should not
 Review whether these are genuine implementation prerequisites or only shared context:
 
 - TAR-12 blocks TAR-29. The user chose to retain this blocker; no additional rationale was supplied. Revisit only if the launch dependency changes.
-- TAR-21 blocks TAR-22 and TAR-23. Persona-survey work may inform tutorial personalization, but may not need to block Arabic RTL foundations.
+- Build the secure persona survey blocks the temporary interactive tutorial, but the user chose to make its link to the Arabic RTL foundation related rather than blocking.
 - TAR-6 blocks TAR-23, TAR-9, and TAR-7. Keep these blockers only if the accessibility work is truly a prerequisite rather than a parallel quality requirement.
 
 Use `blocks` for required sequencing, `related` for shared context/integration points, and an explicit release-gate relationship only when promotion is actually prohibited without the evidence.
@@ -149,4 +149,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **P28 title collision:** The user chose to keep P28 on TAR-29 and remove it from TAR-33. TAR-33 is now titled “Separate development web and API domains”; local task #93's original wording is retained as provenance pending local-board cleanup.
 - **Dependency authority:** Per the existing project convention, Linear is authoritative for active sequencing. Local task dependencies remain historical provenance unless a specific discrepancy warrants a deliberate Linear change.
 - **TAR-12 → TAR-29:** The user chose to keep the analytics evaluation as a blocker for the landing-artifact scope.
+- **Persona survey dependencies:** Build the secure persona survey remains a blocker of the temporary interactive tutorial. Its link to the Arabic RTL foundation is now related, so that infrastructure work can proceed independently. The Arabic RTL foundation's other dependencies were preserved.
 - Remaining recommendations are awaiting the user's decisions.
