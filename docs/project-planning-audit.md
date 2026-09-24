@@ -93,7 +93,7 @@ Review whether these are genuine implementation prerequisites or only shared con
 
 - TAR-12 blocks TAR-29. The user chose to retain this blocker; no additional rationale was supplied. Revisit only if the launch dependency changes.
 - Build the secure persona survey blocks the temporary interactive tutorial, but the user chose to make its link to the Arabic RTL foundation related rather than blocking.
-- TAR-6 blocks TAR-23, TAR-9, and TAR-7. Keep these blockers only if the accessibility work is truly a prerequisite rather than a parallel quality requirement.
+- The keyboard accessibility baseline now blocks Add context menus and commands, where browser-menu overrides and key handling require it. Its links to Add theme presets and Create Arabic RTL foundation are related rather than blocking.
 
 Use `blocks` for required sequencing, `related` for shared context/integration points, and an explicit release-gate relationship only when promotion is actually prohibited without the evidence.
 
@@ -150,4 +150,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **Dependency authority:** Per the existing project convention, Linear is authoritative for active sequencing. Local task dependencies remain historical provenance unless a specific discrepancy warrants a deliberate Linear change.
 - **TAR-12 → TAR-29:** The user chose to keep the analytics evaluation as a blocker for the landing-artifact scope.
 - **Persona survey dependencies:** Build the secure persona survey remains a blocker of the temporary interactive tutorial. Its link to the Arabic RTL foundation is now related, so that infrastructure work can proceed independently. The Arabic RTL foundation's other dependencies were preserved.
+- **Keyboard accessibility dependencies:** The keyboard accessibility baseline remains a blocker of Add context menus and commands because browser-menu overrides and key handling require it. Its links to Add theme presets and Create Arabic RTL foundation are related.
 - Remaining recommendations are awaiting the user's decisions.
