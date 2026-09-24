@@ -110,14 +110,14 @@ Recommended treatment:
 
 Newer local checks that may improve canonical acceptance criteria include:
 
-- **Fail hung auth release checks before they block publishing:** candidate for the promotion gate's release-check timeout and fail-fast behavior.
-- **Verify every schema-isolated integration check works without superuser access:** candidate for the executable Go migration and schema-validation test matrix.
-- **Verify MFA recovery limits across separate backend processes:** candidate for the MFA recovery scope's shared-state and cross-process verification.
+- **Fail hung auth release checks before they block publishing:** not added to a canonical scope by the user's choice; leave it outside current Linear acceptance criteria pending local-board cleanup.
+- **Verify every schema-isolated integration check works without superuser access:** added to Establish executable Go migrations as a least-privilege integration-test requirement.
+- **Verify MFA recovery limits across separate backend processes:** added to P09 Add MFA recovery and trusted devices as a shared-state, cross-process verification requirement.
 - **Confirm every published API entry point responds after forwarding:** already represented by the published-route issue and now blocks environment promotion.
-- **Make the one-command workspace build work in a fresh shell:** no clear owner among the current feature scopes; keep it separate unless deliberately adopted as a build/release prerequisite.
-- **Catch MFA alert-policy drift before it reaches production:** not clearly owned by the MFA feature implementation or route-security review; decide whether it is a separate launch obligation or should extend an existing scope.
+- **Make the one-command workspace build work in a fresh shell:** kept separate from the current canonical scopes by the user's choice.
+- **Catch MFA alert-policy drift before it reaches production:** added to P09 Add MFA recovery and trusted devices as a pre-production policy-drift check with privacy-safe failure evidence.
 
-These are proposed mappings, not automatic new Linear work. The first three candidates and the treatment of the last two checks remain subject to the user's decision.
+These checks enrich existing Linear scopes where approved; none creates a duplicate standalone Linear issue. Local-board cleanup remains deferred until the end of the reconciliation.
 
 ## Title and description consistency
 
@@ -153,4 +153,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **Keyboard accessibility dependencies:** The keyboard accessibility baseline remains a blocker of Add context menus and commands because browser-menu overrides and key handling require it. Its links to Add theme presets and Create Arabic RTL foundation are related.
 - **Governance and action scopes:** Agent approvals, memory, and audit is now related to Add automation triggers and templates, Build provider webhook ingestion and safe actions, and Make AI endpoints provider-backed. Build durable automation execution remains unlinked; these links are not blockers.
 - **Webhook task structure:** Three provider-specific child tasks now sit under Build provider webhook ingestion and safe actions. Its description defines the shared contract and child ownership; provider-specific test and verification work is assigned to each child. The Google account/sync links now sit on Handle Google webhook events safely only, and the AssemblyAI child is related to Unify Go AssemblyAI voice platform; all three links remain informational. The rollout order is documented without inter-provider blocker links.
+- **Newer release checks:** The schema-isolated/no-superuser integration check was added to Establish executable Go migrations; cross-process recovery-throttle verification and pre-production MFA alert-policy drift checking were added to P09 Add MFA recovery and trusted devices. The user kept the fresh-shell build separate and did not select the hung-auth-check timeout for a canonical scope. The published-route smoke check already lives in its own issue and blocks environment promotion.
 - Remaining recommendations are awaiting the user's decisions.
