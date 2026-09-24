@@ -1,7 +1,7 @@
 # Project Planning Audit: Replit Task Board and Askolo Linear
 
 **Reviewed:** 2026-09-24  
-**Scope:** Read-only review of the Replit task board, local planning files, and the Askolo-dev Linear project, followed by the explicitly approved TAR-37/TAR-44 duplicate correction.
+**Scope:** Review of the Replit task board, local planning files, and the Askolo-dev Linear project; approved Linear updates and reconciliation decisions are recorded below.
 
 ## Executive summary
 
@@ -121,12 +121,10 @@ These checks enrich existing Linear scopes where approved; none creates a duplic
 
 ## Title and description consistency
 
-Two migrated issues have differing titles and description headings:
+Two description headings that did not match their Linear issue titles have been aligned. Only the headings changed; the remaining descriptions and migration provenance were preserved and verified by read-back.
 
-- **TAR-35:** issue title “Prove production recovery without the archived Drizzle tooling”; description heading “Prove production recovery objectives.”
-- **TAR-36:** issue title “Build provider webhook ingestion and safe actions”; description heading “Process provider updates safely.”
-
-Align the description headings with the Linear issue titles so search results, exports, and copied plans remain consistent.
+- **Prove production recovery without the archived Drizzle tooling:** the previous heading “Prove production recovery objectives” now matches the issue title.
+- **Build provider webhook ingestion and safe actions:** the previous heading “Process provider updates safely” now matches the issue title.
 
 ## Recommended decision sequence
 
@@ -154,4 +152,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **Governance and action scopes:** Agent approvals, memory, and audit is now related to Add automation triggers and templates, Build provider webhook ingestion and safe actions, and Make AI endpoints provider-backed. Build durable automation execution remains unlinked; these links are not blockers.
 - **Webhook task structure:** Three provider-specific child tasks now sit under Build provider webhook ingestion and safe actions. Its description defines the shared contract and child ownership; provider-specific test and verification work is assigned to each child. The Google account/sync links now sit on Handle Google webhook events safely only, and the AssemblyAI child is related to Unify Go AssemblyAI voice platform; all three links remain informational. The rollout order is documented without inter-provider blocker links.
 - **Newer release checks:** The schema-isolated/no-superuser integration check was added to Establish executable Go migrations; cross-process recovery-throttle verification and pre-production MFA alert-policy drift checking were added to P09 Add MFA recovery and trusted devices. The user kept the fresh-shell build separate and did not select the hung-auth-check timeout for a canonical scope. The published-route smoke check already lives in its own issue and blocks environment promotion.
+- **Description headings:** Aligned the headings for Prove production recovery without the archived Drizzle tooling and Build provider webhook ingestion and safe actions with their Linear issue titles. Read-back confirmed the migration comments and remaining description content were preserved.
 - Remaining recommendations are awaiting the user's decisions.
