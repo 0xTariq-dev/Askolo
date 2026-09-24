@@ -1,8 +1,8 @@
 - [Orval codegen dedup](orval-codegen-dedup.md) — after codegen, trim `lib/api-zod/src/index.ts` to a single `generated/api` export to avoid duplicate-name TS2308 errors.
-- [Google OAuth scope preservation](google-oauth-scope-preservation.md) — merge existing scopes with new token responses to avoid losing Calendar/Gmail access on refresh or incremental auth.
+- [Google OAuth scope preservation](google-oauth-scope-preservation.md) — current storage overwrites scopes; preserve prior grants during refresh and incremental authorization.
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
-- [Generated Zod compatibility](generated-zod-compatibility.md) — generated schemas may emit Zod 4 APIs while the workspace runtime remains on Zod 3.
+- [Generated Zod compatibility](generated-zod-compatibility.md) — current generation emits Zod 4 helpers against a Zod 3 runtime; keep the compatibility shim aligned.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
@@ -17,7 +17,7 @@
 - [Go toolchain path](go-toolchain-path.md) — use `go fmt ./...` because the managed Go wrapper may not expose standalone `gofmt`.
 - [Go backend binary refresh](go-backend-binary-refresh.md) — the run script reuses an existing binary; rebuild before restarting after Go source changes.
 - [Three-Repl release architecture](three-repl-release-architecture.md) — identify the active environment before acting; normal releases use main, while hotfixes start from the live production tag.
-- [Development schema application](dev-schema-apply.md) — Drizzle migration behavior can differ locally; verify auth tables after the project’s development schema flow.
+- [Development schema application](dev-schema-apply.md) — Drizzle push behavior is historical development-only guidance, not the current migration path.
 - [Authorization handover](authorization-handover.md) — Go owns authorization decisions; TypeScript and provider boundaries pass session-derived identity and scope hints only.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Same-origin auth routing](same-origin-auth-routing.md) — render app routes locally when public and app origins share a host; otherwise redirects can loop forever.
