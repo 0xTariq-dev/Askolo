@@ -64,7 +64,7 @@ Use concise ownership statements to avoid overlapping implementation:
 - **TAR-41:** security review, launch evidence, residual-risk recording, and security gate; it does not replace runtime implementation.
 - **TAR-25:** approvals, audit, memory, and user-facing governance.
 
-TAR-25 has no relationships despite relevant boundaries with TAR-27 automation actions, TAR-36 webhook-triggered actions, and TAR-38 AI tool/action execution. Suggested next step: add related links and clarify the approval/audit contract, without making TAR-25 a universal blocker for all execution.
+The agent approvals, memory, and audit scope originally had no relationships. The user chose to relate it to automation triggers and templates, provider webhook ingestion and safe actions, and provider-backed AI execution. These links clarify the approval/audit contract without blocking implementation. Durable automation execution remains unlinked by choice.
 
 ### Webhooks and durable automation
 
@@ -151,4 +151,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **TAR-12 → TAR-29:** The user chose to keep the analytics evaluation as a blocker for the landing-artifact scope.
 - **Persona survey dependencies:** Build the secure persona survey remains a blocker of the temporary interactive tutorial. Its link to the Arabic RTL foundation is now related, so that infrastructure work can proceed independently. The Arabic RTL foundation's other dependencies were preserved.
 - **Keyboard accessibility dependencies:** The keyboard accessibility baseline remains a blocker of Add context menus and commands because browser-menu overrides and key handling require it. Its links to Add theme presets and Create Arabic RTL foundation are related.
+- **Governance and action scopes:** Agent approvals, memory, and audit is now related to Add automation triggers and templates, Build provider webhook ingestion and safe actions, and Make AI endpoints provider-backed. Build durable automation execution remains unlinked; these links are not blockers.
 - Remaining recommendations are awaiting the user's decisions.
