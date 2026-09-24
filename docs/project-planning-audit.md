@@ -24,7 +24,7 @@ Both issues represent the same public WebSocket protocol scope and cite the same
 
 **Resolution selected:** Keep TAR-44 canonical and mark TAR-37 as a duplicate of TAR-44. Preserve TAR-44's existing relationship to TAR-5, TAR-40, and TAR-41.
 
-**Resolution status:** Pending execution and read-back verification at the time this note was first written.
+**Resolution status:** Complete. Linear marks TAR-37 as `Duplicate`, and its `duplicateOf` relation points to TAR-44. Read-back verification confirmed the relation. TAR-44 remains canonical with its existing relationships intact.
 
 ## Environment and publication relationships
 
