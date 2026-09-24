@@ -91,7 +91,7 @@ Credit controls do not replace rate limits, and global abuse controls should not
 
 Review whether these are genuine implementation prerequisites or only shared context:
 
-- TAR-12 blocks TAR-29. Analytics privacy evaluation may not need to block public landing-artifact work unless analytics is a launch requirement.
+- TAR-12 blocks TAR-29. The user chose to retain this blocker; no additional rationale was supplied. Revisit only if the launch dependency changes.
 - TAR-21 blocks TAR-22 and TAR-23. Persona-survey work may inform tutorial personalization, but may not need to block Arabic RTL foundations.
 - TAR-6 blocks TAR-23, TAR-9, and TAR-7. Keep these blockers only if the accessibility work is truly a prerequisite rather than a parallel quality requirement.
 
@@ -148,4 +148,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **TAR-42 promotion gate:** The user chose to make both TAR-41 (security review) and TAR-43 (published-route validation) blockers. These were moved from related links to blockers; the existing TAR-33 and TAR-34 blockers were preserved. Linear read-back verified all four blockers.
 - **P28 title collision:** The user chose to keep P28 on TAR-29 and remove it from TAR-33. TAR-33 is now titled “Separate development web and API domains”; local task #93's original wording is retained as provenance pending local-board cleanup.
 - **Dependency authority:** Per the existing project convention, Linear is authoritative for active sequencing. Local task dependencies remain historical provenance unless a specific discrepancy warrants a deliberate Linear change.
+- **TAR-12 → TAR-29:** The user chose to keep the analytics evaluation as a blocker for the landing-artifact scope.
 - Remaining recommendations are awaiting the user's decisions.
