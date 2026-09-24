@@ -56,7 +56,7 @@ This is the unified reference for reconciling the production-readiness audit wit
 - The merged Google callback safety work improves source behavior but does not prove that the current published environment is correctly isolated.
 - The published-route smoke draft checks `/api`, `/healthz`, `/readyz`, `/ws`, and `/webhooks` after forwarding. It is a routing contract check, not an implementation check for WebSockets or webhooks.
 - The development-domain plan now owns the verified artifact inventory: the registered personal-assistant web artifact is authoritative, while its web workflow is a second preview entity for the same frontend rather than a second website. The retired TypeScript API directory and mockup placeholder are unrelated residue.
-- Canonical plans for later product work must use the current Go backend and generated contracts; deleted `artifacts/api-server` and legacy database-package paths are not implementation sources.
+- Canonical plans for later product work must use the current Go backend and generated contracts; residual TypeScript API and legacy database-package paths such as `artifacts/api-server` and `lib/db` are historical context, not implementation sources.
 
 ## Duplicate reconciliation status
 
