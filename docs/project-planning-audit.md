@@ -110,14 +110,14 @@ Recommended treatment:
 
 Newer local checks that may improve canonical acceptance criteria include:
 
-- #201: fail hung auth release checks before publishing is blocked.
-- #203: run schema-isolated integration checks without superuser privileges.
-- #210: make the one-command workspace build work in a fresh shell.
-- #217: verify MFA recovery limits across backend processes.
-- #219: check every published API entry point after forwarding.
-- #231: catch MFA alert-policy drift before production.
+- **Fail hung auth release checks before they block publishing:** candidate for the promotion gate's release-check timeout and fail-fast behavior.
+- **Verify every schema-isolated integration check works without superuser access:** candidate for the executable Go migration and schema-validation test matrix.
+- **Verify MFA recovery limits across separate backend processes:** candidate for the MFA recovery scope's shared-state and cross-process verification.
+- **Confirm every published API entry point responds after forwarding:** already represented by the published-route issue and now blocks environment promotion.
+- **Make the one-command workspace build work in a fresh shell:** no clear owner among the current feature scopes; keep it separate unless deliberately adopted as a build/release prerequisite.
+- **Catch MFA alert-policy drift before it reaches production:** not clearly owned by the MFA feature implementation or route-security review; decide whether it is a separate launch obligation or should extend an existing scope.
 
-These should be evaluated against existing scopes before migration; the local tasks are evidence sources, not automatic new Linear work.
+These are proposed mappings, not automatic new Linear work. The first three candidates and the treatment of the last two checks remain subject to the user's decision.
 
 ## Title and description consistency
 
