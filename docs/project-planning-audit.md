@@ -140,10 +140,12 @@ Align the description headings with the Linear issue titles so search results, e
 8. Enhance canonical scopes with applicable newer local release checks.
 9. Clean up superseded local proposals only after their canonical successor mappings are confirmed.
 
-All items other than the TAR-37/TAR-44 duplicate remain findings and recommendations, not approved edits.
+Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title normalization, the remaining recommendations are findings and proposals, not approved edits.
 
 ## Decision log
 
 - **TAR-37/TAR-44:** TAR-37 was marked `Duplicate` of TAR-44 in Linear; the relation was read back and verified. TAR-44's existing relationships remain intact.
 - **TAR-42 promotion gate:** The user chose to make both TAR-41 (security review) and TAR-43 (published-route validation) blockers. These were moved from related links to blockers; the existing TAR-33 and TAR-34 blockers were preserved. Linear read-back verified all four blockers.
+- **P28 title collision:** The user chose to keep P28 on TAR-29 and remove it from TAR-33. TAR-33 is now titled “Separate development web and API domains”; local task #93's original wording is retained as provenance pending local-board cleanup.
+- **Dependency authority:** Per the existing project convention, Linear is authoritative for active sequencing. Local task dependencies remain historical provenance unless a specific discrepancy warrants a deliberate Linear change.
 - Remaining recommendations are awaiting the user's decisions.
