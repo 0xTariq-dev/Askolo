@@ -141,3 +141,9 @@ Align the description headings with the Linear issue titles so search results, e
 9. Clean up superseded local proposals only after their canonical successor mappings are confirmed.
 
 All items other than the TAR-37/TAR-44 duplicate remain findings and recommendations, not approved edits.
+
+## Decision log
+
+- **TAR-37/TAR-44:** TAR-37 was marked `Duplicate` of TAR-44 in Linear; the relation was read back and verified. TAR-44's existing relationships remain intact.
+- **TAR-42 promotion gate:** The user chose to make both TAR-41 (security review) and TAR-43 (published-route validation) blockers. These were moved from related links to blockers; the existing TAR-33 and TAR-34 blockers were preserved. Linear read-back verified all four blockers.
+- Remaining recommendations are awaiting the user's decisions.
