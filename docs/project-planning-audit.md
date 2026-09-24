@@ -28,20 +28,20 @@ Both issues represent the same public WebSocket protocol scope and cite the same
 
 ## Environment and publication relationships
 
-The following issues are related but have separate responsibilities:
+These issues have separate responsibilities; the public landing artifact issue is now archived and is historical only:
 
-- TAR-29: public landing artifact and public/app/API domain separation.
+- **P28 Separate the public landing artifact:** archived; its old public/app/API product-surface split is not the current stage/project plan.
 - TAR-33: development web/API domain separation.
 - TAR-34: prevent production-labelled deployments from using staging hostnames.
 - TAR-42: environment promotion safeguards.
 - TAR-43: published API route checks after forwarding.
 - TAR-41: public-route security review.
 
-TAR-33 and TAR-34 currently block TAR-42. TAR-43 and TAR-41 are related to TAR-42, not blockers. If route validation and security review are required before promotion, their relations should be upgraded to blockers; otherwise the current relationships should remain informational.
+TAR-33, TAR-34, TAR-41, and TAR-43 currently block TAR-42. Linear read-back confirmed all four blockers. The user chose to keep **Prevent production-labelled deployments from using staging hostnames** active and archive the older public landing artifact issue.
 
-TAR-29 and TAR-33 both carry the “P28” prefix despite describing different work. Suggested normalization: remove the P28 prefix from TAR-33 and title it **“Separate development web and API domains.”**
+The active title for TAR-33 is now **“Separate development web and API domains.”** The archived landing issue retains its P28 title as historical record; it no longer has active relationships.
 
-**Stage/project architecture correction:** The user clarified that each deployment stage is planned around a separate environment and project, and that the public landing separation plan was rethought and was not intended for Linear. The current **P28 Separate the public landing artifact** issue instead describes the older askolo.app / web.askolo.app / api.askolo.app product-surface split. No Linear issue has been archived or rewritten pending confirmation of its intended disposition. The user selected a related-only link between that issue and **Prevent production-labelled deployments from using staging hostnames**; the current descriptions should be reconciled with the stage/project plan before treating the older scope as active.
+**Stage/project architecture correction:** The user clarified that each deployment stage is planned around a separate environment and project, and that the public landing separation plan was rethought and was not intended for Linear. The archived issue described the older askolo.app / web.askolo.app / api.askolo.app product-surface split. Linear archived it without moving it to trash and cleared all its relationships, including the former related link to **Prevent production-labelled deployments from using staging hostnames**. That host-guard issue remains active and blocks environment promotion. The separate stage/project plan still needs to be reconciled with any remaining landing SEO scope.
 
 ## Local-to-Linear dependency drift
 
@@ -49,7 +49,7 @@ The two planning records do not always express the same sequencing:
 
 - Local tasks #80 and #81 have no declared dependency, while TAR-17 and TAR-18 are blocked by TAR-16.
 - Local task #219 depends on merged task #181, while TAR-43 is only related to TAR-42 and has no matching blocker in Linear.
-- Local task #233 depends on #189, while TAR-34 is related to TAR-29 rather than carrying that prerequisite as a blocker.
+- The local dependency from **Prevent production-labelled deployments from using staging hostnames** to the older public landing separation task remains historical provenance. Its Linear issue is now independent, active, and a blocker of environment promotion; the archived landing issue has no active links.
 
 These differences may be intentional, but maintaining two authoritative dependency graphs would make readiness hard to interpret. Recommended policy: Linear remains authoritative for active planning; local task references remain provenance unless deliberately reconciled into Linear.
 
@@ -93,7 +93,7 @@ Credit controls do not replace rate limits, and global abuse controls should not
 
 Review whether these are genuine implementation prerequisites or only shared context:
 
-- TAR-12 blocks TAR-29. The user chose to retain this blocker; no additional rationale was supplied. Revisit only if the launch dependency changes.
+- The earlier blocker from private analytics evaluation to the public landing artifact scope was cleared when the user later clarified that the outdated landing issue was not intended for Linear and chose to archive it.
 - Build the secure persona survey blocks the temporary interactive tutorial, but the user chose to make its link to the Arabic RTL foundation related rather than blocking.
 - The keyboard accessibility baseline now blocks Add context menus and commands, where browser-menu overrides and key handling require it. Its links to Add theme presets and Create Arabic RTL foundation are related rather than blocking.
 
@@ -136,7 +136,7 @@ Two description headings that did not match their Linear issue titles have been 
 4. Decide how strictly to reconcile local dependency history with Linear's authoritative graph.
 5. Clarify ownership links across TAR-5, TAR-25, TAR-36, TAR-38, TAR-40, TAR-41, and TAR-44.
 6. Choose whether TAR-36 stays one issue with phase milestones or gains provider-specific child issues.
-7. Review the potentially over-constraining TAR-12/TAR-29, TAR-21/TAR-22/TAR-23, and TAR-6 relationships.
+7. Review remaining potentially over-constraining relationships, including TAR-21/TAR-22/TAR-23 and TAR-6; the public landing issue is archived.
 8. Enhance canonical scopes with applicable newer local release checks.
 9. Clean up superseded local proposals only after their canonical successor mappings are confirmed.
 
@@ -146,14 +146,15 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 
 - **TAR-37/TAR-44:** TAR-37 was marked `Duplicate` of TAR-44 in Linear; the relation was read back and verified. TAR-44's existing relationships remain intact.
 - **TAR-42 promotion gate:** The user chose to make both TAR-41 (security review) and TAR-43 (published-route validation) blockers. These were moved from related links to blockers; the existing TAR-33 and TAR-34 blockers were preserved. Linear read-back verified all four blockers.
-- **P28 title collision:** The user chose to keep P28 on TAR-29 and remove it from TAR-33. TAR-33 is now titled “Separate development web and API domains”; local task #93's original wording is retained as provenance pending local-board cleanup.
+- **P28 title collision:** The user chose to remove the P28 prefix from the active development-domain issue; its title is now “Separate development web and API domains.” The old P28 landing issue is archived; local task #93's original wording is retained as provenance pending local-board cleanup.
 - **Dependency authority:** Per the existing project convention, Linear is authoritative for active sequencing. Local task dependencies remain historical provenance unless a specific discrepancy warrants a deliberate Linear change.
-- **TAR-12 → TAR-29:** The user chose to keep the analytics evaluation as a blocker for the landing-artifact scope.
+- **Public landing issue:** The user later clarified that the old product-surface split was not intended for Linear under the revised stage/project plan and chose to archive **P28 Separate the public landing artifact** while keeping the production-host guard active. Linear read-back confirmed the archived issue is not in trash, has no remaining relations, and the host guard remains active. Archiving also cleared the old links from private analytics evaluation and Arabic RTL foundation, and unblocked **P29 Implement landing SEO and GEO**.
 - **Persona survey dependencies:** Build the secure persona survey remains a blocker of the temporary interactive tutorial. Its link to the Arabic RTL foundation is now related, so that infrastructure work can proceed independently. The Arabic RTL foundation's other dependencies were preserved.
 - **Keyboard accessibility dependencies:** The keyboard accessibility baseline remains a blocker of Add context menus and commands because browser-menu overrides and key handling require it. Its links to Add theme presets and Create Arabic RTL foundation are related.
 - **Governance and action scopes:** Agent approvals, memory, and audit is now related to Add automation triggers and templates, Build provider webhook ingestion and safe actions, and Make AI endpoints provider-backed. Build durable automation execution remains unlinked; these links are not blockers.
 - **Webhook task structure:** Three provider-specific child tasks now sit under Build provider webhook ingestion and safe actions. Its description defines the shared contract and child ownership; provider-specific test and verification work is assigned to each child. The Google account/sync links now sit on Handle Google webhook events safely only, and the AssemblyAI child is related to Unify Go AssemblyAI voice platform; all three links remain informational. The rollout order is documented without inter-provider blocker links.
 - **Newer release checks:** The schema-isolated/no-superuser integration check was added to Establish executable Go migrations; cross-process recovery-throttle verification and pre-production MFA alert-policy drift checking were added to P09 Add MFA recovery and trusted devices. The user kept the fresh-shell build separate and did not select the hung-auth-check timeout for a canonical scope. The published-route smoke check already lives in its own issue and blocks environment promotion.
 - **Description headings:** Aligned the headings for Prove production recovery without the archived Drizzle tooling and Build provider webhook ingestion and safe actions with their Linear issue titles. Read-back confirmed the migration comments and remaining description content were preserved.
-- **Stage/project architecture correction:** The user clarified that deployment stages use separate environments/projects and the public landing separation plan was rethought and was not intended for Linear. The existing issue still describes the older product-surface/domain split; no archive or rewrite has been made pending confirmation. The selected relation to Prevent production-labelled deployments from using staging hostnames remains related-only for now.
+- **Stage/project architecture correction:** The user clarified that deployment stages use separate environments/projects and the public landing separation plan was rethought and was not intended for Linear. **P28 Separate the public landing artifact** is archived; Linear cleared its relations. **Prevent production-labelled deployments from using staging hostnames** remains active and blocks environment promotion.
+- **Landing SEO follow-up:** **P29 Implement landing SEO and GEO** remains active and is currently blocked only by **P22 Roll out Arabic UI and metadata**. Its description still assumes a separate public landing artifact; review that scope against the revised stage/project plan before treating it as current.
 - Remaining recommendations are awaiting the user's decisions.

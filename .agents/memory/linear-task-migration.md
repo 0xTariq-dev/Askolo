@@ -14,3 +14,11 @@ Use a team-scoped `Replit` source label, the single-select `Migration` label gro
 **Why:** Source provenance and migration state need to remain searchable without overloading workflow status or issue descriptions.
 
 **How to apply:** Reuse the existing groups and labels on later imports. Do not create parallel labels with different spelling, apply both lifecycle values at once, or mark superseded source records as canonical.
+
+## Archiving Linear issues
+
+Archiving an issue may clear its blocking and related links on both the archived issue and active counterpart issues. This can change active sequencing, not just hide the archived item.
+
+**Why:** During reconciliation, archiving a stale issue cleared its dependencies and unblocked a surviving issue whose description still assumed the old prerequisite.
+
+**How to apply:** Before archiving, read the issue's blockers, dependents, and related issues. After archiving, read each affected active issue back and decide whether any relationship should remain; never restore a link to archived scope without an explicit reason.
