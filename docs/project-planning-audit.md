@@ -130,17 +130,17 @@ Two description headings that did not match their Linear issue titles have been 
 
 ## Recommended decision sequence
 
-1. Resolve TAR-37/TAR-44 (TAR-44 remains canonical).
-2. Decide whether TAR-41 and TAR-43 are mandatory blockers for TAR-42.
-3. Normalize the TAR-33 title and resolve the repeated P28 prefix.
-4. Decide how strictly to reconcile local dependency history with Linear's authoritative graph.
-5. Clarify ownership links across TAR-5, TAR-25, TAR-36, TAR-38, TAR-40, TAR-41, and TAR-44.
-6. Choose whether TAR-36 stays one issue with phase milestones or gains provider-specific child issues.
-7. Review remaining potentially over-constraining relationships, including TAR-21/TAR-22/TAR-23 and TAR-6; the public landing issue is archived.
-8. Enhance canonical scopes with applicable newer local release checks.
-9. Clean up superseded local proposals only after their canonical successor mappings are confirmed.
+1. **Complete:** TAR-37 is a duplicate of **Complete the public WebSocket protocol**; the latter remains canonical.
+2. **Complete:** **Complete public-route security review** and **Confirm every published API entry point responds after forwarding** block **Complete environment promotion safeguards**, alongside the development-domain and production-host guards.
+3. **Complete:** The active development-domain issue is titled **Separate development web and API domains**; the obsolete public-artifact issue is archived.
+4. **Complete:** Linear is authoritative for active sequencing; local dependencies remain provenance unless deliberately reconciled.
+5. **Complete:** Read-back confirmed the voice, governance, webhook, AI, abuse, and security ownership links. The voice platform blocks the browser WebSocket protocol; governance remains related to trigger configuration, webhook ingestion, and provider-backed AI, but unlinked to durable automation by choice.
+6. **Complete:** **Build provider webhook ingestion and safe actions** has three provider-specific children; the rollout order is documented without inter-provider blocker links.
+7. **Complete:** Relationship review confirmed the intended survey/tutorial and keyboard/context-menu blockers; the RTL/theme links remain related, and the outdated public landing issue is archived.
+8. **Complete:** Approved newer release checks were added to canonical scopes; checks the user chose to keep separate remain separate.
+9. **Pending last:** Clean up superseded local proposals after canonical successor mappings are confirmed.
 
-Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title normalization, the remaining recommendations are findings and proposals, not approved edits.
+All approved Linear changes recorded in this audit have been applied and read back. Local-board cleanup remains deferred until the final reconciliation step; unapproved suggestions remain proposals.
 
 ## Decision log
 
@@ -157,4 +157,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **Description headings:** Aligned the headings for Prove production recovery without the archived Drizzle tooling and Build provider webhook ingestion and safe actions with their Linear issue titles. Read-back confirmed the migration comments and remaining description content were preserved.
 - **Stage/project architecture correction:** The user clarified that deployment stages use separate environments/projects and the public landing separation plan was rethought and was not intended for Linear. **P28 Separate the public landing artifact** is archived; Linear cleared its relations. **Prevent production-labelled deployments from using staging hostnames** remains active and blocks environment promotion.
 - **Landing SEO scope:** **P29 Implement landing SEO and GEO** remains active and blocked by **P22 Roll out Arabic UI and metadata**. Its description now covers public landing SEO/GEO across separate stage projects: production canonical metadata and sitemap use the approved production origin, development and staging are non-indexable, and host-identity validation remains owned by **Prevent production-labelled deployments from using staging hostnames**. No hostnames were invented and no new relationship was added.
-- Remaining recommendations are awaiting the user's decisions.
+- **Cross-owner link verification:** Read-back confirmed the current voice, governance, webhook, provider-backed AI, abuse, security, and browser WebSocket relationships match their scope boundaries. The keyboard-accessibility relationship check is also complete.
+- Remaining work is the deferred local-board cleanup; it follows the confirmed successor mappings and approved Linear changes.
