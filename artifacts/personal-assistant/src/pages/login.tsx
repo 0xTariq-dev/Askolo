@@ -3,7 +3,9 @@ import { Input } from '@/components/ui/input';
 import { motion } from 'framer-motion';
 import { Github, KeyRound, Sparkles, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ApiError } from '@workspace/api-client-react';
 import { useAppAuth } from '@/contexts/auth-context';
+import { getApiErrorMessage, getRetryAfterSeconds, goApi } from '@/lib/go-api';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 import logoUrl from '/logo.png';
@@ -23,39 +25,39 @@ type PasswordMode =
 
 type RecoveryMethod = 'primary_email' | 'recovery_email';
 
-type AuthPayload = {
-  error?: string;
-  status?: string;
-};
-
 const resendCooldownSeconds = 2 * 60;
 
 class AuthRequestError extends Error {
   retryAfterSeconds: number;
+  code?: string | null;
+  requestId?: string | null;
 
-  constructor(message: string, retryAfterSeconds = 0) {
+  constructor(
+    message: string,
+    retryAfterSeconds = 0,
+    details?: { code?: string | null; requestId?: string | null },
+  ) {
     super(message);
     this.name = 'AuthRequestError';
     this.retryAfterSeconds = retryAfterSeconds;
+    this.code = details?.code;
+    this.requestId = details?.requestId;
   }
 }
 
-async function postAuth(path: string, body: Record<string, string>): Promise<AuthPayload> {
-  const response = await fetch(`${basePath}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const payload = (await response.json().catch(() => null)) as AuthPayload | null;
-  if (!response.ok) {
-    const retryAfterHeader = Number.parseInt(response.headers.get('Retry-After') || '', 10);
+async function postAuth<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    const apiError = error instanceof ApiError ? error : undefined;
     throw new AuthRequestError(
-      payload?.error || 'Unable to complete that request right now.',
-      Number.isFinite(retryAfterHeader) ? retryAfterHeader : 0,
+      getApiErrorMessage(error, 'Unable to complete that request right now.'),
+      getRetryAfterSeconds(error),
+      apiError
+        ? { code: apiError.code, requestId: apiError.requestId }
+        : undefined,
     );
   }
-  return payload ?? {};
 }
 
 export function LoginPage() {
@@ -135,7 +137,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       if (mode === 'signin') {
-        const payload = await postAuth('/api/auth/password/login', { email, password });
+        const payload = await postAuth(() => goApi.passwordLogin({ email, password }));
         if (payload.status === 'mfa_required') {
           setMode('mfa');
           setNotice('Enter an authenticator code or one of your recovery codes to continue.');
@@ -143,12 +145,12 @@ export function LoginPage() {
           window.location.assign(`${basePath}/dashboard`);
         }
       } else if (mode === 'signup') {
-        await postAuth('/api/auth/password/signup', { email, password });
+        await postAuth(() => goApi.passwordSignup({ email, password }));
         setMode('verify');
         startResendCooldown();
         setNotice('If an account can be created for this address, a verification code is on its way.');
       } else if (mode === 'verify') {
-        await postAuth('/api/auth/email/verify', { email, code });
+        await postAuth(() => goApi.verifyEmail({ email, code }));
         setMode('signin');
         setPassword('');
         setCode('');
@@ -159,22 +161,26 @@ export function LoginPage() {
         setMoreWaysOpen(false);
         setRecoveryMethod('primary_email');
       } else if (mode === 'recovery-method') {
-        await postAuth('/api/auth/password/recovery/request', { email, method: recoveryMethod });
+        await postAuth(() => goApi.requestPasswordRecovery({ email, method: recoveryMethod }));
         setMode('recovery-verify');
         startResendCooldown();
         setNotice('If an eligible recovery method matches, a reset code is on its way.');
       } else if (mode === 'recovery-verify') {
-        await postAuth('/api/auth/password/recovery/verify', { email, method: recoveryMethod, code });
+        await postAuth(() =>
+          goApi.verifyPasswordRecovery({ email, method: recoveryMethod, code }),
+        );
         setMode('recovery-reset');
         setResendAvailableAt(null);
         setNotice('Code verified. Choose a new password for your Askolo account.');
       } else if (mode === 'mfa-support-request') {
-        await postAuth('/api/auth/mfa/recovery-support/request', { email });
+        await postAuth(() => goApi.requestMFARecoverySupport({ email }));
         setMode('mfa-support-verify');
         startResendCooldown();
         setNotice('If this account is eligible, a verification code is on its way to its verified primary email.');
       } else if (mode === 'mfa-support-verify') {
-        const payload = await postAuth('/api/auth/mfa/recovery-support/verify', { email, code });
+        const payload = await postAuth(() =>
+          goApi.verifyMFARecoverySupport({ email, code }),
+        );
         if (payload.status !== 'mfa_recovery_support_review_required') {
           throw new Error('Your recovery request could not be completed.');
         }
@@ -182,18 +188,18 @@ export function LoginPage() {
         setResendAvailableAt(null);
         setNotice(null);
       } else if (mode === 'mfa') {
-        await postAuth('/api/auth/mfa/verify', { code });
+        await postAuth(() => goApi.verifyMFA({ code }));
         window.location.assign(`${basePath}/dashboard`);
       } else {
         if (newPassword !== confirmPassword) {
           throw new Error('The passwords do not match.');
         }
-        await postAuth('/api/auth/password/recovery/reset', {
+        await postAuth(() => goApi.resetPassword({
           email,
           method: recoveryMethod,
           code,
           password: newPassword,
-        });
+        }));
         setMode('signin');
         setPassword('');
         setNewPassword('');
@@ -215,7 +221,7 @@ export function LoginPage() {
     setNotice(null);
     setSubmitting(true);
     try {
-      await postAuth('/api/auth/email/resend', { email });
+      await postAuth(() => goApi.resendEmailVerification({ email }));
       startResendCooldown();
       setNotice('If this account is waiting for verification, a new code is on its way.');
     } catch (err) {
@@ -232,7 +238,7 @@ export function LoginPage() {
     setNotice(null);
     setSubmitting(true);
     try {
-      await postAuth('/api/auth/password/recovery/request', { email, method: recoveryMethod });
+      await postAuth(() => goApi.requestPasswordRecovery({ email, method: recoveryMethod }));
       startResendCooldown();
       setNotice('If an eligible recovery method matches, a new reset code is on its way.');
     } catch (err) {
@@ -249,7 +255,7 @@ export function LoginPage() {
     setNotice(null);
     setSubmitting(true);
     try {
-      await postAuth('/api/auth/mfa/recovery-support/request', { email });
+      await postAuth(() => goApi.requestMFARecoverySupport({ email }));
       startResendCooldown();
       setNotice('If this account is eligible, a new verification code is on its way to its verified primary email.');
     } catch (err) {

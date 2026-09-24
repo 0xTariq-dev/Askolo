@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import { ApiError } from '@workspace/api-client-react';
 import { toPublicUrl } from '@/lib/site-domains';
+import { goApi } from '@/lib/go-api';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -11,7 +13,7 @@ export type AppUser = {
   lastName: string | null;
   profileImageUrl: string | null;
   imageUrl?: string;
-  authProvider?: 'google' | 'github' | 'password';
+  authProvider?: string;
   status?: string;
 };
 
@@ -22,7 +24,7 @@ type AppAuthValue = {
   isLoaded: boolean;
   isSignedIn: boolean;
   mfaRequired: boolean;
-  authProvider: 'google' | 'github' | 'password' | null;
+  authProvider: string | null;
   signOut: (options?: SignOutOptions) => Promise<void>;
   updateProfile: (profile: { firstName: string; lastName: string }) => Promise<void>;
   updateProfileImage: (file: File) => Promise<void>;
@@ -44,11 +46,8 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    fetch(`${basePath}/api/auth/user`, { credentials: 'include' })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Auth check failed: ${response.status}`);
-        return (await response.json()) as { user: AppUser | null; mfaRequired?: boolean };
-      })
+    const controller = new AbortController();
+    goApi.currentUser(controller.signal)
       .then((payload) => {
         if (!active) return;
         setUser(payload.user);
@@ -63,6 +62,7 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
       });
     return () => {
       active = false;
+      controller.abort();
     };
   }, []);
 
@@ -74,37 +74,26 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
       mfaRequired,
       authProvider: user?.authProvider ?? null,
       signOut: async (options) => {
-        await fetch(`${basePath}/api/auth/logout`, {
-          method: 'POST',
-          credentials: 'include',
-        });
+        try {
+          await goApi.logout();
+        } catch (error) {
+          console.warn('Logout request failed', {
+            status: error instanceof ApiError ? error.status : undefined,
+            code: error instanceof ApiError ? error.code : undefined,
+            requestId: error instanceof ApiError ? error.requestId : undefined,
+          });
+        }
         window.location.assign(options?.redirectUrl ?? toPublicUrl('/'));
       },
       updateProfile: async ({ firstName, lastName }) => {
-        const response = await fetch(`${basePath}/api/user/profile`, {
-          method: 'PATCH',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ firstName, lastName }),
-        });
-        if (!response.ok) throw new Error('Profile update failed');
-        const updated = (await response.json()) as AppUser;
+        const updated = await goApi.updateProfile({ firstName, lastName });
         setUser(updated);
       },
       updateProfileImage: async () => {
         throw new Error('Native profile photo editing is not available');
       },
       updatePassword: async (currentPassword, newPassword) => {
-        const response = await fetch(`${basePath}/api/auth/password/set`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ currentPassword, password: newPassword }),
-        });
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(payload?.error || 'Password update failed');
-        }
+        await goApi.setPassword({ currentPassword, password: newPassword });
       },
     }),
     [isLoaded, mfaRequired, user],

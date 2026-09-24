@@ -101,6 +101,259 @@ paths:
         '302':
           description: Redirect on success or failure.
 
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutPasswordSession
+      summary: Clear the authenticated session
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '204': { description: Session cleared; the session cookie is expired. }
+
+  /auth/password/login:
+    post:
+      tags: [Auth]
+      operationId: passwordLogin
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordLoginInput' } } }
+      responses:
+        '200':
+          description: Session created or MFA challenge started.
+          content: { application/json: { schema: { $ref: '#/components/schemas/PasswordLoginResponse' } } }
+        '400': { description: Invalid credentials, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Invalid credentials, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Account unavailable or email verification required, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429':
+          description: Too many attempts
+          headers: { Retry-After: { schema: { type: integer } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+
+  /auth/password/signup:
+    post:
+      tags: [Auth]
+      operationId: passwordSignup
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordSignupInput' } } }
+      responses:
+        '202': { description: Verification required, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid signup, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429':
+          description: Too many requests
+          headers: { Retry-After: { schema: { type: integer } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+        '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/password/set:
+    post:
+      tags: [Auth]
+      operationId: setPassword
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordSetInput' } } }
+      responses:
+        '204': { description: Password set. }
+        '400': { description: Invalid password, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized or invalid current password, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Account unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/email/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EmailVerificationInput' } } }
+      responses:
+        '200': { description: Email verified, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid or expired verification, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Challenge locked, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/email/resend:
+    post:
+      tags: [Auth]
+      operationId: resendEmailVerification
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EmailInput' } } }
+      responses:
+        '202': { description: Verification request accepted, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid email, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429':
+          description: Rate limited
+          headers: { Retry-After: { schema: { type: integer } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+
+  /auth/recovery/email/enroll:
+    post:
+      tags: [Auth]
+      operationId: enrollRecoveryEmail
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RecoveryEmailEnrollmentInput' } } }
+      responses:
+        '202': { description: Verification required, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid recovery email, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Reauthentication required, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    # The verification operation intentionally has its own contract.
+  /auth/recovery/email/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyRecoveryEmail
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EmailVerificationInput' } } }
+      responses:
+        '200': { description: Recovery email verified, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid or expired request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Challenge locked, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/password/recovery/request:
+    post:
+      tags: [Auth]
+      operationId: requestPasswordRecovery
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordRecoveryRequestInput' } } }
+      responses:
+        '202': { description: Recovery accepted without revealing account existence, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/password/recovery/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyPasswordRecovery
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordRecoveryVerificationInput' } } }
+      responses:
+        '200': { description: Code verified, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid or expired reset, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited or challenge locked, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/password/recovery/reset:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordRecoveryResetInput' } } }
+      responses:
+        '200': { description: Password reset and existing sessions revoked, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid reset or password, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited or challenge locked, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/recovery-support/request:
+    post:
+      tags: [Auth]
+      operationId: requestMFARecoverySupport
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EmailInput' } } }
+      responses:
+        '202': { description: Recovery review verification requested, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid email, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429':
+          description: Rate limited
+          headers: { Retry-After: { schema: { type: integer } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+        '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/recovery-support/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyMFARecoverySupport
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EmailVerificationInput' } } }
+      responses:
+        '200': { description: Support review requested; no session is created, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid or expired recovery request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited or challenge locked, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/status:
+    get:
+      tags: [Auth]
+      operationId: getMFAStatus
+      responses:
+        '200': { description: MFA status, content: { application/json: { schema: { $ref: '#/components/schemas/MFAStatus' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/enroll:
+    post:
+      tags: [Auth]
+      operationId: enrollMFA
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFAReauthenticationInput' } } }
+      responses:
+        '200': { description: Enrollment secret (one-time display), content: { application/json: { schema: { $ref: '#/components/schemas/MFAEnrollmentResponse' } } } }
+        '400': { description: Invalid reauthentication, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Recovery method required, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '409': { description: MFA already enabled, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/confirm:
+    post:
+      tags: [Auth]
+      operationId: confirmMFA
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFACodeInput' } } }
+      responses:
+        '200': { description: MFA enabled and recovery codes returned once, content: { application/json: { schema: { $ref: '#/components/schemas/MFARecoveryCodesResponse' } } } }
+        '400': { description: Invalid code or enrollment, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Invalid code, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyMFA
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFACodeInput' } } }
+      responses:
+        '200': { description: MFA challenge completed, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: MFA not required or invalid request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized or invalid MFA, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited or challenge locked, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/recovery-codes/regenerate:
+    post:
+      tags: [Auth]
+      operationId: regenerateMFARecoveryCodes
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFARecoveryCodeManagementInput' } } }
+      responses:
+        '200': { description: New recovery codes returned once, content: { application/json: { schema: { $ref: '#/components/schemas/MFARecoveryCodesResponse' } } } }
+        '400': { description: Invalid reauthentication or recovery code, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized or invalid recovery code, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/disable:
+    post:
+      tags: [Auth]
+      operationId: disableMFA
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFARecoveryCodeManagementInput' } } }
+      responses:
+        '200': { description: MFA disabled, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid request or MFA state, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized or invalid recovery code, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
   /logout:
     get:
       tags: [Auth]
@@ -170,6 +423,70 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LogoutSuccess'
+
+  /user/profile:
+    patch:
+      tags: [Auth]
+      operationId: updateUserProfile
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UserProfileUpdate' } } }
+      responses:
+        '200': { description: Updated user profile, content: { application/json: { schema: { $ref: '#/components/schemas/ProfileUser' } } } }
+        '400': { description: Invalid profile, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /user/data:
+    delete:
+      tags: [Auth]
+      operationId: deleteUserData
+      responses:
+        '204': { description: All user data deleted. }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /user/account:
+    delete:
+      tags: [Auth]
+      operationId: deleteUserAccount
+      responses:
+        '204': { description: Account deleted. }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /google/disconnect:
+    delete:
+      tags: [google]
+      operationId: disconnectGoogle
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string, enum: [calendar, gmail] }
+      responses:
+        '204': { description: Google connections revoked. }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '501': { description: Imported-data deletion unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /ai/coaching:
+    post:
+      tags: [ai]
+      operationId: coaching
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CoachingInput' } } }
+      responses:
+        '200': { description: Coaching response, content: { application/json: { schema: { $ref: '#/components/schemas/StaticAIResponse' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /ai/generate-plan:
+    post:
+      tags: [ai]
+      operationId: generatePlan
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/GeneratePlanInput' } } }
+      responses:
+        '200': { description: Plan generation response, content: { application/json: { schema: { $ref: '#/components/schemas/StaticAIResponse' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 
   # ─── HABITS ───────────────────────────────────────────────────────────────
   /habits:
@@ -1437,18 +1754,26 @@ components:
     # ── Auth ─────────────────────────────────────────────────────────────
     AuthUser:
       type: object
-      required: [id, email, firstName, lastName, profileImageUrl]
+      required: [id, email, firstName, lastName, profileImageUrl, status, emailVerified, accountCreatedVia, authProvider]
       properties:
         id:
           type: string
         email:
-          type: [string, 'null']
+          type: string
         firstName:
-          type: [string, 'null']
+          type: string
         lastName:
-          type: [string, 'null']
+          type: string
         profileImageUrl:
-          type: [string, 'null']
+          type: string
+        status:
+          type: string
+        emailVerified:
+          type: boolean
+        accountCreatedVia:
+          type: string
+        authProvider:
+          type: string
     AuthUserEnvelope:
       type: object
       required: [user]
@@ -1457,6 +1782,8 @@ components:
           oneOf:
             - $ref: '#/components/schemas/AuthUser'
             - type: 'null'
+        mfaRequired:
+          type: boolean
     MobileTokenExchangeRequest:
       type: object
       required: [code, code_verifier, redirect_uri, state]
@@ -1495,6 +1822,152 @@ components:
       properties:
         error:
           type: string
+        code:
+          type: string
+        requestId:
+          type: string
+
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+    EmailInput:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string }
+    PasswordLoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string }
+        password: { type: string }
+    PasswordLoginResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [authenticated, mfa_required] }
+        methods:
+          type: array
+          items: { type: string, enum: [totp, recovery_code] }
+    PasswordSignupInput:
+      $ref: '#/components/schemas/PasswordLoginInput'
+    PasswordSetInput:
+      type: object
+      required: [password]
+      properties:
+        currentPassword: { type: string }
+        password: { type: string }
+    EmailVerificationInput:
+      type: object
+      required: [email, code]
+      properties:
+        email: { type: string }
+        code: { type: string }
+    RecoveryEmailEnrollmentInput:
+      type: object
+      required: [email, currentPassword]
+      properties:
+        email: { type: string }
+        currentPassword: { type: string }
+    PasswordRecoveryRequestInput:
+      type: object
+      required: [email, method]
+      properties:
+        email: { type: string }
+        method: { type: string, enum: [primary_email, recovery_email] }
+    PasswordRecoveryVerificationInput:
+      type: object
+      required: [email, method, code]
+      properties:
+        email: { type: string }
+        method: { type: string, enum: [primary_email, recovery_email] }
+        code: { type: string }
+    PasswordRecoveryResetInput:
+      type: object
+      required: [email, method, code, password]
+      properties:
+        email: { type: string }
+        method: { type: string, enum: [primary_email, recovery_email] }
+        code: { type: string }
+        password: { type: string }
+    MFAStatus:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+    MFAReauthenticationInput:
+      type: object
+      required: [currentPassword]
+      properties:
+        currentPassword: { type: string }
+    MFACodeInput:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string }
+    MFARecoveryCodeManagementInput:
+      type: object
+      required: [currentPassword, recoveryCode]
+      properties:
+        currentPassword: { type: string }
+        recoveryCode: { type: string }
+    MFAEnrollmentResponse:
+      type: object
+      required: [status, secret, account]
+      properties:
+        status: { type: string, const: mfa_confirmation_required }
+        secret: { type: string }
+        account: { type: string }
+    MFARecoveryCodesResponse:
+      type: object
+      required: [status, recoveryCodes]
+      properties:
+        status: { type: string }
+        recoveryCodes:
+          type: array
+          items: { type: string }
+    UserProfileUpdate:
+      type: object
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+    ProfileUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl, status, authProvider]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        profileImageUrl: { type: string }
+        status: { type: string }
+        authProvider: { type: string }
+    CoachingInput:
+      type: object
+      required: [habits, goals, habitsCompletedToday, habitsTotal]
+      properties:
+        habits: { type: array, items: { $ref: '#/components/schemas/HabitStreak' } }
+        goals: { type: array, items: { $ref: '#/components/schemas/Goal' } }
+        habitsCompletedToday: { type: integer }
+        habitsTotal: { type: integer }
+    GeneratePlanInput:
+      type: object
+      required: [notes, date]
+      properties:
+        notes: { type: string }
+        date: { type: string }
+    StaticAIResponse:
+      type: object
+      required: [message, items, date, summary, decisions, actionItems]
+      properties:
+        message: { type: string }
+        items: { type: array, items: {} }
+        date: { type: string }
+        summary: { type: string }
+        decisions: { type: array, items: { type: string } }
+        actionItems: { type: array, items: {} }
 
     # ── Habits ───────────────────────────────────────────────────────────
     Habit:

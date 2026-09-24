@@ -6,14 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AuthUser {
+export interface ProfileUser {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
   profileImageUrl: string;
   status: string;
-  emailVerified: boolean;
-  accountCreatedVia: string;
   authProvider: string;
 }

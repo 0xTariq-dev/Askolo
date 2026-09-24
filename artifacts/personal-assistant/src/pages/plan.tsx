@@ -33,6 +33,8 @@ import {
   getGetTranscriptionPreferencesQueryKey,
   DailyPlan,
 } from '@workspace/api-client-react';
+import { ApiError } from '@workspace/api-client-react';
+import { getApiErrorMessage, goApi } from '@/lib/go-api';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -152,6 +154,12 @@ export function PlanPage() {
     resolver: zodResolver(planSchema),
     defaultValues: { title: '', timeBlock: '', priority: 'medium' },
   });
+  const generationControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    generationControllerRef.current?.abort();
+    generationControllerRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (voiceState === 'listening' && liveText) {
@@ -164,21 +172,14 @@ export function PlanPage() {
 
   const generateWithAI = async () => {
     if (!notes.trim()) return;
+    generationControllerRef.current?.abort();
+    const controller = new AbortController();
+    generationControllerRef.current = controller;
     setIsGenerating(true);
     setGenerationError('');
 
     try {
-      const res = await fetch('/api/ai/generate-plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ notes, date: dateStr }),
-      });
-
-      if (!res.ok) {
-        const payload = await res.json().catch(() => null);
-        throw new Error(payload?.error || 'The plan could not be generated. Try again.');
-      }
+      await goApi.generatePlan({ notes, date: dateStr }, controller.signal);
 
       setNotes('');
       setGenerationError('');
@@ -186,12 +187,19 @@ export function PlanPage() {
       await qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
       await qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
     } catch (error) {
+      if (controller.signal.aborted) return;
       // Keep the reviewed transcript in the editor so the user can retry safely.
-      const message = error instanceof Error ? error.message : 'The plan could not be generated.';
+      const message = getApiErrorMessage(error, 'The plan could not be generated. Try again.');
       setGenerationError(message);
-      console.error('Plan generation failed', { message });
+      console.error('Plan generation failed', {
+        code: error instanceof ApiError ? error.code : undefined,
+        requestId: error instanceof ApiError ? error.requestId : undefined,
+      });
     } finally {
-      setIsGenerating(false);
+      if (generationControllerRef.current === controller) {
+        generationControllerRef.current = null;
+        setIsGenerating(false);
+      }
     }
   };
 

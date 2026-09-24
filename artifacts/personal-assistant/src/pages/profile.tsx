@@ -43,17 +43,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
+import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import { useAppAuth } from '@/contexts/auth-context';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
-
-async function apiDelete(path: string) {
-  const res = await fetch(`${basePath}/api${path}`, { method: 'DELETE', credentials: 'include' });
-  if (!res.ok && res.status !== 204) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed: ${res.status}`);
-  }
-}
 
 export function ProfilePage() {
   const {
@@ -136,8 +129,11 @@ export function ProfilePage() {
       await updateProfile({ firstName: firstName.trim(), lastName: lastName.trim() });
       setEditingName(false);
       toast({ title: 'Name updated' });
-    } catch {
-      toast({ title: 'Failed to update name', variant: 'destructive' });
+    } catch (error) {
+      toast({
+        title: getApiErrorMessage(error, 'Failed to update name'),
+        variant: 'destructive',
+      });
     } finally {
       setSavingName(false);
     }
@@ -171,8 +167,11 @@ export function ProfilePage() {
       setCurrentPassword('');
       setNewPassword('');
       toast({ title: 'Password changed' });
-    } catch (err: any) {
-      toast({ title: err?.errors?.[0]?.message || 'Failed to change password', variant: 'destructive' });
+    } catch (error) {
+      toast({
+        title: getApiErrorMessage(error, 'Failed to change password'),
+        variant: 'destructive',
+      });
     } finally {
       setChangingPassword(false);
     }
@@ -182,22 +181,15 @@ export function ProfilePage() {
     if (!recoveryEmail || !recoveryReauthPassword) return;
     setSavingRecoveryEmail(true);
     try {
-      const response = await fetch(`${basePath}/api/auth/recovery/email/enroll`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: recoveryEmail,
-          currentPassword: recoveryReauthPassword,
-        }),
+      await goApi.enrollRecoveryEmail({
+        email: recoveryEmail,
+        currentPassword: recoveryReauthPassword,
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(payload?.error || 'Recovery email setup failed');
       setRecoveryStep('verify');
       toast({ title: 'Check your recovery email', description: 'Enter the verification code to finish setup.' });
     } catch (err) {
       toast({
-        title: err instanceof Error ? err.message : 'Recovery email setup failed',
+        title: getApiErrorMessage(err, 'Recovery email setup failed'),
         variant: 'destructive',
       });
     } finally {
@@ -209,14 +201,10 @@ export function ProfilePage() {
     if (!recoveryEmail || recoveryCode.length !== 6) return;
     setSavingRecoveryEmail(true);
     try {
-      const response = await fetch(`${basePath}/api/auth/recovery/email/verify`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: recoveryEmail, code: recoveryCode }),
+      await goApi.verifyRecoveryEmail({
+        email: recoveryEmail,
+        code: recoveryCode,
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(payload?.error || 'Recovery email verification failed');
       setRecoveryStep('idle');
       setRecoveryEmail('');
       setRecoveryReauthPassword('');
@@ -224,7 +212,7 @@ export function ProfilePage() {
       toast({ title: 'Recovery email verified' });
     } catch (err) {
       toast({
-        title: err instanceof Error ? err.message : 'Recovery email verification failed',
+        title: getApiErrorMessage(err, 'Recovery email verification failed'),
         variant: 'destructive',
       });
     } finally {
@@ -234,42 +222,33 @@ export function ProfilePage() {
 
   useEffect(() => {
     if (!isLoaded || !user) return;
-    fetch(`${basePath}/api/auth/mfa/status`, { credentials: 'include' })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const payload = (await response.json()) as { enabled?: boolean };
-        setMfaEnabled(payload.enabled === true);
+    let active = true;
+    const controller = new AbortController();
+    goApi.mfaStatus(controller.signal)
+      .then((payload) => {
+        if (active) setMfaEnabled(payload.enabled);
       })
       .catch(() => undefined);
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [isLoaded, user]);
-
-  const postMFA = async (path: string, body: Record<string, string>) => {
-    const response = await fetch(`${basePath}${path}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      secret?: string;
-      recoveryCodes?: string[];
-    } | null;
-    if (!response.ok) throw new Error(payload?.error || 'MFA request failed');
-    return payload ?? {};
-  };
 
   const startMFAEnrollment = async () => {
     if (!mfaPassword) return;
     setMfaBusy(true);
     try {
-      const payload = await postMFA('/api/auth/mfa/enroll', { currentPassword: mfaPassword });
-      setMfaSecret(payload.secret || '');
+      const payload = await goApi.enrollMFA({ currentPassword: mfaPassword });
+      setMfaSecret(payload.secret);
       setMfaCode('');
       setMfaStep('confirm');
       toast({ title: 'MFA enrollment started', description: 'Add the secret to your authenticator app, then enter its code.' });
     } catch (err) {
-      toast({ title: err instanceof Error ? err.message : 'MFA enrollment failed', variant: 'destructive' });
+      toast({
+        title: getApiErrorMessage(err, 'MFA enrollment failed'),
+        variant: 'destructive',
+      });
     } finally {
       setMfaBusy(false);
     }
@@ -279,15 +258,18 @@ export function ProfilePage() {
     if (mfaCode.length !== 6) return;
     setMfaBusy(true);
     try {
-      const payload = await postMFA('/api/auth/mfa/confirm', { code: mfaCode });
+      const payload = await goApi.confirmMFA({ code: mfaCode });
       setMfaEnabled(true);
       setMfaSecret('');
       setMfaCode('');
-      setMfaRecoveryCodes(payload.recoveryCodes || []);
+      setMfaRecoveryCodes(payload.recoveryCodes);
       setMfaStep('codes');
       toast({ title: 'MFA enabled', description: 'Save your recovery codes before leaving this page.' });
     } catch (err) {
-      toast({ title: err instanceof Error ? err.message : 'MFA confirmation failed', variant: 'destructive' });
+      toast({
+        title: getApiErrorMessage(err, 'MFA confirmation failed'),
+        variant: 'destructive',
+      });
     } finally {
       setMfaBusy(false);
     }
@@ -297,17 +279,20 @@ export function ProfilePage() {
     if (!mfaPassword || !mfaRecoveryCode) return;
     setMfaBusy(true);
     try {
-      const payload = await postMFA('/api/auth/mfa/recovery-codes/regenerate', {
+      const payload = await goApi.regenerateMFARecoveryCodes({
         currentPassword: mfaPassword,
         recoveryCode: mfaRecoveryCode,
       });
       setMfaPassword('');
       setMfaRecoveryCode('');
-      setMfaRecoveryCodes(payload.recoveryCodes || []);
+      setMfaRecoveryCodes(payload.recoveryCodes);
       setMfaStep('codes');
       toast({ title: 'Recovery codes regenerated', description: 'Your previous recovery codes no longer work.' });
     } catch (err) {
-      toast({ title: err instanceof Error ? err.message : 'Recovery-code regeneration failed', variant: 'destructive' });
+      toast({
+        title: getApiErrorMessage(err, 'Recovery-code regeneration failed'),
+        variant: 'destructive',
+      });
     } finally {
       setMfaBusy(false);
     }
@@ -317,7 +302,7 @@ export function ProfilePage() {
     if (!mfaPassword || !mfaRecoveryCode) return;
     setMfaBusy(true);
     try {
-      await postMFA('/api/auth/mfa/disable', {
+      await goApi.disableMFA({
         currentPassword: mfaPassword,
         recoveryCode: mfaRecoveryCode,
       });
@@ -326,7 +311,10 @@ export function ProfilePage() {
       setMfaRecoveryCode('');
       toast({ title: 'MFA disabled' });
     } catch (err) {
-      toast({ title: err instanceof Error ? err.message : 'MFA disable failed', variant: 'destructive' });
+      toast({
+        title: getApiErrorMessage(err, 'MFA disable failed'),
+        variant: 'destructive',
+      });
     } finally {
       setMfaBusy(false);
     }
@@ -339,7 +327,7 @@ export function ProfilePage() {
   const disconnectGoogle = async (scope: 'calendar' | 'gmail') => {
     setDisconnecting(scope);
     try {
-      await apiDelete(`/google/disconnect?scope=${scope}`);
+      await goApi.disconnectGoogle(scope);
       await refetchGoogle();
       toast({ title: `${scope === 'calendar' ? 'Google Calendar' : 'Gmail'} disconnected` });
     } catch {
@@ -352,7 +340,7 @@ export function ProfilePage() {
   const deleteData = async () => {
     setDeletingData(true);
     try {
-      await apiDelete('/user/data');
+      await goApi.deleteUserData();
       toast({ title: 'All data deleted' });
     } catch {
       toast({ title: 'Failed to delete data', variant: 'destructive' });
@@ -364,7 +352,7 @@ export function ProfilePage() {
   const deleteAccount = async () => {
     setDeletingAccount(true);
     try {
-      await apiDelete('/user/account');
+      await goApi.deleteUserAccount();
       await signOut({ redirectUrl: isAppProductionHost() ? toPublicUrl('/') : basePath || '/' });
     } catch {
       toast({ title: 'Failed to delete account', variant: 'destructive' });

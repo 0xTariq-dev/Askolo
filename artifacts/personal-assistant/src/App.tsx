@@ -1,5 +1,6 @@
 import { Suspense, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { getQueryRetryDelay, shouldRetryQuery } from '@workspace/api-client-react';
 import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
 import { Loader2 } from 'lucide-react';
 import { Toaster } from '@/components/ui/toaster';
@@ -36,7 +37,8 @@ const queryClient = new QueryClient({
       gcTime: 10 * 60_000,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
-      retry: 1,
+      retry: shouldRetryQuery,
+      retryDelay: getQueryRetryDelay,
     },
   },
 });

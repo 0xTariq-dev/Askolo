@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import { format, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { goApi } from '@/lib/go-api';
 import { PageTransition } from '@/components/ui/page-transition';
 
 export function DashboardPage() {
@@ -37,20 +38,16 @@ export function DashboardPage() {
     const loadCoaching = () => {
       if (cancelled) return;
 
-      fetch('/api/ai/coaching', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        signal: controller.signal,
-        body: JSON.stringify({
+      goApi.coaching(
+        {
           habits: summary.habits,
           goals: summary.goals,
           habitsCompletedToday: summary.habitsCompletedToday,
           habitsTotal: summary.habitsTotal,
-        }),
-      })
-        .then(r => r.ok ? r.json() : null)
-        .then(data => { if (!cancelled && data?.message) setCoaching(data.message); })
+        },
+        controller.signal,
+      )
+        .then(data => { if (!cancelled && data.message) setCoaching(data.message); })
         .catch(() => {})
         .finally(() => {
           if (!cancelled) setCoachingLoading(false);

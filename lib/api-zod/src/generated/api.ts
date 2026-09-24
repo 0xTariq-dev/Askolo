@@ -39,11 +39,16 @@ export const GetCurrentAuthUserHeader = zod.object({
 export const GetCurrentAuthUserResponse = zod.object({
   "user": zod.union([zod.object({
   "id": zod.string(),
-  "email": zod.string().nullable(),
-  "firstName": zod.string().nullable(),
-  "lastName": zod.string().nullable(),
-  "profileImageUrl": zod.string().nullable()
-}),zod.null()])
+  "email": zod.string(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "profileImageUrl": zod.string(),
+  "status": zod.string(),
+  "emailVerified": zod.boolean(),
+  "accountCreatedVia": zod.string(),
+  "authProvider": zod.string()
+}),zod.null()]),
+  "mfaRequired": zod.boolean().optional()
 })
 
 
@@ -67,6 +72,192 @@ export const HandleBrowserLoginCallbackQueryParams = zod.object({
 })
 
 export const HandleBrowserLoginCallbackResponse = zod.void()
+
+
+/**
+ * @summary Clear the authenticated session
+ */
+export const LogoutPasswordSessionHeader = zod.object({
+  "Authorization": zod.string().optional().describe('Opaque session token — `Bearer <sid>`.')
+})
+
+export const LogoutPasswordSessionResponse = zod.void()
+
+
+export const PasswordLoginBody = zod.object({
+  "email": zod.string(),
+  "password": zod.string()
+})
+
+export const PasswordLoginResponse = zod.object({
+  "status": zod.enum(['authenticated', 'mfa_required']),
+  "methods": zod.array(zod.enum(['totp', 'recovery_code'])).optional()
+})
+
+
+export const PasswordSignupBody = zod.object({
+  "email": zod.string(),
+  "password": zod.string()
+})
+
+export const PasswordSignupResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const SetPasswordBody = zod.object({
+  "currentPassword": zod.string().optional(),
+  "password": zod.string()
+})
+
+export const SetPasswordResponse = zod.void()
+
+
+export const VerifyEmailBody = zod.object({
+  "email": zod.string(),
+  "code": zod.string()
+})
+
+export const VerifyEmailResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const ResendEmailVerificationBody = zod.object({
+  "email": zod.string()
+})
+
+export const ResendEmailVerificationResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const EnrollRecoveryEmailBody = zod.object({
+  "email": zod.string(),
+  "currentPassword": zod.string()
+})
+
+export const EnrollRecoveryEmailResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const VerifyRecoveryEmailBody = zod.object({
+  "email": zod.string(),
+  "code": zod.string()
+})
+
+export const VerifyRecoveryEmailResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const RequestPasswordRecoveryBody = zod.object({
+  "email": zod.string(),
+  "method": zod.enum(['primary_email', 'recovery_email'])
+})
+
+export const RequestPasswordRecoveryResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const VerifyPasswordRecoveryBody = zod.object({
+  "email": zod.string(),
+  "method": zod.enum(['primary_email', 'recovery_email']),
+  "code": zod.string()
+})
+
+export const VerifyPasswordRecoveryResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const ResetPasswordBody = zod.object({
+  "email": zod.string(),
+  "method": zod.enum(['primary_email', 'recovery_email']),
+  "code": zod.string(),
+  "password": zod.string()
+})
+
+export const ResetPasswordResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const RequestMFARecoverySupportBody = zod.object({
+  "email": zod.string()
+})
+
+export const RequestMFARecoverySupportResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const VerifyMFARecoverySupportBody = zod.object({
+  "email": zod.string(),
+  "code": zod.string()
+})
+
+export const VerifyMFARecoverySupportResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const GetMFAStatusResponse = zod.object({
+  "enabled": zod.boolean()
+})
+
+
+export const EnrollMFABody = zod.object({
+  "currentPassword": zod.string()
+})
+
+export const EnrollMFAResponse = zod.object({
+  "status": zod.literal("mfa_confirmation_required"),
+  "secret": zod.string(),
+  "account": zod.string()
+})
+
+
+export const ConfirmMFABody = zod.object({
+  "code": zod.string()
+})
+
+export const ConfirmMFAResponse = zod.object({
+  "status": zod.string(),
+  "recoveryCodes": zod.array(zod.string())
+})
+
+
+export const VerifyMFABody = zod.object({
+  "code": zod.string()
+})
+
+export const VerifyMFAResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const RegenerateMFARecoveryCodesBody = zod.object({
+  "currentPassword": zod.string(),
+  "recoveryCode": zod.string()
+})
+
+export const RegenerateMFARecoveryCodesResponse = zod.object({
+  "status": zod.string(),
+  "recoveryCodes": zod.array(zod.string())
+})
+
+
+export const DisableMFABody = zod.object({
+  "currentPassword": zod.string(),
+  "recoveryCode": zod.string()
+})
+
+export const DisableMFAResponse = zod.object({
+  "status": zod.string()
+})
 
 
 /**
@@ -117,6 +308,91 @@ export const LogoutMobileSessionHeader = zod.object({
 
 export const LogoutMobileSessionResponse = zod.object({
   "success": zod.literal(true)
+})
+
+
+export const UpdateUserProfileBody = zod.object({
+  "firstName": zod.string().optional(),
+  "lastName": zod.string().optional()
+})
+
+export const UpdateUserProfileResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "profileImageUrl": zod.string(),
+  "status": zod.string(),
+  "authProvider": zod.string()
+})
+
+
+export const DeleteUserDataResponse = zod.void()
+
+
+export const DeleteUserAccountResponse = zod.void()
+
+
+export const DisconnectGoogleQueryParams = zod.object({
+  "scope": zod.enum(['calendar', 'gmail']).optional()
+})
+
+export const DisconnectGoogleResponse = zod.void()
+
+
+export const coachingBodyGoalsItemProgressMin = 0;
+export const coachingBodyGoalsItemProgressMax = 100;
+
+
+
+export const CoachingBody = zod.object({
+  "habits": zod.array(zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "currentStreak": zod.int(),
+  "longestStreak": zod.int(),
+  "completedToday": zod.boolean(),
+  "color": zod.string().nullable(),
+  "icon": zod.string().nullable()
+})),
+  "goals": zod.array(zod.object({
+  "id": zod.int(),
+  "userId": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "targetDate": zod.string().nullish(),
+  "status": zod.enum(['active', 'completed', 'paused']),
+  "progress": zod.int().min(coachingBodyGoalsItemProgressMin).max(coachingBodyGoalsItemProgressMax),
+  "category": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})),
+  "habitsCompletedToday": zod.int(),
+  "habitsTotal": zod.int()
+})
+
+export const CoachingResponse = zod.object({
+  "message": zod.string(),
+  "items": zod.array(zod.unknown()),
+  "date": zod.string(),
+  "summary": zod.string(),
+  "decisions": zod.array(zod.string()),
+  "actionItems": zod.array(zod.unknown())
+})
+
+
+export const GeneratePlanBody = zod.object({
+  "notes": zod.string(),
+  "date": zod.string()
+})
+
+export const GeneratePlanResponse = zod.object({
+  "message": zod.string(),
+  "items": zod.array(zod.unknown()),
+  "date": zod.string(),
+  "summary": zod.string(),
+  "decisions": zod.array(zod.string()),
+  "actionItems": zod.array(zod.unknown())
 })
 
 

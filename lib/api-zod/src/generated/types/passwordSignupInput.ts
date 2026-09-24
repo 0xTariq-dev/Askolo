@@ -5,9 +5,6 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { PasswordLoginInput } from './passwordLoginInput';
 
-export interface ErrorEnvelope {
-  error: string;
-  code?: string;
-  requestId?: string;
-}
+export type PasswordSignupInput = PasswordLoginInput;

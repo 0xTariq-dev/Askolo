@@ -14,18 +14,19 @@ export interface HealthStatus {
 
 export interface AuthUser {
   id: string;
-  /** @nullable */
-  email: string | null;
-  /** @nullable */
-  firstName: string | null;
-  /** @nullable */
-  lastName: string | null;
-  /** @nullable */
-  profileImageUrl: string | null;
+  email: string;
+  firstName: string;
+  lastName: string;
+  profileImageUrl: string;
+  status: string;
+  emailVerified: boolean;
+  accountCreatedVia: string;
+  authProvider: string;
 }
 
 export interface AuthUserEnvelope {
   user: AuthUser | null;
+  mfaRequired?: boolean;
 }
 
 export interface MobileTokenExchangeRequest {
@@ -52,6 +53,206 @@ export type LogoutSuccess = typeof LogoutSuccessValue;
 
 export interface ErrorEnvelope {
   error: string;
+  code?: string;
+  requestId?: string;
+}
+
+export interface StatusResponse {
+  status: string;
+}
+
+export interface EmailInput {
+  email: string;
+}
+
+export interface PasswordLoginInput {
+  email: string;
+  password: string;
+}
+
+export type PasswordLoginResponseStatus = typeof PasswordLoginResponseStatus[keyof typeof PasswordLoginResponseStatus];
+
+
+export const PasswordLoginResponseStatus = {
+  authenticated: 'authenticated',
+  mfa_required: 'mfa_required',
+} as const;
+
+export type PasswordLoginResponseMethodsItem = typeof PasswordLoginResponseMethodsItem[keyof typeof PasswordLoginResponseMethodsItem];
+
+
+export const PasswordLoginResponseMethodsItem = {
+  totp: 'totp',
+  recovery_code: 'recovery_code',
+} as const;
+
+export interface PasswordLoginResponse {
+  status: PasswordLoginResponseStatus;
+  methods?: PasswordLoginResponseMethodsItem[];
+}
+
+export type PasswordSignupInput = PasswordLoginInput;
+
+export interface PasswordSetInput {
+  currentPassword?: string;
+  password: string;
+}
+
+export interface EmailVerificationInput {
+  email: string;
+  code: string;
+}
+
+export interface RecoveryEmailEnrollmentInput {
+  email: string;
+  currentPassword: string;
+}
+
+export type PasswordRecoveryRequestInputMethod = typeof PasswordRecoveryRequestInputMethod[keyof typeof PasswordRecoveryRequestInputMethod];
+
+
+export const PasswordRecoveryRequestInputMethod = {
+  primary_email: 'primary_email',
+  recovery_email: 'recovery_email',
+} as const;
+
+export interface PasswordRecoveryRequestInput {
+  email: string;
+  method: PasswordRecoveryRequestInputMethod;
+}
+
+export type PasswordRecoveryVerificationInputMethod = typeof PasswordRecoveryVerificationInputMethod[keyof typeof PasswordRecoveryVerificationInputMethod];
+
+
+export const PasswordRecoveryVerificationInputMethod = {
+  primary_email: 'primary_email',
+  recovery_email: 'recovery_email',
+} as const;
+
+export interface PasswordRecoveryVerificationInput {
+  email: string;
+  method: PasswordRecoveryVerificationInputMethod;
+  code: string;
+}
+
+export type PasswordRecoveryResetInputMethod = typeof PasswordRecoveryResetInputMethod[keyof typeof PasswordRecoveryResetInputMethod];
+
+
+export const PasswordRecoveryResetInputMethod = {
+  primary_email: 'primary_email',
+  recovery_email: 'recovery_email',
+} as const;
+
+export interface PasswordRecoveryResetInput {
+  email: string;
+  method: PasswordRecoveryResetInputMethod;
+  code: string;
+  password: string;
+}
+
+export interface MFAStatus {
+  enabled: boolean;
+}
+
+export interface MFAReauthenticationInput {
+  currentPassword: string;
+}
+
+export interface MFACodeInput {
+  code: string;
+}
+
+export interface MFARecoveryCodeManagementInput {
+  currentPassword: string;
+  recoveryCode: string;
+}
+
+export interface MFAEnrollmentResponse {
+  status: 'mfa_confirmation_required';
+  secret: string;
+  account: string;
+}
+
+export interface MFARecoveryCodesResponse {
+  status: string;
+  recoveryCodes: string[];
+}
+
+export interface UserProfileUpdate {
+  firstName?: string;
+  lastName?: string;
+}
+
+export interface ProfileUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  profileImageUrl: string;
+  status: string;
+  authProvider: string;
+}
+
+export interface HabitStreak {
+  id: number;
+  name: string;
+  currentStreak: number;
+  longestStreak: number;
+  completedToday: boolean;
+  /** @nullable */
+  color: string | null;
+  /** @nullable */
+  icon: string | null;
+}
+
+export type GoalStatus = typeof GoalStatus[keyof typeof GoalStatus];
+
+
+export const GoalStatus = {
+  active: 'active',
+  completed: 'completed',
+  paused: 'paused',
+} as const;
+
+export interface Goal {
+  id: number;
+  userId: string;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  targetDate?: string | null;
+  status: GoalStatus;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  progress: number;
+  /** @nullable */
+  category?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CoachingInput {
+  habits: HabitStreak[];
+  goals: Goal[];
+  habitsCompletedToday: number;
+  habitsTotal: number;
+}
+
+export interface GeneratePlanInput {
+  notes: string;
+  date: string;
+}
+
+export interface StaticAIResponse {
+  message: string;
+  items: unknown[];
+  date: string;
+  summary: string;
+  decisions: string[];
+  actionItems: unknown[];
 }
 
 export type HabitFrequency = typeof HabitFrequency[keyof typeof HabitFrequency];
@@ -123,35 +324,6 @@ export interface HabitCompletion {
 
 export interface HabitCompletionInput {
   date: string;
-}
-
-export type GoalStatus = typeof GoalStatus[keyof typeof GoalStatus];
-
-
-export const GoalStatus = {
-  active: 'active',
-  completed: 'completed',
-  paused: 'paused',
-} as const;
-
-export interface Goal {
-  id: number;
-  userId: string;
-  title: string;
-  /** @nullable */
-  description?: string | null;
-  /** @nullable */
-  targetDate?: string | null;
-  status: GoalStatus;
-  /**
-     * @minimum 0
-     * @maximum 100
-     */
-  progress: number;
-  /** @nullable */
-  category?: string | null;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface GoalInput {
@@ -458,18 +630,6 @@ export interface ActionItemUpdate {
   dueDate?: string;
   completed?: boolean;
   completedAt?: string;
-}
-
-export interface HabitStreak {
-  id: number;
-  name: string;
-  currentStreak: number;
-  longestStreak: number;
-  completedToday: boolean;
-  /** @nullable */
-  color: string | null;
-  /** @nullable */
-  icon: string | null;
 }
 
 export interface UpcomingEvent {
@@ -835,6 +995,18 @@ iss?: string;
 export type LogoutBrowserSessionParams = {
 returnTo?: string;
 };
+
+export type DisconnectGoogleParams = {
+scope?: DisconnectGoogleScope;
+};
+
+export type DisconnectGoogleScope = typeof DisconnectGoogleScope[keyof typeof DisconnectGoogleScope];
+
+
+export const DisconnectGoogleScope = {
+  calendar: 'calendar',
+  gmail: 'gmail',
+} as const;
 
 export type ListHabitCompletionsParams = {
 /**

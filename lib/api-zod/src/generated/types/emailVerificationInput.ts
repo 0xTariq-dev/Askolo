@@ -6,8 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface ErrorEnvelope {
-  error: string;
-  code?: string;
-  requestId?: string;
+export interface EmailVerificationInput {
+  email: string;
+  code: string;
 }

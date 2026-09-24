@@ -834,7 +834,29 @@ func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, "profile update failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, user)
+	writeJSON(w, http.StatusOK, toProfileUserResponse(user))
+}
+
+type profileUserResponse struct {
+	ID              string `json:"id"`
+	Email           string `json:"email"`
+	FirstName       string `json:"firstName"`
+	LastName        string `json:"lastName"`
+	ProfileImageURL string `json:"profileImageUrl"`
+	Status          string `json:"status"`
+	AuthProvider    string `json:"authProvider"`
+}
+
+func toProfileUserResponse(user postgres.User) profileUserResponse {
+	return profileUserResponse{
+		ID:              user.ID,
+		Email:           user.Email,
+		FirstName:       user.FirstName,
+		LastName:        user.LastName,
+		ProfileImageURL: user.ProfileImageURL,
+		Status:          user.Status,
+		AuthProvider:    user.AccountCreatedVia,
+	}
 }
 
 func (h *Handler) deleteUserData(w http.ResponseWriter, r *http.Request) {

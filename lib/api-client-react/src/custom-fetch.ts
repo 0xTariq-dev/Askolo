@@ -176,6 +176,8 @@ export class ApiError<T = unknown> extends Error {
   readonly status: number;
   readonly statusText: string;
   readonly data: T | null;
+  readonly code: string | null;
+  readonly requestId: string | null;
   readonly headers: Headers;
   readonly response: Response;
   readonly method: string;
@@ -192,6 +194,8 @@ export class ApiError<T = unknown> extends Error {
     this.status = response.status;
     this.statusText = response.statusText;
     this.data = data;
+    this.code = getStringField(data, "code") ?? null;
+    this.requestId = getStringField(data, "requestId") ?? null;
     this.headers = response.headers;
     this.response = response;
     this.method = requestInfo.method;
@@ -368,4 +372,63 @@ export async function customFetch<T = unknown>(
   }
 
   return (await parseSuccessBody(response, responseType, requestInfo)) as T;
+}
+
+const MAX_RETRY_AFTER_MS = 60_000;
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
+function getRetryAfterMs(error: ApiError): number | null {
+  const value = error.headers.get("retry-after")?.trim();
+  if (!value) return null;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+
+  const retryAt = Date.parse(value);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - Date.now()) : null;
+}
+
+/**
+ * Retry only idempotent query requests for transient failures.
+ *
+ * Install this on TanStack Query's `queries` defaults. Mutations must not
+ * inherit it because auth, AI, and other POST requests may have side effects.
+ */
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  if (failureCount >= 1 || isAbortError(error)) return false;
+
+  if (error instanceof ApiError) {
+    const retryAfterMs = getRetryAfterMs(error);
+    if (retryAfterMs !== null && retryAfterMs > MAX_RETRY_AFTER_MS) return false;
+
+    return (
+      error.status === 408 ||
+      error.status === 429 ||
+      (error.status >= 500 && error.status < 600)
+    );
+  }
+
+  // Fetch rejects with TypeError for network failures in browsers.
+  return error instanceof TypeError;
+}
+
+export function getQueryRetryDelay(attemptCount: number, error: unknown): number {
+  if (error instanceof ApiError) {
+    const retryAfterMs = getRetryAfterMs(error);
+    if (retryAfterMs !== null && retryAfterMs <= MAX_RETRY_AFTER_MS) {
+      return retryAfterMs;
+    }
+  }
+
+  return Math.min(1_000 * 2 ** attemptCount, 5_000);
 }
