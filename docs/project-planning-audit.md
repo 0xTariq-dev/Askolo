@@ -74,7 +74,7 @@ The ownership split is sound:
 - **TAR-26:** durable execution, leases, retries, recovery, and run history.
 - **TAR-27:** user-facing trigger, template, notification, and automation configuration.
 
-TAR-36 combines AssemblyAI, Google, and GitHub event families with different prerequisites. Keep one issue with provider-phase milestones and selective dependencies, or split provider-specific work into children under a shared inbox/action contract. Do not make the entire webhook scope wait on one provider's prerequisite if other provider phases can proceed independently. In particular, AssemblyAI and GitHub work need not wait for the Google-specific TAR-14/TAR-15 phase.
+The user chose provider-specific child tasks under a shared webhook contract. Build provider webhook ingestion and safe actions now owns shared routing, normalized events, inbox persistence, replay protection, dispatch, authorization, and safe action selection. Handle AssemblyAI webhook callbacks safely, Handle Google webhook events safely, and Handle GitHub webhook events safely own their provider adapters and tests. The planned rollout order remains AssemblyAI, Google, then GitHub; provider-specific prerequisites should apply only to the matching child.
 
 ### Credits, AI, voice, and abuse controls
 
@@ -152,4 +152,5 @@ Other than the TAR-37/TAR-44 duplicate, TAR-42 promotion gates, and TAR-33 title
 - **Persona survey dependencies:** Build the secure persona survey remains a blocker of the temporary interactive tutorial. Its link to the Arabic RTL foundation is now related, so that infrastructure work can proceed independently. The Arabic RTL foundation's other dependencies were preserved.
 - **Keyboard accessibility dependencies:** The keyboard accessibility baseline remains a blocker of Add context menus and commands because browser-menu overrides and key handling require it. Its links to Add theme presets and Create Arabic RTL foundation are related.
 - **Governance and action scopes:** Agent approvals, memory, and audit is now related to Add automation triggers and templates, Build provider webhook ingestion and safe actions, and Make AI endpoints provider-backed. Build durable automation execution remains unlinked; these links are not blockers.
+- **Webhook task structure:** Three provider-specific child tasks now sit under Build provider webhook ingestion and safe actions. Its description defines the shared contract and child ownership; provider-specific test and verification work is assigned to each child. The two Google account/sync links remain on the parent pending a decision about moving them to the Google child.
 - Remaining recommendations are awaiting the user's decisions.
