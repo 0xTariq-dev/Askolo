@@ -10,6 +10,12 @@ pid_file="$service_root/tmp/askolo-backend.pid"
 
 cd -- "$service_root"
 
+# Go's automatic toolchain download must be checksum-verified even when the
+# workspace disables checksums by default.
+if [[ "${GOSUMDB:-}" == "off" ]]; then
+  export GOSUMDB=sum.golang.org
+fi
+
 cleanup() {
   rm -f -- "$tmp_binary"
 }

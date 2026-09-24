@@ -1,10 +1,10 @@
 module askolo/backend
 
-go 1.25.0
+go 1.26.8
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (

@@ -252,15 +252,16 @@ environment already provides, forcing a redundant several-minute install.
 Probe first and install only if the probe fails:
 
 ```bash
-python3 -c "import vertexai, google.genai, google.cloud.storage, datasets" \
+python3 -c "import vertexai, google.genai, google.cloud.storage, datasets; from importlib.metadata import version; assert tuple(map(int, version('datasets').split('.')[:3])) >= (5, 0, 1)" \
   || pip install -r references/requirements.txt
 ```
 
 Then run every script with a plain `python3 scripts/...` — no activation prefix.
 
 The `references/requirements.txt` pins are a fallback for an environment that
-does not already provide these SDKs. Do not apply them on top of a working
-environment: they would downgrade packages other tools may share.
+does not already provide these SDKs or has an affected `datasets` version.
+Do not apply them on top of a working environment: they would downgrade
+packages other tools may share.
 
 ## Phase 1: Dataset Preparation & Upload {#phase-1}
 

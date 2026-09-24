@@ -15,6 +15,10 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
 service_root="$repo_root/services/askolo-backend"
 
+if [[ "${GOSUMDB:-}" == "off" ]]; then
+  export GOSUMDB=sum.golang.org
+fi
+
 [[ -d "$service_root" ]] || die "backend service directory not found"
 
 temporary_root=""

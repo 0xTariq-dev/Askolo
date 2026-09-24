@@ -30,6 +30,10 @@ artifact_config="$repo_root/artifacts/personal-assistant/.replit-artifact/artifa
 api_build_script="$repo_root/services/askolo-backend/scripts/build.sh"
 api_root="$repo_root/services/askolo-backend"
 
+if [[ "${GOSUMDB:-}" == "off" ]]; then
+  export GOSUMDB=sum.golang.org
+fi
+
 [[ -f "$artifact_config" ]] ||
   die "artifact config not found at artifacts/personal-assistant/.replit-artifact/artifact.toml"
 [[ -f "$api_build_script" ]] ||
@@ -180,7 +184,7 @@ api_pid_file="$repo_root/services/askolo-backend/tmp/askolo-backend.pid"
 api_pid_file_stash=""
 
 restore_api_pid_file() {
-  [[ -n "$api_pid_file_stash" ]] || return
+  [[ -n "$api_pid_file_stash" ]] || return 0
 
   if [[ -f "$api_pid_file" ]]; then
     local current_pid
