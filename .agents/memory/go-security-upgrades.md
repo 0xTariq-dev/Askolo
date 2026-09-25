@@ -14,3 +14,9 @@ An x/crypto advisory for the abandoned `openpgp` subpackage has no fixed version
 **Why:** A version bump cannot fix an unfixed subpackage advisory, and replacing the password hashing implementation changes security-sensitive behavior without removing a reachable vulnerability.
 
 **How to apply:** Report module-only findings separately from vulnerabilities in imported packages and called symbols; rerun a source-aware scan when the dependency usage changes.
+
+Do not switch to a low-adoption Argon2id fork solely to clear this module-level alert. Convenience wrappers commonly still depend on `x/crypto`; external forks can lag upstream cryptographic code, newly published independent implementations need more evidence, and C bindings are incompatible with this backend's static `CGO_ENABLED=0` build.
+
+**Why:** Removing an unreachable package alert is not a security improvement if it trades a reviewed implementation and portable static builds for an unproven implementation or native runtime dependency.
+
+**How to apply:** Prefer the official Argon2 implementation and document the unreachable OpenPGP finding unless a replacement has credible independent maintenance, provenance, test vectors, compatible deployment behavior, and an explicit project decision.
