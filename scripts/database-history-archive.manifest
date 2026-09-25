@@ -1,0 +1,33 @@
+# Verified against the pre-removal archive commit; rows are "<blob-sha> <path>".
+archive_ref=refs/heads/archive/db-history/2026-09-25
+archive_commit=1ce174d19cc62d03b27f55bd54ceef3fa4c60dea
+ruleset_id=24013168
+retention_owner=Go backend migration owner
+
+03db8be1ae1ddf2721ae033b6ebd7549c50f2b6c lib/db/src/schema/goals.ts
+1768a08e074d44490d09ad4830d17cb5f3519a4b lib/db/src/schema/events.ts
+188ab0fd221d26ff4cbf197788e7fc76459ffdc1 lib/db/drizzle/0001_hot_impossible_man.sql
+1f773c32e7d084ab492d7ab5b0dcf2cb6b59c2a6 lib/db/src/schema/ai_credits.ts
+2161f4ade2296934357ab63b72b0d4f8f1d10855 lib/db/src/schema/provider_sync_state.ts
+217e4f120aebc4f3ba73c7172d04602f6df607eb lib/db/src/schema/index.ts
+2efa0451d21b72480dd31d18d9024c034c6f1b58 lib/db/src/schema/messages.ts
+32e689b9943a047c6b444e89213f5a08a353bbf2 lib/db/src/schema/gmail_tokens.ts
+3a42f334a5d84aa9d541996dd883c9f295a1e27e lib/db/src/schema/notes.ts
+3ca5f10265d9eb072265616579ce9abc1c423a3f lib/db/src/schema/action_items.ts
+52bc876495f4419a97bfab2dc1b8993bcfb0e7ae lib/db/src/schema/provider_defaults.ts
+5aabf035afcc2a3c75a03f6b9e1a01bd29ee7925 lib/db/drizzle/0000_numerous_lorna_dane.sql
+66fafe9e06d023ac7e42113c920731df75446165 lib/db/drizzle/meta/0000_snapshot.json
+6c67f6a09613ff2d208c463d75409f615b0bacf4 lib/db/src/schema/security_auth.ts
+7692cbbf5582552bec0a41412b0971af94e8e1f4 lib/db/src/schema/habits.ts
+802c432c18ec1ec0278197ddd2f25ad8b6fc1128 lib/db/src/schema/chores.ts
+839a78abd9bab18d213b0a130d6166c827101d39 lib/db/src/schema/google_connections.ts
+87bef293c7cf8c11e03afa8b5311124aff9c4228 lib/db/src/schema/provider_credentials.ts
+9171e47a07c78a8e4fa4ddfcc8144806ce9a00ac lib/db/src/schema/auth.ts
+991a82308005210638dbd82054ad08697504d1ff lib/db/src/schema/conversations.ts
+b70e4235b6bfc1bb1a89d21862b654afd22433e8 lib/db/src/schema/provider_connections.ts
+c250f7e82489c6b60b5a5751fbeeb3267c41fe3b lib/db/src/schema/voice_preferences.ts
+c8b86983b2d3a44441799deeb2db6a84f6abab95 lib/db/src/schema/daily_plans.ts
+d8cf95b81b9d1cc5222abfe8605ae2420c1f9b28 lib/db/drizzle/meta/_journal.json
+e430873aaf8fb0f2306a84de4ae322f686d62e78 lib/db/src/schema/google_oauth_states.ts
+f5517de10fd58eaacee3a5e61da00843f6da447c lib/db/drizzle/meta/0001_snapshot.json
+f904dbaf9febabdbd6c5d035dcc94d2f2e9739bf lib/db/src/schema/provider_accounts.ts

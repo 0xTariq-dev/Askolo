@@ -48,6 +48,8 @@ import { PageTransition } from '@/components/ui/page-transition';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { cn } from '@/lib/utils';
 
+const CURRENT_VOICE_CONSENT_VERSION = 'voice-v2';
+
 const priorityColors = {
   high: 'border-rose-500 bg-rose-500/10 text-rose-500',
   medium: 'border-amber-500 bg-amber-500/10 text-amber-500',
@@ -126,6 +128,7 @@ export function PlanPage() {
     transcript,
     liveText,
     reviewSignals: voiceReviewSignals,
+    deletionStatus: voiceDeletionStatus,
     recordingSeconds,
     audioLevel,
     recording,
@@ -204,7 +207,10 @@ export function PlanPage() {
   };
 
   const handleStartVoice = async () => {
-    if (!transcriptionPreferences?.consentGiven) {
+    if (
+      !transcriptionPreferences?.consentGiven ||
+      transcriptionPreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION
+    ) {
       setConsentError('');
       setConsentOpen(true);
       return;
@@ -476,6 +482,18 @@ export function PlanPage() {
                     </ul>
                   </div>
                 )}
+                {voiceDeletionStatus && (
+                  <p
+                    role={voiceDeletionStatus.providerTranscript === 'deletion_failed' ? 'alert' : 'status'}
+                    className={voiceDeletionStatus.providerTranscript === 'deletion_failed'
+                      ? 'text-amber-700 dark:text-amber-300'
+                      : 'text-muted-foreground'}
+                  >
+                    {voiceDeletionStatus.providerTranscript === 'deleted'
+                      ? 'Askolo did not store this recording, and AssemblyAI confirmed deletion of the transcript.'
+                      : 'Askolo did not store this recording, but AssemblyAI transcript deletion could not be confirmed. The provider may retain a copy.'}
+                  </p>
+                )}
                 {voiceError && <p role="alert" className="text-destructive">{voiceError}</p>}
                 {generationError && <p role="alert" className="text-destructive">{generationError}</p>}
               </div>
@@ -575,10 +593,10 @@ export function PlanPage() {
           </DialogHeader>
           <div className="space-y-3 text-sm text-muted-foreground">
             <p>
-              Your recording is sent to AssemblyAI for transcription and is deleted after processing. Neither Askolo nor AssemblyAI keeps the recording or uses it to train models.
+              Askolo sends your recording to AssemblyAI and does not store the raw audio. AssemblyAI processes it under its data-retention and model-improvement settings. Askolo requests deletion of the resulting transcript and reports whether the provider confirms it; deletion may not be confirmed if the provider is unavailable.
             </p>
             <p>
-              PII is redacted from AI interactions across this flow before the result is returned. You will always review the transcript before it is used to build your plan.
+              We request automatic redaction of detected personal information before AssemblyAI returns the transcript. Redaction can miss details, so review every word before using the transcript to build your plan.
             </p>
             <p>
               By continuing, you consent to in-app AI processing and AssemblyAI transcription for this voice note.

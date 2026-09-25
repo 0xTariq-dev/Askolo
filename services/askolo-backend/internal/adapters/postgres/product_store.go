@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const VoiceConsentVersion = "voice-v2"
+
 type ProductField struct {
 	Column string
 	Name   string
@@ -338,7 +340,7 @@ func (s *Store) VoiceConsent(ctx context.Context, userID string) (bool, string, 
 	if err != nil {
 		return false, "", err
 	}
-	if consentAt == nil || version == nil || *version != "voice-v1" {
+	if consentAt == nil || version == nil || *version != VoiceConsentVersion {
 		if version == nil {
 			return false, "", nil
 		}

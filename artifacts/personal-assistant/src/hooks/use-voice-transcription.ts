@@ -23,6 +23,12 @@ export interface CompletedVoiceRecording {
   transcript: string;
 }
 
+export interface VoiceDeletionStatus {
+  rawAudio: 'not_stored';
+  providerTranscript: 'deleted' | 'deletion_failed';
+  marker: string;
+}
+
 export interface VoiceTranscriptionResult {
   state: VoiceState;
   mode: VoiceMode | null;
@@ -31,6 +37,7 @@ export interface VoiceTranscriptionResult {
   transcript: string;
   liveText: string;
   reviewSignals: TranscriptionReviewSignal[];
+  deletionStatus: VoiceDeletionStatus | null;
   recordingSeconds: number;
   audioLevel: number;
   recording: CompletedVoiceRecording | null;
@@ -168,6 +175,7 @@ export function useVoiceTranscription({
   const [transcript, setTranscript] = useState('');
   const [liveText, setLiveText] = useState('');
   const [reviewSignals, setReviewSignals] = useState<TranscriptionReviewSignal[]>([]);
+  const [deletionStatus, setDeletionStatus] = useState<VoiceDeletionStatus | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [recording, setRecording] = useState<CompletedVoiceRecording | null>(null);
@@ -396,6 +404,7 @@ export function useVoiceTranscription({
                 setTranscript(spokenText);
                 setLiveText(spokenText);
                 setReviewSignals(data.reviewSignals);
+                setDeletionStatus(data.deletion);
                  setRecording({
                    blob,
                    mimeType: blob.type || mimeType,
@@ -539,6 +548,7 @@ export function useVoiceTranscription({
     setTranscript('');
     setLiveText('');
     setReviewSignals([]);
+    setDeletionStatus(null);
     setRecordingSeconds(0);
     setAudioLevel(0);
     setRecording(null);
@@ -579,6 +589,7 @@ export function useVoiceTranscription({
     setTranscript('');
     setLiveText('');
     setReviewSignals([]);
+    setDeletionStatus(null);
     updateState('idle');
     updateMode(null);
     setStatus('Voice input canceled.');
@@ -598,6 +609,7 @@ export function useVoiceTranscription({
     setTranscript('');
     setLiveText('');
     setReviewSignals([]);
+    setDeletionStatus(null);
     updateState('idle');
     updateMode(null);
     setStatus('');
@@ -612,6 +624,7 @@ export function useVoiceTranscription({
     updateState('processing');
     setError('');
     setStatus('Transcribing the recording again…');
+    setDeletionStatus(null);
     try {
       const audioBase64 = await blobToBase64(recording.blob);
       const data = await transcribeAudio.mutateAsync({
@@ -627,6 +640,7 @@ export function useVoiceTranscription({
       setTranscript(spokenText);
       setLiveText(spokenText);
       setReviewSignals(data.reviewSignals);
+      setDeletionStatus(data.deletion);
       setRecording({ ...recording, transcript: spokenText });
       updateState('review');
       setStatus('Review the transcript before submitting it.');
@@ -673,6 +687,7 @@ export function useVoiceTranscription({
     transcript,
     liveText,
     reviewSignals,
+    deletionStatus,
     recordingSeconds,
     audioLevel,
     recording,

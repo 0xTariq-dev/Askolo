@@ -17,10 +17,36 @@ contract or database migration history.
 
 | Area | Owner | Reason and removal condition |
 | --- | --- | --- |
-| `lib/db/drizzle/` and `lib/db/src/schema/` | Go backend migration owner | Historical Drizzle migrations and schema snapshots are recovery and comparison evidence, not runtime authority. Keep them available in an immutable repository ref or separately retained archive; do not use their commands against production. They may be retired from the working tree only after the Go migration baseline is versioned, production backups have been restored successfully to a disposable PostgreSQL instance, the restore is usable without Drizzle, and the archive location and retention owner are recorded. |
+| `lib/db/drizzle/` and `lib/db/src/schema/` | Go backend migration owner | Historical Drizzle migrations and schema snapshots are recovery and comparison evidence, not runtime authority. Keep them in the protected archive below; do not use their commands against production. They may be retired from the working tree only after the Go migration baseline is versioned, production backups have been restored successfully to a disposable PostgreSQL instance, the restore is usable without Drizzle, and the archive location and retention owner are recorded. |
 | `lib/db` package and Drizzle commands | Go backend migration owner | Offline comparison tooling is not required by the Go runtime. Retire the package only together with the archived schema after the recovery gate above passes; preserve the SQL migrations and schema snapshots even if the executable/tooling wrapper is removed. |
 | `lib/api-client-react`, `lib/api-zod`, and OpenAPI outputs | Frontend/API contract owner | Retained because active frontend pages import the generated client and schemas. |
 | `/api/google/*` aliases | Go Google integration owner | Retained until active callers are migrated and route smoke tests prove the compatibility surface is no longer needed. |
+
+## Verified database-history archive
+
+The historical Drizzle file set is retained in the private GitHub repository
+`0xTariq-dev/Askolo` at
+`refs/heads/archive/db-history/2026-09-25`. The branch is pinned to commit
+`1ce174d19cc62d03b27f55bd54ceef3fa4c60dea`. Its active repository ruleset,
+`Immutable historical Drizzle schema archive` (ID `24013168`), blocks ref
+updates and deletion with no bypass actors. The Go backend migration owner is
+responsible for retention.
+
+`scripts/database-history-archive.manifest` records the expected path and Git
+blob ID for every archived migration, journal, snapshot, and schema module.
+After fetching the protected ref, verify both its pinned commit and the complete
+file inventory with:
+
+```sh
+git fetch github refs/heads/archive/db-history/2026-09-25
+bash scripts/verify-db-history-archive.sh FETCH_HEAD
+```
+
+The pre-push hook also rejects pushes targeting this archive ref. Repository
+administrators can change repository rulesets, so changing or removing this
+protection is an explicit retention-policy action, never unrelated cleanup.
+Production backups and tested restore procedures remain separate recovery
+artifacts and must not be removed with the archive.
 
 ## Database history retirement gate
 

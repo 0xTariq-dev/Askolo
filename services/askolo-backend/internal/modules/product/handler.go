@@ -1,7 +1,6 @@
 package product
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -84,6 +83,7 @@ type Handler struct {
 	logger            *slog.Logger
 	sessionCookieName string
 	assemblyAIKey     string
+	assemblyAIBaseURL string
 }
 
 const voiceProviderRequestCreditCost = 1
@@ -92,7 +92,13 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{store: store, logger: logger, sessionCookieName: sessionCookieName, assemblyAIKey: cfg.AssemblyAIKey}
+	return &Handler{
+		store:             store,
+		logger:            logger,
+		sessionCookieName: sessionCookieName,
+		assemblyAIKey:     cfg.AssemblyAIKey,
+		assemblyAIBaseURL: assemblyAIRESTBaseURL,
+	}
 }
 
 func (h *Handler) spendVoiceProviderCredit(w http.ResponseWriter, r *http.Request, userID string) bool {
@@ -620,13 +626,13 @@ func (h *Handler) updateTranscriptionPreferences(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, "INVALID_CONSENT", "A consent decision is required.")
 		return
 	}
-	if err := h.store.SetVoiceConsent(r.Context(), userID, *input.Consent, "voice-v1"); err != nil {
+	if err := h.store.SetVoiceConsent(r.Context(), userID, *input.Consent, postgres.VoiceConsentVersion); err != nil {
 		h.storeError(w, "voice preference update failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"consentGiven": *input.Consent, "consentVersion": func() any {
 		if *input.Consent {
-			return "voice-v1"
+			return postgres.VoiceConsentVersion
 		}
 		return nil
 	}()})
@@ -653,12 +659,12 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
-	consent, _, err := h.store.VoiceConsent(r.Context(), userID)
+	consent, consentVersion, err := h.store.VoiceConsent(r.Context(), userID)
 	if err != nil {
 		h.storeError(w, "voice consent lookup failed", err)
 		return
 	}
-	if !consent {
+	if !consent || consentVersion != postgres.VoiceConsentVersion {
 		writeError(w, http.StatusForbidden, "VOICE_CONSENT_REQUIRED", "Voice transcription consent is required.")
 		return
 	}
@@ -672,102 +678,92 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		DurationMS  int    `json:"durationMs"`
 		Language    string `json:"language"`
 	}
-	if !decodeBody(w, r, &input) || input.AudioBase64 == "" || len(input.AudioBase64) > 24*1024*1024 {
+	if !decodeBodyLimit(w, r, &input, 25*1024*1024) {
+		return
+	}
+	if input.AudioBase64 == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_AUDIO", "A valid audio recording is required.")
 		return
 	}
+	if len(input.AudioBase64) > maxVoiceAudioBase64Characters {
+		writeError(w, http.StatusRequestEntityTooLarge, "INVALID_AUDIO", "The recording is too large or invalid.")
+		return
+	}
+	if !supportedVoiceMimeType(input.MimeType) {
+		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_AUDIO_TYPE", "This audio format is not supported.")
+		return
+	}
+	if input.DurationMS < 1 || input.DurationMS > maxVoiceRecordingDurationMS {
+		writeError(w, http.StatusBadRequest, "INVALID_AUDIO_DURATION", "The recording must be no longer than 120 seconds.")
+		return
+	}
+	if _, ok := normalizeVoiceLanguage(input.Language); !ok {
+		writeError(w, http.StatusBadRequest, "INVALID_LANGUAGE", "The requested transcription language is invalid.")
+		return
+	}
 	audio, err := base64.StdEncoding.DecodeString(input.AudioBase64)
-	if err != nil || len(audio) == 0 || len(audio) > 16*1024*1024 {
+	if err != nil || len(audio) == 0 {
+		writeError(w, http.StatusBadRequest, "INVALID_AUDIO", "A valid audio recording is required.")
+		return
+	}
+	if len(audio) > maxVoiceAudioBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, "INVALID_AUDIO", "The recording is too large or invalid.")
 		return
 	}
 	if !h.spendVoiceProviderCredit(w, r, userID) {
 		return
 	}
-	ctx := r.Context()
-	uploadReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.assemblyai.com/v2/upload", bytes.NewReader(audio))
+	result, deletionStatus, err := transcribeAssemblyAI(
+		r.Context(),
+		&http.Client{Timeout: 25 * time.Second},
+		h.assemblyAIBaseURL,
+		h.assemblyAIKey,
+		audio,
+		input.Language,
+	)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
-		return
-	}
-	uploadReq.Header.Set("Authorization", h.assemblyAIKey)
-	uploadReq.Header.Set("Content-Type", "application/octet-stream")
-	uploadResponse, err := (&http.Client{Timeout: 25 * time.Second}).Do(uploadReq)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
-		return
-	}
-	defer uploadResponse.Body.Close()
-	if uploadResponse.StatusCode < 200 || uploadResponse.StatusCode >= 300 {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
-		return
-	}
-	var uploaded struct {
-		URL string `json:"upload_url"`
-	}
-	if err := json.NewDecoder(uploadResponse.Body).Decode(&uploaded); err != nil || uploaded.URL == "" {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
-		return
-	}
-	submitPayload := map[string]any{"audio_url": uploaded.URL, "speech_models": []string{"universal-3-5-pro", "universal-2"}, "speaker_labels": false}
-	if input.Language != "" {
-		submitPayload["language_code"] = strings.Split(input.Language, "-")[0]
-	}
-	payload, _ := json.Marshal(submitPayload)
-	submitReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.assemblyai.com/v2/transcript", bytes.NewReader(payload))
-	submitReq.Header.Set("Authorization", h.assemblyAIKey)
-	submitReq.Header.Set("Content-Type", "application/json")
-	submitResponse, err := (&http.Client{Timeout: 25 * time.Second}).Do(submitReq)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
-		return
-	}
-	defer submitResponse.Body.Close()
-	if submitResponse.StatusCode < 200 || submitResponse.StatusCode >= 300 {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
-		return
-	}
-	var submitted struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(submitResponse.Body).Decode(&submitted); err != nil || submitted.ID == "" {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
-		return
-	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	deadline := time.Now().Add(75 * time.Second)
-	for time.Now().Before(deadline) {
-		if err := sleepContext(ctx, time.Second); err != nil {
+		if deletionStatus != "deleted" {
+			h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
+		}
+		if r.Context().Err() != nil {
 			return
 		}
-		pollReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.assemblyai.com/v2/transcript/"+submitted.ID, nil)
-		pollReq.Header.Set("Authorization", h.assemblyAIKey)
-		pollResponse, pollErr := client.Do(pollReq)
-		if pollErr != nil {
-			continue
-		}
-		var transcript struct {
-			Status        string  `json:"status"`
-			Text          string  `json:"text"`
-			Confidence    float64 `json:"confidence"`
-			AudioDuration float64 `json:"audio_duration"`
-			Error         string  `json:"error"`
-		}
-		decodeErr := json.NewDecoder(pollResponse.Body).Decode(&transcript)
-		pollResponse.Body.Close()
-		if decodeErr != nil {
-			continue
-		}
-		if transcript.Status == "completed" {
-			writeJSON(w, http.StatusOK, map[string]any{"transcript": transcript.Text, "confidence": transcript.Confidence, "durationMs": int(transcript.AudioDuration * 1000), "providerRequestId": submitted.ID, "redaction": "provider_pii_redaction", "audioDeleted": true})
+		if errors.Is(err, errAssemblyAITranscriptionTimeout) {
+			if deletionStatus != "deleted" {
+				writeError(w, http.StatusGatewayTimeout, "VOICE_PROVIDER_TIMEOUT_CLEANUP_FAILED", "Transcription timed out and provider data deletion could not be confirmed.")
+				return
+			}
+			writeError(w, http.StatusGatewayTimeout, "VOICE_PROVIDER_TIMEOUT", "Voice transcription took too long. Try a shorter recording.")
 			return
 		}
-		if transcript.Status == "error" {
-			writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
+		if errors.Is(err, errAssemblyAIAudioTooLong) && deletionStatus == "deleted" {
+			writeError(w, http.StatusBadRequest, "INVALID_AUDIO_DURATION", "The recording must be no longer than 120 seconds.")
 			return
 		}
+		if deletionStatus != "deleted" {
+			writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_DELETION_UNCONFIRMED", "Transcription failed and provider data deletion could not be confirmed.")
+			return
+		}
+		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
+		return
 	}
-	writeError(w, http.StatusGatewayTimeout, "VOICE_PROVIDER_TIMEOUT", "Voice transcription took too long. Try a shorter recording.")
+	providerTranscriptStatus := "deleted"
+	deletionMarker := "provider_transcript_deleted"
+	if deletionStatus != "deleted" {
+		providerTranscriptStatus = "deletion_failed"
+		deletionMarker = "provider_transcript_deletion_failed"
+		h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"transcript":    result.Transcript,
+		"confidence":    result.Confidence,
+		"reviewSignals": buildTranscriptionReviewSignals(result.Words),
+		"deletion": transcriptionDeletion{
+			RawAudio:           "not_stored",
+			ProviderTranscript: providerTranscriptStatus,
+			Marker:             deletionMarker,
+		},
+	})
 }
 
 func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
@@ -775,12 +771,12 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
-	consent, _, err := h.store.VoiceConsent(r.Context(), userID)
+	consent, consentVersion, err := h.store.VoiceConsent(r.Context(), userID)
 	if err != nil {
 		h.storeError(w, "voice consent lookup failed", err)
 		return
 	}
-	if !consent {
+	if !consent || consentVersion != postgres.VoiceConsentVersion {
 		writeError(w, http.StatusForbidden, "VOICE_CONSENT_REQUIRED", "Voice transcription consent is required.")
 		return
 	}
@@ -933,9 +929,17 @@ func limit(rows []map[string]any, max int) []map[string]any {
 	return rows[:max]
 }
 func decodeBody(w http.ResponseWriter, r *http.Request, target any) bool {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128*1024))
+	return decodeBodyLimit(w, r, target, 128*1024)
+}
+func decodeBodyLimit(w http.ResponseWriter, r *http.Request, target any, maxBytes int64) bool {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil && !errors.Is(err, io.EOF) {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "Request body is too large.")
+			return false
+		}
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Request body is invalid.")
 		return false
 	}

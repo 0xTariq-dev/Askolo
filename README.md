@@ -380,8 +380,28 @@ provider's protected environment configuration.
 
 | Variable         | Used by                      | Notes                                                       |
 | ---------------- | ---------------------------- | ----------------------------------------------------------- |
-| `DATABASE_URL`   | Go API and archived Drizzle Kit | PostgreSQL connection string; required for database work     |
+| `DATABASE_URL`   | Go API                       | PostgreSQL connection string; required for database work   |
 | `SESSION_SECRET` | Google OAuth/session helpers | Keep private; used to protect signed redirect/session state |
+
+### Historical database schema archive
+
+The historical Drizzle migrations and schema snapshots are preserved in the
+private GitHub repository at
+`refs/heads/archive/db-history/2026-09-25`
+(commit `1ce174d19cc62d03b27f55bd54ceef3fa4c60dea`). The Go backend migration
+owner is responsible for retention. An active repository ruleset blocks
+updates and deletion with no bypass actors, and the pre-push hook rejects
+pushes to the archive ref.
+
+To verify the archived file inventory after fetching it:
+
+```sh
+git fetch github refs/heads/archive/db-history/2026-09-25
+bash scripts/verify-db-history-archive.sh FETCH_HEAD
+```
+
+This archive is separate from production backups and restore procedures; do
+not remove any of them as part of unrelated cleanup.
 
 ### Google integrations
 

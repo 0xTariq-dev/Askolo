@@ -7,11 +7,17 @@
 set -eu
 
 blocked_pattern='^Published your App'
+archive_ref='refs/heads/archive/db-history/2026-09-25'
 zero_sha='0000000000000000000000000000000000000000'
 blocked=0
 
 while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_ref:-}" ] || continue
+
+  if [ "$remote_ref" = "$archive_ref" ]; then
+    echo "pre-push: refusing any update or deletion of the protected database history archive." >&2
+    exit 1
+  fi
 
   # Deleting a remote ref does not introduce commits.
   [ "$local_sha" != "$zero_sha" ] || continue

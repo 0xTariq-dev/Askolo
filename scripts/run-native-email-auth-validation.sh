@@ -133,4 +133,7 @@ env "${test_environment[@]}" \
 env "${test_environment[@]}" \
   go test ./internal/app -run '^TestEmailChallengeCleanupReadinessRecoversAfterDatabase' -count=1 -v
 
-echo "Native email auth and cleanup readiness release validation passed"
+env "${test_environment[@]}" \
+  go test ./internal/migrations -count=1 -v
+
+echo "Native auth, cleanup readiness, and migration release validation passed"
