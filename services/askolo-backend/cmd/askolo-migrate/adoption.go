@@ -8,12 +8,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// adoptExisting is deliberately separate from migrations.Run. It records a
-// baseline only after the migration package has compared the complete managed
-// shape; it never executes DDL or changes application data.
+// adoptExisting is deliberately separate from migrations.Run. Adoption
+// validates the pinned schema, then creates only the migration ledger and
+// records the complete legacy/auth prefix in the caller's transaction.
 func adoptExisting(ctx context.Context, tx pgx.Tx) error {
-	if err := migrations.ValidateBaseline(ctx, tx); err != nil {
+	if err := migrations.AdoptBaseline(ctx, tx); err != nil {
 		return fmt.Errorf("refusing baseline adoption: %w", err)
 	}
-	return migrations.AdoptBaseline(ctx, tx)
+	return nil
 }
