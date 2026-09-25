@@ -86,11 +86,26 @@ type Handler struct {
 	assemblyAIKey     string
 }
 
+const voiceProviderRequestCreditCost = 1
+
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, sessionCookieName string) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Handler{store: store, logger: logger, sessionCookieName: sessionCookieName, assemblyAIKey: cfg.AssemblyAIKey}
+}
+
+func (h *Handler) spendVoiceProviderCredit(w http.ResponseWriter, r *http.Request, userID string) bool {
+	_, spent, err := h.store.SpendAICredits(r.Context(), userID, voiceProviderRequestCreditCost)
+	if err != nil {
+		h.storeError(w, "AI credit spend failed", err)
+		return false
+	}
+	if !spent {
+		writeError(w, http.StatusPaymentRequired, "INSUFFICIENT_AI_CREDITS", "At least one AI credit is required to use voice features.")
+		return false
+	}
+	return true
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -666,6 +681,9 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "INVALID_AUDIO", "The recording is too large or invalid.")
 		return
 	}
+	if !h.spendVoiceProviderCredit(w, r, userID) {
+		return
+	}
 	ctx := r.Context()
 	uploadReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.assemblyai.com/v2/upload", bytes.NewReader(audio))
 	if err != nil {
@@ -768,6 +786,9 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.assemblyAIKey == "" {
 		writeError(w, http.StatusServiceUnavailable, "VOICE_NOT_CONFIGURED", "Voice transcription is not configured.")
+		return
+	}
+	if !h.spendVoiceProviderCredit(w, r, userID) {
 		return
 	}
 	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "https://streaming.assemblyai.com/v3/token?expires_in_seconds=60", nil)

@@ -299,6 +299,30 @@ func (s *Store) AICreditBalance(ctx context.Context, userID string) (int, error)
 	return balance, err
 }
 
+func (s *Store) SpendAICredits(ctx context.Context, userID string, credits int) (int, bool, error) {
+	if credits < 1 {
+		return 0, false, errors.New("AI credit spend must be positive")
+	}
+	if s == nil || s.pool == nil {
+		return 0, false, errors.New("database is not configured")
+	}
+	var balance int
+	err := s.pool.QueryRow(ctx, `
+		UPDATE ai_credit_accounts
+		SET spent_credits = COALESCE(spent_credits, 0) + $2
+		WHERE user_id = $1
+			AND COALESCE(granted_credits + adjustment_credits - reserved_credits - spent_credits + refunded_credits, 0) >= $2
+		RETURNING COALESCE(granted_credits + adjustment_credits - reserved_credits - spent_credits + refunded_credits, 0)
+	`, userID, credits).Scan(&balance)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return balance, true, nil
+}
+
 func (s *Store) VoiceConsent(ctx context.Context, userID string) (bool, string, error) {
 	if s == nil || s.pool == nil {
 		return false, "", errors.New("database is not configured")
