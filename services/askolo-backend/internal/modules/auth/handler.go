@@ -5,11 +5,13 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -30,6 +32,15 @@ const (
 	mfaRecoveryRequestRateWindow                 = 15 * time.Minute
 	mfaRecoveryVerificationRateLimit             = 10
 	mfaRecoveryVerificationRateWindow            = 10 * time.Minute
+	passwordLoginAccountRateLimit                = 20
+	passwordLoginAccountRateWindow               = 15 * time.Minute
+	passwordRecoveryAccountRateLimit             = 3
+	passwordRecoveryAccountRateWindow            = 15 * time.Minute
+	authRateLimitHMACSecretMinBytes              = 32
+	authForwardedForMaxBytes                     = 1024
+	authForwardedForMaxHops                      = 16
+	authRateLimiterCleanupInterval               = time.Minute
+	authRateLimiterMaxEntries                    = 4096
 	passwordRecoveryPrimaryEmail                 = "primary_email"
 	passwordRecoveryEmail                        = "recovery_email"
 	mfaRecoverySupportPurpose                    = "mfa_recovery_support"
@@ -59,8 +70,9 @@ type Handler struct {
 }
 
 type rateLimiter struct {
-	mu      sync.Mutex
-	entries map[string]rateEntry
+	mu        sync.Mutex
+	entries   map[string]rateEntry
+	cleanupAt time.Time
 }
 
 type rateEntry struct {
@@ -364,6 +376,18 @@ func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many authentication attempts.")
 		return
 	}
+	sourceAllowed, err := h.allowSharedAuthRateLimit(
+		r, "ip:password-login", requestClientIP(r), 10, 10*time.Minute,
+	)
+	if err != nil {
+		h.writeStoreError(w, "password login rate limit failed", err)
+		return
+	}
+	if !sourceAllowed {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many authentication attempts.")
+		return
+	}
 	var input struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -372,7 +396,20 @@ func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_CREDENTIALS", "Email and password are required.")
 		return
 	}
-	user, err := h.store.FindUserByEmail(r.Context(), strings.ToLower(strings.TrimSpace(input.Email)))
+	email := normalizeEmail(input.Email)
+	accountAllowed, err := h.allowSharedAuthRateLimit(
+		r, "account:password-login", email, passwordLoginAccountRateLimit, passwordLoginAccountRateWindow,
+	)
+	if err != nil {
+		h.writeStoreError(w, "password login account rate limit failed", err)
+		return
+	}
+	if !accountAllowed {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many authentication attempts.")
+		return
+	}
+	user, err := h.store.FindUserByEmail(r.Context(), email)
 	if err != nil {
 		if errors.Is(err, postgres.ErrNotFound) {
 			writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Email or password is incorrect.")
@@ -701,6 +738,18 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again later.")
 		return
 	}
+	sourceAllowed, err := h.allowSharedAuthRateLimit(
+		r, "ip:password-recovery", requestClientIP(r), 5, 15*time.Minute,
+	)
+	if err != nil {
+		h.writeStoreError(w, "password recovery rate limit failed", err)
+		return
+	}
+	if !sourceAllowed {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again later.")
+		return
+	}
 	var input struct {
 		Email  string `json:"email"`
 		Method string `json:"method"`
@@ -715,6 +764,17 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		return
 	}
 	email := normalizeEmail(input.Email)
+	accountAllowed, err := h.allowSharedAuthRateLimit(
+		r, "account:password-recovery", email, passwordRecoveryAccountRateLimit, passwordRecoveryAccountRateWindow,
+	)
+	if err != nil {
+		h.writeStoreError(w, "password recovery account rate limit failed", err)
+		return
+	}
+	if !accountAllowed {
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
+		return
+	}
 	user, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), email, method)
 	if errors.Is(err, postgres.ErrNotFound) || errors.Is(err, postgres.ErrRecoveryUnavailable) {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
@@ -732,8 +792,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		h.writeStoreError(w, "password recovery rate check failed", err)
 		return
 	} else if recent {
-		setEmailChallengeRetryAfter(w)
-		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
 		return
 	}
 	if err := h.challengeConfiguration(); err != nil {
@@ -743,8 +802,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 	}
 	if err := h.sendChallenge(r, user.ID, deliveryEmail, "password_recovery", "password_recovery", "Reset your Askolo password", "Use this code to reset your Askolo password.", true); err != nil {
 		if errors.Is(err, postgres.ErrChallengeRecentlySent) {
-			setEmailChallengeRetryAfter(w)
-			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "A recovery message was sent recently. Try again later.")
+			writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
 			return
 		}
 		h.logChallengeFailure(r, "password_recovery", err)
@@ -1699,15 +1757,26 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 }
 
 func (h *Handler) allow(r *http.Request, max int, window time.Duration) bool {
-	key := firstHeader(r.Header.Get("X-Forwarded-For"))
-	if key == "" {
-		key = r.RemoteAddr
+	key, err := h.authRateLimitBucketHash("ip:process-local", requestClientIP(r))
+	if err != nil {
+		return false
 	}
 	h.limiter.mu.Lock()
 	defer h.limiter.mu.Unlock()
 	now := time.Now()
+	if !now.Before(h.limiter.cleanupAt) {
+		for entryKey, entry := range h.limiter.entries {
+			if !now.Before(entry.resetAt) {
+				delete(h.limiter.entries, entryKey)
+			}
+		}
+		h.limiter.cleanupAt = now.Add(authRateLimiterCleanupInterval)
+	}
 	entry, ok := h.limiter.entries[key]
-	if !ok || now.After(entry.resetAt) {
+	if !ok || !now.Before(entry.resetAt) {
+		if !ok && len(h.limiter.entries) >= authRateLimiterMaxEntries {
+			return false
+		}
 		h.limiter.entries[key] = rateEntry{count: 1, resetAt: now.Add(window)}
 		return true
 	}
@@ -1720,12 +1789,92 @@ func (h *Handler) allow(r *http.Request, max int, window time.Duration) bool {
 }
 
 func (h *Handler) allowMFARecovery(r *http.Request, stage string, max int, window time.Duration) (bool, error) {
-	key := firstHeader(r.Header.Get("X-Forwarded-For"))
-	if key == "" {
-		key = r.RemoteAddr
+	return h.allowSharedAuthRateLimit(
+		r,
+		"ip:mfa-recovery:"+stage,
+		requestClientIP(r),
+		max,
+		window,
+	)
+}
+
+func (h *Handler) allowSharedAuthRateLimit(
+	r *http.Request, scope, identifier string, max int, window time.Duration,
+) (bool, error) {
+	bucketHash, err := h.authRateLimitBucketHash(scope, identifier)
+	if err != nil {
+		return false, err
 	}
-	digest := sha256.Sum256([]byte("mfa-recovery:" + stage + ":" + key))
-	return h.store.AllowMFARecoveryRateLimit(r.Context(), fmt.Sprintf("%x", digest[:]), max, window)
+	return h.store.AllowAuthRateLimitBucket(r.Context(), bucketHash, max, window)
+}
+
+func (h *Handler) authRateLimitBucketHash(scope, identifier string) (string, error) {
+	secret := strings.TrimSpace(h.cfg.AuthRateLimitHMACSecret)
+	if len([]byte(secret)) < authRateLimitHMACSecretMinBytes {
+		return "", errors.New("authentication rate-limit HMAC secret is not configured")
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte("askolo:auth-rate-limit:v1:" + scope + "\x00" + identifier))
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func requestClientIP(r *http.Request) string {
+	peer := parseRequestIP(r.RemoteAddr)
+	if peer == nil {
+		remoteAddress := strings.TrimSpace(r.RemoteAddr)
+		if remoteAddress == "" {
+			return "unknown"
+		}
+		return remoteAddress
+	}
+
+	// Replit Autoscale supplies the originating address in X-Forwarded-For.
+	// Only honor it when the Go service was reached through an internal proxy
+	// hop, then walk from the right so a caller-controlled prefix is ignored.
+	if !isTrustedReplitProxy(peer) {
+		return peer.String()
+	}
+	forwarded := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
+	if len(forwarded) == 0 || len(forwarded) > authForwardedForMaxBytes {
+		return peer.String()
+	}
+	hops := strings.Split(forwarded, ",")
+	if len(hops) > authForwardedForMaxHops {
+		return peer.String()
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(hops[i]))
+		if ip == nil {
+			continue
+		}
+		if isTrustedReplitProxy(ip) {
+			continue
+		}
+		return ip.String()
+	}
+	return peer.String()
+}
+
+func parseRequestIP(address string) net.IP {
+	remoteAddress := strings.TrimSpace(address)
+	if host, _, err := net.SplitHostPort(remoteAddress); err == nil {
+		remoteAddress = host
+	}
+	return net.ParseIP(strings.Trim(remoteAddress, "[]"))
+}
+
+func isTrustedReplitProxy(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	ipv4 := ip.To4()
+	return ipv4 != nil &&
+		ipv4[0] == 100 &&
+		ipv4[1] >= 64 &&
+		ipv4[1] <= 127
 }
 
 func (h *Handler) writeStoreError(w http.ResponseWriter, operation string, err error) {

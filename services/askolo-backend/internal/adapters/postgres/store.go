@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"askolo/backend/internal/platform/crypto"
@@ -24,6 +25,12 @@ const EmailChallengeRetention = 24 * time.Hour
 // EmailChallengeCleanupBatchSize bounds the amount of work in one cleanup
 // transaction. The service repeats cleanup on its next interval if needed.
 const EmailChallengeCleanupBatchSize = 100
+
+// AuthRateLimitBucketRetention bounds how long pseudonymous source/account
+// buckets remain in the shared rate-limit table.
+const AuthRateLimitBucketRetention = 24 * time.Hour
+
+const authRateLimitBucketCleanupInterval = time.Minute
 
 var ErrNotFound = errors.New("record not found")
 var ErrOwnership = errors.New("record does not belong to user")
@@ -43,7 +50,9 @@ var ErrMFAReplay = errors.New("multi-factor challenge was already used")
 var ErrRecoveryCodeInvalid = errors.New("recovery code is invalid")
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool               *pgxpool.Pool
+	rateLimitCleanupMu sync.Mutex
+	rateLimitCleanupAt time.Time
 }
 
 type SessionMFAState struct {
@@ -1088,10 +1097,18 @@ func (s *Store) HasRecentEmailChallenge(
 	return exists, err
 }
 
-// AllowMFARecoveryRateLimit atomically consumes one request from a shared
-// per-bucket window. The caller supplies a one-way bucket hash; this table
-// deliberately has no account, email, or authentication-material columns.
+// AllowMFARecoveryRateLimit is kept for callers that use the MFA-specific
+// name. New authentication throttles should use AllowAuthRateLimitBucket.
 func (s *Store) AllowMFARecoveryRateLimit(
+	ctx context.Context, bucketHash string, max int, window time.Duration,
+) (bool, error) {
+	return s.AllowAuthRateLimitBucket(ctx, bucketHash, max, window)
+}
+
+// AllowAuthRateLimitBucket atomically consumes one request from a shared
+// per-bucket window. The caller supplies a keyed, one-way bucket hash; the
+// table deliberately has no account, email, or authentication-material columns.
+func (s *Store) AllowAuthRateLimitBucket(
 	ctx context.Context, bucketHash string, max int, window time.Duration,
 ) (bool, error) {
 	if s == nil {
@@ -1099,6 +1116,9 @@ func (s *Store) AllowMFARecoveryRateLimit(
 	}
 	if strings.TrimSpace(bucketHash) == "" || max <= 0 || window <= 0 {
 		return false, ErrRateLimitInvalid
+	}
+	if err := s.cleanupExpiredAuthRateLimitBuckets(ctx); err != nil {
+		return false, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -1159,6 +1179,31 @@ WHERE bucket_hash = $1
 		return false, err
 	}
 	return allowed, nil
+}
+
+func (s *Store) cleanupExpiredAuthRateLimitBuckets(ctx context.Context) error {
+	s.rateLimitCleanupMu.Lock()
+	now := time.Now()
+	if now.Before(s.rateLimitCleanupAt) {
+		s.rateLimitCleanupMu.Unlock()
+		return nil
+	}
+	cleanupScheduledUntil := now.Add(authRateLimitBucketCleanupInterval)
+	s.rateLimitCleanupAt = cleanupScheduledUntil
+	s.rateLimitCleanupMu.Unlock()
+
+	_, err := s.pool.Exec(ctx, `
+DELETE FROM auth_mfa_recovery_rate_limits
+WHERE window_started_at < $1
+`, now.Add(-AuthRateLimitBucketRetention))
+	if err != nil {
+		s.rateLimitCleanupMu.Lock()
+		if s.rateLimitCleanupAt.Equal(cleanupScheduledUntil) {
+			s.rateLimitCleanupAt = time.Time{}
+		}
+		s.rateLimitCleanupMu.Unlock()
+	}
+	return err
 }
 
 func (s *Store) ConsumeEmailChallenge(

@@ -153,8 +153,9 @@ func newEmailAuthFixture(t *testing.T) *emailAuthFixture {
 		schema:   schema,
 		baseURL:  schemaURL,
 		authConfig: config.Config{
-			Environment:       "test",
-			SessionCookieName: "askolo.sid",
+			Environment:             "test",
+			SessionCookieName:       "askolo.sid",
+			AuthRateLimitHMACSecret: "integration-only-auth-rate-limit-hmac-secret-at-least-32-bytes",
 			Email: config.EmailConfig{
 				ChallengeSecret: "integration-only-challenge-secret",
 			},
@@ -397,8 +398,10 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	primaryRecoveryCooldown := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
 		"email": integrationEmail,
 	}, nil, "192.0.2.122:1000")
-	if primaryRecoveryCooldown.Code != http.StatusTooManyRequests || primaryRecoveryCooldown.Header().Get("Retry-After") != "120" {
-		t.Fatalf("primary recovery cooldown = %d, retry-after=%q, body=%s",
+	if primaryRecoveryCooldown.Code != http.StatusAccepted ||
+		primaryRecoveryCooldown.Body.String() != primaryRecoveryRequest.Body.String() ||
+		primaryRecoveryCooldown.Header().Get("Retry-After") != "" {
+		t.Fatalf("primary recovery cooldown response = %d, retry-after=%q, body=%s; want the generic recovery response",
 			primaryRecoveryCooldown.Code,
 			primaryRecoveryCooldown.Header().Get("Retry-After"),
 			primaryRecoveryCooldown.Body.String(),
@@ -453,6 +456,14 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		t.Fatalf("unknown recovery response = %d %q", unknownRecovery.Code, unknownRecovery.Body.String())
 	}
 	assertResponseDoesNotContain(t, unknownRecovery, "unknown@example.com")
+	unknownRecoveryRepeat := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+		"email": "unknown@example.com",
+	}, nil, "192.0.2.16:2000")
+	if unknownRecoveryRepeat.Code != unknownRecovery.Code || unknownRecoveryRepeat.Body.String() != unknownRecovery.Body.String() {
+		t.Fatalf("repeated unknown recovery response differs: first=%d %q second=%d %q",
+			unknownRecovery.Code, unknownRecovery.Body.String(),
+			unknownRecoveryRepeat.Code, unknownRecoveryRepeat.Body.String())
+	}
 
 	deliveryCountBeforeDirectRecovery := sender.count()
 	directRecoveryAddress := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
@@ -863,6 +874,85 @@ WHERE table_schema = current_schema()
 	}
 }
 
+func TestPasswordLoginAccountLimitIsSharedAcrossInstances(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	first := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	second := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	email := "shared-limit-unknown@example.com"
+
+	for attempt := 1; attempt <= passwordLoginAccountRateLimit+1; attempt++ {
+		handler := first
+		if attempt%2 == 0 {
+			handler = second
+		}
+		response := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login", map[string]string{
+			"email":    email,
+			"password": "incorrect-password",
+		}, nil, fmt.Sprintf("198.51.100.%d:1000", attempt))
+
+		want := http.StatusUnauthorized
+		if attempt > passwordLoginAccountRateLimit {
+			want = http.StatusTooManyRequests
+		}
+		if response.Code != want {
+			t.Fatalf("login attempt %d returned %d, want %d: %s", attempt, response.Code, want, response.Body.String())
+		}
+	}
+}
+
+func TestPasswordRecoveryAccountLimitKeepsGenericResponse(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	first := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	second := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	email := "shared-recovery-unknown@example.com"
+
+	for attempt := 1; attempt <= passwordRecoveryAccountRateLimit+1; attempt++ {
+		handler := first
+		if attempt%2 == 0 {
+			handler = second
+		}
+		response := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+			"email":  email,
+			"method": passwordRecoveryPrimaryEmail,
+		}, nil, fmt.Sprintf("198.51.100.%d:1000", attempt+10))
+		if response.Code != http.StatusAccepted ||
+			response.Body.String() != `{"status":"recovery_if_available"}`+"\n" {
+			t.Fatalf("recovery attempt %d exposed a different response: status=%d body=%q",
+				attempt, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestAuthRateLimitBucketsExpireAfterRetention(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	ctx := context.Background()
+	const expiredBucket = "expired-auth-rate-limit-bucket"
+	if _, err := fixture.pool.Exec(ctx, `
+INSERT INTO auth_mfa_recovery_rate_limits (bucket_hash, window_started_at, request_count)
+VALUES ($1, NOW() - INTERVAL '25 hours', 1)
+`, expiredBucket); err != nil {
+		t.Fatalf("insert expired rate-limit bucket: %v", err)
+	}
+
+	handler := NewHandler(fixture.authConfig, fixture.store, slog.Default())
+	freshBucket, err := handler.authRateLimitBucketHash("account:test", "fresh@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed, err := fixture.store.AllowAuthRateLimitBucket(ctx, freshBucket, 1, time.Minute); err != nil || !allowed {
+		t.Fatalf("consume fresh bucket: allowed=%v err=%v", allowed, err)
+	}
+	var exists bool
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT EXISTS (SELECT 1 FROM auth_mfa_recovery_rate_limits WHERE bucket_hash = $1)
+`, expiredBucket).Scan(&exists); err != nil {
+		t.Fatalf("check expired rate-limit bucket: %v", err)
+	}
+	if exists {
+		t.Fatal("expired rate-limit bucket was retained past the cleanup run")
+	}
+}
+
 func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	sender := &captureEmailSender{}
@@ -955,12 +1045,13 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 	for status := range recoveryResults {
 		if status == http.StatusAccepted {
 			accepted++
-		} else if status != http.StatusTooManyRequests {
+		} else {
 			t.Fatalf("concurrent recovery request returned unexpected status %d", status)
 		}
 	}
-	if accepted != 1 || concurrentSender.count() != 1 {
-		t.Fatalf("concurrent recovery sends accepted=%d deliveries=%d, want one each", accepted, concurrentSender.count())
+	if accepted != recoveryRequests || concurrentSender.count() != 1 {
+		t.Fatalf("concurrent recovery responses accepted=%d deliveries=%d, want %d generic responses and one delivery",
+			accepted, concurrentSender.count(), recoveryRequests)
 	}
 
 	failureEmail := "delivery-failure@example.com"

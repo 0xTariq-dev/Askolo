@@ -27,6 +27,7 @@ type Config struct {
 	DatabaseURL                   string
 	DatabaseIdentity              string
 	SessionSecret                 string
+	AuthRateLimitHMACSecret       string
 	CanonicalOrigin               string
 	SessionCookieName             string
 	BuildCommit                   string
@@ -124,6 +125,10 @@ func Load() (Config, error) {
 	}
 	sessionSecret := strings.TrimSpace(os.Getenv("SESSION_SECRET"))
 	internalAuthToken := strings.TrimSpace(os.Getenv("ASKOLO_INTERNAL_TOKEN"))
+	authRateLimitHMACSecret := strings.TrimSpace(os.Getenv("AUTH_RATE_LIMIT_HMAC_SECRET"))
+	if len([]byte(authRateLimitHMACSecret)) < 32 {
+		return Config{}, fmt.Errorf("AUTH_RATE_LIMIT_HMAC_SECRET must contain at least 32 bytes")
+	}
 	if internalAuthToken == "" && environment != "production" && sessionSecret != "" {
 		derived := sha256.Sum256([]byte("askolo-internal-auth:" + sessionSecret))
 		internalAuthToken = hex.EncodeToString(derived[:])
@@ -139,6 +144,9 @@ func Load() (Config, error) {
 	challengeSecret := strings.TrimSpace(os.Getenv("AUTH_CHALLENGE_SECRET"))
 	if challengeSecret == "" {
 		challengeSecret = sessionSecret
+	}
+	if authRateLimitHMACSecret == sessionSecret || authRateLimitHMACSecret == challengeSecret {
+		return Config{}, fmt.Errorf("AUTH_RATE_LIMIT_HMAC_SECRET must be distinct from session and challenge secrets")
 	}
 	canonicalOrigin := strings.TrimSpace(os.Getenv("ASKOLO_CANONICAL_ORIGIN"))
 	if environment != "development" {
@@ -187,21 +195,22 @@ func Load() (Config, error) {
 		}
 	}
 	return Config{
-		ServiceName:       "askolo-backend",
-		Environment:       environment,
-		Host:              host,
-		Port:              port,
-		InternalAuthToken: internalAuthToken,
-		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		DatabaseIdentity:  databaseIdentity,
-		SessionSecret:     sessionSecret,
-		CanonicalOrigin:   canonicalOrigin,
-		SessionCookieName: cookieNamespace + "_sid",
-		BuildCommit:       buildCommit,
-		ReleaseTag:        releaseTag,
-		ReleaseMode:       releaseMode,
-		ParentReleaseTag:  parentReleaseTag,
-		TOTPEncryptionKey: totpEncryptionKey,
+		ServiceName:             "askolo-backend",
+		Environment:             environment,
+		Host:                    host,
+		Port:                    port,
+		InternalAuthToken:       internalAuthToken,
+		DatabaseURL:             strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DatabaseIdentity:        databaseIdentity,
+		SessionSecret:           sessionSecret,
+		AuthRateLimitHMACSecret: authRateLimitHMACSecret,
+		CanonicalOrigin:         canonicalOrigin,
+		SessionCookieName:       cookieNamespace + "_sid",
+		BuildCommit:             buildCommit,
+		ReleaseTag:              releaseTag,
+		ReleaseMode:             releaseMode,
+		ParentReleaseTag:        parentReleaseTag,
+		TOTPEncryptionKey:       totpEncryptionKey,
 		Email: EmailConfig{
 			ResendAPIKey:    strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
 			FromAddress:     strings.TrimSpace(os.Getenv("AUTH_EMAIL_FROM")),
