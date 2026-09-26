@@ -39,4 +39,5 @@
 - [PostgreSQL test process control](pgctl-test-process-control.md) — redirect restarted server logs when invoking `pg_ctl` through Go command output capture.
 - [Planning scope boundaries](planning-scope-boundaries.md) — preserve ownership distinctions; read Linear for current task status and dependencies.
 - [Linear project management](linear-task-migration.md) — Linear is canonical; archiving can clear blockers and related links, so verify affected issues afterward.
+- [Shell timing without GNU time](nix-shell-timing.md) — `/usr/bin/time` is unavailable; use `date +%s%N` for simple elapsed-time measurements.
 
