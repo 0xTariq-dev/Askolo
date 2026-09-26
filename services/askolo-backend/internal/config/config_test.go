@@ -2,6 +2,22 @@ package config
 
 import "testing"
 
+func TestParseAdminEmailsFailClosedAndNormalizes(t *testing.T) {
+	if got, err := parseAdminEmails(""); err != nil || len(got) != 0 {
+		t.Fatal("empty admin allowlist must deny all")
+	}
+	got, err := parseAdminEmails(" Admin@example.com,admin@example.com ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("normalized admin allowlist length = %d, want 1", len(got))
+	}
+	if _, ok := got["admin@example.com"]; !ok {
+		t.Fatal("normalized admin email missing")
+	}
+}
+
 func TestResendConfigurationStatus(t *testing.T) {
 	tests := []struct {
 		name string

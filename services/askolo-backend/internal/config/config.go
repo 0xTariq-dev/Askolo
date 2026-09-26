@@ -41,6 +41,7 @@ type Config struct {
 	GitHub                        GitHubOAuthConfig
 	AssemblyAIKey                 string
 	AllowedOAuthHosts             map[string]struct{}
+	AdminEmails                   map[string]struct{}
 }
 
 type EmailConfig struct {
@@ -178,6 +179,10 @@ func Load() (Config, error) {
 	buildCommit := strings.TrimSpace(os.Getenv("ASKOLO_COMMIT_SHA"))
 	releaseTag := strings.TrimSpace(os.Getenv("ASKOLO_RELEASE_TAG"))
 	parentReleaseTag := strings.TrimSpace(os.Getenv("ASKO_PARENT_PRODUCTION_TAG"))
+	adminEmails, adminErr := parseAdminEmails(os.Getenv("ASKOLO_ADMIN_EMAILS"))
+	if adminErr != nil {
+		return Config{}, adminErr
+	}
 	if environment != "development" {
 		for name, value := range map[string]string{
 			"ASKOLO_DATABASE_ID": databaseIdentity, "ASKOLO_COMMIT_SHA": buildCommit,
@@ -237,6 +242,7 @@ func Load() (Config, error) {
 		},
 		AssemblyAIKey:     strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
 		AllowedOAuthHosts: oauthHosts(environment, canonicalOrigin),
+		AdminEmails:       adminEmails,
 	}, nil
 }
 
@@ -253,6 +259,22 @@ func oauthHosts(environment, canonicalOrigin string) map[string]struct{} {
 		}
 	}
 	return hosts
+}
+
+func parseAdminEmails(raw string) (map[string]struct{}, error) {
+	result := map[string]struct{}{}
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		parsed, err := mail.ParseAddress(value)
+		if err != nil || parsed.Address != value || strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("ASKOLO_ADMIN_EMAILS contains an invalid email address")
+		}
+		result[value] = struct{}{}
+	}
+	return result, nil
 }
 
 func validCookieNamespace(value string) bool {

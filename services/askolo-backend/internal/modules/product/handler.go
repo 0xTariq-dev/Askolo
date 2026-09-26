@@ -2,6 +2,7 @@ package product
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -84,9 +85,16 @@ type Handler struct {
 	sessionCookieName string
 	assemblyAIKey     string
 	assemblyAIBaseURL string
+	adminEmails       map[string]struct{}
 }
 
-const voiceProviderRequestCreditCost = 1
+type voiceCreditReservation struct {
+	ID              string
+	Mode            string
+	ReservedCredits int
+	SettledCredits  int
+	PolicyVersion   int
+}
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, sessionCookieName string) *Handler {
 	if logger == nil {
@@ -98,6 +106,7 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 		sessionCookieName: sessionCookieName,
 		assemblyAIKey:     cfg.AssemblyAIKey,
 		assemblyAIBaseURL: assemblyAIRESTBaseURL,
+		adminEmails:       cfg.AdminEmails,
 	}
 }
 
@@ -112,6 +121,90 @@ func (h *Handler) spendVoiceProviderCredit(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 	return true
+}
+
+func (h *Handler) reserveVoiceProviderCredit(w http.ResponseWriter, r *http.Request, userID, mode string) (voiceCreditReservation, bool) {
+	var result voiceCreditReservation
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" || len(key) > 200 {
+		writeError(w, http.StatusBadRequest, "IDEMPOTENCY_KEY_REQUIRED", "An Idempotency-Key header is required.")
+		return result, false
+	}
+	expectedVersion, err := strconv.Atoi(strings.TrimSpace(r.Header.Get("X-AI-Credit-Policy-Version")))
+	if err != nil || expectedVersion < 1 {
+		writeError(w, http.StatusBadRequest, "CREDIT_POLICY_VERSION_REQUIRED", "Refresh the credit estimate before starting this voice operation.")
+		return result, false
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		h.storeError(w, "AI reservation id generation failed", err)
+		return result, false
+	}
+	id := "voice-" + fmt.Sprintf("%x", raw)
+	p, err := h.store.AICreditPolicy(r.Context())
+	if err != nil {
+		h.storeError(w, "AI policy lookup failed", err)
+		return result, false
+	}
+	if expectedVersion != p.Version {
+		writeError(w, http.StatusConflict, "AI_POLICY_CHANGED", "The AI credit policy changed. Refresh the estimate and try again.")
+		return result, false
+	}
+	rate := p.OperationWeights["voice"]
+	if rate < 1 || rate > 100000 || mode == "" {
+		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
+		return result, false
+	}
+	margin := p.OverrunMarginPercent
+	cap := rate * (100 + margin) / 100
+	if rate*(100+margin)%100 != 0 {
+		cap++
+	}
+	if cap > 100000 {
+		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
+		return result, false
+	}
+	reservation, created, err := h.store.ReserveAICredits(r.Context(), id, userID, "voice", "assemblyai", mode, key, cap, 300, p.Version)
+	if err != nil {
+		h.storeError(w, "AI credit reservation failed", err)
+		return result, false
+	}
+	if !created {
+		writeError(w, http.StatusConflict, "CREDIT_RESERVATION_CONFLICT", "This operation is already being processed.")
+		return result, false
+	}
+	claimed, err := h.store.ClaimAICreditReservation(r.Context(), reservation.ID, userID)
+	if err != nil || !claimed {
+		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":claim-failed"); releaseErr != nil {
+			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
+		}
+		writeError(w, http.StatusConflict, "CREDIT_RESERVATION_CONFLICT", "This operation is already being processed.")
+		return result, false
+	}
+	return voiceCreditReservation{
+		ID: reservation.ID, Mode: mode, ReservedCredits: reservation.ReservedCredits,
+		SettledCredits: rate, PolicyVersion: reservation.PolicyVersion,
+	}, true
+}
+
+func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation) (map[string]any, bool) {
+	err := h.store.SettleAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":settle", reservation.SettledCredits)
+	if err != nil {
+		h.logger.Error("voice credit settlement failed", "reservation_id", reservation.ID, "error", err)
+		writeError(w, http.StatusServiceUnavailable, "AI_CREDIT_SETTLEMENT_FAILED", "The provider operation completed but credit settlement could not be confirmed. Check your credit history before retrying.")
+		return nil, false
+	}
+	usage, err := h.store.AICreditUsage(context.Background(), userID)
+	if err != nil {
+		h.storeError(w, "AI credit receipt lookup failed", err)
+		return nil, false
+	}
+	return map[string]any{
+		"id": reservation.ID, "reservationId": reservation.ID, "operationType": "voice",
+		"provider": "assemblyai", "mode": reservation.Mode, "status": "settled",
+		"reservedCredits": reservation.ReservedCredits, "settledCredits": reservation.SettledCredits,
+		"refundedCredits": 0, "balance": usage.Balance, "policyVersion": reservation.PolicyVersion,
+	}, true
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -130,7 +223,15 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/chores/{id}/complete", h.completeChore)
 	mux.HandleFunc("GET /api/dashboard/summary", h.dashboard)
 	mux.HandleFunc("GET /api/ai/credits", h.aiCredits)
+	mux.HandleFunc("GET /api/ai/credits/usage", h.aiCreditUsage)
 	mux.HandleFunc("GET /api/ai/credits/estimate", h.aiCreditEstimate)
+	mux.HandleFunc("GET /api/admin/ai-credit-policy", h.adminPolicy)
+	mux.HandleFunc("PATCH /api/admin/ai-credit-policy", h.updateAdminPolicy)
+	mux.HandleFunc("POST /api/admin/ai-credit-adjustments", h.adminAdjustment)
+	mux.HandleFunc("POST /api/admin/ai-credit-adjustments/{id}/reverse", h.adminReverseAdjustment)
+	mux.HandleFunc("POST /api/admin/ai-credit-grants/{id}/reverse", h.adminReverseGrant)
+	mux.HandleFunc("POST /api/admin/ai-credit-reservations/{id}/refund", h.adminRefundReservation)
+	mux.HandleFunc("GET /api/admin/ai-credit-usage/{userId}", h.adminCreditUsage)
 	mux.HandleFunc("GET /api/ai/transcription-preferences", h.transcriptionPreferences)
 	mux.HandleFunc("PATCH /api/ai/transcription-preferences", h.updateTranscriptionPreferences)
 	mux.HandleFunc("POST /api/ai/coaching", h.coaching)
@@ -574,12 +675,280 @@ func (h *Handler) aiCredits(w http.ResponseWriter, r *http.Request) {
 	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
-	balance, err := h.store.AICreditBalance(r.Context(), userID)
+	usage, err := h.store.AICreditUsage(r.Context(), userID)
 	if err != nil {
 		h.storeError(w, "AI credit lookup failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"balance": balance, "enforcement": "strict"})
+	p, err := h.store.AICreditPolicy(r.Context())
+	if err != nil {
+		h.storeError(w, "AI policy lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"balance": usage.Balance, "granted": usage.Granted, "adjustments": usage.Adjustments, "reserved": usage.Reserved, "spent": usage.Spent, "refunded": usage.Refunded, "policyVersion": p.Version, "canManage": h.isCreditAdmin(r, userID), "enforcement": "strict"})
+}
+
+func (h *Handler) aiCreditUsage(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+		return
+	}
+	usage, err := h.store.AICreditUsage(r.Context(), userID)
+	if err != nil {
+		h.storeError(w, "AI credit usage lookup failed", err)
+		return
+	}
+	recent, err := h.store.AICreditRecent(r.Context(), userID, 25)
+	if err != nil {
+		h.storeError(w, "AI credit history lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"usage": usage, "recent": recent,
+		"ledgerEntries": map[string]any{"adjustments": recent["adjustments"], "grants": recent["grants"]},
+	})
+}
+
+func (h *Handler) adminCreditUsage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireCreditAdmin(w, r); !ok {
+		return
+	}
+	target := strings.TrimSpace(r.PathValue("userId"))
+	if target == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_USER", "A valid user is required.")
+		return
+	}
+	usage, err := h.store.AICreditUsage(r.Context(), target)
+	if err != nil {
+		h.storeError(w, "AI credit usage lookup failed", err)
+		return
+	}
+	recent, err := h.store.AICreditRecent(r.Context(), target, 100)
+	if err != nil {
+		h.storeError(w, "AI credit history lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"usage": usage, "recent": recent,
+		"ledgerEntries": map[string]any{"adjustments": recent["adjustments"], "grants": recent["grants"]},
+	})
+}
+
+func (h *Handler) isCreditAdmin(r *http.Request, userID string) bool {
+	if userID == "" || len(h.adminEmails) == 0 {
+		return false
+	}
+	user, err := h.store.GetUser(r.Context(), userID)
+	if err != nil || user.Status != "active" || strings.TrimSpace(user.Email) == "" || user.EmailVerifiedAt == nil {
+		return false
+	}
+	_, ok := h.adminEmails[strings.ToLower(strings.TrimSpace(user.Email))]
+	return ok
+}
+
+func (h *Handler) requireCreditAdmin(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized.")
+		return "", false
+	}
+	if !h.isCreditAdmin(r, userID) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "You are not allowed to perform this action.")
+		return "", false
+	}
+	return userID, true
+}
+
+func (h *Handler) adminPolicy(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireCreditAdmin(w, r); !ok {
+		return
+	}
+	result, err := h.store.AICreditPolicy(r.Context())
+	if err != nil {
+		h.storeError(w, "AI policy lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) updateAdminPolicy(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		postgres.AICreditPolicy
+		ExpectedVersion int    `json:"expectedVersion"`
+		ChangeReason    string `json:"changeReason"`
+	}
+	if !decodeBody(w, r, &input) || input.ExpectedVersion < 1 || len(strings.TrimSpace(input.ChangeReason)) == 0 || len(input.ChangeReason) > 160 {
+		writeError(w, http.StatusBadRequest, "INVALID_POLICY", "A valid policy version is required.")
+		return
+	}
+	input.Version = input.ExpectedVersion + 1
+	input.ChangeReason = strings.TrimSpace(input.ChangeReason)
+	result, err := h.store.UpdateAICreditPolicy(r.Context(), input.ExpectedVersion, input.AICreditPolicy, actor)
+	if err != nil && strings.Contains(err.Error(), "policy version conflict") {
+		writeError(w, http.StatusConflict, "POLICY_VERSION_CONFLICT", "The policy changed; reload and try again.")
+		return
+	}
+	if err != nil {
+		h.storeError(w, "AI policy update failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) adminAdjustment(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		UserID         string `json:"userId"`
+		Amount         int    `json:"amountCredits"`
+		Reason         string `json:"reason"`
+		IdempotencyKey string `json:"idempotencyKey"`
+	}
+	if !decodeBody(w, r, &input) || strings.TrimSpace(input.UserID) == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_ADJUSTMENT", "A valid user and adjustment are required.")
+		return
+	}
+	if err := h.store.AddAICreditAdjustment(r.Context(), input.UserID, actor, input.Amount, input.Reason, input.IdempotencyKey); err != nil {
+		if strings.Contains(err.Error(), "idempotency") {
+			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This request key was already used.")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid") {
+			writeError(w, http.StatusBadRequest, "INVALID_ADJUSTMENT", "The adjustment is invalid.")
+			return
+		}
+		h.storeError(w, "AI adjustment failed", err)
+		return
+	}
+	usage, err := h.store.AICreditUsage(r.Context(), input.UserID)
+	if err != nil {
+		h.storeError(w, "AI usage lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
+}
+
+func (h *Handler) adminReverseAdjustment(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_ENTRY", "A valid entry is required.")
+		return
+	}
+	var input struct {
+		UserID         string `json:"userId"`
+		IdempotencyKey string `json:"idempotencyKey"`
+		Reason         string `json:"reason"`
+	}
+	if !decodeBody(w, r, &input) || strings.TrimSpace(input.UserID) == "" || strings.TrimSpace(input.IdempotencyKey) == "" || strings.TrimSpace(input.Reason) == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_REVERSAL", "A valid reversal is required.")
+		return
+	}
+	if err := h.store.ReverseAICreditEntry(r.Context(), input.UserID, actor, id, input.IdempotencyKey, input.Reason); err != nil {
+		if strings.Contains(err.Error(), "already reversed") {
+			writeError(w, http.StatusConflict, "ALREADY_REVERSED", "This entry was already reversed.")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid") {
+			writeError(w, http.StatusBadRequest, "INVALID_REVERSAL", "The reversal is invalid.")
+			return
+		}
+		h.storeError(w, "AI reversal failed", err)
+		return
+	}
+	usage, err := h.store.AICreditUsage(r.Context(), input.UserID)
+	if err != nil {
+		h.storeError(w, "AI usage lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
+}
+
+func (h *Handler) adminReverseGrant(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_ENTRY", "A valid grant is required.")
+		return
+	}
+	var input struct {
+		UserID         string `json:"userId"`
+		IdempotencyKey string `json:"idempotencyKey"`
+		Reason         string `json:"reason"`
+	}
+	if !decodeBody(w, r, &input) || strings.TrimSpace(input.UserID) == "" || strings.TrimSpace(input.IdempotencyKey) == "" || strings.TrimSpace(input.Reason) == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_REVERSAL", "A valid reversal is required.")
+		return
+	}
+	if err := h.store.ReverseAICreditGrant(r.Context(), input.UserID, actor, id, input.IdempotencyKey, input.Reason); err != nil {
+		if strings.Contains(err.Error(), "already reversed") {
+			writeError(w, http.StatusConflict, "ALREADY_REVERSED", "This grant was already reversed.")
+			return
+		}
+		if strings.Contains(err.Error(), "idempotency") {
+			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This request key was already used.")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid") {
+			writeError(w, http.StatusBadRequest, "INVALID_REVERSAL", "The reversal is invalid.")
+			return
+		}
+		h.storeError(w, "AI grant reversal failed", err)
+		return
+	}
+	usage, err := h.store.AICreditUsage(r.Context(), input.UserID)
+	if err != nil {
+		h.storeError(w, "AI usage lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
+}
+
+func (h *Handler) adminRefundReservation(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_RESERVATION", "A valid reservation is required.")
+		return
+	}
+	var input struct {
+		UserID         string `json:"userId"`
+		Amount         int    `json:"amountCredits"`
+		Reason         string `json:"reason"`
+		IdempotencyKey string `json:"idempotencyKey"`
+	}
+	if !decodeBody(w, r, &input) || strings.TrimSpace(input.UserID) == "" || input.Amount < 1 || len(input.Reason) > 160 || strings.TrimSpace(input.Reason) == "" || strings.TrimSpace(input.IdempotencyKey) == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_REFUND", "A valid refund is required.")
+		return
+	}
+	if err := h.store.RefundAICreditReservation(r.Context(), id, input.UserID, actor, input.IdempotencyKey, input.Reason, input.Amount); err != nil {
+		if strings.Contains(err.Error(), "idempotency") {
+			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This request key was already used.")
+			return
+		}
+		if strings.Contains(err.Error(), "exceeds") {
+			writeError(w, http.StatusBadRequest, "INVALID_REFUND", "The refund exceeds settled credits.")
+			return
+		}
+		h.storeError(w, "AI refund failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "refunded", "reason": input.Reason})
 }
 
 func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
@@ -589,7 +958,13 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.URL.Query().Get("pricingKey")
 	units, err := strconv.Atoi(r.URL.Query().Get("units"))
-	if key == "" || units < 1 || units > 100000 {
+	p, policyErr := h.store.AICreditPolicy(r.Context())
+	if policyErr != nil {
+		h.storeError(w, "AI policy lookup failed", policyErr)
+		return
+	}
+	rate, known := p.OperationWeights[key]
+	if key == "" || !known || rate < 1 || rate > 100000 || units < 1 || units > 100000 || units > 100000/rate {
 		writeError(w, http.StatusBadRequest, "INVALID_ESTIMATE", "A valid pricing key and units are required.")
 		return
 	}
@@ -598,7 +973,12 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, "AI credit lookup failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pricingKey": key, "units": units, "estimatedCredits": units, "unit": "unit", "creditsPerUnit": 1, "hardCapCredits": units, "availableCredits": balance, "canReserve": balance >= units})
+	estimated := units * rate
+	hardCap := estimated * (100 + p.OverrunMarginPercent) / 100
+	if estimated*(100+p.OverrunMarginPercent)%100 != 0 {
+		hardCap++
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pricingKey": key, "units": units, "estimatedCredits": estimated, "unit": "unit", "creditsPerUnit": rate, "overrunMarginPercent": p.OverrunMarginPercent, "hardCapCredits": hardCap, "availableCredits": balance, "policyVersion": p.Version, "canReserve": balance >= hardCap})
 }
 
 func (h *Handler) transcriptionPreferences(w http.ResponseWriter, r *http.Request) {
@@ -710,9 +1090,19 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "INVALID_AUDIO", "The recording is too large or invalid.")
 		return
 	}
-	if !h.spendVoiceProviderCredit(w, r, userID) {
+	reservation, ok := h.reserveVoiceProviderCredit(w, r, userID, "recorded")
+	if !ok {
 		return
 	}
+	providerSucceeded := false
+	defer func() {
+		if providerSucceeded {
+			return
+		}
+		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
+			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
+		}
+	}()
 	result, deletionStatus, err := transcribeAssemblyAI(
 		r.Context(),
 		&http.Client{Timeout: 25 * time.Second},
@@ -747,6 +1137,11 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Voice transcription is temporarily unavailable.")
 		return
 	}
+	providerSucceeded = true
+	creditReceipt, settled := h.settleVoiceProviderCredit(w, userID, reservation)
+	if !settled {
+		return
+	}
 	providerTranscriptStatus := "deleted"
 	deletionMarker := "provider_transcript_deleted"
 	if deletionStatus != "deleted" {
@@ -763,6 +1158,7 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 			ProviderTranscript: providerTranscriptStatus,
 			Marker:             deletionMarker,
 		},
+		"creditReceipt": creditReceipt,
 	})
 }
 
@@ -784,9 +1180,19 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "VOICE_NOT_CONFIGURED", "Voice transcription is not configured.")
 		return
 	}
-	if !h.spendVoiceProviderCredit(w, r, userID) {
+	reservation, ok := h.reserveVoiceProviderCredit(w, r, userID, "realtime")
+	if !ok {
 		return
 	}
+	providerSucceeded := false
+	defer func() {
+		if providerSucceeded {
+			return
+		}
+		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
+			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
+		}
+	}()
 	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "https://streaming.assemblyai.com/v3/token?expires_in_seconds=60", nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
@@ -808,8 +1214,14 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
 		return
 	}
+	providerSucceeded = true
+	creditReceipt, settled := h.settleVoiceProviderCredit(w, userID, reservation)
+	if !settled {
+		return
+	}
 	token["speechModel"] = "universal-3-5-pro"
 	token["redaction"] = "provider_pii_redaction"
+	token["creditReceipt"] = creditReceipt
 	writeJSON(w, http.StatusOK, token)
 }
 
