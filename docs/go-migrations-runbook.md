@@ -9,6 +9,11 @@ changes from development to production, and Replit documents no supported
 setting to disable that behavior. See
 [Development and production databases](https://docs.replit.com/features/data-and-storage/development-and-production).
 
+Production currently uses Replit-managed PostgreSQL. A separate external
+PostgreSQL target is a future environment and is not selected or connected yet.
+For current production recovery constraints, see
+[`production-recovery-runbook.md`](production-recovery-runbook.md).
+
 The API service never executes DDL. Run the explicit migration CLI against a
 disposable PostgreSQL database with `-target development`. PostgreSQL 14+ is
 supported for migration execution (the release validation target is PostgreSQL

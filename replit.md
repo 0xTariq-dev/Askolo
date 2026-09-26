@@ -27,6 +27,9 @@ development integrations, and the development database only.
 
 ## Database schema changes
 
+- Production currently uses Replit-managed PostgreSQL. A separate externally
+  managed PostgreSQL instance is a future environment and has not been selected
+  or connected.
 - The Go SQL migrations in
   `services/askolo-backend/internal/migrations/sql/` are the source of truth for
   Askolo's backend schema. When a feature needs a schema change, add the next
@@ -47,8 +50,9 @@ development integrations, and the development database only.
 - Do not run DDL at API startup or as part of an ordinary app build. For
   Replit-managed production PostgreSQL, Publish owns schema synchronization and
   Replit documents no supported opt-out. Do not use the Go runner against that
-  production database; resolve the migration-ledger/readiness compatibility
-  before selecting this hosting path.
+  production database. The migration-ledger/readiness compatibility and
+  production recovery procedure are tracked in
+  [`docs/production-recovery-runbook.md`](docs/production-recovery-runbook.md).
 - Follow [`docs/go-migrations-runbook.md`](docs/go-migrations-runbook.md) for
   migration authoring, validation, adoption, and release constraints.
 
