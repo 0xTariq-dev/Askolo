@@ -2,6 +2,8 @@ package migrations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,8 +42,14 @@ func TestRunDisposableDatabase(t *testing.T) {
 	}
 	defer pool.Close()
 
+	if err := ValidateReady(ctx, pool); err == nil || !strings.Contains(err.Error(), "ledger is missing") {
+		t.Fatalf("unmigrated schema readiness error = %v, want missing ledger", err)
+	}
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("clean migration: %v", err)
+	}
+	if err := ValidateReady(ctx, pool); err != nil {
+		t.Fatalf("ready after clean migration: %v", err)
 	}
 	assertMigrationVersions(t, ctx, pool, 3)
 	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('sentinel', 'sentinel@example.test')`); err != nil {
@@ -53,6 +62,9 @@ func TestRunDisposableDatabase(t *testing.T) {
 	}
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("rerun migration: %v", err)
+	}
+	if err := ValidateReady(ctx, pool); err != nil {
+		t.Fatalf("ready after migration rerun: %v", err)
 	}
 	assertMigrationVersions(t, ctx, pool, 3)
 	var granted, adjustment, reserved, spent, refunded int
@@ -69,6 +81,9 @@ func TestRunDisposableDatabase(t *testing.T) {
 	}
 	if err := Run(ctx, pool); err == nil || !strings.Contains(err.Error(), "schema drift") {
 		t.Fatalf("drift run error = %v, want schema drift", err)
+	}
+	if err := ValidateReady(ctx, pool); err == nil || !strings.Contains(err.Error(), "schema drift") {
+		t.Fatalf("drift readiness error = %v, want schema drift", err)
 	}
 }
 
@@ -102,6 +117,9 @@ func TestRunRejectsTamperedHistoryBeforeWrites(t *testing.T) {
 	}
 	if err := Run(ctx, pool); err == nil || !strings.Contains(err.Error(), "mismatch") {
 		t.Fatalf("tampered run error = %v, want mismatch", err)
+	}
+	if err := ValidateReady(ctx, pool); err == nil || !strings.Contains(err.Error(), "mismatch") {
+		t.Fatalf("tampered readiness error = %v, want mismatch", err)
 	}
 }
 
@@ -202,6 +220,102 @@ func TestRunConcurrentCallsSerialize(t *testing.T) {
 	assertMigrationVersions(t, ctx, first, 3)
 }
 
+func TestRunResumesAfterInterruptedMigrationWithForwardFix(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "forward_fix")
+
+	base, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load embedded migrations: %v", err)
+	}
+	version := len(base)
+	brokenSQL := `CREATE TABLE migration_forward_fix_marker (id integer PRIMARY KEY); SELECT 1/0;`
+	broken := syntheticMigration(version, "forward_fix", brokenSQL)
+	interrupted := append(append([]Migration(nil), base...), broken)
+	if err := run(ctx, pool, interrupted); err == nil {
+		t.Fatal("interrupted migration unexpectedly succeeded")
+	}
+	assertMigrationVersions(t, ctx, pool, len(base))
+
+	var markerExists bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('migration_forward_fix_marker') IS NOT NULL`).Scan(&markerExists); err != nil {
+		t.Fatalf("check failed migration rollback: %v", err)
+	}
+	if markerExists {
+		t.Fatal("failed migration left its schema change behind")
+	}
+
+	forwardSQL := `CREATE TABLE migration_forward_fix_marker (id integer PRIMARY KEY);`
+	forwardFix := syntheticMigration(version, "forward_fix", forwardSQL)
+	recovered := append(append([]Migration(nil), base...), forwardFix)
+	if err := run(ctx, pool, recovered); err != nil {
+		t.Fatalf("apply forward fix after interrupted migration: %v", err)
+	}
+	assertMigrationVersions(t, ctx, pool, len(base)+1)
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('migration_forward_fix_marker') IS NOT NULL`).Scan(&markerExists); err != nil {
+		t.Fatalf("check forward fix result: %v", err)
+	}
+	if !markerExists {
+		t.Fatal("forward fix did not create its schema change")
+	}
+}
+
+func TestRunAndReadinessAsLeastPrivilegedSchemaOwner(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	admin, _, schema := openMigrationTestSchema(t, ctx, baseURL, "least_privileged_runner")
+	role := fmt.Sprintf("askolo_migrator_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, `CREATE ROLE `+quoteMigrationIdentifier(role)+` NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`); err != nil {
+		t.Skipf("test database cannot create a restricted migration role: %v", err)
+	}
+	defer func() {
+		_, _ = admin.Exec(context.Background(), `DROP OWNED BY `+quoteMigrationIdentifier(role))
+		_, _ = admin.Exec(context.Background(), `DROP ROLE `+quoteMigrationIdentifier(role))
+	}()
+	if _, err := admin.Exec(ctx, `GRANT USAGE, CREATE ON SCHEMA `+quoteMigrationIdentifier(schema)+` TO `+quoteMigrationIdentifier(role)); err != nil {
+		t.Fatalf("grant schema-only migration privileges: %v", err)
+	}
+	var databaseUser string
+	if err := admin.QueryRow(ctx, `SELECT current_user`).Scan(&databaseUser); err != nil {
+		t.Fatalf("read test database user: %v", err)
+	}
+	if _, err := admin.Exec(ctx, `GRANT `+quoteMigrationIdentifier(role)+` TO `+quoteMigrationIdentifier(databaseUser)); err != nil {
+		t.Skipf("test database cannot grant the restricted migration role: %v", err)
+	}
+
+	config, err := pgxpool.ParseConfig(migrationSchemaURL(t, baseURL, schema))
+	if err != nil {
+		t.Fatalf("parse limited-role database configuration: %v", err)
+	}
+	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET ROLE `+quoteMigrationIdentifier(role))
+		return err
+	}
+	limitedPool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("open limited-role pool: %v", err)
+	}
+	defer limitedPool.Close()
+
+	var currentRole string
+	var isSuperuser bool
+	if err := limitedPool.QueryRow(ctx, `SELECT current_user, rolsuper FROM pg_roles WHERE rolname = current_user`).Scan(&currentRole, &isSuperuser); err != nil {
+		t.Fatalf("verify limited migration role: %v", err)
+	}
+	if currentRole != role || isSuperuser {
+		t.Fatalf("migration role = %q, superuser=%t; want restricted role", currentRole, isSuperuser)
+	}
+	if err := Run(ctx, limitedPool); err != nil {
+		t.Fatalf("run migrations as restricted role: %v", err)
+	}
+	if err := ValidateReady(ctx, limitedPool); err != nil {
+		t.Fatalf("validate readiness as restricted role: %v", err)
+	}
+}
+
 func assertMigrationVersions(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want int) {
 	t.Helper()
 	var got int
@@ -210,6 +324,16 @@ func assertMigrationVersions(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	}
 	if got != want {
 		t.Fatalf("migration history count = %d, want %d", got, want)
+	}
+}
+
+func syntheticMigration(version int, name, sqlText string) Migration {
+	sum := sha256.Sum256([]byte(sqlText))
+	return Migration{
+		Version: version,
+		Name:    fmt.Sprintf("%04d_%s", version, name),
+		SQL:     sqlText,
+		SHA256:  hex.EncodeToString(sum[:]),
 	}
 }
 

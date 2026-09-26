@@ -74,10 +74,14 @@ func Load(filesystem fs.FS) ([]Migration, error) {
 }
 
 func Run(ctx context.Context, pool *pgxpool.Pool) error {
-	migrations, err := Load(SQL)
+	migrationSet, err := Load(SQL)
 	if err != nil {
 		return err
 	}
+	return run(ctx, pool, migrationSet)
+}
+
+func run(ctx context.Context, pool *pgxpool.Pool, migrations []Migration) error {
 	if len(migrations) == 0 {
 		return errors.New("no embedded migrations")
 	}

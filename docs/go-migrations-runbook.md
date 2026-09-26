@@ -26,6 +26,20 @@ edited applied migrations, and serializes operators with an advisory lock.
 Every migration and its history row commit in one transaction. A failed
 migration is visible and leaves no history row.
 
+The API's `/readyz` endpoint returns 503 until every embedded migration is
+recorded in order with matching names and checksums and the current schema
+fingerprint matches the latest migration record. It reports only a readiness
+boolean to callers; detailed failures are logged server-side only when the
+readiness state changes. The check is read-only and uses the health request's
+bounded database context.
+
+The backend build runs `scripts/test-migrations.sh`. It creates a temporary
+PostgreSQL 16.x instance with a private Unix socket, runs the full migration
+integration suite (including the restricted-role runner test), and exercises
+the development and approved restore CLI targets. The script removes the
+temporary cluster on exit and clears `DATABASE_URL` before integration tests,
+so it cannot use a live application database.
+
 For staging, production, and restore targets, set `ASKOLO_MIGRATION_APPROVED=yes`
 only after backup verification, change review, and target identity verification.
 The current Repl is development-only; production credentials, target identity,

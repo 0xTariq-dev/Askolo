@@ -1,14 +1,64 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"askolo/backend/internal/config"
 )
+
+func TestMigrationReadinessProbeCoalescesAndCachesChecks(t *testing.T) {
+	observer := &migrationReadinessObserver{}
+	var calls atomic.Int32
+	var enteredOnce sync.Once
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	probe := func(ctx context.Context) (bool, error) {
+		calls.Add(1)
+		enteredOnce.Do(func() { close(entered) })
+		select {
+		case <-release:
+			return true, nil
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+
+	type result struct {
+		ready bool
+		err   error
+	}
+	results := make(chan result, 2)
+	go func() {
+		ready, err := observer.check(context.Background(), probe)
+		results <- result{ready: ready, err: err}
+	}()
+	<-entered
+	go func() {
+		ready, err := observer.check(context.Background(), probe)
+		results <- result{ready: ready, err: err}
+	}()
+	close(release)
+
+	for range 2 {
+		got := <-results
+		if got.err != nil || !got.ready {
+			t.Fatalf("coalesced readiness result = %t, %v; want ready", got.ready, got.err)
+		}
+	}
+	if ready, err := observer.check(context.Background(), probe); err != nil || !ready {
+		t.Fatalf("cached readiness result = %t, %v; want ready", ready, err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("probe ran %d times, want one coalesced and cached check", got)
+	}
+}
 
 func testConfig(token string) config.Config {
 	return config.Config{
@@ -191,6 +241,7 @@ func TestReadinessReportsMissingDependencies(t *testing.T) {
 	body := response.Body.String()
 	if !strings.Contains(body, `"status":"degraded"`) ||
 		!strings.Contains(body, `"databaseReachable":false`) ||
+		!strings.Contains(body, `"migrationSchemaReady":false`) ||
 		!strings.Contains(body, `"emailDeliveryConfigured":false`) ||
 		!strings.Contains(body, `"emailChallengeCleanup":{"status":"unknown"`) {
 		t.Fatalf("expected dependency readiness signals, got %q", body)
@@ -198,7 +249,7 @@ func TestReadinessReportsMissingDependencies(t *testing.T) {
 }
 
 func TestReadinessDoesNotRequireEmailHandoff(t *testing.T) {
-	status, statusCode := dependencyReadinessStatus(true, true, true)
+	status, statusCode := dependencyReadinessStatus(true, true, true, true)
 	if status != "ready" || statusCode != http.StatusOK {
 		t.Fatalf("configured fresh instance = %q/%d, want ready/200", status, statusCode)
 	}
@@ -207,24 +258,35 @@ func TestReadinessDoesNotRequireEmailHandoff(t *testing.T) {
 		name                      string
 		databaseReachable         bool
 		authorizationStorageReady bool
+		migrationSchemaReady      bool
 		emailDeliveryConfigured   bool
 	}{
 		{
 			name:                      "database unavailable",
 			databaseReachable:         false,
 			authorizationStorageReady: true,
+			migrationSchemaReady:      true,
 			emailDeliveryConfigured:   true,
 		},
 		{
 			name:                      "authorization schema unavailable",
 			databaseReachable:         true,
 			authorizationStorageReady: false,
+			migrationSchemaReady:      true,
+			emailDeliveryConfigured:   true,
+		},
+		{
+			name:                      "migration schema unavailable",
+			databaseReachable:         true,
+			authorizationStorageReady: true,
+			migrationSchemaReady:      false,
 			emailDeliveryConfigured:   true,
 		},
 		{
 			name:                      "email configuration unavailable",
 			databaseReachable:         true,
 			authorizationStorageReady: true,
+			migrationSchemaReady:      true,
 			emailDeliveryConfigured:   false,
 		},
 	} {
@@ -232,6 +294,7 @@ func TestReadinessDoesNotRequireEmailHandoff(t *testing.T) {
 			status, statusCode := dependencyReadinessStatus(
 				test.databaseReachable,
 				test.authorizationStorageReady,
+				test.migrationSchemaReady,
 				test.emailDeliveryConfigured,
 			)
 			if status != "degraded" || statusCode != http.StatusServiceUnavailable {
@@ -247,13 +310,13 @@ func TestReadinessReportsPersistentEmailChallengeCleanupFailure(t *testing.T) {
 		ConsecutiveFailures:        EmailChallengeCleanupPersistentFailureThreshold,
 		PersistentFailureThreshold: EmailChallengeCleanupPersistentFailureThreshold,
 	}
-	status, statusCode := dependencyReadinessStatus(true, true, true, cleanupReadiness)
+	status, statusCode := dependencyReadinessStatus(true, true, true, true, cleanupReadiness)
 	if status != "degraded" || statusCode != http.StatusServiceUnavailable {
 		t.Fatalf("persistent cleanup failure = %q/%d, want degraded/503", status, statusCode)
 	}
 
 	cleanupReadiness.Status = "transient_failure"
-	status, statusCode = dependencyReadinessStatus(true, true, true, cleanupReadiness)
+	status, statusCode = dependencyReadinessStatus(true, true, true, true, cleanupReadiness)
 	if status != "ready" || statusCode != http.StatusOK {
 		t.Fatalf("transient cleanup failure = %q/%d, want ready/200", status, statusCode)
 	}

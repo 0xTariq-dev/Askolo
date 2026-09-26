@@ -3,9 +3,11 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
@@ -36,6 +38,97 @@ type EmailChallengeCleanupReadiness struct {
 
 type EmailChallengeCleanupReadinessProvider func() EmailChallengeCleanupReadiness
 
+type migrationReadinessObserver struct {
+	mu          sync.Mutex
+	initialized bool
+	ready       bool
+	reason      string
+	checkedAt   time.Time
+	cachedReady bool
+	cachedErr   error
+	inFlight    chan struct{}
+}
+
+func (o *migrationReadinessObserver) check(
+	ctx context.Context,
+	probe func(context.Context) (bool, error),
+) (bool, error) {
+	o.mu.Lock()
+	if !o.checkedAt.IsZero() && time.Since(o.checkedAt) < 500*time.Millisecond {
+		ready, err := o.cachedReady, o.cachedErr
+		o.mu.Unlock()
+		return ready, err
+	}
+	if inFlight := o.inFlight; inFlight != nil {
+		o.mu.Unlock()
+		select {
+		case <-inFlight:
+			o.mu.Lock()
+			ready, err := o.cachedReady, o.cachedErr
+			o.mu.Unlock()
+			return ready, err
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+	inFlight := make(chan struct{})
+	o.inFlight = inFlight
+	o.mu.Unlock()
+
+	ready, err := probe(ctx)
+
+	o.mu.Lock()
+	o.cachedReady = ready
+	o.cachedErr = err
+	o.checkedAt = time.Now()
+	o.inFlight = nil
+	close(inFlight)
+	o.mu.Unlock()
+	return ready, err
+}
+
+func (o *migrationReadinessObserver) observe(
+	logger *slog.Logger,
+	cfg config.Config,
+	ready bool,
+	checkErr error,
+) {
+	reason := ""
+	if checkErr != nil {
+		reason = checkErr.Error()
+	} else if !ready {
+		reason = "migration schema is not ready"
+	}
+
+	o.mu.Lock()
+	changed := !o.initialized || o.ready != ready || o.reason != reason
+	if changed {
+		o.initialized = true
+		o.ready = ready
+		o.reason = reason
+	}
+	o.mu.Unlock()
+	if !changed || logger == nil {
+		return
+	}
+	if ready {
+		logger.Info("database migration schema is ready",
+			"environment", cfg.Environment,
+			"service", cfg.ServiceName,
+			"operation", "migration_readiness",
+			"status", "ready",
+		)
+		return
+	}
+	logger.Warn("database migration schema readiness blocked",
+		"environment", cfg.Environment,
+		"service", cfg.ServiceName,
+		"operation", "migration_readiness",
+		"status", "not_ready",
+		"reason", reason,
+	)
+}
+
 type EmailChallengeCleanupDashboard struct {
 	Environment                  string                         `json:"environment"`
 	Service                      string                         `json:"service"`
@@ -54,6 +147,7 @@ func New(
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
 	authHandler := authmodule.NewHandler(cfg, store, logger)
+	migrationReadinessObserver := &migrationReadinessObserver{}
 	cleanupReadiness := func() EmailChallengeCleanupReadiness {
 		return EmailChallengeCleanupReadiness{
 			Status:                     "unknown",
@@ -105,6 +199,8 @@ func New(
 	mux.HandleFunc("GET "+PublishedReadyzPath, func(w http.ResponseWriter, r *http.Request) {
 		databaseReachable := false
 		authorizationStorageReady := false
+		migrationSchemaReady := false
+		migrationReadinessErr := errors.New("database is not configured")
 		mfaSecurityReadiness := authmodule.MFASecurityReadiness{
 			Status:        "unavailable",
 			Environment:   cfg.Environment,
@@ -115,10 +211,17 @@ func New(
 			databaseReachable = store.Ping(pingContext) == nil
 			if databaseReachable {
 				authorizationStorageReady = store.AuthorizationSchemaReady(pingContext)
+				migrationSchemaReady, migrationReadinessErr = migrationReadinessObserver.check(
+					pingContext,
+					store.MigrationSchemaReady,
+				)
 				mfaSecurityReadiness = authHandler.MFASecurityReadiness(pingContext)
+			} else {
+				migrationReadinessErr = errors.New("database is not reachable")
 			}
 			cancel()
 		}
+		migrationReadinessObserver.observe(logger, cfg, migrationSchemaReady, migrationReadinessErr)
 		emailDeliveryReadiness := authHandler.EmailDeliveryReadiness()
 		emailDeliveryConfigured := emailDeliveryReadiness.ResendConfiguration == "configured" &&
 			emailDeliveryReadiness.ChallengeConfiguration == "configured"
@@ -126,6 +229,7 @@ func New(
 		status, statusCode := dependencyReadinessStatus(
 			databaseReachable,
 			authorizationStorageReady,
+			migrationSchemaReady,
 			emailDeliveryConfigured,
 			emailChallengeCleanupReadiness,
 		)
@@ -138,6 +242,7 @@ func New(
 			"internalAuthConfigured":    cfg.InternalAuthToken != "",
 			"databaseReachable":         databaseReachable,
 			"authorizationStorageReady": authorizationStorageReady,
+			"migrationSchemaReady":      migrationSchemaReady,
 			"emailDeliveryConfigured":   emailDeliveryConfigured,
 			"emailDelivery":             emailDeliveryReadiness,
 			"emailChallengeCleanup":     emailChallengeCleanupReadiness,
@@ -200,6 +305,7 @@ func New(
 func dependencyReadinessStatus(
 	databaseReachable bool,
 	authorizationStorageReady bool,
+	migrationSchemaReady bool,
 	emailDeliveryConfigured bool,
 	cleanupReadiness ...EmailChallengeCleanupReadiness,
 ) (string, int) {
@@ -209,7 +315,7 @@ func dependencyReadinessStatus(
 	// visible in the response without making cold starts depend on them.
 	persistentCleanupFailure := len(cleanupReadiness) > 0 &&
 		cleanupReadiness[0].Status == "persistent_failure"
-	if !databaseReachable || !authorizationStorageReady || !emailDeliveryConfigured || persistentCleanupFailure {
+	if !databaseReachable || !authorizationStorageReady || !migrationSchemaReady || !emailDeliveryConfigured || persistentCleanupFailure {
 		return "degraded", http.StatusServiceUnavailable
 	}
 	return "ready", http.StatusOK

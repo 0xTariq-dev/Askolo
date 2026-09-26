@@ -60,6 +60,7 @@ find "$bin_dir" -maxdepth 1 -type f -name '.askolo-backend.*.tmp' -delete
 stop_recorded_process
 
 go test ./...
+bash "$script_dir/test-migrations.sh"
 go vet ./...
 CGO_ENABLED=0 go build -trimpath -o "$tmp_binary" ./cmd/askolo-backend
 chmod 755 "$tmp_binary"
