@@ -25,6 +25,33 @@ development integrations, and the development database only.
   and release checks are documented in
   [`docs/three-repl-attachment-plan.md`](docs/three-repl-attachment-plan.md).
 
+## Database schema changes
+
+- The Go SQL migrations in
+  `services/askolo-backend/internal/migrations/sql/` are the source of truth for
+  Askolo's backend schema. When a feature needs a schema change, add the next
+  sequentially numbered migration in the same change; do not use Drizzle schema
+  pushes or ad hoc production DDL.
+- Treat committed migrations as immutable. Fix an applied migration with a new
+  forward migration, and update the migration integration tests for the new
+  behavior.
+- Validate migrations with
+  `cd services/askolo-backend && GOSUMDB=sum.golang.org bash ./scripts/test-migrations.sh`.
+  This creates a disposable local PostgreSQL instance; do not point migration
+  tests at the app's `DATABASE_URL`.
+- The explicit Go migration runner is for development, disposable databases,
+  and externally managed PostgreSQL targets. Production migrations must be a
+  separate, approved release step after target verification, backup checks,
+  and a tested restore. Never run a production target from this development
+  Repl.
+- Do not run DDL at API startup or as part of an ordinary app build. For
+  Replit-managed production PostgreSQL, Publish owns schema synchronization and
+  Replit documents no supported opt-out. Do not use the Go runner against that
+  production database; resolve the migration-ledger/readiness compatibility
+  before selecting this hosting path.
+- Follow [`docs/go-migrations-runbook.md`](docs/go-migrations-runbook.md) for
+  migration authoring, validation, adoption, and release constraints.
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9

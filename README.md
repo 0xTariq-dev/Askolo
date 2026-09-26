@@ -996,7 +996,8 @@ dependency:
 
 - [ ] The change has a clear user or operational purpose.
 - [ ] The relevant OpenAPI and generated files are updated.
-- [ ] Database changes are represented in the Drizzle schema.
+- [ ] Database schema changes include a new Go SQL migration and migration-test
+      coverage; see `docs/go-migrations-runbook.md`.
 - [ ] Authentication and ownership checks are preserved.
 - [ ] Inputs and provider responses are validated.
 - [ ] Loading, empty, error, and success states are covered in the UI.

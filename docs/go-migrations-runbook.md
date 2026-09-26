@@ -1,11 +1,47 @@
 # Go migration runbook
 
-The backend never executes DDL. Run `go run ./cmd/askolo-migrate -target
-development` with a disposable PostgreSQL database. PostgreSQL 14+ is
+## Scope
+
+This runbook covers disposable and development databases plus externally
+managed PostgreSQL targets. It does not authorize running Go migrations against
+Replit-managed production PostgreSQL. Replit Publish synchronizes structural
+changes from development to production, and Replit documents no supported
+setting to disable that behavior. See
+[Development and production databases](https://docs.replit.com/features/data-and-storage/development-and-production).
+
+The API service never executes DDL. Run the explicit migration CLI against a
+disposable PostgreSQL database with `-target development`. PostgreSQL 14+ is
 supported for migration execution (the release validation target is PostgreSQL
 16). Baseline adoption is narrower: inventory contract version 1 was generated
 and validated on PostgreSQL 16.10, so `-adopt-existing` accepts PostgreSQL
 16.x only.
+
+## Authoring a schema change
+
+When a backend change needs a schema update:
+
+1. Add the next sequentially numbered SQL file under
+   `services/askolo-backend/internal/migrations/sql/`, using the existing
+   `NNNN_short_description.sql` naming convention. The Go runner embeds these
+   files automatically.
+2. Do not edit a migration that has been committed or applied to a shared
+   database. Make corrections with a new forward migration.
+3. Keep DDL and its migration-ledger update within the runner's transaction.
+   Review data-preservation, locking, and compatibility effects; do not rely on
+   `CREATE TABLE IF NOT EXISTS` at application startup to repair a schema.
+4. Add or update integration coverage for the new schema behavior. The tests
+   must use the disposable PostgreSQL instance created by
+   `scripts/test-migrations.sh`, not the application `DATABASE_URL`.
+5. Run
+   `GOSUMDB=sum.golang.org bash ./scripts/test-migrations.sh` from
+   `services/askolo-backend` and run the relevant backend tests before handing
+   off the change.
+
+Use this Go runner for external staging or production only after the target
+database has been identified and the release owner has verified a backup and a
+successful restore. A production run is a separate, explicitly approved release
+step, never part of API startup or the ordinary application build. This
+development Repl must not be given a live production database URL.
 
 The versioned `inventory-v1` fingerprint is scoped to `current_schema()` and
 does not depend on that schema's name. It inventories relations, columns and
@@ -40,12 +76,14 @@ the development and approved restore CLI targets. The script removes the
 temporary cluster on exit and clears `DATABASE_URL` before integration tests,
 so it cannot use a live application database.
 
-For staging, production, and restore targets, set `ASKOLO_MIGRATION_APPROVED=yes`
-only after backup verification, change review, and target identity verification.
-The current Repl is development-only; production credentials, target identity,
-release ownership, and a tested restore are unresolved blockers. Do not use a
-live URL from this workspace. Restore a backup to disposable PostgreSQL first,
-run the CLI with `-target restore`, then exercise the service before release.
+For external staging, production, and restore targets, set
+`ASKOLO_MIGRATION_APPROVED=yes` only after backup verification, change review,
+and target identity verification. The current Repl is development-only;
+production credentials, target identity, release ownership, and a tested restore
+are unresolved blockers. Do not use a live URL from this workspace. Restore a
+backup to disposable PostgreSQL first, run the CLI with `-target restore`, then
+exercise the service before release. Do not use these commands to bypass
+Replit-managed production schema synchronization.
 
 Forward fixes are new numbered migrations; never edit an applied file. The
 clean baseline is strict and rejects an already-populated database. Existing
