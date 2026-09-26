@@ -51,7 +51,7 @@ func TestRunDisposableDatabase(t *testing.T) {
 	if err := ValidateReady(ctx, pool); err != nil {
 		t.Fatalf("ready after clean migration: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 3)
+	assertMigrationVersions(t, ctx, pool, 4)
 	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('sentinel', 'sentinel@example.test')`); err != nil {
 		t.Fatalf("insert sentinel user: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestRunDisposableDatabase(t *testing.T) {
 	if err := ValidateReady(ctx, pool); err != nil {
 		t.Fatalf("ready after migration rerun: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 3)
+	assertMigrationVersions(t, ctx, pool, 4)
 	var granted, adjustment, reserved, spent, refunded int
 	if err := pool.QueryRow(ctx, `SELECT granted_credits, adjustment_credits, reserved_credits, spent_credits, refunded_credits
 		FROM ai_credit_accounts WHERE user_id = 'sentinel'`).Scan(&granted, &adjustment, &reserved, &spent, &refunded); err != nil {
@@ -217,7 +217,7 @@ func TestRunConcurrentCallsSerialize(t *testing.T) {
 			t.Fatalf("concurrent migration: %v", err)
 		}
 	}
-	assertMigrationVersions(t, ctx, first, 3)
+	assertMigrationVersions(t, ctx, first, 4)
 }
 
 func TestRunResumesAfterInterruptedMigrationWithForwardFix(t *testing.T) {
@@ -521,7 +521,7 @@ func TestAdoptBaselineMatchesPinnedArchiveAndPreservesData(t *testing.T) {
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("run after baseline adoption: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 3)
+	assertMigrationVersions(t, ctx, pool, 4)
 	var email, status string
 	if err := pool.QueryRow(ctx, `SELECT email, status FROM users WHERE id='adoption-sentinel'`).Scan(&email, &status); err != nil {
 		t.Fatalf("read sentinel after adoption and forward migration: %v", err)
@@ -529,6 +529,124 @@ func TestAdoptBaselineMatchesPinnedArchiveAndPreservesData(t *testing.T) {
 	if email != "adoption@example.test" || status != "active" {
 		t.Fatalf("sentinel changed after adoption: email=%q status=%q", email, status)
 	}
+}
+
+func TestArchivedWorkspaceBaselineFingerprintsMatchPinnedContract(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "workspace_contract")
+	applyUntrackedWorkspaceBaseline(t, ctx, pool, false)
+
+	migrations, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	workspaceMigration := migrations[archivedWorkspaceBaselineContract.MigrationVersion]
+	if workspaceMigration.Name != archivedWorkspaceBaselineContract.MigrationName ||
+		workspaceMigration.SHA256 != archivedWorkspaceBaselineContract.MigrationChecksum {
+		t.Fatalf("workspace migration contract mismatch: got %s %s", workspaceMigration.Name, workspaceMigration.SHA256)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin fingerprint transaction: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	logical, err := logicalFingerprint(ctx, tx)
+	if err != nil {
+		t.Fatalf("compute logical baseline fingerprint: %v", err)
+	}
+	workspace, err := workspaceFingerprint(ctx, tx)
+	if err != nil {
+		t.Fatalf("compute workspace fingerprint: %v", err)
+	}
+	if logical != archivedWorkspaceBaselineContract.LogicalFingerprint ||
+		workspace != archivedWorkspaceBaselineContract.WorkspaceFingerprint {
+		t.Fatalf("workspace baseline fingerprints are not pinned: logical=%q workspace=%q", logical, workspace)
+	}
+}
+
+func TestAdoptArchivedWorkspaceBaselineIgnoresLegacyColumnOrder(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "workspace_adoption")
+	applyUntrackedWorkspaceBaseline(t, ctx, pool, true)
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('workspace-adoption-sentinel', 'workspace-adoption@example.test')`); err != nil {
+		t.Fatalf("insert sentinel user: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin adoption validation transaction: %v", err)
+	}
+	actualInventory, err := fingerprint(ctx, tx)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("fingerprint reordered baseline: %v", err)
+	}
+	if actualInventory == archiveBaselineContract.Fingerprint {
+		_ = tx.Rollback(ctx)
+		t.Fatal("reordered workspace baseline unexpectedly matched the legacy order-sensitive fingerprint")
+	}
+	if err := ValidateBaseline(ctx, tx); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("validate archived workspace baseline: %v", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback adoption validation: %v", err)
+	}
+
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin adoption transaction: %v", err)
+	}
+	if err := AdoptBaseline(ctx, tx); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("adopt archived workspace baseline: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit workspace baseline adoption: %v", err)
+	}
+	assertAdoptedPrefix(t, ctx, pool, actualInventory)
+
+	if err := Run(ctx, pool); err != nil {
+		t.Fatalf("run after workspace baseline adoption: %v", err)
+	}
+	assertMigrationVersions(t, ctx, pool, 4)
+	var email, status string
+	if err := pool.QueryRow(ctx, `SELECT email, status FROM users WHERE id='workspace-adoption-sentinel'`).Scan(&email, &status); err != nil {
+		t.Fatalf("read sentinel after adoption and forward migrations: %v", err)
+	}
+	if email != "workspace-adoption@example.test" || status != "active" {
+		t.Fatalf("sentinel changed after workspace adoption: email=%q status=%q", email, status)
+	}
+}
+
+func TestAdoptArchivedWorkspaceBaselineRejectsUnreviewedDrift(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "workspace_adoption_drift")
+	applyUntrackedWorkspaceBaseline(t, ctx, pool, false)
+	if _, err := pool.Exec(ctx, `CREATE TABLE untracked_workspace_baseline_object (id integer)`); err != nil {
+		t.Fatalf("add unreviewed schema object: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin drifted adoption transaction: %v", err)
+	}
+	err = AdoptBaseline(ctx, tx)
+	if err == nil || !strings.Contains(err.Error(), "does not match archived workspace contract") {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("drifted adoption error = %v, want archived workspace contract mismatch", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback refused drifted adoption: %v", err)
+	}
+	assertNoAdoptionLedger(t, ctx, pool)
 }
 
 func TestAdoptBaselineRejectsSchemaMutationsWithoutWritingHistory(t *testing.T) {
@@ -758,7 +876,7 @@ func TestRunAdvancesLegacyFingerprintHistory(t *testing.T) {
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("advance old history using the legacy drift check: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 3)
+	assertMigrationVersions(t, ctx, pool, 4)
 	var stored string
 	if err := pool.QueryRow(ctx, `SELECT schema_fingerprint FROM askolo_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&stored); err != nil {
 		t.Fatalf("read new versioned fingerprint: %v", err)
@@ -824,8 +942,69 @@ func applyUntrackedBaseline(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	}
 }
 
-func assertAdoptedPrefix(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func applyUntrackedWorkspaceBaseline(t *testing.T, ctx context.Context, pool *pgxpool.Pool, reorderLegacyColumns bool) {
 	t.Helper()
+	migrations, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load workspace baseline migrations: %v", err)
+	}
+	for _, version := range []int{0, 1, archivedWorkspaceBaselineContract.MigrationVersion} {
+		migration := migrations[version]
+		sqlText := migration.SQL
+		if reorderLegacyColumns && version == 0 {
+			sqlText, err = reorderLegacyColumnOrderForTest(sqlText)
+			if err != nil {
+				t.Fatalf("reorder legacy column fixture: %v", err)
+			}
+		}
+		sqlText = strings.ReplaceAll(sqlText, `REFERENCES "public".`, `REFERENCES `)
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin untracked workspace migration %04d: %v", version, err)
+		}
+		if _, err := tx.Exec(ctx, sqlText); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("apply untracked workspace migration %04d: %v", version, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit untracked workspace migration %04d: %v", version, err)
+		}
+	}
+}
+
+func reorderLegacyColumnOrderForTest(sqlText string) (string, error) {
+	replacements := [][2]string{
+		{
+			`"google_event_id" text,
+"created_at" timestamp with time zone DEFAULT now() NOT NULL,`,
+			`"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+"google_event_id" text,`,
+		},
+		{
+			`"retention" varchar(32) DEFAULT 'delete_immediately' NOT NULL,
+"consent_at" timestamp with time zone,`,
+			`"consent_at" timestamp with time zone,
+"retention" varchar(32) DEFAULT 'delete_immediately' NOT NULL,`,
+		},
+	}
+	for _, replacement := range replacements {
+		if !strings.Contains(sqlText, replacement[0]) {
+			return "", fmt.Errorf("legacy schema fixture does not contain expected column sequence %q", replacement[0])
+		}
+		sqlText = strings.Replace(sqlText, replacement[0], replacement[1], 1)
+	}
+	return sqlText, nil
+}
+
+func assertAdoptedPrefix(t *testing.T, ctx context.Context, pool *pgxpool.Pool, expectedFingerprints ...string) {
+	t.Helper()
+	expectedFingerprint := archiveBaselineContract.Fingerprint
+	if len(expectedFingerprints) > 1 {
+		t.Fatal("assertAdoptedPrefix accepts at most one fingerprint")
+	}
+	if len(expectedFingerprints) == 1 {
+		expectedFingerprint = expectedFingerprints[0]
+	}
 	rows, err := pool.Query(ctx, `SELECT version, name, checksum, schema_fingerprint FROM askolo_schema_migrations ORDER BY version`)
 	if err != nil {
 		t.Fatalf("read adopted migration history: %v", err)
@@ -848,8 +1027,8 @@ func assertAdoptedPrefix(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 		if name != migrations[version].Name || checksum != migrations[version].SHA256 {
 			t.Fatalf("adopted version %d metadata does not match embedded migration", version)
 		}
-		if fp != archiveBaselineContract.Fingerprint {
-			t.Fatalf("adopted fingerprint = %q, want %q", fp, archiveBaselineContract.Fingerprint)
+		if fp != expectedFingerprint {
+			t.Fatalf("adopted fingerprint = %q, want %q", fp, expectedFingerprint)
 		}
 		count++
 	}

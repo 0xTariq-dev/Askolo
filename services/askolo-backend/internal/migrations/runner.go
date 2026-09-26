@@ -215,7 +215,31 @@ var archiveBaselineContract = baselineContract{
 	},
 }
 
+type workspaceBaselineContract struct {
+	Version              int
+	MigrationVersion     int
+	MigrationName        string
+	MigrationChecksum    string
+	LogicalFingerprint   string
+	WorkspaceFingerprint string
+}
+
+// The archive contains the reviewed workspace schema, but migrations 0000 and
+// 0001 predate its inclusion in the executable runner. This separate contract
+// recognizes that exact extension without changing the historical archive
+// baseline or the persisted inventory-v1 fingerprint format.
+var archivedWorkspaceBaselineContract = workspaceBaselineContract{
+	Version:              1,
+	MigrationVersion:     3,
+	MigrationName:        "0003_workspace_authorization",
+	MigrationChecksum:    "1f2c55fa47c2fb029ab0467e200cc4a5fb567d790ffcacd14379967b0022e9e2",
+	LogicalFingerprint:   "inventory-v2:55b46e72ad129df300df6983ee826b162f4052003999d77b6470037cf2fc3ace",
+	WorkspaceFingerprint: "workspace-inventory-v1:3d9df8cfd0eb7e3804fe99dc2bef3819080a9781cd598570971bcefbc5dc67ae",
+}
+
 const fingerprintPrefix = "inventory-v1:"
+const logicalFingerprintPrefix = "inventory-v2:"
+const workspaceFingerprintPrefix = "workspace-inventory-v1:"
 
 func ValidateBaseline(ctx context.Context, tx pgx.Tx) error {
 	if archiveBaselineContract.Fingerprint == "" {
@@ -275,8 +299,37 @@ func ValidateBaseline(ctx context.Context, tx pgx.Tx) error {
 	if err != nil {
 		return fmt.Errorf("inventory target schema: %w", err)
 	}
-	if actual != archiveBaselineContract.Fingerprint {
-		return fmt.Errorf("existing-schema adoption refused: schema does not match pinned archive contract (contract v%d, archive %s; got %s)", archiveBaselineContract.Version, archiveBaselineContract.ArchiveCommit, actual)
+	if actual == archiveBaselineContract.Fingerprint {
+		return nil
+	}
+	return validateArchivedWorkspaceBaseline(ctx, tx, migrations)
+}
+
+func validateArchivedWorkspaceBaseline(ctx context.Context, tx pgx.Tx, migrations []Migration) error {
+	contract := archivedWorkspaceBaselineContract
+	if contract.LogicalFingerprint == "" || contract.WorkspaceFingerprint == "" {
+		return errors.New("existing-schema adoption refused: verified workspace baseline fingerprints are not configured")
+	}
+	if contract.MigrationVersion < 0 || contract.MigrationVersion >= len(migrations) {
+		return errors.New("existing-schema adoption refused: workspace migration contract version is invalid")
+	}
+	migration := migrations[contract.MigrationVersion]
+	if migration.Name != contract.MigrationName || migration.SHA256 != contract.MigrationChecksum {
+		return fmt.Errorf("existing-schema adoption refused: workspace migration %04d differs from pinned contract", contract.MigrationVersion)
+	}
+	logical, err := logicalFingerprint(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("inventory target schema under the logical-column contract: %w", err)
+	}
+	if logical != contract.LogicalFingerprint {
+		return fmt.Errorf("existing-schema adoption refused: schema does not match archived workspace contract v%d and does not match pinned archive contract (got %s)", contract.Version, logical)
+	}
+	workspace, err := workspaceFingerprint(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("inventory workspace authorization schema: %w", err)
+	}
+	if workspace != contract.WorkspaceFingerprint {
+		return fmt.Errorf("existing-schema adoption refused: workspace schema does not match archived contract v%d (got %s)", contract.Version, workspace)
 	}
 	return nil
 }
@@ -330,6 +383,15 @@ func runOne(ctx context.Context, conn *pgxpool.Conn, m Migration) error {
 	if _, err = tx.Exec(ctx, sqlText); err != nil {
 		return fmt.Errorf("migration %04d failed (rolled back): %w", m.Version, err)
 	}
+	if m.Name == archivedWorkspaceBaselineContract.MigrationName {
+		actualWorkspace, verifyErr := workspaceFingerprint(ctx, tx)
+		if verifyErr != nil {
+			return fmt.Errorf("migration %04d workspace verification failed (rolled back): %w", m.Version, verifyErr)
+		}
+		if actualWorkspace != archivedWorkspaceBaselineContract.WorkspaceFingerprint {
+			return fmt.Errorf("migration %04d workspace schema differs from pinned contract (rolled back): got %s", m.Version, actualWorkspace)
+		}
+	}
 	fp, err := fingerprint(ctx, tx)
 	if err != nil {
 		return err
@@ -350,6 +412,26 @@ func verifyNoUnexpected(ctx context.Context, tx pgx.Tx, applied map[int]Migratio
 }
 
 func fingerprint(ctx context.Context, tx pgx.Tx) (string, error) {
+	return inventoryFingerprint(ctx, tx, true, false, nil, fingerprintPrefix)
+}
+
+// logicalFingerprint is used only to verify archived schema adoption. It
+// compares columns by table and name while retaining every other inventory
+// property. Persisted runner fingerprints remain inventory-v1 and
+// order-sensitive.
+func logicalFingerprint(ctx context.Context, tx pgx.Tx) (string, error) {
+	return inventoryFingerprint(ctx, tx, false, false, nil, logicalFingerprintPrefix)
+}
+
+func workspaceFingerprint(ctx context.Context, tx pgx.Tx) (string, error) {
+	return inventoryFingerprint(ctx, tx, true, true, []string{
+		"workspaces",
+		"workspace_memberships",
+		"authorization_resources",
+	}, workspaceFingerprintPrefix)
+}
+
+func inventoryFingerprint(ctx context.Context, tx pgx.Tx, includeColumnOrdinal, filterWorkspace bool, workspaceTables []string, prefix string) (string, error) {
 	var schema string
 	if err := tx.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
 		return "", err
@@ -364,23 +446,23 @@ func fingerprint(ctx context.Context, tx pgx.Tx) (string, error) {
 	if err := tx.QueryRow(ctx, `SELECT set_config('search_path', quote_ident($1), true)`, schema).Scan(&searchPath); err != nil {
 		return "", fmt.Errorf("pin schema inventory search_path: %w", err)
 	}
-	rows, err := tx.Query(ctx, schemaInventoryQuery)
+	rows, err := tx.Query(ctx, schemaInventoryQuery, includeColumnOrdinal, filterWorkspace, workspaceTables)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
 	h := sha256.New()
 	for rows.Next() {
-		var kind, definition string
-		if err := rows.Scan(&kind, &definition); err != nil {
+		var kind, identity, definition string
+		if err := rows.Scan(&kind, &identity, &definition); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(h, "%s\x00%s\n", kind, normalizeSchemaReference(definition, schema))
+		fmt.Fprintf(h, "%s\x00%s\n", kind, normalizeSchemaReference(identity+":"+definition, schema))
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	return fingerprintPrefix + hex.EncodeToString(h.Sum(nil)), nil
+	return prefix + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func normalizeSchemaReference(definition, schema string) string {
@@ -440,7 +522,249 @@ WITH target AS (
 	WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'c')
 	  AND c.relname <> 'askolo_schema_migrations'
 	UNION ALL
-	SELECT 'column', c.relname || '.' || a.attnum::text || '.' || a.attname,
+	SELECT 'column',
+		CASE WHEN $1::boolean
+			THEN c.relname || '.' || a.attnum::text || '.' || a.attname
+			ELSE c.relname || '.' || a.attname
+		END,
+		concat_ws(':', format_type(a.atttypid, a.atttypmod), a.attnotnull,
+			a.attidentity, a.attgenerated, COALESCE(pg_get_expr(d.adbin, d.adrelid, true), ''))
+	FROM pg_attribute a
+	JOIN pg_class c ON c.oid = a.attrelid
+	JOIN target ON target.oid = c.relnamespace
+	LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+	WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'c')
+	  AND c.relname <> 'askolo_schema_migrations'
+	  AND a.attnum > 0 AND NOT a.attisdropped
+	UNION ALL
+	SELECT 'constraint', c.relname || '.' || con.conname,
+		concat_ws(':', con.contype, con.condeferrable, con.condeferred,
+			con.convalidated, con.conislocal, con.coninhcount, con.connoinherit,
+			pg_get_constraintdef(con.oid, true))
+	FROM pg_constraint con
+	JOIN pg_class c ON c.oid = con.conrelid
+	JOIN target ON target.oid = c.relnamespace
+	WHERE c.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'domain_constraint', t.typname || '.' || con.conname,
+		concat_ws(':', con.condeferrable, con.condeferred, con.convalidated,
+			pg_get_constraintdef(con.oid, true))
+	FROM pg_constraint con
+	JOIN pg_type t ON t.oid = con.contypid
+	JOIN target ON target.oid = t.typnamespace
+	UNION ALL
+	SELECT 'index', table_class.relname || '.' || index_class.relname,
+		concat_ws(':', idx.indisunique, idx.indisprimary, idx.indisexclusion,
+			idx.indisvalid, idx.indisready, idx.indislive,
+			pg_get_indexdef(idx.indexrelid, 0, true))
+	FROM pg_index idx
+	JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+	JOIN pg_class table_class ON table_class.oid = idx.indrelid
+	JOIN target ON target.oid = table_class.relnamespace
+	WHERE table_class.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'sequence', c.relname,
+		concat_ws(':', s.seqtypid::regtype::text, s.seqstart, s.seqincrement,
+			s.seqmax, s.seqmin, s.seqcache, s.seqcycle,
+			COALESCE(owner.table_name || '.' || owner.column_name || ':' || owner.deptype::text, ''))
+	FROM pg_class c
+	JOIN target ON target.oid = c.relnamespace
+	JOIN pg_sequence s ON s.seqrelid = c.oid
+	LEFT JOIN LATERAL (
+		SELECT owner_class.relname AS table_name, owner_att.attname AS column_name, d.deptype
+		FROM pg_depend d
+		JOIN pg_class owner_class ON owner_class.oid = d.refobjid
+		JOIN pg_attribute owner_att ON owner_att.attrelid = owner_class.oid AND owner_att.attnum = d.refobjsubid
+		WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+		  AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
+		ORDER BY owner_class.relname, owner_att.attname
+		LIMIT 1
+	) owner ON true
+	WHERE c.relkind = 'S' AND c.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'trigger', c.relname || '.' || t.tgname,
+		concat_ws(':', t.tgenabled, (t.tgconstraint <> 0), pg_get_triggerdef(t.oid, true))
+	FROM pg_trigger t
+	JOIN pg_class c ON c.oid = t.tgrelid
+	JOIN target ON target.oid = c.relnamespace
+	WHERE NOT t.tgisinternal AND c.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'policy', c.relname || '.' || p.polname,
+		concat_ws(':', p.polcmd, p.polpermissive,
+			(SELECT string_agg(CASE WHEN roles.role_oid = 0 THEN 'PUBLIC' ELSE quote_ident(r.rolname) END, ',' ORDER BY roles.role_oid)
+			 FROM unnest(p.polroles) AS roles(role_oid)
+			 LEFT JOIN pg_roles r ON r.oid = roles.role_oid),
+			COALESCE(pg_get_expr(p.polqual, p.polrelid, true), ''),
+			COALESCE(pg_get_expr(p.polwithcheck, p.polrelid, true), ''))
+	FROM pg_policy p
+	JOIN pg_class c ON c.oid = p.polrelid
+	JOIN target ON target.oid = c.relnamespace
+	WHERE c.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'view', c.relname, pg_get_viewdef(c.oid, true)
+	FROM pg_class c
+	JOIN target ON target.oid = c.relnamespace
+	WHERE c.relkind IN ('v', 'm') AND c.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'rule', c.relname || '.' || r.rulename, pg_get_ruledef(r.oid, true)
+	FROM pg_rewrite r
+	JOIN pg_class c ON c.oid = r.ev_class
+	JOIN target ON target.oid = c.relnamespace
+	WHERE r.rulename <> '_RETURN' AND c.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'partition', child.relname,
+		parent.relname || ':' || child.relkind::text || ':' ||
+		CASE WHEN child.relispartition THEN pg_get_expr(child.relpartbound, child.oid, true) ELSE '' END
+	FROM pg_inherits i
+	JOIN pg_class child ON child.oid = i.inhrelid
+	JOIN pg_class parent ON parent.oid = i.inhparent
+	JOIN target ON target.oid = child.relnamespace
+	WHERE child.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'partition_key', c.relname, pg_get_partkeydef(c.oid)
+	FROM pg_class c
+	JOIN target ON target.oid = c.relnamespace
+	WHERE c.relkind = 'p' AND c.relname <> 'askolo_schema_migrations'
+	UNION ALL
+	SELECT 'type', t.typname,
+		concat_ws(':', t.typtype, t.typcategory, t.typisdefined, t.typnotnull,
+			COALESCE(t.typbasetype::regtype::text, ''),
+			COALESCE(t.typdefault, ''), COALESCE(t.typcollation::regcollation::text, ''))
+	FROM pg_type t
+	JOIN target ON target.oid = t.typnamespace
+	LEFT JOIN pg_class composite_type ON composite_type.oid = t.typrelid
+	WHERE t.typisdefined
+	  AND ((t.typrelid = 0 AND t.typelem = 0)
+	       OR (t.typtype = 'c' AND composite_type.relkind = 'c'))
+	UNION ALL
+	SELECT 'enum', t.typname || '.' || e.enumlabel, e.enumsortorder::text
+	FROM pg_enum e
+	JOIN pg_type t ON t.oid = e.enumtypid
+	JOIN target ON target.oid = t.typnamespace
+	UNION ALL
+	SELECT 'range', t.typname,
+		concat_ws(':', r.rngsubtype::regtype::text, r.rngcollation::regcollation::text,
+			r.rngsubopc::regclass::text, r.rngcanonical::regproc::text,
+			r.rngsubdiff::regproc::text, r.rngmultitypid::regtype::text)
+	FROM pg_range r
+	JOIN pg_type t ON t.oid = r.rngtypid
+	JOIN target ON target.oid = t.typnamespace
+	UNION ALL
+	SELECT 'routine', p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+		pg_get_functiondef(p.oid)
+	FROM pg_proc p
+	JOIN target ON target.oid = p.pronamespace
+	WHERE p.prokind IN ('f', 'p', 'w')
+	UNION ALL
+	SELECT 'aggregate', p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+		concat_ws(':', a.aggkind, a.aggnumdirectargs,
+			a.aggtransfn::regprocedure::text, a.aggtranstype::regtype::text, a.aggtransspace,
+			a.aggfinalfn::regprocedure::text, a.aggfinalextra, a.aggfinalmodify,
+			a.aggcombinefn::regprocedure::text, a.aggserialfn::regprocedure::text,
+			a.aggdeserialfn::regprocedure::text, a.aggmtransfn::regprocedure::text,
+			a.aggmtranstype::regtype::text, a.aggmtransspace,
+			a.aggminvtransfn::regprocedure::text, a.aggmfinalfn::regprocedure::text,
+			a.aggmfinalextra, a.aggmfinalmodify, a.aggsortop::regoperator::text,
+			a.agginitval, a.aggminitval)
+	FROM pg_aggregate a
+	JOIN pg_proc p ON p.oid = a.aggfnoid
+	JOIN target ON target.oid = p.pronamespace
+	UNION ALL
+	SELECT 'operator', o.oprname || ':' || o.oprkind::text || ':' ||
+			COALESCE(o.oprleft::regtype::text, '') || ':' || COALESCE(o.oprright::regtype::text, ''),
+		concat_ws(':', o.oprresult::regtype::text, o.oprcode::regprocedure::text,
+			o.oprrest::regprocedure::text, o.oprjoin::regprocedure::text)
+	FROM pg_operator o
+	JOIN target ON target.oid = o.oprnamespace
+	UNION ALL
+	SELECT 'collation', c.collname,
+		concat_ws(':', c.collprovider, c.collcollate, c.collctype, c.collisdeterministic, c.collversion)
+	FROM pg_collation c
+	JOIN target ON target.oid = c.collnamespace
+	UNION ALL
+	SELECT 'conversion', c.conname,
+		concat_ws(':', c.conforencoding, c.contoencoding, c.conproc::regprocedure::text, c.condefault)
+	FROM pg_conversion c
+	JOIN target ON target.oid = c.connamespace
+	UNION ALL
+	SELECT 'text_search_dictionary', d.dictname,
+		concat_ws(':', t.tmplname, d.dictinitoption)
+	FROM pg_ts_dict d
+	JOIN pg_ts_template t ON t.oid = d.dicttemplate
+	JOIN target ON target.oid = d.dictnamespace
+	UNION ALL
+	SELECT 'text_search_config', c.cfgname,
+		concat_ws(':', parser.prsname,
+			(SELECT string_agg(m.maptokentype::text || ':' || COALESCE(d.dictname, ''), ',' ORDER BY m.maptokentype, d.dictname)
+			 FROM pg_ts_config_map m
+			 LEFT JOIN pg_ts_dict d ON d.oid = m.mapdict
+			 WHERE m.mapcfg = c.oid))
+	FROM pg_ts_config c
+	JOIN pg_ts_parser parser ON parser.oid = c.cfgparser
+	JOIN target ON target.oid = c.cfgnamespace
+	UNION ALL
+	SELECT 'text_search_parser', p.prsname,
+		concat_ws(':', p.prsstart::regprocedure::text, p.prstoken::regprocedure::text,
+			p.prsend::regprocedure::text, p.prsheadline::regprocedure::text,
+			p.prslextype::regprocedure::text)
+	FROM pg_ts_parser p
+	JOIN target ON target.oid = p.prsnamespace
+	UNION ALL
+	SELECT 'text_search_template', t.tmplname,
+		concat_ws(':', t.tmplinit::regprocedure::text, t.tmpllexize::regprocedure::text)
+	FROM pg_ts_template t
+	JOIN target ON target.oid = t.tmplnamespace
+	UNION ALL
+	SELECT 'transform', t.trftype::regtype::text || ':' || l.lanname,
+		concat_ws(':', t.trffromsql::regprocedure::text, t.trftosql::regprocedure::text)
+	FROM pg_transform t
+	JOIN pg_type transformed_type ON transformed_type.oid = t.trftype
+	JOIN pg_language l ON l.oid = t.trflang
+	JOIN target ON target.oid = transformed_type.typnamespace
+	UNION ALL
+	SELECT 'opclass', c.opcname,
+		concat_ws(':', a.amname, c.opcintype::regtype::text, c.opcdefault, c.opckeytype::regtype::text)
+	FROM pg_opclass c
+	JOIN pg_am a ON a.oid = c.opcmethod
+	JOIN target ON target.oid = c.opcnamespace
+	UNION ALL
+	SELECT 'opfamily', f.opfname, a.amname
+	FROM pg_opfamily f
+	JOIN pg_am a ON a.oid = f.opfmethod
+	JOIN target ON target.oid = f.opfnamespace
+	UNION ALL
+	SELECT 'opfamily_operator', f.opfname || ':' || m.amopstrategy::text || ':' || m.amoppurpose::text,
+		concat_ws(':', m.amoplefttype::regtype::text, m.amoprighttype::regtype::text,
+			m.amopopr::regoperator::text, m.amopsortfamily::regclass::text)
+	FROM pg_amop m
+	JOIN pg_opfamily f ON f.oid = m.amopfamily
+	JOIN target ON target.oid = f.opfnamespace
+	UNION ALL
+	SELECT 'opfamily_function', f.opfname || ':' || m.amprocnum::text,
+		concat_ws(':', m.amproclefttype::regtype::text, m.amprocrighttype::regtype::text,
+			m.amproc::regprocedure::text)
+	FROM pg_amproc m
+	JOIN pg_opfamily f ON f.oid = m.amprocfamily
+	JOIN target ON target.oid = f.opfnamespace
+	UNION ALL
+	SELECT 'extension', e.extname, e.extversion
+	FROM pg_extension e
+	JOIN target ON target.oid = e.extnamespace
+	UNION ALL
+	SELECT 'extended_statistics', c.relname || '.' || s.stxname, pg_get_statisticsobjdef(s.oid)
+	FROM pg_statistic_ext s
+	JOIN pg_class c ON c.oid = s.stxrelid
+	JOIN target ON target.oid = c.relnamespace
+)
+SELECT kind, identity, definition
+FROM inventory
+WHERE NOT $2::boolean
+   OR (kind = 'relation' AND identity = ANY($3::text[]))
+   OR (kind IN ('column', 'constraint', 'index', 'trigger', 'policy', 'rule', 'partition', 'partition_key')
+       AND split_part(identity, '.', 1) = ANY($3::text[]))
+ORDER BY kind, identity, definition`
+
+/*
 		concat_ws(':', format_type(a.atttypid, a.atttypmod), a.attnotnull,
 			a.attidentity, a.attgenerated, COALESCE(pg_get_expr(d.adbin, d.adrelid, true), ''))
 	FROM pg_attribute a
@@ -672,4 +996,5 @@ WITH target AS (
 )
 SELECT kind, identity || ':' || definition
 FROM inventory
-ORDER BY kind, identity, definition`
+	ORDER BY kind, identity, definition`
+*/
