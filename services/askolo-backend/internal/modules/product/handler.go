@@ -110,19 +110,6 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 	}
 }
 
-func (h *Handler) spendVoiceProviderCredit(w http.ResponseWriter, r *http.Request, userID string) bool {
-	_, spent, err := h.store.SpendAICredits(r.Context(), userID, voiceProviderRequestCreditCost)
-	if err != nil {
-		h.storeError(w, "AI credit spend failed", err)
-		return false
-	}
-	if !spent {
-		writeError(w, http.StatusPaymentRequired, "INSUFFICIENT_AI_CREDITS", "At least one AI credit is required to use voice features.")
-		return false
-	}
-	return true
-}
-
 func (h *Handler) reserveVoiceProviderCredit(w http.ResponseWriter, r *http.Request, userID, mode string) (voiceCreditReservation, bool) {
 	var result voiceCreditReservation
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
@@ -487,6 +474,17 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 	return userID, http.StatusOK
 }
 
+func writeCreditSessionError(w http.ResponseWriter, status int) {
+	switch status {
+	case http.StatusUnauthorized:
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized.")
+	case http.StatusForbidden:
+		writeError(w, http.StatusForbidden, "MFA_REQUIRED", "Complete multi-factor verification to continue.")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "AUTHENTICATION_UNAVAILABLE", "Authentication is temporarily unavailable.")
+	}
+}
+
 func (h *Handler) addHabitStatus(r *http.Request, userID string, result []map[string]any) {
 	today := time.Now().UTC().Format("2006-01-02")
 	for _, habit := range result {
@@ -672,7 +670,11 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) aiCredits(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
 	usage, err := h.store.AICreditUsage(r.Context(), userID)
@@ -690,7 +692,11 @@ func (h *Handler) aiCredits(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) aiCreditUsage(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
 	usage, err := h.store.AICreditUsage(r.Context(), userID)
@@ -749,7 +755,7 @@ func (h *Handler) isCreditAdmin(r *http.Request, userID string) bool {
 func (h *Handler) requireCreditAdmin(w http.ResponseWriter, r *http.Request) (string, bool) {
 	userID, status := h.sessionUserID(r)
 	if status != http.StatusOK {
-		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized.")
+		writeCreditSessionError(w, status)
 		return "", false
 	}
 	if !h.isCreditAdmin(r, userID) {
@@ -953,7 +959,11 @@ func (h *Handler) adminRefundReservation(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
 	key := r.URL.Query().Get("pricingKey")
@@ -1036,7 +1046,11 @@ func (h *Handler) meetingExtract(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
 	consent, consentVersion, err := h.store.VoiceConsent(r.Context(), userID)
@@ -1164,7 +1178,11 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
 	consent, consentVersion, err := h.store.VoiceConsent(r.Context(), userID)

@@ -103,6 +103,28 @@ func TestPublishedAPIHealthAlias(t *testing.T) {
 	}
 }
 
+func TestCreditRoutesReachProductHandlerAndFailExplicitlyWhenUnavailable(t *testing.T) {
+	handler := New(testConfig("secret"), slog.Default(), nil)
+	for _, path := range []string{
+		"/api/ai/credits",
+		"/api/admin/ai-credit-policy",
+	} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected status 503, got %d with body %q", response.Code, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), `"code":"AUTHENTICATION_UNAVAILABLE"`) {
+				t.Fatalf("expected explicit authentication error, got %q", response.Body.String())
+			}
+		})
+	}
+}
+
 func TestCleanupMonitoringDashboardRequiresInternalAuthAndIsAggregateOnly(t *testing.T) {
 	cfg := testConfig("secret")
 	cleanupReadiness := EmailChallengeCleanupReadiness{

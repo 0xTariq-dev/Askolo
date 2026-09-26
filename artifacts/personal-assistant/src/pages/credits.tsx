@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'wouter';
 import { ArrowDownLeft, ArrowUpRight, Check, Clipboard, Coins, Download, History, Loader2, RefreshCw, ShieldCheck, Sparkles, WalletCards } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -6,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Skeleton } from '@/components/ui/skeleton';
+import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useToast } from '@/hooks/use-toast';
 import { creditApi, creditErrorMessage, type CreditAccountResponse, type CreditReceipt, type CreditUsageResponse } from '@/lib/credit-api';
 
@@ -41,17 +43,21 @@ export function CreditsPage() {
   const [usage, setUsage] = useState<CreditUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [selectedReceipt, setSelectedReceipt] = useState<CreditReceipt | null>(null);
   const [copied, setCopied] = useState(false);
 
   const load = async (quiet = false) => {
     quiet ? setRefreshing(true) : setLoading(true);
+    setLoadError('');
     try {
       const [nextAccount, nextUsage] = await Promise.all([creditApi.account(), creditApi.usage()]);
       setAccount(nextAccount);
       setUsage(nextUsage);
     } catch (error) {
-      toast({ title: creditErrorMessage(error, 'Credit details are unavailable'), variant: 'destructive' });
+      const message = creditErrorMessage(error, 'Credit details are unavailable');
+      setLoadError(message);
+      toast({ title: message, variant: 'destructive' });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -77,6 +83,16 @@ export function CreditsPage() {
   if (loading) {
     return <PageTransition className="mx-auto max-w-5xl space-y-6"><Skeleton className="h-12 w-56" /><div className="grid gap-4 md:grid-cols-3"><Skeleton className="h-36" /><Skeleton className="h-36" /><Skeleton className="h-36" /></div><Skeleton className="h-96" /></PageTransition>;
   }
+  if (!account || !usage) {
+    return (
+      <PageTransition className="mx-auto max-w-3xl">
+        <Card role="alert">
+          <CardHeader><CardTitle>Credit details are unavailable</CardTitle><CardDescription>{loadError || 'Refresh to load your current balance and receipts.'}</CardDescription></CardHeader>
+          <CardContent><Button onClick={() => void load()} disabled={loading}>Try again</Button></CardContent>
+        </Card>
+      </PageTransition>
+    );
+  }
 
   const balance = account?.balance ?? 0;
   const usageItems = [
@@ -86,33 +102,64 @@ export function CreditsPage() {
     { label: 'Spent', value: account?.spent ?? 0, tone: 'text-rose-400' },
     { label: 'Refunded', value: account?.refunded ?? 0, tone: 'text-emerald-400' },
   ];
+  const grants = usage.ledgerEntries?.grants ?? [];
 
   return (
     <PageTransition className="mx-auto max-w-5xl space-y-6">
+      {loadError && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">{loadError} Your last loaded balance is still shown.</p>}
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-primary"><WalletCards className="h-3.5 w-3.5" /> Account credits</p>
           <h1 className="text-3xl font-display font-bold tracking-tight md:text-4xl">Your AI wallet</h1>
           <p className="mt-2 max-w-xl text-muted-foreground">A clear record of what Askolo reserved, spent, and returned. Voice sessions check this balance before they start.</p>
         </div>
-        <Button variant="outline" onClick={() => void load(true)} disabled={refreshing} data-testid="button-refresh-credits">
-          <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {account?.canManage && (
+            <Link href="/admin/credits" className="inline-flex min-h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Manage policy
+            </Link>
+          )}
+          <Button variant="outline" onClick={() => void load(true)} disabled={refreshing} data-testid="button-refresh-credits">
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+          </Button>
+        </div>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-[1.35fr_1fr_1fr]">
+      <section className="grid gap-4 md:grid-cols-[1.35fr_1fr]">
         <Card className="relative overflow-hidden border-primary/30 bg-primary/[0.07]">
           <div className="pointer-events-none absolute -right-10 -top-14 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
           <CardHeader className="pb-2"><CardDescription className="flex items-center gap-2"><Coins className="h-4 w-4 text-primary" /> Available now</CardDescription></CardHeader>
           <CardContent><p className="font-mono text-5xl font-semibold tracking-tight" data-testid="text-credit-balance">{balance.toLocaleString()}<span className="ml-2 text-base font-sans font-medium text-muted-foreground">credits</span></p><p className="mt-3 text-xs text-muted-foreground">Enforcement is strict. A voice request needs at least one available credit.</p></CardContent>
         </Card>
         <Card><CardHeader className="pb-2"><CardDescription>Policy version</CardDescription></CardHeader><CardContent><p className="font-mono text-3xl font-semibold">v{account?.policyVersion ?? '—'}</p><Badge className="mt-3 border-emerald-500/20 bg-emerald-500/10 text-emerald-500"><ShieldCheck className="mr-1 h-3 w-3" /> Strict ledger</Badge></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardDescription>Voice preflight</CardDescription></CardHeader><CardContent><p className="text-sm font-medium">1 credit per request</p><p className={`mt-2 text-xs ${balance > 0 ? 'text-emerald-500' : 'text-destructive'}`}>{balance > 0 ? 'Ready for a voice note' : 'Top up or ask an admin for credits'}</p></CardContent></Card>
       </section>
+
+      <VoiceCreditPreflight showWalletLink={false} />
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><History className="h-4 w-4 text-primary" /> Ledger summary</CardTitle><CardDescription>Every number is an immutable ledger counter, not an estimate.</CardDescription></CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-5">{usageItems.map((item) => <div key={item.label} className="rounded-xl border border-border/70 bg-background/30 p-3"><p className="text-xs text-muted-foreground">{item.label}</p><p className={`mt-1 font-mono text-xl font-semibold ${item.tone}`}>{item.value.toLocaleString()}</p></div>)}</CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Coins className="h-4 w-4 text-primary" /> Credit grant history</CardTitle><CardDescription>Check the recorded expiry date for each grant. Expired entries remain visible for reference.</CardDescription></CardHeader>
+        <CardContent className="space-y-2">
+          {grants.length ? grants.map((grant, index) => {
+            const expiresAt = grant.expiresAt ? new Date(grant.expiresAt) : null;
+            const expired = expiresAt ? expiresAt.getTime() <= Date.now() : false;
+            return (
+              <div key={`${grant.id}-${index}`} className="flex flex-col gap-2 rounded-xl border border-border/70 bg-background/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-mono text-sm font-semibold">{(grant.amountCredits ?? grant.credits ?? 0).toLocaleString()} credits · {grant.reason || 'Credit grant'}</p>
+                  <p className="text-xs text-muted-foreground">Granted {formatDate(grant.createdAt)}</p>
+                </div>
+                <Badge className={expired ? 'w-fit border-border bg-muted text-muted-foreground' : expiresAt ? 'w-fit border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300' : 'w-fit border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'}>
+                  {expiresAt ? `${expired ? 'Expired' : 'Expires'} ${formatDate(grant.expiresAt)}` : 'No expiry recorded'}
+                </Badge>
+              </div>
+            );
+          }) : <p className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">No credit grants recorded yet.</p>}
+        </CardContent>
       </Card>
 
       <Card>

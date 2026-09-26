@@ -290,6 +290,7 @@ func New(
 			strings.HasPrefix(r.URL.Path, "/api/action-items"),
 			strings.HasPrefix(r.URL.Path, "/api/dashboard"),
 			strings.HasPrefix(r.URL.Path, "/api/ai/"),
+			strings.HasPrefix(r.URL.Path, "/api/admin/ai-credit-"),
 			strings.HasPrefix(r.URL.Path, "/api/user/"):
 			productRoutes.ServeHTTP(w, r)
 		default:

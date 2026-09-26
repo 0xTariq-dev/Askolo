@@ -27,6 +27,9 @@ export type CreditReceipt = {
   credits?: number;
   durationMs?: number | null;
   policyVersion?: number;
+  userId?: string;
+  amountCredits?: number;
+  sourceType?: string;
   reason?: string;
   actorUserId?: string;
   reversalOfId?: number | null;

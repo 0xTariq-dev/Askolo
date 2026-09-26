@@ -145,13 +145,17 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-async function prepareVoiceCreditRequest() {
-  const estimate = await creditApi.estimate('voice', 1);
+function assertVoiceReservationAllowed(estimate: CreditEstimate) {
   if (!estimate.canReserve) {
     throw new Error(
       `This voice request needs up to ${estimate.hardCapCredits} credits; ${estimate.availableCredits} are available. Open AI Credits to review your balance.`,
     );
   }
+}
+
+async function prepareVoiceCreditRequest() {
+  const estimate = await creditApi.estimate('voice', 1);
+  assertVoiceReservationAllowed(estimate);
   return {
     estimate,
     headers: {
@@ -214,6 +218,7 @@ export function useVoiceTranscription({
   const cancelRequestedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const durationStopRequestedRef = useRef(false);
+  const voiceCreditPostflightRef = useRef('');
   const recordingStartedAtRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -315,13 +320,13 @@ export function useVoiceTranscription({
     if (!spokenText) {
       updateState('error');
       setError('No speech was detected. Try again or type instead.');
-      setStatus('');
+      setStatus(voiceCreditPostflightRef.current);
       return;
     }
     setTranscript(spokenText);
     setLiveText(spokenText);
     updateState('review');
-    setStatus('Review the transcript before submitting it.');
+    setStatus(`${voiceCreditPostflightRef.current ? `${voiceCreditPostflightRef.current} ` : ''}Review the transcript before submitting it.`);
   };
 
   const startRecordedSession = async (sessionId: number) => {
@@ -339,8 +344,11 @@ export function useVoiceTranscription({
 
     updateMode('recorded');
     updateState('starting');
-    setStatus('Requesting microphone permission…');
+    setStatus('Checking the voice credit estimate…');
     try {
+      const preflight = await creditApi.estimate('voice', 1);
+      assertVoiceReservationAllowed(preflight);
+      setStatus(`Estimate: ${preflight.estimatedCredits} credits; maximum ${preflight.hardCapCredits}. Requesting microphone permission…`);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
        if (sessionRef.current !== sessionId || cancelRequestedRef.current || stopRequestedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
@@ -459,7 +467,9 @@ export function useVoiceTranscription({
       updateState('error');
       setError(denied
         ? 'Microphone permission was denied. Allow microphone access or type instead.'
-        : 'The microphone could not be started. Check browser permissions and try again.');
+        : captureError instanceof Error
+          ? captureError.message
+          : 'The microphone could not be started. Check browser permissions and try again.');
       setStatus('');
     }
   };
@@ -487,6 +497,7 @@ export function useVoiceTranscription({
     updateMode('live');
     updateState('starting');
     let postflight = '';
+    voiceCreditPostflightRef.current = '';
     setStatus('Checking the voice credit estimate…');
     try {
       const creditRequest = await prepareVoiceCreditRequest();
@@ -509,6 +520,7 @@ export function useVoiceTranscription({
         (token as typeof token & { creditReceipt?: CreditReceiptDetails }).creditReceipt,
         creditRequest.estimate,
       );
+      voiceCreditPostflightRef.current = postflight;
       setStatus(`${postflight} Connecting live transcription…`);
       const transcriber = new StreamingTranscriber({
         token: token.token,
@@ -524,14 +536,14 @@ export function useVoiceTranscription({
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
         updateState('error');
         setError('Real-time transcription stopped unexpectedly. Try recorded transcription instead.');
-        setStatus('');
+        setStatus(voiceCreditPostflightRef.current);
         void closeRealtime(false);
       });
       transcriber.on('close', () => {
         if (sessionRef.current !== sessionId || cancelRequestedRef.current || stopRequestedRef.current) return;
         updateState('error');
         setError('The real-time transcription session ended unexpectedly.');
-        setStatus('');
+        setStatus(voiceCreditPostflightRef.current);
       });
       realtimeRef.current = transcriber;
       await transcriber.connect();
@@ -558,7 +570,7 @@ export function useVoiceTranscription({
       audioSourceRef.current = source;
       audioProcessorRef.current = processor;
       updateState('listening');
-      setStatus('Live US transcription is active. Review the final text before submitting it.');
+      setStatus(`${postflight} Live US transcription is active. Review the final text before submitting it.`);
     } catch (captureError) {
       await closeRealtime(false);
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
@@ -627,7 +639,7 @@ export function useVoiceTranscription({
     setDeletionStatus(null);
     updateState('idle');
     updateMode(null);
-    setStatus('Voice input canceled.');
+    setStatus(`${voiceCreditPostflightRef.current ? `${voiceCreditPostflightRef.current} ` : ''}Voice input canceled.`);
     setError('');
     setRecordingSeconds(0);
     setAudioLevel(0);
@@ -648,6 +660,7 @@ export function useVoiceTranscription({
     updateState('idle');
     updateMode(null);
     setStatus('');
+    voiceCreditPostflightRef.current = '';
     setError('');
     setRecordingSeconds(0);
     setAudioLevel(0);

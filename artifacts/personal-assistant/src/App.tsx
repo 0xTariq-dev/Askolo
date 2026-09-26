@@ -14,9 +14,11 @@ import {
 import { NativeAuthProvider, useAppAuth } from '@/contexts/auth-context';
 import {
   ActionsPage,
+  AdminCreditsPage,
   AppLayout,
   CalendarPage,
   ChoresPage,
+  CreditsPage,
   DashboardPage,
   EmailPage,
   GoalsPage,
@@ -112,6 +114,8 @@ function NativeProtectedRoutes() {
         <Route path="/assistant"><Redirect to="/dashboard" /></Route>
         <Route path="/email" component={EmailPage} />
         <Route path="/profile" component={ProfilePage} />
+        <Route path="/credits" component={CreditsPage} />
+        <Route path="/admin/credits" component={AdminCreditsPage} />
       </Switch>
     </AppLayout>
   );

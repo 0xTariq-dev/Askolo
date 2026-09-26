@@ -4,12 +4,21 @@ import { useLocation } from 'wouter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { creditApi, creditErrorMessage, type CreditPolicy, type CreditUsageResponse } from '@/lib/credit-api';
+import { creditApi, creditErrorMessage, newCreditIdempotencyKey, type CreditPolicy, type CreditReceipt, type CreditUsageResponse } from '@/lib/credit-api';
+
+type LedgerAction = {
+  kind: 'adjustment' | 'grant' | 'reservation';
+  id: string | number;
+  idempotencyKey: string;
+  label: string;
+  maxAmount?: number;
+};
 
 function numberValue(value: string) {
   const parsed = Number(value);
@@ -22,6 +31,7 @@ export function AdminCreditsPage() {
   const [policy, setPolicy] = useState<CreditPolicy | null>(null);
   const [policyForm, setPolicyForm] = useState<CreditPolicy | null>(null);
   const [loading, setLoading] = useState(true);
+  const [policyLoadError, setPolicyLoadError] = useState('');
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [targetUserId, setTargetUserId] = useState('');
   const [targetUsage, setTargetUsage] = useState<CreditUsageResponse | null>(null);
@@ -29,14 +39,20 @@ export function AdminCreditsPage() {
   const [adjustment, setAdjustment] = useState({ amountCredits: '', reason: '', idempotencyKey: '' });
   const [adjustBusy, setAdjustBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [ledgerAction, setLedgerAction] = useState<LedgerAction | null>(null);
+  const [ledgerReason, setLedgerReason] = useState('');
+  const [ledgerAmount, setLedgerAmount] = useState('');
+  const [ledgerActionBusy, setLedgerActionBusy] = useState(false);
 
   const loadPolicy = async () => {
     setLoading(true);
+    setPolicyLoadError('');
     try {
       const next = await creditApi.adminPolicy();
       setPolicy(next);
-      setPolicyForm(next);
+      setPolicyForm({ ...next, changeReason: '' });
     } catch (error) {
+      setPolicyLoadError(creditErrorMessage(error, 'Admin credit controls are unavailable.'));
       toast({ title: creditErrorMessage(error, 'Admin credit controls are unavailable'), variant: 'destructive' });
     } finally {
       setLoading(false);
@@ -77,13 +93,62 @@ export function AdminCreditsPage() {
     }
   };
 
+  const beginLedgerAction = (action: Omit<LedgerAction, 'idempotencyKey'>) => {
+    try {
+      setLedgerAction({ ...action, idempotencyKey: newCreditIdempotencyKey() });
+      setLedgerReason('');
+      setLedgerAmount(action.kind === 'reservation' ? String(action.maxAmount ?? '') : '');
+    } catch (error) {
+      toast({ title: creditErrorMessage(error, 'Secure request identifiers are unavailable'), variant: 'destructive' });
+    }
+  };
+
+  const applyLedgerAction = async () => {
+    if (!ledgerAction || !targetUserId.trim() || !ledgerReason.trim() || ledgerReason.length > 160) return;
+    const amount = Number(ledgerAmount);
+    if (ledgerAction.kind === 'reservation' &&
+      (!Number.isInteger(amount) || amount < 1 || amount > (ledgerAction.maxAmount ?? 0))) {
+      toast({ title: 'Enter a valid refund amount', description: `Choose from 1 to ${ledgerAction.maxAmount ?? 0} credits.`, variant: 'destructive' });
+      return;
+    }
+
+    setLedgerActionBusy(true);
+    try {
+      const input = {
+        userId: targetUserId.trim(),
+        reason: ledgerReason.trim(),
+        idempotencyKey: ledgerAction.idempotencyKey,
+      };
+      if (ledgerAction.kind === 'adjustment') {
+        await creditApi.adminReverseAdjustment(Number(ledgerAction.id), input);
+      } else if (ledgerAction.kind === 'grant') {
+        await creditApi.adminReverseGrant(Number(ledgerAction.id), input);
+      } else {
+        await creditApi.adminRefundReservation(String(ledgerAction.id), { ...input, amountCredits: amount });
+      }
+      toast({ title: 'Ledger action completed', description: ledgerAction.label });
+      setLedgerAction(null);
+      await lookupUser();
+    } catch (error) {
+      toast({ title: creditErrorMessage(error, 'The ledger action could not be completed'), variant: 'destructive' });
+    } finally {
+      setLedgerActionBusy(false);
+    }
+  };
+
   const savePolicy = async () => {
     if (!policyForm || !policy) return;
     setSavingPolicy(true);
     try {
-      const next = await creditApi.updateAdminPolicy({ ...policyForm, version: policy.version + 1 });
+      const next = await creditApi.updateAdminPolicy({
+        operationWeights: policyForm.operationWeights,
+        monthlyGrantCredits: policyForm.monthlyGrantCredits,
+        rolloverCapCredits: policyForm.rolloverCapCredits,
+        rolloverExpiryDays: policyForm.rolloverExpiryDays,
+        overrunMarginPercent: policyForm.overrunMarginPercent,
+      }, policy.version, policyForm.changeReason?.trim() ?? '');
       setPolicy(next);
-      setPolicyForm(next);
+      setPolicyForm({ ...next, changeReason: '' });
       toast({ title: 'Credit policy published', description: `Policy v${next.version} is now active.` });
     } catch (error) {
       toast({ title: creditErrorMessage(error, 'Policy could not be published'), variant: 'destructive' });
@@ -93,12 +158,32 @@ export function AdminCreditsPage() {
     }
   };
 
-  if (loading || !policyForm) {
-    return <PageTransition className="mx-auto max-w-5xl space-y-6"><div className="h-12 w-64 animate-pulse rounded-lg bg-white/5" /><div className="h-64 animate-pulse rounded-2xl bg-white/5" /><div className="h-96 animate-pulse rounded-2xl bg-white/5" /></PageTransition>;
+  if (loading || !policyForm || !policy) {
+    if (loading) {
+      return <PageTransition className="mx-auto max-w-5xl space-y-6" aria-busy="true"><div className="h-12 w-64 animate-pulse rounded-lg bg-white/5" /><div className="h-64 animate-pulse rounded-2xl bg-white/5" /><div className="h-96 animate-pulse rounded-2xl bg-white/5" /></PageTransition>;
+    }
+    return (
+      <PageTransition className="mx-auto max-w-3xl space-y-5">
+        <Card role="alert">
+          <CardHeader><CardTitle>Admin credit controls are unavailable</CardTitle><CardDescription>{policyLoadError || 'This account is not authorized to manage credit policy.'}</CardDescription></CardHeader>
+          <CardContent><Button variant="outline" onClick={() => setLocation('/credits')}><WalletCards className="mr-2 h-4 w-4" />Return to your wallet</Button></CardContent>
+        </Card>
+      </PageTransition>
+    );
   }
 
   const setPolicyField = <K extends keyof CreditPolicy>(key: K, value: CreditPolicy[K]) => setPolicyForm((current) => current ? { ...current, [key]: value } : current);
   const weightEntries = Object.entries(policyForm.operationWeights);
+  const ledgerAdjustments = targetUsage?.ledgerEntries?.adjustments ?? [];
+  const ledgerGrants = targetUsage?.ledgerEntries?.grants ?? [];
+  const reversedAdjustmentIds = new Set(ledgerAdjustments.map((entry) => entry.reversalOfId).filter((id): id is number => typeof id === 'number'));
+  const reversedGrantIds = new Set(ledgerAdjustments.map((entry) => entry.reversalOfGrantId).filter((id): id is number => typeof id === 'number'));
+  const recentReceipts = targetUsage
+    ? [
+        ...(targetUsage.recent.reservations ?? []).map((item) => ({ item, key: `reservation-${item.id}` })),
+        ...(targetUsage.recent.events ?? []).map((item) => ({ item, key: `event-${item.id}` })),
+      ]
+    : [];
 
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
@@ -113,7 +198,7 @@ export function AdminCreditsPage() {
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-3"><div><CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-primary" /> Active pricing policy</CardTitle><CardDescription>Version {policy.version}. Publishing creates the next immutable policy version.</CardDescription></div><Badge className="border-primary/20 bg-primary/10 text-primary">v{policy.version}</Badge></CardHeader>
+          <CardHeader className="flex flex-row items-start justify-between gap-3"><div><CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-primary" /> Active credit policy</CardTitle><CardDescription>Version {policy.version}. Publishing creates the next immutable policy version.</CardDescription></div><Badge className="border-primary/20 bg-primary/10 text-primary">v{policy.version}</Badge></CardHeader>
           <CardContent className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2"><Label htmlFor="monthly-grant">Monthly grant credits</Label><Input id="monthly-grant" type="number" min="0" value={policyForm.monthlyGrantCredits} onChange={(event) => setPolicyField('monthlyGrantCredits', numberValue(event.target.value))} data-testid="input-monthly-grant" /></div>
@@ -121,9 +206,13 @@ export function AdminCreditsPage() {
               <div className="space-y-2"><Label htmlFor="rollover-expiry">Rollover expiry days</Label><Input id="rollover-expiry" type="number" min="1" value={policyForm.rolloverExpiryDays} onChange={(event) => setPolicyField('rolloverExpiryDays', numberValue(event.target.value))} data-testid="input-rollover-expiry" /></div>
               <div className="space-y-2"><Label htmlFor="overrun-margin">Overrun margin percent</Label><Input id="overrun-margin" type="number" min="0" max="100" value={policyForm.overrunMarginPercent} onChange={(event) => setPolicyField('overrunMarginPercent', numberValue(event.target.value))} data-testid="input-overrun-margin" /></div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="policy-change-reason">Reason for this policy version</Label>
+              <Input id="policy-change-reason" maxLength={160} value={policyForm.changeReason ?? ''} onChange={(event) => setPolicyField('changeReason', event.target.value)} placeholder="Explain what changed" data-testid="input-policy-change-reason" />
+            </div>
             <Separator />
             <div><div className="mb-3 flex items-center justify-between"><div><p className="text-sm font-medium">Operation weights</p><p className="text-xs text-muted-foreground">Credits reserved per billable unit.</p></div><Coins className="h-4 w-4 text-primary" /></div><div className="space-y-2">{weightEntries.map(([key, value]) => <div key={key} className="flex items-center gap-3"><Label className="min-w-28 font-mono text-xs text-muted-foreground">{key}</Label><Input type="number" min="1" value={value} onChange={(event) => setPolicyField('operationWeights', { ...policyForm.operationWeights, [key]: numberValue(event.target.value) })} data-testid={`input-operation-weight-${key}`} /><span className="text-xs text-muted-foreground">credits / unit</span></div>)}</div></div>
-            <Button onClick={() => void savePolicy()} disabled={savingPolicy} data-testid="button-publish-credit-policy">{savingPolicy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Publish policy v{policy.version + 1}</Button>
+            <Button onClick={() => void savePolicy()} disabled={savingPolicy || !policyForm.changeReason?.trim()} data-testid="button-publish-credit-policy">{savingPolicy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Publish policy v{policy.version + 1}</Button>
           </CardContent>
         </Card>
 
@@ -143,10 +232,109 @@ export function AdminCreditsPage() {
         <CardHeader><CardTitle className="flex items-center gap-2"><Search className="h-4 w-4 text-primary" /> Account lookup</CardTitle><CardDescription>Review balances and receipt trails before or after an adjustment.</CardDescription></CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row"><Input value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)} placeholder="Enter a user ID" data-testid="input-lookup-user" /><Button onClick={() => void lookupUser()} disabled={lookupBusy || !targetUserId.trim()} data-testid="button-lookup-user">{lookupBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Look up account</Button></div>
-          {targetUsage && <div className="space-y-4 rounded-xl border border-border/70 bg-background/30 p-4"><div className="grid grid-cols-2 gap-3 sm:grid-cols-6">{Object.entries(targetUsage.usage).map(([key, value]) => <div key={key}><p className="text-xs capitalize text-muted-foreground">{key}</p><p className="font-mono text-lg font-semibold">{value}</p></div>)}</div><Separator /><div className="space-y-2">{[...(targetUsage.recent.reservations ?? []), ...(targetUsage.recent.events ?? [])].map((item, index) => { const itemId = String(item.id); return <div key={`${itemId}-${index}`} className="rounded-lg border border-border/60"><button type="button" className="flex w-full items-center justify-between gap-3 p-3 text-left" onClick={() => setExpanded(expanded === itemId ? null : itemId)} data-testid={`button-toggle-admin-receipt-${itemId}`}><span className="flex min-w-0 items-center gap-2"><FilePenLine className="h-4 w-4 shrink-0 text-primary" /><span className="truncate text-sm">{item.eventType ?? item.operationType ?? 'Reservation'} · {itemId}</span></span><ChevronDown className={`h-4 w-4 transition-transform ${expanded === itemId ? 'rotate-180' : ''}`} /></button>{expanded === itemId && <div className="border-t border-border/60 p-3 text-xs text-muted-foreground"><pre className="overflow-auto whitespace-pre-wrap font-mono">{JSON.stringify(item, null, 2)}</pre><Button variant="ghost" size="sm" className="mt-2" onClick={() => toast({ title: 'Receipt reference copied' })}><FilePenLine className="mr-2 h-3.5 w-3.5" /> Copy reference</Button></div>}</div>; })}</div></div>}
+          {targetUsage && (
+            <div className="space-y-5 rounded-xl border border-border/70 bg-background/30 p-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+                {Object.entries(targetUsage.usage).map(([key, value]) => (
+                  <div key={key}><p className="text-xs capitalize text-muted-foreground">{key}</p><p className="font-mono text-lg font-semibold">{value}</p></div>
+                ))}
+              </div>
+              <Separator />
+              <section aria-labelledby="admin-ledger-entries-title" className="space-y-3">
+                <div><h3 id="admin-ledger-entries-title" className="font-medium">Grants and adjustments</h3><p className="text-xs text-muted-foreground">Reversals append a separate, attributed ledger entry.</p></div>
+                {[...ledgerAdjustments.map((entry) => ({ entry, kind: 'adjustment' as const })), ...ledgerGrants.map((entry) => ({ entry, kind: 'grant' as const }))]
+                  .map(({ entry, kind }) => {
+                    const entryId = Number(entry.id);
+                    const reversed = kind === 'adjustment'
+                      ? reversedAdjustmentIds.has(entryId) || entry.reversalOfId != null
+                      : reversedGrantIds.has(entryId);
+                    const reversible = kind === 'adjustment'
+                      ? entry.reversalOfId == null && entry.reversalOfGrantId == null && !reversed
+                      : !reversed;
+                    return (
+                      <div key={`${kind}-${entry.id}`} className="flex flex-col gap-3 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="font-mono text-sm font-semibold">{entry.amountCredits ?? 0} credits · {kind}</p>
+                          <p className="break-words text-xs text-muted-foreground">{entry.reason || 'No reason recorded'} · {entry.actorUserId || 'system'}</p>
+                          <p className="text-[11px] text-muted-foreground">Entry {entry.id}{reversed ? ' · reversed' : ''}</p>
+                        </div>
+                        {reversible && (
+                          <Button type="button" variant="outline" size="sm" onClick={() => beginLedgerAction({ kind, id: entry.id, label: `Reverse ${kind} entry ${entry.id}` })}>
+                            <RotateCcw className="mr-2 h-3.5 w-3.5" />Reverse
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                {ledgerAdjustments.length === 0 && ledgerGrants.length === 0 && (
+                  <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No grants or adjustments yet.</p>
+                )}
+              </section>
+              <Separator />
+              <section aria-labelledby="admin-receipts-title" className="space-y-3">
+                <div><h3 id="admin-receipts-title" className="font-medium">Reservations and events</h3><p className="text-xs text-muted-foreground">Refund settled amounts when needed; reservation expiry is recorded as an event.</p></div>
+                {recentReceipts.map(({ item, key }) => {
+                  const itemId = String(item.id);
+                  const remaining = Math.max(0, (item.settledCredits ?? 0) - (item.refundedCredits ?? 0));
+                  return (
+                    <div key={key} className="rounded-lg border border-border/60">
+                      <button type="button" className="flex w-full items-center justify-between gap-3 p-3 text-left" onClick={() => setExpanded(expanded === key ? null : key)} data-testid={`button-toggle-admin-receipt-${key}`}>
+                        <span className="flex min-w-0 items-center gap-2"><FilePenLine className="h-4 w-4 shrink-0 text-primary" /><span className="truncate text-sm">{item.eventType ?? item.operationType ?? 'Reservation'} · {itemId}</span></span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${expanded === key ? 'rotate-180' : ''}`} aria-hidden="true" />
+                      </button>
+                      {expanded === key && (
+                        <div className="border-t border-border/60 p-3 text-xs text-muted-foreground">
+                          <pre className="overflow-auto whitespace-pre-wrap font-mono">{JSON.stringify(item, null, 2)}</pre>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button type="button" variant="ghost" size="sm" onClick={() => {
+                              void navigator.clipboard?.writeText(JSON.stringify(item, null, 2));
+                              toast({ title: 'Receipt reference copied' });
+                            }}><FilePenLine className="mr-2 h-3.5 w-3.5" />Copy reference</Button>
+                            {!item.eventType && item.status === 'settled' && remaining > 0 && (
+                              <Button type="button" variant="outline" size="sm" onClick={() => beginLedgerAction({ kind: 'reservation', id: item.id, label: `Refund reservation ${item.id}`, maxAmount: remaining })}>
+                                <RotateCcw className="mr-2 h-3.5 w-3.5" />Refund up to {remaining}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {recentReceipts.length === 0 && <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No reservations or events yet.</p>}
+              </section>
+            </div>
+          )}
           {!targetUsage && <div className="rounded-xl border border-dashed border-border p-8 text-center"><UserRound className="mx-auto mb-3 h-7 w-7 text-muted-foreground/50" /><p className="font-medium">No account selected</p><p className="mt-1 text-sm text-muted-foreground">Search by user ID to inspect ledger receipts.</p></div>}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(ledgerAction)} onOpenChange={(open) => !open && !ledgerActionBusy && setLedgerAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{ledgerAction?.kind === 'reservation' ? 'Refund settled credits' : 'Reverse ledger entry'}</DialogTitle>
+            <DialogDescription>
+              {ledgerAction?.label}. This appends a new ledger record; it does not delete the original.
+            </DialogDescription>
+          </DialogHeader>
+          {ledgerAction?.kind === 'reservation' && (
+            <div className="space-y-2">
+              <Label htmlFor="ledger-refund-amount">Refund amount (up to {ledgerAction.maxAmount} credits)</Label>
+              <Input id="ledger-refund-amount" type="number" min="1" max={ledgerAction.maxAmount} step="1" value={ledgerAmount} onChange={(event) => setLedgerAmount(event.target.value)} inputMode="numeric" />
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="ledger-action-reason">Reason</Label>
+            <Input id="ledger-action-reason" maxLength={160} value={ledgerReason} onChange={(event) => setLedgerReason(event.target.value)} placeholder="Explain this ledger action" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setLedgerAction(null)} disabled={ledgerActionBusy}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => void applyLedgerAction()} disabled={ledgerActionBusy || !ledgerReason.trim()}>
+              {ledgerActionBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirm ledger action
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageTransition>
   );
 }

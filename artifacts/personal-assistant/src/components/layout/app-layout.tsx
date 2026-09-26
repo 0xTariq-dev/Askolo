@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   UserCircle,
+  WalletCards,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -43,6 +44,7 @@ const navItems = [
   { href: '/notes', label: 'Notes', icon: StickyNote },
   { href: '/actions', label: 'Actions', icon: Zap },
   { href: '/email', label: 'Email', icon: Mail },
+  { href: '/credits', label: 'AI Credits', icon: WalletCards },
 ];
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');

@@ -44,6 +44,14 @@ export const ProfilePage = lazy(() =>
   import('@/pages/profile').then(({ ProfilePage }) => ({ default: ProfilePage })),
 );
 
+export const CreditsPage = lazy(() =>
+  import('@/pages/credits').then(({ CreditsPage }) => ({ default: CreditsPage })),
+);
+
+export const AdminCreditsPage = lazy(() =>
+  import('@/pages/admin-credits').then(({ AdminCreditsPage }) => ({ default: AdminCreditsPage })),
+);
+
 export const LoginPage = lazy(() =>
   import('@/pages/login').then(({ LoginPage }) => ({ default: LoginPage })),
 );

@@ -45,6 +45,7 @@ import { Calendar as DatePicker } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
+import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { cn } from '@/lib/utils';
 
@@ -449,6 +450,8 @@ export function PlanPage() {
                 </PopoverContent>
               </Popover>
             </div>
+            <VoiceCreditPreflight />
+
             <Textarea
               aria-label="Daily plan notes"
               className="min-h-[180px] resize-y bg-black/20 border-white/5 focus-visible:ring-1 focus-visible:ring-primary/50 text-lg leading-relaxed placeholder:text-muted-foreground/40 p-4"

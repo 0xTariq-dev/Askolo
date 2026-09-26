@@ -220,13 +220,13 @@ func TestTAR10CreditLifecycleIntegration(t *testing.T) {
 		if err := store.SettleAICreditReservation(ctx, r.ID, "refund", "refund-settle", 5); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.RefundAICreditReservation(ctx, r.ID, "refund", "refund-key", 3); err != nil {
+		if err := store.RefundAICreditReservation(ctx, r.ID, "refund", "refund", "refund-key", "duplicate settlement", 3); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.RefundAICreditReservation(ctx, r.ID, "refund", "refund-key", 3); err != nil {
+		if err := store.RefundAICreditReservation(ctx, r.ID, "refund", "refund", "refund-key", "duplicate settlement", 3); err != nil {
 			t.Fatalf("idempotent refund: %v", err)
 		}
-		if err := store.RefundAICreditReservation(ctx, r.ID, "refund", "too-much", 3); err == nil {
+		if err := store.RefundAICreditReservation(ctx, r.ID, "refund", "refund", "too-much", "excess refund", 3); err == nil {
 			t.Fatal("refund beyond settled amount succeeded")
 		}
 	})
@@ -248,9 +248,6 @@ func TestTAR10CreditLifecycleIntegration(t *testing.T) {
 		if err := pool.QueryRow(ctx, `SELECT id FROM ai_credit_grants WHERE user_id='target'`).Scan(&grantID); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.ReverseAICreditEntry(ctx, "target", "actor", grantID, "reverse-grant", "undo"); err == nil {
-			t.Fatal("grant reversal unexpectedly supported")
-		}
 		if err := store.AddAICreditAdjustment(ctx, "target", "actor", -2, "debit", "debit-key"); err != nil {
 			t.Fatal(err)
 		}
@@ -263,6 +260,15 @@ func TestTAR10CreditLifecycleIntegration(t *testing.T) {
 		}
 		if err := store.ReverseAICreditEntry(ctx, "target", "actor", adjustmentID, "reverse-key-2", "undo"); err == nil {
 			t.Fatal("duplicate reversal succeeded")
+		}
+		if err := store.ReverseAICreditGrant(ctx, "target", "actor", grantID, "reverse-grant", "undo"); err != nil {
+			t.Fatalf("grant reversal: %v", err)
+		}
+		if err := store.ReverseAICreditGrant(ctx, "target", "actor", grantID, "reverse-grant", "undo"); err != nil {
+			t.Fatalf("idempotent grant reversal: %v", err)
+		}
+		if err := store.ReverseAICreditGrant(ctx, "target", "actor", grantID, "reverse-grant-2", "duplicate undo"); err == nil {
+			t.Fatal("duplicate grant reversal succeeded")
 		}
 		policy, err := store.AICreditPolicy(ctx)
 		if err != nil {
