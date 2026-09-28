@@ -447,23 +447,6 @@ func (s *Store) AICreditPolicy(ctx context.Context) (AICreditPolicy, error) {
 	return policy, nil
 }
 
-func (s *Store) AICreditPolicyVersion(ctx context.Context, version int) (AICreditPolicy, error) {
-	var policy AICreditPolicy
-	var weights []byte
-	err := s.pool.QueryRow(ctx, `SELECT version, operation_weights, monthly_grant_credits, rollover_cap_credits,
-		rollover_expiry_days, overrun_margin_percent, created_by, change_reason, created_at
-		FROM ai_credit_policy_versions WHERE version=$1`, version).Scan(&policy.Version, &weights,
-		&policy.MonthlyGrantCredits, &policy.RolloverCapCredits, &policy.RolloverExpiryDays,
-		&policy.OverrunMarginPercent, &policy.CreatedBy, &policy.ChangeReason, &policy.CreatedAt)
-	if err != nil {
-		return policy, err
-	}
-	if err := json.Unmarshal(weights, &policy.OperationWeights); err != nil {
-		return policy, err
-	}
-	return policy, nil
-}
-
 func (s *Store) UpdateAICreditPolicy(ctx context.Context, expected int, policy AICreditPolicy, actor string) (AICreditPolicy, error) {
 	if policy.Version != expected+1 || policy.MonthlyGrantCredits < 0 || policy.RolloverCapCredits < 0 ||
 		policy.RolloverExpiryDays < 1 || policy.OverrunMarginPercent < 0 || policy.OverrunMarginPercent > 100 {
@@ -694,7 +677,7 @@ func (s *Store) ReserveAICredits(ctx context.Context, id, userID, operation, pro
 	if _, err = tx.Exec(ctx, `SELECT id FROM ai_credit_reservations WHERE user_id=$1 AND status='reserved' AND expires_at <= NOW() FOR UPDATE`, userID); err != nil {
 		return result, false, err
 	}
-	if _, err = tx.Exec(ctx, `WITH expired AS (UPDATE ai_credit_reservations SET status='expired', provider_token_hash=NULL, closed_at=NOW(), updated_at=NOW() WHERE user_id=$1 AND status='reserved' AND expires_at <= NOW() RETURNING id,user_id,reserved_credits), total AS (SELECT COALESCE(SUM(reserved_credits),0) credits FROM expired), account AS (UPDATE ai_credit_accounts SET reserved_credits=reserved_credits-(SELECT credits FROM total),updated_at=NOW() WHERE user_id=$1 RETURNING user_id) INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,credits,idempotency_key) SELECT id,user_id,'expired',reserved_credits,id||':expired' FROM expired ON CONFLICT (reservation_id,idempotency_key) DO NOTHING`, userID); err != nil {
+	if _, err = tx.Exec(ctx, `WITH expired AS (UPDATE ai_credit_reservations SET status='expired', closed_at=NOW(), updated_at=NOW() WHERE user_id=$1 AND status='reserved' AND expires_at <= NOW() RETURNING id,user_id,reserved_credits), total AS (SELECT COALESCE(SUM(reserved_credits),0) credits FROM expired), account AS (UPDATE ai_credit_accounts SET reserved_credits=reserved_credits-(SELECT credits FROM total),updated_at=NOW() WHERE user_id=$1 RETURNING user_id) INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,credits,idempotency_key) SELECT id,user_id,'expired',reserved_credits,id||':expired' FROM expired ON CONFLICT (reservation_id,idempotency_key) DO NOTHING`, userID); err != nil {
 		return result, false, err
 	}
 	var balance int
@@ -746,63 +729,6 @@ func (s *Store) ClaimAICreditReservation(ctx context.Context, id, userID string)
 	return tag.RowsAffected() == 1, err
 }
 
-func (s *Store) SetAICreditReservationProviderToken(
-	ctx context.Context,
-	id, userID, tokenHash string,
-) (bool, error) {
-	if s == nil || s.pool == nil {
-		return false, errors.New("database is not configured")
-	}
-	if len(tokenHash) != 64 || strings.TrimSpace(tokenHash) != tokenHash {
-		return false, errors.New("invalid provider token hash")
-	}
-	tag, err := s.pool.Exec(ctx, `
-UPDATE ai_credit_reservations
-SET provider_token_hash=$3,updated_at=NOW()
-WHERE id=$1 AND user_id=$2
-  AND operation_type='voice' AND provider='assemblyai' AND mode='realtime'
-  AND status='reserved' AND provider_token_hash IS NULL
-  AND provider_token_used_at IS NULL AND expires_at>NOW()
-`, id, userID, tokenHash)
-	return tag.RowsAffected() == 1, err
-}
-
-func (s *Store) ClaimAICreditReservationWithProviderToken(
-	ctx context.Context,
-	userID, tokenHash string,
-) (AICreditReservation, bool, error) {
-	var result AICreditReservation
-	if s == nil || s.pool == nil {
-		return result, false, errors.New("database is not configured")
-	}
-	if userID == "" || len(tokenHash) != 64 || strings.TrimSpace(tokenHash) != tokenHash {
-		return result, false, errors.New("invalid provider token claim")
-	}
-	err := s.pool.QueryRow(ctx, `
-UPDATE ai_credit_reservations
-SET status='claimed',started_at=NOW(),provider_token_hash=NULL,provider_token_used_at=NOW(),updated_at=NOW()
-WHERE user_id=$1 AND provider_token_hash=$2 AND provider_token_used_at IS NULL
-  AND operation_type='voice' AND provider='assemblyai' AND mode='realtime'
-  AND status='reserved' AND expires_at>NOW()
-RETURNING id,status,reserved_credits,settled_credits,refunded_credits,policy_version,expires_at
-`, userID, tokenHash).Scan(
-		&result.ID,
-		&result.Status,
-		&result.ReservedCredits,
-		&result.SettledCredits,
-		&result.RefundedCredits,
-		&result.PolicyVersion,
-		&result.ExpiresAt,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return AICreditReservation{}, false, nil
-	}
-	if err != nil {
-		return AICreditReservation{}, false, err
-	}
-	return result, true, nil
-}
-
 func (s *Store) SettleAICreditReservation(ctx context.Context, id, userID, key string, actual int) error {
 	if actual < 0 {
 		return errors.New("invalid settlement")
@@ -839,7 +765,7 @@ func (s *Store) SettleAICreditReservation(ctx context.Context, id, userID, key s
 	if _, err = tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_credits=reserved_credits-$2,spent_credits=spent_credits+$3,updated_at=NOW() WHERE user_id=$1 AND reserved_credits >= $2`, userID, reserved, actual); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE ai_credit_reservations SET status='settled',settled_credits=$2,refunded_credits=$3,provider_token_hash=NULL,closed_at=NOW(),updated_at=NOW() WHERE id=$1`, id, actual, refund); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE ai_credit_reservations SET status='settled',settled_credits=$2,refunded_credits=$3,closed_at=NOW(),updated_at=NOW() WHERE id=$1`, id, actual, refund); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,credits,idempotency_key) VALUES($1,$2,'settled',$3,$4) ON CONFLICT DO NOTHING`, id, userID, actual, key); err != nil {
@@ -873,7 +799,7 @@ func (s *Store) ReleaseAICreditReservation(ctx context.Context, id, userID, key 
 	if _, err = tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_credits=reserved_credits-$2,updated_at=NOW() WHERE user_id=$1 AND reserved_credits >= $2`, userID, reserved); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE ai_credit_reservations SET status='released',refunded_credits=reserved_credits,provider_token_hash=NULL,closed_at=NOW(),updated_at=NOW() WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE ai_credit_reservations SET status='released',refunded_credits=reserved_credits,closed_at=NOW(),updated_at=NOW() WHERE id=$1`, id); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,credits,idempotency_key) VALUES($1,$2,'released',$3,$4) ON CONFLICT DO NOTHING`, id, userID, reserved, key); err != nil {

@@ -18,13 +18,13 @@ func TestDecodeRealtimeStart(t *testing.T) {
 		payload string
 		wantOK  bool
 	}{
-		{name: "valid single-use grant", payload: `{"type":"Start","connectionGrant":"` + strings.Repeat("A", 43) + `"}`, wantOK: true},
-		{name: "wrong message type", payload: `{"type":"Terminate","connectionGrant":"` + strings.Repeat("A", 43) + `"}`},
-		{name: "missing grant", payload: `{"type":"Start"}`},
-		{name: "invalid grant encoding", payload: `{"type":"Start","connectionGrant":"not-a-grant"}`},
-		{name: "legacy client-supplied credit fields", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3}`},
-		{name: "unknown field", payload: `{"type":"Start","connectionGrant":"` + strings.Repeat("A", 43) + `","token":"not-accepted"}`},
-		{name: "trailing value", payload: `{"type":"Start","connectionGrant":"` + strings.Repeat("A", 43) + `"} {}`},
+		{name: "valid", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3}`, wantOK: true},
+		{name: "wrong message type", payload: `{"type":"Terminate","idempotencyKey":"voice-key","policyVersion":3}`},
+		{name: "missing key", payload: `{"type":"Start","policyVersion":3}`},
+		{name: "padded key", payload: `{"type":"Start","idempotencyKey":" voice-key ","policyVersion":3}`},
+		{name: "invalid version", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":0}`},
+		{name: "unknown field", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3,"token":"not-accepted"}`},
+		{name: "trailing value", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3} {}`},
 		{name: "malformed JSON", payload: `not-json`},
 	}
 	for _, test := range tests {
@@ -34,18 +34,6 @@ func TestDecodeRealtimeStart(t *testing.T) {
 				t.Fatalf("decodeRealtimeStart() accepted = %t, want %t", ok, test.wantOK)
 			}
 		})
-	}
-}
-
-func TestRealtimeConnectionGrantHashRequiresCanonicalToken(t *testing.T) {
-	valid := strings.Repeat("A", 43)
-	if hash, ok := realtimeConnectionGrantHash(valid); !ok || len(hash) != 64 {
-		t.Fatalf("realtimeConnectionGrantHash(valid) = (%q, %t), want a SHA-256 hex digest", hash, ok)
-	}
-	for _, token := range []string{"", "short", valid + "=", strings.Repeat("A", 44), strings.Repeat("A", 42) + "!"} {
-		if _, ok := realtimeConnectionGrantHash(token); ok {
-			t.Fatalf("realtimeConnectionGrantHash(%q) accepted an invalid token", token)
-		}
 	}
 }
 
