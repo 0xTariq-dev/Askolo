@@ -51,7 +51,7 @@ func TestRunDisposableDatabase(t *testing.T) {
 	if err := ValidateReady(ctx, pool); err != nil {
 		t.Fatalf("ready after clean migration: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 5)
+	assertCurrentMigrationVersions(t, ctx, pool)
 	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('sentinel', 'sentinel@example.test')`); err != nil {
 		t.Fatalf("insert sentinel user: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestRunDisposableDatabase(t *testing.T) {
 	if err := ValidateReady(ctx, pool); err != nil {
 		t.Fatalf("ready after migration rerun: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 5)
+	assertCurrentMigrationVersions(t, ctx, pool)
 	var granted, adjustment, reserved, spent, refunded int
 	if err := pool.QueryRow(ctx, `SELECT granted_credits, adjustment_credits, reserved_credits, spent_credits, refunded_credits
 		FROM ai_credit_accounts WHERE user_id = 'sentinel'`).Scan(&granted, &adjustment, &reserved, &spent, &refunded); err != nil {
@@ -277,7 +277,7 @@ func TestRunConcurrentCallsSerialize(t *testing.T) {
 			t.Fatalf("concurrent migration: %v", err)
 		}
 	}
-	assertMigrationVersions(t, ctx, first, 5)
+	assertCurrentMigrationVersions(t, ctx, first)
 }
 
 func TestRunResumesAfterInterruptedMigrationWithForwardFix(t *testing.T) {
@@ -385,6 +385,15 @@ func assertMigrationVersions(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	if got != want {
 		t.Fatalf("migration history count = %d, want %d", got, want)
 	}
+}
+
+func assertCurrentMigrationVersions(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	migrationSet, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load embedded migrations: %v", err)
+	}
+	assertMigrationVersions(t, ctx, pool, len(migrationSet))
 }
 
 func syntheticMigration(version int, name, sqlText string) Migration {
@@ -581,7 +590,7 @@ func TestAdoptBaselineMatchesPinnedArchiveAndPreservesData(t *testing.T) {
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("run after baseline adoption: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 5)
+	assertCurrentMigrationVersions(t, ctx, pool)
 	var email, status string
 	if err := pool.QueryRow(ctx, `SELECT email, status FROM users WHERE id='adoption-sentinel'`).Scan(&email, &status); err != nil {
 		t.Fatalf("read sentinel after adoption and forward migration: %v", err)
@@ -674,7 +683,7 @@ func TestAdoptArchivedWorkspaceBaselineIgnoresLegacyColumnOrder(t *testing.T) {
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("run after workspace baseline adoption: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 5)
+	assertCurrentMigrationVersions(t, ctx, pool)
 	var email, status string
 	if err := pool.QueryRow(ctx, `SELECT email, status FROM users WHERE id='workspace-adoption-sentinel'`).Scan(&email, &status); err != nil {
 		t.Fatalf("read sentinel after adoption and forward migrations: %v", err)
@@ -936,7 +945,7 @@ func TestRunAdvancesLegacyFingerprintHistory(t *testing.T) {
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("advance old history using the legacy drift check: %v", err)
 	}
-	assertMigrationVersions(t, ctx, pool, 5)
+	assertCurrentMigrationVersions(t, ctx, pool)
 	var stored string
 	if err := pool.QueryRow(ctx, `SELECT schema_fingerprint FROM askolo_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&stored); err != nil {
 		t.Fatalf("read new versioned fingerprint: %v", err)

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -51,11 +51,17 @@ export function AssistantSidebar() {
   const queryClient = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
   const planningRequestRef = useRef<AbortController | null>(null);
+  const reducedMotion = useReducedMotion();
   const [isThinking, setIsThinking] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState('');
   const conversationQuery = useGetAssistantConversation({
-    query: { enabled: isOpen, staleTime: 0, refetchOnWindowFocus: true },
+    query: {
+      queryKey: getGetAssistantConversationQueryKey(),
+      enabled: isOpen,
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const form = useForm<MessageForm>({
@@ -64,10 +70,19 @@ export function AssistantSidebar() {
   });
 
   useEffect(() => {
-    if (isOpen) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isThinking, isOpen]);
+    if (isOpen) bottomRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' });
+  }, [messages, isThinking, isOpen, reducedMotion]);
 
   useEffect(() => () => planningRequestRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [close, isOpen]);
 
   useEffect(() => {
     if (!conversationQuery.data) return;
@@ -228,6 +243,8 @@ export function AssistantSidebar() {
       <button
         onClick={toggle}
         aria-label={isOpen ? 'Close assistant' : 'Open assistant'}
+        aria-expanded={isOpen}
+        aria-controls="assistant-panel"
         className={cn(
           'fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full shadow-lg flex items-center justify-center transition-colors',
           isOpen
@@ -243,9 +260,10 @@ export function AssistantSidebar() {
         {isOpen && isFull && (
           <motion.div
             key="backdrop"
-            initial={{ opacity: 0 }}
+            initial={reducedMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={reducedMotion ? { duration: 0 } : undefined}
             className="fixed inset-0 z-40 bg-black/50"
             onClick={close}
           />
@@ -257,10 +275,12 @@ export function AssistantSidebar() {
         {isOpen && (
           <motion.aside
             key="sidebar"
-            initial={{ x: '100%' }}
+            id="assistant-panel"
+            aria-label="Askolo assistant"
+            initial={reducedMotion ? { x: 0, opacity: 1 } : { x: '100%' }}
             animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            exit={reducedMotion ? { opacity: 0 } : { x: '100%' }}
+            transition={reducedMotion ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 300 }}
             className={cn(
               'fixed top-0 right-0 bottom-0 z-50 flex flex-col bg-card border-l border-border shadow-2xl',
               isFull ? 'w-full' : 'w-[380px] max-w-full',
@@ -278,7 +298,7 @@ export function AssistantSidebar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  className="h-10 w-10 text-muted-foreground hover:text-foreground"
                   onClick={toggleFull}
                   aria-label={isFull ? 'Collapse' : 'Expand to full screen'}
                 >
@@ -287,7 +307,7 @@ export function AssistantSidebar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  className="h-10 w-10 text-muted-foreground hover:text-foreground"
                   onClick={close}
                   aria-label="Close assistant"
                 >
@@ -297,7 +317,13 @@ export function AssistantSidebar() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+             <div
+               className="flex-1 overflow-y-auto p-4 space-y-4"
+               role="log"
+               aria-label="Assistant conversation"
+               aria-live="polite"
+               aria-relevant="additions text"
+             >
               {conversationQuery.isError && (
                 <p className="text-xs text-destructive" role="status">
                   Saved assistant history could not be loaded. New messages can still be sent.
@@ -306,9 +332,9 @@ export function AssistantSidebar() {
               {messages.map((msg, idx) => (
                 <motion.div
                   key={msg.id}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={reducedMotion ? false : { opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx === 0 ? 0 : 0.04 }}
+                  transition={reducedMotion ? { duration: 0 } : { delay: idx === 0 ? 0 : 0.04 }}
                   className={cn('flex gap-2.5', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}
                 >
                   <div
@@ -346,6 +372,7 @@ export function AssistantSidebar() {
                               <Button
                                 type="button"
                                 size="sm"
+                                className="min-h-10"
                                 disabled={pendingActionId !== null || isThinking}
                                 onClick={() => void handleConfirm(msg)}
                                 aria-label={`Confirm adding ${msg.intent.title}`}
@@ -361,6 +388,7 @@ export function AssistantSidebar() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
+                                className="min-h-10"
                                 disabled={pendingActionId !== null || isThinking}
                                 onClick={() => void handleCancel(msg)}
                                 aria-label={`Dismiss adding ${msg.intent.title}`}
@@ -380,23 +408,24 @@ export function AssistantSidebar() {
               ))}
               {isThinking && (
                 <motion.div
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={reducedMotion ? false : { opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
+                  transition={reducedMotion ? { duration: 0 } : undefined}
                   className="flex gap-2.5"
                 >
                   <div className="h-7 w-7 rounded-full bg-white/10 border border-white/10 flex items-center justify-center">
                     <Bot className="h-3.5 w-3.5" />
                   </div>
                   <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-3.5 py-2.5 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.15s]" />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.3s]" />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce motion-reduce:animate-none" />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce motion-reduce:animate-none [animation-delay:0.15s]" />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce motion-reduce:animate-none [animation-delay:0.3s]" />
                   </div>
                   <Button
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="self-center"
+                    className="self-center min-h-10"
                     onClick={() => planningRequestRef.current?.abort()}
                   >
                     Stop

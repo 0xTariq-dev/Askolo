@@ -61,11 +61,11 @@ func TestValidAssistantActionTitle(t *testing.T) {
 
 func TestDecodeAssistantModelPlan(t *testing.T) {
 	tests := []struct {
-		name      string
-		content   string
+		name       string
+		content    string
 		wantIntent string
 		wantTitle  string
-		wantErr   bool
+		wantErr    bool
 	}{
 		{name: "ordinary request", content: `{"intent":"none","title":""}`, wantIntent: "none"},
 		{name: "clarification", content: `{"intent":"clarify","title":""}`, wantIntent: "clarify"},
@@ -139,10 +139,10 @@ func TestAssistantRequestValidationHelpers(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		body    string
-		limit   int64
-		wantOK  bool
+		name   string
+		body   string
+		limit  int64
+		wantOK bool
 	}{
 		{name: "valid strict request body", body: `{"transcript":"add milk"}`, limit: 1024, wantOK: true},
 		{name: "unknown property rejected", body: `{"transcript":"add milk","intent":"send_email"}`, limit: 1024},

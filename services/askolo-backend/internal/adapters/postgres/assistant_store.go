@@ -318,13 +318,14 @@ func reserveAssistantCreditTx(
 		return result, false, nil
 	}
 	expires := time.Now().UTC().Add(5 * time.Minute)
-accountUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_credits=reserved_credits+$2,updated_at=NOW()
-		WHERE user_id=$1`, userID, credits); err != nil {
+	accountUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_credits=reserved_credits+$2,updated_at=NOW()
+		WHERE user_id=$1`, userID, credits)
+	if err != nil {
 		return result, false, err
 	}
-if accountUpdate.RowsAffected() != 1 {
-return result, false, ErrAssistantCreditConflict
-}
+	if accountUpdate.RowsAffected() != 1 {
+		return result, false, ErrAssistantCreditConflict
+	}
 	if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_reservations(
 		id,user_id,operation_type,provider,mode,status,idempotency_key,reserved_credits,max_credits,expires_at,policy_version
 	) VALUES($1,$2,'assistant','openai','agent','reserved',$3,$4,$4,$5,$6)`,
@@ -447,32 +448,34 @@ func settleAssistantCreditTx(ctx context.Context, tx pgx.Tx, id, userID, key str
 		WHERE user_id=$1 AND status='reserved' AND expires_at<=NOW() FOR UPDATE`, userID); err != nil {
 		return err
 	}
-accountUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_accounts
+	accountUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_accounts
 		SET reserved_credits=reserved_credits-$2,spent_credits=spent_credits+$3,updated_at=NOW()
-		WHERE user_id=$1 AND reserved_credits >= $2`, userID, reserved, actual); err != nil {
+		WHERE user_id=$1 AND reserved_credits >= $2`, userID, reserved, actual)
+	if err != nil {
 		return err
 	}
-if accountUpdate.RowsAffected() != 1 {
-return ErrAssistantCreditConflict
-}
-reservationUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_reservations
+	if accountUpdate.RowsAffected() != 1 {
+		return ErrAssistantCreditConflict
+	}
+	reservationUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_reservations
 		SET status='settled',settled_credits=$2,refunded_credits=reserved_credits-$2,closed_at=NOW(),updated_at=NOW()
-		WHERE id=$1`, id, actual); err != nil {
+		WHERE id=$1`, id, actual)
+	if err != nil {
 		return err
 	}
-if reservationUpdate.RowsAffected() != 1 {
-return ErrAssistantCreditConflict
-}
-eventInsert, err := tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(
+	if reservationUpdate.RowsAffected() != 1 {
+		return ErrAssistantCreditConflict
+	}
+	eventInsert, err := tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(
 		reservation_id,user_id,event_type,credits,idempotency_key
 	) VALUES($1,$2,'settled',$3,$4) ON CONFLICT DO NOTHING`, id, userID, actual, key)
-if err != nil {
-return err
-}
-if eventInsert.RowsAffected() != 1 {
-return errors.New("assistant settlement event conflict")
-}
-return nil
+	if err != nil {
+		return err
+	}
+	if eventInsert.RowsAffected() != 1 {
+		return errors.New("assistant settlement event conflict")
+	}
+	return nil
 }
 
 func releaseAssistantCreditTx(ctx context.Context, tx pgx.Tx, id, userID, key string) error {
@@ -494,32 +497,34 @@ func releaseAssistantCreditTx(ctx context.Context, tx pgx.Tx, id, userID, key st
 	if state != "claimed" && state != "reserved" {
 		return errors.New("invalid assistant reservation state")
 	}
-accountUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_accounts
+	accountUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_accounts
 		SET reserved_credits=reserved_credits-$2,updated_at=NOW()
-		WHERE user_id=$1 AND reserved_credits >= $2`, userID, reserved); err != nil {
+		WHERE user_id=$1 AND reserved_credits >= $2`, userID, reserved)
+	if err != nil {
 		return err
 	}
-if accountUpdate.RowsAffected() != 1 {
-return ErrAssistantCreditConflict
-}
-reservationUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_reservations
+	if accountUpdate.RowsAffected() != 1 {
+		return ErrAssistantCreditConflict
+	}
+	reservationUpdate, err := tx.Exec(ctx, `UPDATE ai_credit_reservations
 		SET status='released',refunded_credits=reserved_credits,closed_at=NOW(),updated_at=NOW()
-		WHERE id=$1`, id); err != nil {
+		WHERE id=$1`, id)
+	if err != nil {
 		return err
 	}
-if reservationUpdate.RowsAffected() != 1 {
-return ErrAssistantCreditConflict
-}
-eventInsert, err := tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(
+	if reservationUpdate.RowsAffected() != 1 {
+		return ErrAssistantCreditConflict
+	}
+	eventInsert, err := tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(
 		reservation_id,user_id,event_type,credits,idempotency_key
 	) VALUES($1,$2,'released',$3,$4) ON CONFLICT DO NOTHING`, id, userID, reserved, key)
-if err != nil {
-return err
-}
-if eventInsert.RowsAffected() != 1 {
-return errors.New("assistant release event conflict")
-}
-return nil
+	if err != nil {
+		return err
+	}
+	if eventInsert.RowsAffected() != 1 {
+		return errors.New("assistant release event conflict")
+	}
+	return nil
 }
 
 func (s *Store) GetAssistantRun(ctx context.Context, userID, runID string) (AssistantRunRecord, error) {
