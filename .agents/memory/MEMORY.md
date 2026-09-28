@@ -24,7 +24,7 @@
 - [Development schema application](dev-schema-apply.md) — Drizzle push behavior is historical development-only guidance, not the current migration path.
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
-- [Replit artifact cleanup limits](replit-artifact-cleanup.md) — individual Library artifacts and auto-generated service frames cannot be removed through supported controls; do not strip active services to hide them.
+- [Replit artifact and canvas separation](replit-artifact-cleanup.md) — artifact files, Library registrations, and canvas frames are separate; inspect frame provenance before changing active service configuration.
 - [Same-origin auth routing](same-origin-auth-routing.md) — render app routes locally when public and app origins share a host; otherwise redirects can loop forever.
 - [Production autoscale configuration](production-autoscale-config.md) — verify required Go production env vars and internal-auth secret before Autoscale promotion.
 - [Static Go binaries for Autoscale](go-autoscale-static-binary.md) — avoid Nix-loader “not found” crashes by producing and verifying a static production executable.
