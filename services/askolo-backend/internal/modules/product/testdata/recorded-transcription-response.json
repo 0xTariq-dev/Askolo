@@ -1,0 +1,31 @@
+{
+  "transcript": "Synthetic transcript",
+  "confidence": 0.91,
+  "reviewSignals": [
+    {
+      "kind": "low_confidence_entity",
+      "text": "Thursday",
+      "confidence": 0.61,
+      "startMs": 240,
+      "endMs": 680
+    }
+  ],
+  "deletion": {
+    "rawAudio": "not_stored",
+    "providerTranscript": "deleted",
+    "marker": "provider_transcript_deleted"
+  },
+  "creditReceipt": {
+    "id": "voice-synthetic",
+    "reservationId": "voice-synthetic",
+    "operationType": "voice",
+    "provider": "assemblyai",
+    "mode": "recorded",
+    "status": "settled",
+    "reservedCredits": 3,
+    "settledCredits": 2,
+    "refundedCredits": 0,
+    "balance": 18,
+    "policyVersion": 1
+  }
+}

@@ -811,6 +811,49 @@ export interface TranscriptionDeletionMarker {
   marker: string;
 }
 
+export type VoiceCreditReceiptOperationType = typeof VoiceCreditReceiptOperationType[keyof typeof VoiceCreditReceiptOperationType];
+
+
+export const VoiceCreditReceiptOperationType = {
+  voice: 'voice',
+} as const;
+
+export type VoiceCreditReceiptProvider = typeof VoiceCreditReceiptProvider[keyof typeof VoiceCreditReceiptProvider];
+
+
+export const VoiceCreditReceiptProvider = {
+  assemblyai: 'assemblyai',
+} as const;
+
+export type VoiceCreditReceiptMode = typeof VoiceCreditReceiptMode[keyof typeof VoiceCreditReceiptMode];
+
+
+export const VoiceCreditReceiptMode = {
+  recorded: 'recorded',
+  realtime: 'realtime',
+} as const;
+
+export type VoiceCreditReceiptStatus = typeof VoiceCreditReceiptStatus[keyof typeof VoiceCreditReceiptStatus];
+
+
+export const VoiceCreditReceiptStatus = {
+  settled: 'settled',
+} as const;
+
+export interface VoiceCreditReceipt {
+  id: string;
+  reservationId: string;
+  operationType: VoiceCreditReceiptOperationType;
+  provider: VoiceCreditReceiptProvider;
+  mode: VoiceCreditReceiptMode;
+  status: VoiceCreditReceiptStatus;
+  reservedCredits: number;
+  settledCredits: number;
+  refundedCredits: number;
+  balance: number;
+  policyVersion: number;
+}
+
 export interface AudioTranscriptionResponse {
   /** @minLength 1 */
   transcript: string;
@@ -821,6 +864,7 @@ export interface AudioTranscriptionResponse {
   confidence: number | null;
   reviewSignals: TranscriptionReviewSignal[];
   deletion: TranscriptionDeletionMarker;
+  creditReceipt: VoiceCreditReceipt;
 }
 
 export interface TranscriptionPreferences {
@@ -839,21 +883,34 @@ export interface TranscriptionPreferencesUpdateResponse {
   consentVersion?: string | null;
 }
 
+/**
+ * AssemblyAI global Edge routing; this does not guarantee US or EU residency.
+ */
 export type RealtimeTranscriptionTokenRegion = typeof RealtimeTranscriptionTokenRegion[keyof typeof RealtimeTranscriptionTokenRegion];
 
 
 export const RealtimeTranscriptionTokenRegion = {
-  us: 'us',
+  edge: 'edge',
+} as const;
+
+export type RealtimeTranscriptionTokenSpeechModel = typeof RealtimeTranscriptionTokenSpeechModel[keyof typeof RealtimeTranscriptionTokenSpeechModel];
+
+
+export const RealtimeTranscriptionTokenSpeechModel = {
+  'universal-3-5-pro': 'universal-3-5-pro',
 } as const;
 
 export interface RealtimeTranscriptionToken {
   token: string;
   expiresInSeconds: number;
   maxSessionDurationSeconds: number;
+  /** AssemblyAI global Edge routing; this does not guarantee US or EU residency. */
   region: RealtimeTranscriptionTokenRegion;
+  /** Global Edge WebSocket endpoint; sessions are not pinned to a country. */
   websocketUrl: string;
-  speechModel: string;
+  speechModel: RealtimeTranscriptionTokenSpeechModel;
   redaction: string;
+  creditReceipt: VoiceCreditReceipt;
 }
 
 export interface MeetingExtractActionItem {

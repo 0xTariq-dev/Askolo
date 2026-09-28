@@ -5,17 +5,7 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
-import * as zodRuntime from 'zod';
-
-// The OpenAPI generator currently emits Zod 4 helpers for integer and URL
-// schemas, while this workspace intentionally runs Zod 3. Keep the generated
-// schemas executable until the generator/runtime versions are upgraded
-// together.
-const zod = {
-  ...zodRuntime,
-  int: () => zodRuntime.number().int(),
-  url: () => zodRuntime.string().url(),
-};
+import * as zod from 'zod';
 
 
 /**
@@ -347,28 +337,28 @@ export const coachingBodyGoalsItemProgressMax = 100;
 
 export const CoachingBody = zod.object({
   "habits": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "name": zod.string(),
-  "currentStreak": zod.int(),
-  "longestStreak": zod.int(),
+  "currentStreak": zod.number().int(),
+  "longestStreak": zod.number().int(),
   "completedToday": zod.boolean(),
   "color": zod.string().nullable(),
   "icon": zod.string().nullable()
 })),
   "goals": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "targetDate": zod.string().nullish(),
   "status": zod.enum(['active', 'completed', 'paused']),
-  "progress": zod.int().min(coachingBodyGoalsItemProgressMin).max(coachingBodyGoalsItemProgressMax),
+  "progress": zod.number().int().min(coachingBodyGoalsItemProgressMin).max(coachingBodyGoalsItemProgressMax),
   "category": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })),
-  "habitsCompletedToday": zod.int(),
-  "habitsTotal": zod.int()
+  "habitsCompletedToday": zod.number().int(),
+  "habitsTotal": zod.number().int()
 })
 
 export const CoachingResponse = zod.object({
@@ -400,15 +390,15 @@ export const GeneratePlanResponse = zod.object({
  * @summary List all habits for the current user
  */
 export const ListHabitsResponseItem = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "frequency": zod.enum(['daily', 'weekly']),
   "color": zod.string().nullish(),
   "icon": zod.string().nullish(),
-  "currentStreak": zod.int(),
-  "longestStreak": zod.int(),
+  "currentStreak": zod.number().int(),
+  "longestStreak": zod.number().int(),
   "completedToday": zod.boolean().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -431,15 +421,15 @@ export const CreateHabitBody = zod.object({
 })
 
 export const CreateHabitResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "frequency": zod.enum(['daily', 'weekly']),
   "color": zod.string().nullish(),
   "icon": zod.string().nullish(),
-  "currentStreak": zod.int(),
-  "longestStreak": zod.int(),
+  "currentStreak": zod.number().int(),
+  "longestStreak": zod.number().int(),
   "completedToday": zod.boolean().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -455,8 +445,8 @@ export const ListHabitCompletionsQueryParams = zod.object({
 })
 
 export const ListHabitCompletionsResponseItem = zod.object({
-  "id": zod.int(),
-  "habitId": zod.int(),
+  "id": zod.number().int(),
+  "habitId": zod.number().int(),
   "date": zod.string(),
   "createdAt": zod.coerce.date()
 })
@@ -471,15 +461,15 @@ export const GetHabitParams = zod.object({
 })
 
 export const GetHabitResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "frequency": zod.enum(['daily', 'weekly']),
   "color": zod.string().nullish(),
   "icon": zod.string().nullish(),
-  "currentStreak": zod.int(),
-  "longestStreak": zod.int(),
+  "currentStreak": zod.number().int(),
+  "longestStreak": zod.number().int(),
   "completedToday": zod.boolean().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -505,15 +495,15 @@ export const UpdateHabitBody = zod.object({
 })
 
 export const UpdateHabitResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "frequency": zod.enum(['daily', 'weekly']),
   "color": zod.string().nullish(),
   "icon": zod.string().nullish(),
-  "currentStreak": zod.int(),
-  "longestStreak": zod.int(),
+  "currentStreak": zod.number().int(),
+  "longestStreak": zod.number().int(),
   "completedToday": zod.boolean().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -538,8 +528,8 @@ export const GetHabitCompletionsParams = zod.object({
 })
 
 export const GetHabitCompletionsResponseItem = zod.object({
-  "id": zod.int(),
-  "habitId": zod.int(),
+  "id": zod.number().int(),
+  "habitId": zod.number().int(),
   "date": zod.string(),
   "createdAt": zod.coerce.date()
 })
@@ -558,8 +548,8 @@ export const CompleteHabitBody = zod.object({
 })
 
 export const CompleteHabitResponse = zod.object({
-  "id": zod.int(),
-  "habitId": zod.int(),
+  "id": zod.number().int(),
+  "habitId": zod.number().int(),
   "date": zod.string(),
   "createdAt": zod.coerce.date()
 })
@@ -585,13 +575,13 @@ export const listGoalsResponseProgressMax = 100;
 
 
 export const ListGoalsResponseItem = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "targetDate": zod.string().nullish(),
   "status": zod.enum(['active', 'completed', 'paused']),
-  "progress": zod.int().min(listGoalsResponseProgressMin).max(listGoalsResponseProgressMax),
+  "progress": zod.number().int().min(listGoalsResponseProgressMin).max(listGoalsResponseProgressMax),
   "category": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -613,7 +603,7 @@ export const CreateGoalBody = zod.object({
   "description": zod.string().optional(),
   "targetDate": zod.string().optional(),
   "category": zod.string().optional(),
-  "progress": zod.int().min(createGoalBodyProgressMin).max(createGoalBodyProgressMax).optional()
+  "progress": zod.number().int().min(createGoalBodyProgressMin).max(createGoalBodyProgressMax).optional()
 })
 
 export const createGoalResponseProgressMin = 0;
@@ -622,13 +612,13 @@ export const createGoalResponseProgressMax = 100;
 
 
 export const CreateGoalResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "targetDate": zod.string().nullish(),
   "status": zod.enum(['active', 'completed', 'paused']),
-  "progress": zod.int().min(createGoalResponseProgressMin).max(createGoalResponseProgressMax),
+  "progress": zod.number().int().min(createGoalResponseProgressMin).max(createGoalResponseProgressMax),
   "category": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -648,13 +638,13 @@ export const getGoalResponseProgressMax = 100;
 
 
 export const GetGoalResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "targetDate": zod.string().nullish(),
   "status": zod.enum(['active', 'completed', 'paused']),
-  "progress": zod.int().min(getGoalResponseProgressMin).max(getGoalResponseProgressMax),
+  "progress": zod.number().int().min(getGoalResponseProgressMin).max(getGoalResponseProgressMax),
   "category": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -679,7 +669,7 @@ export const UpdateGoalBody = zod.object({
   "description": zod.string().optional(),
   "targetDate": zod.string().optional(),
   "status": zod.enum(['active', 'completed', 'paused']).optional(),
-  "progress": zod.int().min(updateGoalBodyProgressMin).max(updateGoalBodyProgressMax).optional(),
+  "progress": zod.number().int().min(updateGoalBodyProgressMin).max(updateGoalBodyProgressMax).optional(),
   "category": zod.string().optional()
 })
 
@@ -689,13 +679,13 @@ export const updateGoalResponseProgressMax = 100;
 
 
 export const UpdateGoalResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "targetDate": zod.string().nullish(),
   "status": zod.enum(['active', 'completed', 'paused']),
-  "progress": zod.int().min(updateGoalResponseProgressMin).max(updateGoalResponseProgressMax),
+  "progress": zod.number().int().min(updateGoalResponseProgressMin).max(updateGoalResponseProgressMax),
   "category": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -720,7 +710,7 @@ export const ListDailyPlansQueryParams = zod.object({
 })
 
 export const ListDailyPlansResponseItem = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "date": zod.string(),
   "title": zod.string(),
@@ -749,7 +739,7 @@ export const CreateDailyPlanBody = zod.object({
 })
 
 export const CreateDailyPlanResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "date": zod.string(),
   "title": zod.string(),
@@ -781,7 +771,7 @@ export const UpdateDailyPlanBody = zod.object({
 })
 
 export const UpdateDailyPlanResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "date": zod.string(),
   "title": zod.string(),
@@ -813,7 +803,7 @@ export const ListEventsQueryParams = zod.object({
 })
 
 export const ListEventsResponseItem = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -853,7 +843,7 @@ export const CreateEventBody = zod.object({
 })
 
 export const CreateEventResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -879,7 +869,7 @@ export const GetEventParams = zod.object({
 })
 
 export const GetEventResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -922,7 +912,7 @@ export const UpdateEventBody = zod.object({
 })
 
 export const UpdateEventResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -954,7 +944,7 @@ export const DeleteEventResponse = zod.void()
  * @summary List all chores
  */
 export const ListChoresResponseItem = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -984,7 +974,7 @@ export const CreateChoreBody = zod.object({
 })
 
 export const CreateChoreResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -1006,7 +996,7 @@ export const GetChoreParams = zod.object({
 })
 
 export const GetChoreResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -1040,7 +1030,7 @@ export const UpdateChoreBody = zod.object({
 })
 
 export const UpdateChoreResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -1076,7 +1066,7 @@ export const CompleteChoreBody = zod.object({
 })
 
 export const CompleteChoreResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -1094,7 +1084,7 @@ export const CompleteChoreResponse = zod.object({
  * @summary List all notes
  */
 export const ListNotesResponseItem = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "content": zod.string(),
@@ -1118,7 +1108,7 @@ export const CreateNoteBody = zod.object({
 })
 
 export const CreateNoteResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "content": zod.string(),
@@ -1136,7 +1126,7 @@ export const GetNoteParams = zod.object({
 })
 
 export const GetNoteResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "content": zod.string(),
@@ -1163,7 +1153,7 @@ export const UpdateNoteBody = zod.object({
 })
 
 export const UpdateNoteResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "content": zod.string(),
@@ -1191,11 +1181,11 @@ export const ListActionItemsQueryParams = zod.object({
 })
 
 export const ListActionItemsResponseItem = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "sourceType": zod.enum(['meeting', 'manual', 'null']).nullish(),
-  "sourceId": zod.int().nullish(),
+  "sourceId": zod.number().int().nullish(),
   "dueDate": zod.string().nullish(),
   "completed": zod.boolean(),
   "completedAt": zod.coerce.date().nullish(),
@@ -1214,16 +1204,16 @@ export const ListActionItemsResponse = zod.array(ListActionItemsResponseItem)
 export const CreateActionItemBody = zod.object({
   "title": zod.string().min(1),
   "sourceType": zod.enum(['meeting', 'manual']).optional(),
-  "sourceId": zod.int().optional(),
+  "sourceId": zod.number().int().optional(),
   "dueDate": zod.string().optional()
 })
 
 export const CreateActionItemResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "sourceType": zod.enum(['meeting', 'manual', 'null']).nullish(),
-  "sourceId": zod.int().nullish(),
+  "sourceId": zod.number().int().nullish(),
   "dueDate": zod.string().nullish(),
   "completed": zod.boolean(),
   "completedAt": zod.coerce.date().nullish(),
@@ -1250,11 +1240,11 @@ export const UpdateActionItemBody = zod.object({
 })
 
 export const UpdateActionItemResponse = zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "sourceType": zod.enum(['meeting', 'manual', 'null']).nullish(),
-  "sourceId": zod.int().nullish(),
+  "sourceId": zod.number().int().nullish(),
   "dueDate": zod.string().nullish(),
   "completed": zod.boolean(),
   "completedAt": zod.coerce.date().nullish(),
@@ -1283,28 +1273,28 @@ export const getDashboardSummaryResponseGoalsItemProgressMax = 100;
 
 export const GetDashboardSummaryResponse = zod.object({
   "habits": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "name": zod.string(),
-  "currentStreak": zod.int(),
-  "longestStreak": zod.int(),
+  "currentStreak": zod.number().int(),
+  "longestStreak": zod.number().int(),
   "completedToday": zod.boolean(),
   "color": zod.string().nullable(),
   "icon": zod.string().nullable()
 })),
   "goals": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "targetDate": zod.string().nullish(),
   "status": zod.enum(['active', 'completed', 'paused']),
-  "progress": zod.int().min(getDashboardSummaryResponseGoalsItemProgressMin).max(getDashboardSummaryResponseGoalsItemProgressMax),
+  "progress": zod.number().int().min(getDashboardSummaryResponseGoalsItemProgressMin).max(getDashboardSummaryResponseGoalsItemProgressMax),
   "category": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })),
   "todayPlan": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "date": zod.string(),
   "title": zod.string(),
@@ -1316,7 +1306,7 @@ export const GetDashboardSummaryResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })),
   "upcomingEvents": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "title": zod.string(),
   "startDate": zod.string(),
   "startTime": zod.string().nullish(),
@@ -1324,7 +1314,7 @@ export const GetDashboardSummaryResponse = zod.object({
   "color": zod.string().nullish()
 })),
   "pendingChores": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
@@ -1337,21 +1327,21 @@ export const GetDashboardSummaryResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })),
   "openActionItems": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "sourceType": zod.enum(['meeting', 'manual', 'null']).nullish(),
-  "sourceId": zod.int().nullish(),
+  "sourceId": zod.number().int().nullish(),
   "dueDate": zod.string().nullish(),
   "completed": zod.boolean(),
   "completedAt": zod.coerce.date().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })),
-  "habitsCompletedToday": zod.int(),
-  "habitsTotal": zod.int(),
-  "goalsActive": zod.int(),
-  "goalsCompleted": zod.int(),
+  "habitsCompletedToday": zod.number().int(),
+  "habitsTotal": zod.number().int(),
+  "goalsActive": zod.number().int(),
+  "goalsCompleted": zod.number().int(),
   "googleConnection": zod.object({
   "connected": zod.boolean(),
   "scopes": zod.array(zod.string()).optional(),
@@ -1376,28 +1366,28 @@ export const AssistantChatBody = zod.object({
 })),
   "context": zod.object({
   "habits": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "name": zod.string(),
-  "currentStreak": zod.int(),
-  "longestStreak": zod.int(),
+  "currentStreak": zod.number().int(),
+  "longestStreak": zod.number().int(),
   "completedToday": zod.boolean(),
   "color": zod.string().nullable(),
   "icon": zod.string().nullable()
 })).optional(),
   "goals": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullish(),
   "targetDate": zod.string().nullish(),
   "status": zod.enum(['active', 'completed', 'paused']),
-  "progress": zod.int().min(assistantChatBodyContextGoalsItemProgressMin).max(assistantChatBodyContextGoalsItemProgressMax),
+  "progress": zod.number().int().min(assistantChatBodyContextGoalsItemProgressMin).max(assistantChatBodyContextGoalsItemProgressMax),
   "category": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })).optional(),
   "todayPlan": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "date": zod.string(),
   "title": zod.string(),
@@ -1409,7 +1399,7 @@ export const AssistantChatBody = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional(),
   "upcomingEvents": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "title": zod.string(),
   "startDate": zod.string(),
   "startTime": zod.string().nullish(),
@@ -1451,7 +1441,7 @@ export const VoiceToPlanBody = zod.object({
 
 export const VoiceToPlanResponse = zod.object({
   "items": zod.array(zod.object({
-  "id": zod.int(),
+  "id": zod.number().int(),
   "userId": zod.string(),
   "date": zod.string(),
   "title": zod.string(),
@@ -1480,7 +1470,7 @@ export const transcribeAudioBodyLanguageMax = 20;
 export const TranscribeAudioBody = zod.object({
   "audioBase64": zod.string().min(1).max(transcribeAudioBodyAudioBase64Max),
   "mimeType": zod.enum(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/wav', 'audio/ogg', 'audio/mpeg']),
-  "durationMs": zod.int().min(1).max(transcribeAudioBodyDurationMsMax),
+  "durationMs": zod.number().int().min(1).max(transcribeAudioBodyDurationMsMax),
   "language": zod.string().max(transcribeAudioBodyLanguageMax).optional()
 })
 
@@ -1500,13 +1490,26 @@ export const TranscribeAudioResponse = zod.object({
   "kind": zod.enum(['low_confidence_entity']),
   "text": zod.string(),
   "confidence": zod.number().min(transcribeAudioResponseReviewSignalsItemConfidenceMin).max(transcribeAudioResponseReviewSignalsItemConfidenceMax),
-  "startMs": zod.int().nullable(),
-  "endMs": zod.int().nullable()
+  "startMs": zod.number().int().nullable(),
+  "endMs": zod.number().int().nullable()
 })),
   "deletion": zod.object({
   "rawAudio": zod.enum(['not_stored']),
   "providerTranscript": zod.enum(['deleted', 'deletion_failed']),
   "marker": zod.string()
+}),
+  "creditReceipt": zod.object({
+  "id": zod.string(),
+  "reservationId": zod.string(),
+  "operationType": zod.enum(['voice']),
+  "provider": zod.enum(['assemblyai']),
+  "mode": zod.enum(['recorded', 'realtime']),
+  "status": zod.enum(['settled']),
+  "reservedCredits": zod.number().int(),
+  "settledCredits": zod.number().int(),
+  "refundedCredits": zod.number().int(),
+  "balance": zod.number().int(),
+  "policyVersion": zod.number().int()
 })
 })
 
@@ -1534,16 +1537,29 @@ export const UpdateTranscriptionPreferencesResponse = zod.object({
 
 
 /**
- * @summary Create a single-use US AssemblyAI realtime token
+ * @summary Create a single-use AssemblyAI edge-streaming token
  */
 export const CreateRealtimeTranscriptionTokenResponse = zod.object({
   "token": zod.string(),
-  "expiresInSeconds": zod.int(),
-  "maxSessionDurationSeconds": zod.int(),
-  "region": zod.enum(['us']),
-  "websocketUrl": zod.url(),
-  "speechModel": zod.string(),
-  "redaction": zod.string()
+  "expiresInSeconds": zod.number().int(),
+  "maxSessionDurationSeconds": zod.number().int(),
+  "region": zod.enum(['edge']).describe('AssemblyAI global Edge routing; this does not guarantee US or EU residency.'),
+  "websocketUrl": zod.string().url().describe('Global Edge WebSocket endpoint; sessions are not pinned to a country.'),
+  "speechModel": zod.enum(['universal-3-5-pro']),
+  "redaction": zod.string(),
+  "creditReceipt": zod.object({
+  "id": zod.string(),
+  "reservationId": zod.string(),
+  "operationType": zod.enum(['voice']),
+  "provider": zod.enum(['assemblyai']),
+  "mode": zod.enum(['recorded', 'realtime']),
+  "status": zod.enum(['settled']),
+  "reservedCredits": zod.number().int(),
+  "settledCredits": zod.number().int(),
+  "refundedCredits": zod.number().int(),
+  "balance": zod.number().int(),
+  "policyVersion": zod.number().int()
+})
 })
 
 
@@ -1587,7 +1603,7 @@ export const SyncGoogleCalendarBody = zod.object({
 })
 
 export const SyncGoogleCalendarResponse = zod.object({
-  "synced": zod.int(),
+  "synced": zod.number().int(),
   "calendarId": zod.string()
 })
 

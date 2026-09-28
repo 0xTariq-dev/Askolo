@@ -174,23 +174,23 @@ func (h *Handler) reserveVoiceProviderCredit(w http.ResponseWriter, r *http.Requ
 	}, true
 }
 
-func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation) (map[string]any, bool) {
+func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation) (voiceCreditReceipt, bool) {
 	err := h.store.SettleAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":settle", reservation.SettledCredits)
 	if err != nil {
 		h.logger.Error("voice credit settlement failed", "reservation_id", reservation.ID, "error", err)
 		writeError(w, http.StatusServiceUnavailable, "AI_CREDIT_SETTLEMENT_FAILED", "The provider operation completed but credit settlement could not be confirmed. Check your credit history before retrying.")
-		return nil, false
+		return voiceCreditReceipt{}, false
 	}
 	usage, err := h.store.AICreditUsage(context.Background(), userID)
 	if err != nil {
 		h.storeError(w, "AI credit receipt lookup failed", err)
-		return nil, false
+		return voiceCreditReceipt{}, false
 	}
-	return map[string]any{
-		"id": reservation.ID, "reservationId": reservation.ID, "operationType": "voice",
-		"provider": "assemblyai", "mode": reservation.Mode, "status": "settled",
-		"reservedCredits": reservation.ReservedCredits, "settledCredits": reservation.SettledCredits,
-		"refundedCredits": 0, "balance": usage.Balance, "policyVersion": reservation.PolicyVersion,
+	return voiceCreditReceipt{
+		ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice",
+		Provider: "assemblyai", Mode: reservation.Mode, Status: "settled",
+		ReservedCredits: reservation.ReservedCredits, SettledCredits: reservation.SettledCredits,
+		RefundedCredits: 0, Balance: usage.Balance, PolicyVersion: reservation.PolicyVersion,
 	}, true
 }
 
@@ -1163,16 +1163,16 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		deletionMarker = "provider_transcript_deletion_failed"
 		h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"transcript":    result.Transcript,
-		"confidence":    result.Confidence,
-		"reviewSignals": buildTranscriptionReviewSignals(result.Words),
-		"deletion": transcriptionDeletion{
+	writeJSON(w, http.StatusOK, audioTranscriptionResponse{
+		Transcript:    result.Transcript,
+		Confidence:    result.Confidence,
+		ReviewSignals: buildTranscriptionReviewSignals(result.Words),
+		Deletion: transcriptionDeletion{
 			RawAudio:           "not_stored",
 			ProviderTranscript: providerTranscriptStatus,
 			Marker:             deletionMarker,
 		},
-		"creditReceipt": creditReceipt,
+		CreditReceipt: creditReceipt,
 	})
 }
 
@@ -1211,24 +1211,13 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 		}
 	}()
-	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "https://streaming.assemblyai.com/v3/token?expires_in_seconds=60", nil)
+	token, err := requestAssemblyAIRealtimeToken(
+		r.Context(),
+		&http.Client{Timeout: 10 * time.Second},
+		assemblyAIRealtimeTokenBaseURL,
+		h.assemblyAIKey,
+	)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
-		return
-	}
-	request.Header.Set("Authorization", h.assemblyAIKey)
-	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
-		return
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
-		return
-	}
-	var token map[string]any
-	if err := json.NewDecoder(response.Body).Decode(&token); err != nil {
 		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
 		return
 	}
@@ -1237,10 +1226,16 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 	if !settled {
 		return
 	}
-	token["speechModel"] = "universal-3-5-pro"
-	token["redaction"] = "provider_pii_redaction"
-	token["creditReceipt"] = creditReceipt
-	writeJSON(w, http.StatusOK, token)
+	writeJSON(w, http.StatusOK, realtimeTranscriptionTokenResponse{
+		Token:                     token,
+		ExpiresInSeconds:          assemblyAIRealtimeTokenExpiresInSeconds,
+		MaxSessionDurationSeconds: assemblyAIRealtimeMaxSessionDurationSeconds,
+		Region:                    assemblyAIRealtimeRegion,
+		WebsocketURL:              assemblyAIRealtimeWebsocketURL,
+		SpeechModel:               assemblyAIRealtimeSpeechModel,
+		Redaction:                 assemblyAIRealtimeRedaction,
+		CreditReceipt:             creditReceipt,
+	})
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {

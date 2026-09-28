@@ -6,9 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * AssemblyAI global Edge routing; this does not guarantee US or EU residency.
+ */
 export type RealtimeTranscriptionTokenRegion = typeof RealtimeTranscriptionTokenRegion[keyof typeof RealtimeTranscriptionTokenRegion];
 
 
 export const RealtimeTranscriptionTokenRegion = {
-  us: 'us',
+  edge: 'edge',
 } as const;

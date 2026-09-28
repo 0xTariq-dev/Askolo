@@ -512,7 +512,7 @@ export function useVoiceTranscription({
         credentials: 'include',
         headers: creditRequest.headers,
       });
-      if (sessionRef.current !== sessionId || cancelRequestedRef.current || token.region !== 'us') {
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current || token.region !== 'edge') {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -570,7 +570,7 @@ export function useVoiceTranscription({
       audioSourceRef.current = source;
       audioProcessorRef.current = processor;
       updateState('listening');
-      setStatus(`${postflight} Live US transcription is active. Review the final text before submitting it.`);
+      setStatus(`${postflight} Live global-edge transcription is active. AssemblyAI may route this session to a nearby region; it is not US- or EU-pinned. Review the final text before submitting it.`);
     } catch (captureError) {
       await closeRealtime(false);
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;

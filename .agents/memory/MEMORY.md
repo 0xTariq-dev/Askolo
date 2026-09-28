@@ -2,7 +2,7 @@
 - [Google OAuth scope preservation](google-oauth-scope-preservation.md) — current storage overwrites scopes; preserve prior grants during refresh and incremental authorization.
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
-- [Generated Zod compatibility](generated-zod-compatibility.md) — current generation emits Zod 4 helpers against a Zod 3 runtime; keep the compatibility shim aligned.
+- [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.

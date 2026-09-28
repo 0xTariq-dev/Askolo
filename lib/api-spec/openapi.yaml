@@ -1470,10 +1470,10 @@ paths:
     post:
       operationId: createRealtimeTranscriptionToken
       tags: [ai]
-      summary: Create a single-use US AssemblyAI realtime token
+      summary: Create a single-use AssemblyAI edge-streaming token
       responses:
         "200":
-          description: Short-lived token and pinned streaming endpoint
+          description: Short-lived token and global-edge WebSocket endpoint; sessions are not pinned to a country.
           content:
             application/json:
               schema:
@@ -2638,7 +2638,7 @@ components:
           maxLength: 20
     AudioTranscriptionResponse:
       type: object
-      required: [transcript, confidence, reviewSignals, deletion]
+      required: [transcript, confidence, reviewSignals, deletion, creditReceipt]
       properties:
         transcript:
           type: string
@@ -2654,6 +2654,51 @@ components:
             $ref: '#/components/schemas/TranscriptionReviewSignal'
         deletion:
           $ref: '#/components/schemas/TranscriptionDeletionMarker'
+        creditReceipt:
+          $ref: '#/components/schemas/VoiceCreditReceipt'
+
+    VoiceCreditReceipt:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - reservationId
+        - operationType
+        - provider
+        - mode
+        - status
+        - reservedCredits
+        - settledCredits
+        - refundedCredits
+        - balance
+        - policyVersion
+      properties:
+        id:
+          type: string
+        reservationId:
+          type: string
+        operationType:
+          type: string
+          enum: [voice]
+        provider:
+          type: string
+          enum: [assemblyai]
+        mode:
+          type: string
+          enum: [recorded, realtime]
+        status:
+          type: string
+          enum: [settled]
+        reservedCredits:
+          type: integer
+        settledCredits:
+          type: integer
+        refundedCredits:
+          type: integer
+        balance:
+          type: integer
+        policyVersion:
+          type: integer
 
     TranscriptionReviewSignal:
       type: object
@@ -2715,7 +2760,7 @@ components:
 
     RealtimeTranscriptionToken:
       type: object
-      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, speechModel, redaction]
+      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, speechModel, redaction, creditReceipt]
       properties:
         token:
           type: string
@@ -2725,14 +2770,19 @@ components:
           type: integer
         region:
           type: string
-          enum: [us]
+          description: AssemblyAI global Edge routing; this does not guarantee US or EU residency.
+          enum: [edge]
         websocketUrl:
           type: string
           format: uri
+          description: Global Edge WebSocket endpoint; sessions are not pinned to a country.
         speechModel:
           type: string
+          enum: [universal-3-5-pro]
         redaction:
           type: string
+        creditReceipt:
+          $ref: '#/components/schemas/VoiceCreditReceipt'
 
     MeetingExtractActionItem:
       type: object

@@ -1,10 +1,10 @@
 ---
 name: AssemblyAI endpoint split
-description: The official SDK uses separate HTTPS and WSS bases for US streaming temporary tokens and browser sessions.
+description: Temporary-token requests use HTTPS and browser sessions use WSS; global-edge routing does not guarantee country residency.
 ---
 
-Use the US HTTPS streaming base for the Node SDK temporary-token request and return the separate US WSS `/v3/ws` URL to browser or mobile clients.
+Use an HTTPS token endpoint and a separate WSS session endpoint for the same selected AssemblyAI region. Do not treat the global Edge endpoint as a US or EU residency guarantee.
 
-**Why:** The SDK’s streaming token factory builds an HTTP `GET /v3/token`, while the streaming transcriber requires a `wss:` URL; using the WSS URL for both fails before token issuance.
+**Why:** Temporary tokens are minted over HTTP while realtime sessions connect over WebSocket, and endpoint geography determines the processing-residency claim. The global Edge route may select a nearby region but is not country-pinned.
 
-**How to apply:** Keep region validation fail-closed and preserve the HTTPS/WSS split whenever the AssemblyAI streaming boundary is reused.
+**How to apply:** Preserve the HTTPS/WSS split and label the selected region accurately. Add user-specific country routing only after the country contract and missing-country behavior are decided.

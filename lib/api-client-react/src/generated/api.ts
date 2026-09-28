@@ -6000,7 +6000,7 @@ export const getCreateRealtimeTranscriptionTokenUrl = () => {
 }
 
 /**
- * @summary Create a single-use US AssemblyAI realtime token
+ * @summary Create a single-use AssemblyAI edge-streaming token
  */
 export const createRealtimeTranscriptionToken = async ( options?: Parameters<typeof customFetch>[1]): Promise<RealtimeTranscriptionToken> => {
 
@@ -6052,7 +6052,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
     /**
- * @summary Create a single-use US AssemblyAI realtime token
+ * @summary Create a single-use AssemblyAI edge-streaming token
  */
 export const useCreateRealtimeTranscriptionToken = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
