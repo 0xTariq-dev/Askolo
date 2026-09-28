@@ -11,11 +11,12 @@ cutover. It deliberately does not request restricted Gmail mailbox scopes.
   - `https://web.askolo.app`
 - The product OAuth host selected for this project is:
   - `https://web.askolo.app`
-- The current TypeScript API derives callbacks from the incoming host.
-- The current TypeScript login and Google integration flows share:
-  - `GOOGLE_CLIENT_ID`
-  - `GOOGLE_CLIENT_SECRET`
-- The Go backend does not yet consume Google OAuth credentials.
+- Go owns Google login and Google integration OAuth.
+- Staging and production callback URIs use `ASKOLO_CANONICAL_ORIGIN`, not
+  proxy-supplied request host headers.
+- Login and Google integration use separate OAuth clients, configured with
+  `GOOGLE_LOGIN_CLIENT_ID`, `GOOGLE_LOGIN_CLIENT_SECRET`,
+  `GOOGLE_INTEGRATION_CLIENT_ID`, and `GOOGLE_INTEGRATION_CLIENT_SECRET`.
 
 ## Google Cloud projects
 

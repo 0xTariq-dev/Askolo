@@ -22,7 +22,6 @@
 - [Go backend binary refresh](go-backend-binary-refresh.md) — the run script reuses an existing binary; rebuild before restarting after Go source changes.
 - [Three-Repl release architecture](three-repl-release-architecture.md) — identify the active environment before acting; normal releases use main, while hotfixes start from the live production tag.
 - [Development schema application](dev-schema-apply.md) — Drizzle push behavior is historical development-only guidance, not the current migration path.
-- [Authorization handover](authorization-handover.md) — Go owns authorization decisions; TypeScript and provider boundaries pass session-derived identity and scope hints only.
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Same-origin auth routing](same-origin-auth-routing.md) — render app routes locally when public and app origins share a host; otherwise redirects can loop forever.

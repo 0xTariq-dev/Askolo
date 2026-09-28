@@ -1,18 +1,21 @@
 # Askolo Backend
 
-This Go service runs beside the TypeScript API during migration and is designed
-to become Askolo's primary backend without a second structural rewrite.
+This Go service is Askolo's primary backend and sole authority for public API
+requests, sessions, authorization, persistence, and provider operations. It owns
+the AssemblyAI voice path; browser clients use its supported HTTP and
+authenticated WebSocket contracts.
 
 ## Current topology
 
-- The TypeScript API remains the public backend and system of record.
+- The Go service is the public API and system of record.
 - The Go backend listens on port `8090` and exposes health checks publicly.
-- Companion-phase REST and WebSocket calls use `/internal/*` and require
-  `ASKOLO_INTERNAL_TOKEN`.
-- Public `/ws` and `/webhooks/*` paths are reserved but intentionally return
-  `501` until their authentication, verification, and application modules are
-  implemented.
-- AssemblyAI and other providers are deliberately not part of this foundation.
+- Authenticated AssemblyAI realtime sessions and provider operations are
+  handled by Go; provider credentials stay server-side.
+- Trusted internal service calls require `ASKOLO_INTERNAL_TOKEN`. Internal
+  routes are not browser-facing.
+- Generic WebSocket sequencing, replay, and resume behavior is tracked
+  separately. Webhook ingress must have signature verification and application
+  handling before it is enabled.
 - Google login and Google integration OAuth use separate clients configured with
   `GOOGLE_LOGIN_CLIENT_ID`, `GOOGLE_LOGIN_CLIENT_SECRET`,
   `GOOGLE_INTEGRATION_CLIENT_ID`, and `GOOGLE_INTEGRATION_CLIENT_SECRET`.
@@ -35,22 +38,20 @@ to become Askolo's primary backend without a second structural rewrite.
   aggregate attempt/handoff counts, bounded latency, the last safe outcome, and
   failure counts. The public response never includes an address, code, body,
   provider error, or credential.
-- The web API proxies `/api/auth/google` and `/api/integrations/google/*` to
-  `ASKOLO_GOOGLE_BACKEND_URL` when configured. Development defaults to the
-  local Go service at `http://127.0.0.1:8090`; production must use the
-  deployed Go service URL and must not use a loopback target.
-- Go is the authorization decision owner. The internal
-  `POST /internal/authz/decision` route derives the actor from the native
-  session, lazily provisions a personal workspace for active users, and
-  evaluates account status, workspace status, membership status, explicit
-  capabilities, and registered resource ownership. The TypeScript API calls
-  this route before feature requests; provider and WebSocket boundaries use
-  the same store and policy primitives.
+- The frontend sends same-origin `/api` requests through artifact routing to
+  Go. Development defaults to the local Go service at
+  `http://127.0.0.1:8090`; deployment routing is defined by the artifact
+  configuration.
+- Go is the authorization decision owner. Protected routes derive the actor
+  from the native session, lazily provision a personal workspace for active
+  users, and evaluate account, workspace, and membership status, capabilities,
+  and registered resource ownership. Provider operations and WebSocket
+  boundaries use the same store and policy primitives.
 - `X-Askolo-Workspace-ID` is an authorization scope hint, not an identity
   assertion. Unknown, inactive, revoked, cross-workspace, or unowned scopes
-  fail closed with generic client errors. A separate `ASKOLO_INTERNAL_TOKEN`
-  should be configured for production service handover; development derives
-  the service token from `SESSION_SECRET` when the dedicated token is absent.
+  fail closed with generic client errors. `ASKOLO_INTERNAL_TOKEN` is used for
+  trusted internal service calls; development derives the service token from
+  `SESSION_SECRET` when the dedicated token is absent.
 
 ## Package boundaries
 
@@ -65,8 +66,8 @@ internal/transport/websocket/
                           WebSocket protocol adapter
 internal/transport/webhooks/
                           webhook protocol adapter
-internal/modules/         future product capabilities and use cases
-internal/adapters/        future database and external-provider adapters
+internal/modules/         product capabilities and use cases
+internal/adapters/        database and external-provider adapters
 ```
 
 Transport packages may call application-module interfaces, but application and
@@ -74,17 +75,15 @@ domain packages must not import transports. External providers and databases
 belong in adapters, not handlers. Only `internal/app` should wire concrete
 implementations together.
 
-## Migration path
+## Runtime ownership and release path
 
-1. The TypeScript API authenticates users and calls authenticated `/internal/*`
-   Go routes.
-2. Product capabilities move one at a time with one authoritative owner for
-   state changes, provider operations, and credit settlement.
-3. Public authentication and compatibility routes are added to Go without
-   moving the existing transport or module packages.
-4. Traffic shifts at the routing layer.
-5. The TypeScript backend is removed only after parity and rollback criteria
-   pass.
+1. The frontend calls same-origin routes served by Go. Go owns authentication,
+   authorization, state changes, provider operations, and credit settlement.
+2. Keep provider SDKs and raw provider payloads behind Go adapters; product
+   rules belong in application modules.
+3. Validate an immutable release candidate in staging before promoting that
+   verified commit to production.
+4. Roll back by redeploying a previously approved immutable Go release.
 
 ## Release-1 Google routes
 
