@@ -6,20 +6,10 @@ import (
 	"strings"
 )
 
-type assemblyAIRealtimeSettings struct {
-	ExpiresInSeconds          int
-	MaxSessionDurationSeconds int
-	Region                    string
-	WebsocketURL              string
-	SpeechModel               string
-	Redaction                 string
-}
-
 type assemblyAIProvider interface {
 	Configured() bool
 	Transcribe(context.Context, []byte, string) (assemblyAITranscriptionResult, string, error)
 	RealtimeToken(context.Context) (string, error)
-	RealtimeSettings() assemblyAIRealtimeSettings
 	OpenRealtimeSession(context.Context, string) (assemblyAIRealtimeSession, error)
 }
 
@@ -79,17 +69,6 @@ func (c *assemblyAIClient) RealtimeToken(ctx context.Context) (string, error) {
 		return "", errAssemblyAIProviderFailure
 	}
 	return requestAssemblyAIRealtimeToken(ctx, c.httpClient, c.realtimeTokenBaseURL, c.apiKey)
-}
-
-func (c *assemblyAIClient) RealtimeSettings() assemblyAIRealtimeSettings {
-	return assemblyAIRealtimeSettings{
-		ExpiresInSeconds:          assemblyAIRealtimeTokenExpiresInSeconds,
-		MaxSessionDurationSeconds: assemblyAIRealtimeMaxSessionDurationSeconds,
-		Region:                    assemblyAIRealtimeRegion,
-		WebsocketURL:              c.realtimeWebsocketURL,
-		SpeechModel:               assemblyAIRealtimeSpeechModel,
-		Redaction:                 assemblyAIRealtimeRedaction,
-	}
 }
 
 func (c *assemblyAIClient) OpenRealtimeSession(ctx context.Context, token string) (assemblyAIRealtimeSession, error) {

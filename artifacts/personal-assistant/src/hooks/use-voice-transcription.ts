@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { StreamingTranscriber, type TurnEvent } from 'assemblyai';
 import {
-  createRealtimeTranscriptionToken,
   transcribeAudio as transcribeAudioRequest,
   type TranscriptionReviewSignal,
 } from '@workspace/api-client-react';
@@ -63,9 +61,76 @@ const MIN_RECORDED_SPEECH_MS = 700;
 const MIN_ACTIVE_AUDIO_MS = 140;
 const ACTIVE_AUDIO_RMS_THRESHOLD = 0.008;
 const LOW_CONFIDENCE_THRESHOLD = 0.78;
+const REALTIME_MAX_SESSION_SECONDS = 180;
+
+interface RealtimeWordEvent {
+  text?: string;
+  confidence: number;
+  start?: number;
+  end?: number;
+}
+
+interface RealtimeTurnEvent {
+  type?: string;
+  turn_order: number;
+  transcript: string;
+  end_of_turn: boolean;
+  words?: RealtimeWordEvent[];
+}
+
+interface RealtimeServerEvent {
+  type?: string;
+  code?: string;
+  message?: string;
+  maxSessionDurationSeconds?: number;
+  creditReceipt?: CreditReceiptDetails;
+  turn_order?: number;
+  transcript?: string;
+  end_of_turn?: boolean;
+  words?: RealtimeWordEvent[];
+}
 
 function normalizeSpeech(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function realtimeWebSocketURL(): string {
+  const basePath = import.meta.env.BASE_URL.endsWith('/')
+    ? import.meta.env.BASE_URL
+    : `${import.meta.env.BASE_URL}/`;
+  const url = new URL(`${basePath}api/ai/realtime`, window.location.origin);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
+
+function waitForWebSocketOpen(socket: WebSocket, timeoutMs = 20_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      socket.removeEventListener('open', onOpen);
+      socket.removeEventListener('error', onError);
+      socket.removeEventListener('close', onClose);
+    };
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('Real-time transcription could not be started. Try recorded transcription instead.'));
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error('The live transcription connection closed before it was ready.'));
+    };
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('Real-time transcription took too long to connect. Try again.'));
+    }, timeoutMs);
+    socket.addEventListener('open', onOpen, { once: true });
+    socket.addEventListener('error', onError, { once: true });
+    socket.addEventListener('close', onClose, { once: true });
+  });
 }
 
 function removeRepeatedTail(value: string): string {
@@ -223,7 +288,8 @@ export function useVoiceTranscription({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const realtimeRef = useRef<StreamingTranscriber | null>(null);
+  const realtimeRef = useRef<WebSocket | null>(null);
+  const pendingRealtimePcmRef = useRef(new Int16Array(0));
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
@@ -284,7 +350,7 @@ export function useVoiceTranscription({
     setReviewSignals(realtimeSignalsRef.current);
   };
 
-  const collectRealtimeTurn = (turn: TurnEvent) => {
+  const collectRealtimeTurn = (turn: RealtimeTurnEvent) => {
     const spokenText = normalizeSpeech(turn.transcript ?? '');
     if (!spokenText) return;
     if (turn.end_of_turn) {
@@ -476,16 +542,51 @@ export function useVoiceTranscription({
 
   const closeRealtime = async (waitForTermination: boolean) => {
     cleanupMediaStream();
-    const transcriber = realtimeRef.current;
+    const socket = realtimeRef.current;
     realtimeRef.current = null;
-    if (transcriber) {
+    if (!socket || socket.readyState === WebSocket.CLOSED) {
+      pendingRealtimePcmRef.current = new Int16Array(0);
+      return;
+    }
+    if (socket.readyState === WebSocket.CONNECTING) {
+      pendingRealtimePcmRef.current = new Int16Array(0);
+      socket.close();
+      return;
+    }
+    if (waitForTermination && socket.readyState === WebSocket.OPEN) {
+      const pending = pendingRealtimePcmRef.current;
+      if (pending.length >= 800 && socket.bufferedAmount <= 512 * 1024) {
+        socket.send(pending.slice().buffer);
+      }
+      pendingRealtimePcmRef.current = new Int16Array(0);
+      const terminationReceived = new Promise<void>((resolve) => {
+        let timeout = 0;
+        const finish = () => {
+          window.clearTimeout(timeout);
+          socket.removeEventListener('message', onMessage);
+          socket.removeEventListener('close', finish);
+          resolve();
+        };
+        const onMessage = (event: MessageEvent) => {
+          if (typeof event.data !== 'string') return;
+          try {
+            if ((JSON.parse(event.data) as RealtimeServerEvent).type === 'Termination') finish();
+          } catch {
+            // Ignore non-protocol messages while waiting for the termination acknowledgement.
+          }
+        };
+        timeout = window.setTimeout(finish, 3_000);
+        socket.addEventListener('message', onMessage);
+        socket.addEventListener('close', finish, { once: true });
+      });
       try {
-        await transcriber.close(waitForTermination, 3_000);
+        socket.send(JSON.stringify({ type: 'Terminate' }));
+        await terminationReceived;
       } catch {
-        // The SDK closes the socket even when the provider does not send its
-        // termination acknowledgement. Never leave an abandoned socket open.
+        // The socket is closed below even if the server cannot acknowledge termination.
       }
     }
+    if (socket.readyState !== WebSocket.CLOSED) socket.close();
   };
 
   const startRealtimeSession = async (sessionId: number) => {
@@ -497,6 +598,7 @@ export function useVoiceTranscription({
     updateMode('live');
     updateState('starting');
     let postflight = '';
+    let realtimeReadyTimeout: number | null = null;
     voiceCreditPostflightRef.current = '';
     setStatus('Checking the voice credit estimate…');
     try {
@@ -507,46 +609,127 @@ export function useVoiceTranscription({
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
+      mediaStreamRef.current = stream;
       setStatus('Starting the secure live session…');
-      const token = await createRealtimeTranscriptionToken({
-        credentials: 'include',
-        headers: creditRequest.headers,
+      const socket = new WebSocket(realtimeWebSocketURL());
+      realtimeRef.current = socket;
+      let readySettled = false;
+      let resolveReady: () => void = () => undefined;
+      let rejectReady: (error: Error) => void = () => undefined;
+      const ready = new Promise<void>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
       });
-      if (sessionRef.current !== sessionId || cancelRequestedRef.current || token.region !== 'edge') {
+      void ready.catch(() => undefined);
+      realtimeReadyTimeout = window.setTimeout(() => {
+        if (readySettled) return;
+        readySettled = true;
+        rejectReady(new Error('The secure live session took too long to start. Try again.'));
+      }, 30_000);
+      const failRealtime = (message: string) => {
+        updateState('error');
+        setError(message);
+        setStatus(postflight);
+        if (!readySettled) {
+          readySettled = true;
+          if (realtimeReadyTimeout !== null) window.clearTimeout(realtimeReadyTimeout);
+          rejectReady(new Error(message));
+        }
+        void closeRealtime(false);
+      };
+      socket.addEventListener('message', (event: MessageEvent) => {
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        if (typeof event.data !== 'string') {
+          failRealtime('The live transcription server sent an invalid response.');
+          return;
+        }
+        let message: RealtimeServerEvent;
+        try {
+          message = JSON.parse(event.data) as RealtimeServerEvent;
+        } catch {
+          failRealtime('The live transcription server sent an invalid response.');
+          return;
+        }
+        if (message.type === 'AskoloReady') {
+          if (readySettled) return;
+          try {
+            postflight = creditPostflightMessage(message.creditReceipt, creditRequest.estimate);
+            voiceCreditPostflightRef.current = postflight;
+            setStatus(`${postflight} Connecting live transcription…`);
+            readySettled = true;
+            if (realtimeReadyTimeout !== null) window.clearTimeout(realtimeReadyTimeout);
+            resolveReady();
+          } catch (readyError) {
+            failRealtime(readyError instanceof Error ? readyError.message : 'The live session credit receipt was invalid.');
+          }
+          return;
+        }
+        if (message.type === 'AskoloError') {
+          failRealtime(message.message || 'Real-time transcription stopped unexpectedly. Try recorded transcription instead.');
+          return;
+        }
+        if (message.type === 'AskoloSessionLimit') {
+          durationStopRequestedRef.current = true;
+          stopRequestedRef.current = true;
+          cleanupMediaStream();
+          updateState('processing');
+          setStatus('The 180-second live session limit was reached. Finishing the transcript…');
+          return;
+        }
+        if (message.type === 'Termination') {
+          if (stopRequestedRef.current || durationStopRequestedRef.current) return;
+          durationStopRequestedRef.current = true;
+          stopRequestedRef.current = true;
+          cleanupMediaStream();
+          updateState('processing');
+          setStatus('The live transcription session ended. Finishing the transcript…');
+          return;
+        }
+        if (message.type === 'Turn' &&
+          typeof message.turn_order === 'number' &&
+          typeof message.transcript === 'string' &&
+          typeof message.end_of_turn === 'boolean') {
+          collectRealtimeTurn({
+            type: message.type,
+            turn_order: message.turn_order,
+            transcript: message.transcript,
+            end_of_turn: message.end_of_turn,
+            words: message.words,
+          });
+        }
+      });
+      socket.addEventListener('error', () => {
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current || stateRef.current === 'error') return;
+        failRealtime('Real-time transcription could not connect. Try recorded transcription instead.');
+      });
+      socket.addEventListener('close', () => {
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        if (stateRef.current === 'error') return;
+        if (durationStopRequestedRef.current) {
+          void finishReview(sessionId);
+          return;
+        }
+        if (stopRequestedRef.current) return;
+        failRealtime('The real-time transcription session ended unexpectedly.');
+      });
+      await waitForWebSocketOpen(socket);
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
+        socket.close();
         return;
       }
-      postflight = creditPostflightMessage(
-        (token as typeof token & { creditReceipt?: CreditReceiptDetails }).creditReceipt,
-        creditRequest.estimate,
-      );
-      voiceCreditPostflightRef.current = postflight;
-      setStatus(`${postflight} Connecting live transcription…`);
-      const transcriber = new StreamingTranscriber({
-        token: token.token,
-        websocketBaseUrl: token.websocketUrl,
-        speechModel: token.speechModel as 'universal-3-5-pro',
-        sampleRate: 16_000,
-        includePartialTurns: true,
-        redactPii: true,
-        maxConnectionRetries: 0,
-      });
-      transcriber.on('turn', collectRealtimeTurn);
-      transcriber.on('error', () => {
-        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-        updateState('error');
-        setError('Real-time transcription stopped unexpectedly. Try recorded transcription instead.');
-        setStatus(voiceCreditPostflightRef.current);
-        void closeRealtime(false);
-      });
-      transcriber.on('close', () => {
-        if (sessionRef.current !== sessionId || cancelRequestedRef.current || stopRequestedRef.current) return;
-        updateState('error');
-        setError('The real-time transcription session ended unexpectedly.');
-        setStatus(voiceCreditPostflightRef.current);
-      });
-      realtimeRef.current = transcriber;
-      await transcriber.connect();
+      mediaStreamRef.current = stream;
+      socket.send(JSON.stringify({
+        type: 'Start',
+        idempotencyKey: creditRequest.headers['Idempotency-Key'],
+        policyVersion: Number(creditRequest.headers['X-AI-Credit-Policy-Version']),
+      }));
+      await ready;
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        await closeRealtime(false);
+        return;
+      }
 
       const AudioContextCtor = window.AudioContext ??
         (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -561,18 +744,33 @@ export function useVoiceTranscription({
         for (const sample of input) sumSquares += sample ** 2;
         setAudioLevel(Math.min(1, Math.sqrt(sumSquares / Math.max(1, input.length)) * 5));
         const pcm = downsampleToPcm16(input, context.sampleRate);
-        if (pcm.length > 0) realtimeRef.current?.sendAudio(new Uint8Array(pcm).buffer);
+        if (pcm.length === 0 || socket.readyState !== WebSocket.OPEN) return;
+        if (socket.bufferedAmount > 512 * 1024) {
+          pendingRealtimePcmRef.current = new Int16Array(0);
+          failRealtime('The live audio connection is too slow. Try again or use recorded transcription.');
+          return;
+        }
+        const pending = pendingRealtimePcmRef.current;
+        const combined = new Int16Array(pending.length + pcm.length);
+        combined.set(pending);
+        combined.set(pcm, pending.length);
+        const frameSamples = 1_600;
+        const sendLength = Math.floor(combined.length / frameSamples) * frameSamples;
+        for (let offset = 0; offset < sendLength; offset += frameSamples) {
+          socket.send(combined.slice(offset, offset + frameSamples).buffer);
+        }
+        pendingRealtimePcmRef.current = combined.slice(sendLength);
       };
       source.connect(processor);
       processor.connect(context.destination);
-      mediaStreamRef.current = stream;
       audioContextRef.current = context;
       audioSourceRef.current = source;
       audioProcessorRef.current = processor;
       updateState('listening');
-      setStatus(`${postflight} Live global-edge transcription is active. AssemblyAI may route this session to a nearby region; it is not US- or EU-pinned. Review the final text before submitting it.`);
+      setStatus(`${postflight} Live transcription is active for up to ${REALTIME_MAX_SESSION_SECONDS} seconds. Review the final text before submitting it.`);
     } catch (captureError) {
       await closeRealtime(false);
+      if (realtimeReadyTimeout !== null) window.clearTimeout(realtimeReadyTimeout);
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
       updateState('error');
       setError(captureError instanceof Error
@@ -592,6 +790,7 @@ export function useVoiceTranscription({
     finalTurnsRef.current = new Map();
     interimTurnRef.current = '';
     realtimeSignalsRef.current = [];
+    pendingRealtimePcmRef.current = new Int16Array(0);
     setTranscript('');
     setLiveText('');
     setReviewSignals([]);
@@ -715,7 +914,7 @@ export function useVoiceTranscription({
     const timer = window.setInterval(() => {
       setRecordingSeconds((current) => {
         const next = current + 1;
-        if (next >= maxRecordingMs / 1000 && !durationStopRequestedRef.current) {
+        if (mode !== 'live' && next >= maxRecordingMs / 1000 && !durationStopRequestedRef.current) {
           durationStopRequestedRef.current = true;
           window.setTimeout(stop, 0);
         }
@@ -723,12 +922,11 @@ export function useVoiceTranscription({
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [maxRecordingMs, state]);
+  }, [maxRecordingMs, mode, state]);
 
   useEffect(() => () => {
     cancelRequestedRef.current = true;
-    realtimeRef.current?.close(true, 3_000).catch(() => undefined);
-    cleanupMediaStream();
+    void closeRealtime(false);
   }, []);
 
   const isBusy = state === 'starting' || state === 'listening' || state === 'processing';

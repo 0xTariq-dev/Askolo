@@ -14,11 +14,9 @@ import (
 const (
 	assemblyAIRealtimeTokenBaseURL              = "https://streaming.assemblyai.com"
 	assemblyAIRealtimeWebsocketURL              = "wss://streaming.assemblyai.com/v3/ws"
-	assemblyAIRealtimeRegion                    = "edge"
 	assemblyAIRealtimeTokenExpiresInSeconds     = 60
-	assemblyAIRealtimeMaxSessionDurationSeconds = 10_800
+	assemblyAIRealtimeMaxSessionDurationSeconds = 180
 	assemblyAIRealtimeSpeechModel               = "universal-3-5-pro"
-	assemblyAIRealtimeRedaction                 = "provider_pii_redaction"
 	maxAssemblyAIRealtimeTokenResponseBytes     = 64 * 1024
 	maxAssemblyAIRealtimeTokenCharacters        = 16 * 1024
 )
@@ -43,17 +41,6 @@ type audioTranscriptionResponse struct {
 	ReviewSignals []transcriptionReviewSignal `json:"reviewSignals"`
 	Deletion      transcriptionDeletion       `json:"deletion"`
 	CreditReceipt voiceCreditReceipt          `json:"creditReceipt"`
-}
-
-type realtimeTranscriptionTokenResponse struct {
-	Token                     string             `json:"token"`
-	ExpiresInSeconds          int                `json:"expiresInSeconds"`
-	MaxSessionDurationSeconds int                `json:"maxSessionDurationSeconds"`
-	Region                    string             `json:"region"`
-	WebsocketURL              string             `json:"websocketUrl"`
-	SpeechModel               string             `json:"speechModel"`
-	Redaction                 string             `json:"redaction"`
-	CreditReceipt             voiceCreditReceipt `json:"creditReceipt"`
 }
 
 type assemblyAIRealtimeTokenPayload struct {

@@ -49,7 +49,7 @@ import { VoiceCreditPreflight } from '@/components/credits/voice-credit-prefligh
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { cn } from '@/lib/utils';
 
-const CURRENT_VOICE_CONSENT_VERSION = 'voice-v2';
+const CURRENT_VOICE_CONSENT_VERSION = 'voice-v3';
 
 const priorityColors = {
   high: 'border-rose-500 bg-rose-500/10 text-rose-500',
@@ -596,13 +596,13 @@ export function PlanPage() {
           </DialogHeader>
           <div className="space-y-3 text-sm text-muted-foreground">
             <p>
-              Askolo sends your recording to AssemblyAI and does not store the raw audio. AssemblyAI processes it under its data-retention and model-improvement settings. Askolo requests deletion of the resulting transcript and reports whether the provider confirms it; deletion may not be confirmed if the provider is unavailable.
+              Voice audio is sent through Askolo’s secure server connection to AssemblyAI for live or recorded transcription. Askolo does not store audio or live transcripts. AssemblyAI processes voice data under its own retention and model-improvement settings. For recorded transcription, Askolo requests deletion of the provider transcript and reports whether deletion is confirmed; the provider may retain data under its settings.
             </p>
             <p>
               We request automatic redaction of detected personal information before AssemblyAI returns the transcript. Redaction can miss details, so review every word before using the transcript to build your plan.
             </p>
             <p>
-              By continuing, you consent to in-app AI processing and AssemblyAI transcription for this voice note.
+              Live transcription sessions end after 180 seconds at most. By continuing, you consent to Askolo processing voice audio through AssemblyAI for transcription.
             </p>
             {consentError && <p role="alert" className="text-destructive">{consentError}</p>}
           </div>

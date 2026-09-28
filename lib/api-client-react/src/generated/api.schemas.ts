@@ -883,36 +883,6 @@ export interface TranscriptionPreferencesUpdateResponse {
   consentVersion?: string | null;
 }
 
-/**
- * AssemblyAI global Edge routing; this does not guarantee US or EU residency.
- */
-export type RealtimeTranscriptionTokenRegion = typeof RealtimeTranscriptionTokenRegion[keyof typeof RealtimeTranscriptionTokenRegion];
-
-
-export const RealtimeTranscriptionTokenRegion = {
-  edge: 'edge',
-} as const;
-
-export type RealtimeTranscriptionTokenSpeechModel = typeof RealtimeTranscriptionTokenSpeechModel[keyof typeof RealtimeTranscriptionTokenSpeechModel];
-
-
-export const RealtimeTranscriptionTokenSpeechModel = {
-  'universal-3-5-pro': 'universal-3-5-pro',
-} as const;
-
-export interface RealtimeTranscriptionToken {
-  token: string;
-  expiresInSeconds: number;
-  maxSessionDurationSeconds: number;
-  /** AssemblyAI global Edge routing; this does not guarantee US or EU residency. */
-  region: RealtimeTranscriptionTokenRegion;
-  /** Global Edge WebSocket endpoint; sessions are not pinned to a country. */
-  websocketUrl: string;
-  speechModel: RealtimeTranscriptionTokenSpeechModel;
-  redaction: string;
-  creditReceipt: VoiceCreditReceipt;
-}
-
 export interface MeetingExtractActionItem {
   title: string;
   /** @nullable */

@@ -1466,30 +1466,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
-  /ai/realtime-token:
-    post:
-      operationId: createRealtimeTranscriptionToken
-      tags: [ai]
-      summary: Create a single-use AssemblyAI edge-streaming token
-      responses:
-        "200":
-          description: Short-lived token and global-edge WebSocket endpoint; sessions are not pinned to a country.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RealtimeTranscriptionToken"
-        "503":
-          description: Voice consent or AssemblyAI is unavailable
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+
         "403":
           description: Current voice transcription consent is required
           content:
@@ -2758,31 +2735,7 @@ components:
         consentVersion:
           type: ["string", "null"]
 
-    RealtimeTranscriptionToken:
-      type: object
-      required: [token, expiresInSeconds, maxSessionDurationSeconds, region, websocketUrl, speechModel, redaction, creditReceipt]
-      properties:
-        token:
-          type: string
-        expiresInSeconds:
-          type: integer
-        maxSessionDurationSeconds:
-          type: integer
-        region:
-          type: string
-          description: AssemblyAI global Edge routing; this does not guarantee US or EU residency.
-          enum: [edge]
-        websocketUrl:
-          type: string
-          format: uri
-          description: Global Edge WebSocket endpoint; sessions are not pinned to a country.
-        speechModel:
-          type: string
-          enum: [universal-3-5-pro]
-        redaction:
-          type: string
-        creditReceipt:
-          $ref: '#/components/schemas/VoiceCreditReceipt'
+
 
     MeetingExtractActionItem:
       type: object

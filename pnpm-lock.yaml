@@ -173,10 +173,6 @@ importers:
         version: 5.9.3
 
   artifacts/personal-assistant:
-    dependencies:
-      assemblyai:
-        specifier: ^4.37.1
-        version: 4.37.1
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
@@ -1413,10 +1409,6 @@ packages:
     resolution: {integrity: sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA==}
     engines: {node: '>=10'}
 
-  assemblyai@4.37.1:
-    resolution: {integrity: sha512-m+pxMXHlO9UN1lSbEadVNjbJqgYuly/rB83it9+d7GwKtEtF1WoIjOqkugpk2I0BWSDopylaZ1vPEJKXhf0oeQ==}
-    engines: {node: '>=18'}
-
   balanced-match@4.0.4:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
@@ -2194,18 +2186,6 @@ packages:
     resolution: {integrity: sha512-zTfddD80zc2/J5l8JKcdvzOK6AwP0kpyHEI3DxRN2bn8U1oJPnrSVm8v+X3WwDamvLAOxTO7ZvkxkpRWlyeJ1Q==}
     peerDependencies:
       react: '>=16.8.0'
-
-  ws@8.21.3:
-    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
@@ -3408,13 +3388,6 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  assemblyai@4.37.1:
-    dependencies:
-      ws: 8.21.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
   balanced-match@4.0.4: {}
 
   baseline-browser-mapping@2.11.21: {}
@@ -4096,8 +4069,6 @@ snapshots:
       react: 19.1.0
       regexparam: 3.0.0
       use-sync-external-store: 1.6.0(react@19.1.0)
-
-  ws@8.21.3: {}
 
   yallist@3.1.1: {}
 

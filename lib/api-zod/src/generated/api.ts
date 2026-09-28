@@ -1537,33 +1537,6 @@ export const UpdateTranscriptionPreferencesResponse = zod.object({
 
 
 /**
- * @summary Create a single-use AssemblyAI edge-streaming token
- */
-export const CreateRealtimeTranscriptionTokenResponse = zod.object({
-  "token": zod.string(),
-  "expiresInSeconds": zod.number().int(),
-  "maxSessionDurationSeconds": zod.number().int(),
-  "region": zod.enum(['edge']).describe('AssemblyAI global Edge routing; this does not guarantee US or EU residency.'),
-  "websocketUrl": zod.string().url().describe('Global Edge WebSocket endpoint; sessions are not pinned to a country.'),
-  "speechModel": zod.enum(['universal-3-5-pro']),
-  "redaction": zod.string(),
-  "creditReceipt": zod.object({
-  "id": zod.string(),
-  "reservationId": zod.string(),
-  "operationType": zod.enum(['voice']),
-  "provider": zod.enum(['assemblyai']),
-  "mode": zod.enum(['recorded', 'realtime']),
-  "status": zod.enum(['settled']),
-  "reservedCredits": zod.number().int(),
-  "settledCredits": zod.number().int(),
-  "refundedCredits": zod.number().int(),
-  "balance": zod.number().int(),
-  "policyVersion": zod.number().int()
-})
-})
-
-
-/**
  * @summary Extract summary, decisions, and action items from meeting notes
  */
 

@@ -83,8 +83,10 @@ type Handler struct {
 	store             *postgres.Store
 	logger            *slog.Logger
 	sessionCookieName string
+	canonicalOrigin   string
 	assemblyAI        assemblyAIProvider
 	adminEmails       map[string]struct{}
+	realtimeLimiter   *realtimeSessionLimiter
 }
 
 type voiceCreditReservation struct {
@@ -109,6 +111,7 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 			&http.Client{Timeout: 25 * time.Second},
 			nil,
 		),
+		cfg.CanonicalOrigin,
 	)
 }
 
@@ -118,6 +121,7 @@ func newHandler(
 	logger *slog.Logger,
 	sessionCookieName string,
 	assemblyAI assemblyAIProvider,
+	canonicalOrigin string,
 ) *Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -128,40 +132,80 @@ func newHandler(
 		sessionCookieName: sessionCookieName,
 		assemblyAI:        assemblyAI,
 		adminEmails:       cfg.AdminEmails,
+		canonicalOrigin:   canonicalOrigin,
+		realtimeLimiter:   newRealtimeSessionLimiter(),
 	}
 }
 
 func (h *Handler) reserveVoiceProviderCredit(w http.ResponseWriter, r *http.Request, userID, mode string) (voiceCreditReservation, bool) {
-	var result voiceCreditReservation
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if key == "" || len(key) > 200 {
-		writeError(w, http.StatusBadRequest, "IDEMPOTENCY_KEY_REQUIRED", "An Idempotency-Key header is required.")
-		return result, false
-	}
 	expectedVersion, err := strconv.Atoi(strings.TrimSpace(r.Header.Get("X-AI-Credit-Policy-Version")))
-	if err != nil || expectedVersion < 1 {
-		writeError(w, http.StatusBadRequest, "CREDIT_POLICY_VERSION_REQUIRED", "Refresh the credit estimate before starting this voice operation.")
-		return result, false
+	if err != nil {
+		expectedVersion = 0
+	}
+	result, failure := h.reserveVoiceProviderCreditRequest(r.Context(), userID, mode, key, expectedVersion)
+	if failure == nil {
+		return result, true
+	}
+	if failure.err != nil {
+		h.storeError(w, failure.operation, failure.err)
+		return voiceCreditReservation{}, false
+	}
+	writeError(w, failure.status, failure.code, failure.message)
+	return voiceCreditReservation{}, false
+}
+
+type voiceCreditReservationFailure struct {
+	status    int
+	code      string
+	message   string
+	operation string
+	err       error
+}
+
+func (h *Handler) reserveVoiceProviderCreditRequest(
+	ctx context.Context,
+	userID string,
+	mode string,
+	key string,
+	expectedVersion int,
+) (voiceCreditReservation, *voiceCreditReservationFailure) {
+	var result voiceCreditReservation
+	if key == "" || len(key) > 200 {
+		return result, &voiceCreditReservationFailure{
+			status: http.StatusBadRequest, code: "IDEMPOTENCY_KEY_REQUIRED",
+			message: "An Idempotency-Key header is required.",
+		}
+	}
+	if expectedVersion < 1 {
+		return result, &voiceCreditReservationFailure{
+			status: http.StatusBadRequest, code: "CREDIT_POLICY_VERSION_REQUIRED",
+			message: "Refresh the credit estimate before starting this voice operation.",
+		}
 	}
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
-		h.storeError(w, "AI reservation id generation failed", err)
-		return result, false
+		return result, &voiceCreditReservationFailure{
+			operation: "AI reservation id generation failed", err: err,
+		}
 	}
 	id := "voice-" + fmt.Sprintf("%x", raw)
-	p, err := h.store.AICreditPolicy(r.Context())
+	p, err := h.store.AICreditPolicy(ctx)
 	if err != nil {
-		h.storeError(w, "AI policy lookup failed", err)
-		return result, false
+		return result, &voiceCreditReservationFailure{operation: "AI policy lookup failed", err: err}
 	}
 	if expectedVersion != p.Version {
-		writeError(w, http.StatusConflict, "AI_POLICY_CHANGED", "The AI credit policy changed. Refresh the estimate and try again.")
-		return result, false
+		return result, &voiceCreditReservationFailure{
+			status: http.StatusConflict, code: "AI_POLICY_CHANGED",
+			message: "The AI credit policy changed. Refresh the estimate and try again.",
+		}
 	}
 	rate := p.OperationWeights["voice"]
 	if rate < 1 || rate > 100000 || mode == "" {
-		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
-		return result, false
+		return result, &voiceCreditReservationFailure{
+			status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID",
+			message: "AI credit policy is unavailable.",
+		}
 	}
 	margin := p.OverrunMarginPercent
 	cap := rate * (100 + margin) / 100
@@ -169,50 +213,61 @@ func (h *Handler) reserveVoiceProviderCredit(w http.ResponseWriter, r *http.Requ
 		cap++
 	}
 	if cap > 100000 {
-		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
-		return result, false
+		return result, &voiceCreditReservationFailure{
+			status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID",
+			message: "AI credit policy is unavailable.",
+		}
 	}
-	reservation, created, err := h.store.ReserveAICredits(r.Context(), id, userID, "voice", "assemblyai", mode, key, cap, 300, p.Version)
+	reservation, created, err := h.store.ReserveAICredits(ctx, id, userID, "voice", "assemblyai", mode, key, cap, 300, p.Version)
 	if err != nil {
-		h.storeError(w, "AI credit reservation failed", err)
-		return result, false
+		return result, &voiceCreditReservationFailure{operation: "AI credit reservation failed", err: err}
 	}
 	if !created {
-		writeError(w, http.StatusConflict, "CREDIT_RESERVATION_CONFLICT", "This operation is already being processed.")
-		return result, false
+		return result, &voiceCreditReservationFailure{
+			status: http.StatusConflict, code: "CREDIT_RESERVATION_CONFLICT",
+			message: "This operation is already being processed.",
+		}
 	}
-	claimed, err := h.store.ClaimAICreditReservation(r.Context(), reservation.ID, userID)
+	claimed, err := h.store.ClaimAICreditReservation(ctx, reservation.ID, userID)
 	if err != nil || !claimed {
 		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":claim-failed"); releaseErr != nil {
 			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 		}
-		writeError(w, http.StatusConflict, "CREDIT_RESERVATION_CONFLICT", "This operation is already being processed.")
-		return result, false
+		return result, &voiceCreditReservationFailure{
+			status: http.StatusConflict, code: "CREDIT_RESERVATION_CONFLICT",
+			message: "This operation is already being processed.",
+		}
 	}
 	return voiceCreditReservation{
 		ID: reservation.ID, Mode: mode, ReservedCredits: reservation.ReservedCredits,
 		SettledCredits: rate, PolicyVersion: reservation.PolicyVersion,
-	}, true
+	}, nil
 }
 
 func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation) (voiceCreditReceipt, bool) {
-	err := h.store.SettleAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":settle", reservation.SettledCredits)
+	receipt, err := h.settleVoiceProviderCreditRecord(userID, reservation)
 	if err != nil {
 		h.logger.Error("voice credit settlement failed", "reservation_id", reservation.ID, "error", err)
 		writeError(w, http.StatusServiceUnavailable, "AI_CREDIT_SETTLEMENT_FAILED", "The provider operation completed but credit settlement could not be confirmed. Check your credit history before retrying.")
 		return voiceCreditReceipt{}, false
 	}
+	return receipt, true
+}
+
+func (h *Handler) settleVoiceProviderCreditRecord(userID string, reservation voiceCreditReservation) (voiceCreditReceipt, error) {
+	if err := h.store.SettleAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":settle", reservation.SettledCredits); err != nil {
+		return voiceCreditReceipt{}, err
+	}
 	usage, err := h.store.AICreditUsage(context.Background(), userID)
 	if err != nil {
-		h.storeError(w, "AI credit receipt lookup failed", err)
-		return voiceCreditReceipt{}, false
+		return voiceCreditReceipt{}, err
 	}
 	return voiceCreditReceipt{
 		ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice",
 		Provider: "assemblyai", Mode: reservation.Mode, Status: "settled",
 		ReservedCredits: reservation.ReservedCredits, SettledCredits: reservation.SettledCredits,
 		RefundedCredits: 0, Balance: usage.Balance, PolicyVersion: reservation.PolicyVersion,
-	}, true
+	}, nil
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -248,7 +303,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/ai/voice-to-plan", h.voiceToPlan)
 	mux.HandleFunc("POST /api/ai/meeting-extract", h.meetingExtract)
 	mux.HandleFunc("POST /api/ai/transcribe-audio", h.transcribeAudio)
-	mux.HandleFunc("POST /api/ai/realtime-token", h.realtimeToken)
+	mux.HandleFunc("GET /api/ai/realtime", h.realtimeTranscription)
 	mux.HandleFunc("PATCH /api/user/profile", h.updateProfile)
 	mux.HandleFunc("DELETE /api/user/data", h.deleteUserData)
 	mux.HandleFunc("DELETE /api/user/account", h.deleteAccount)
@@ -1066,6 +1121,10 @@ func (h *Handler) meetingExtract(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(160 * time.Second)); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "VOICE_UNAVAILABLE", "Voice transcription is temporarily unavailable.")
+		return
+	}
 	userID, status := h.sessionUserID(r)
 	if status != http.StatusOK {
 		writeCreditSessionError(w, status)
@@ -1187,67 +1246,6 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 			Marker:             deletionMarker,
 		},
 		CreditReceipt: creditReceipt,
-	})
-}
-
-func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
-	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK {
-		writeCreditSessionError(w, status)
-		return
-	}
-	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
-		return
-	}
-	consent, consentVersion, err := h.store.VoiceConsent(r.Context(), userID)
-	if err != nil {
-		h.storeError(w, "voice consent lookup failed", err)
-		return
-	}
-	if !consent || consentVersion != postgres.VoiceConsentVersion {
-		writeError(w, http.StatusForbidden, "VOICE_CONSENT_REQUIRED", "Voice transcription consent is required.")
-		return
-	}
-	if h.assemblyAI == nil || !h.assemblyAI.Configured() {
-		writeError(w, http.StatusServiceUnavailable, "VOICE_NOT_CONFIGURED", "Voice transcription is not configured.")
-		return
-	}
-	reservation, ok := h.reserveVoiceProviderCredit(w, r, userID, "realtime")
-	if !ok {
-		return
-	}
-	providerSucceeded := false
-	defer func() {
-		if providerSucceeded {
-			return
-		}
-		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
-			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
-		}
-	}()
-	token, err := h.assemblyAI.RealtimeToken(r.Context())
-	if err != nil {
-		if r.Context().Err() != nil {
-			return
-		}
-		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
-		return
-	}
-	providerSucceeded = true
-	creditReceipt, settled := h.settleVoiceProviderCredit(w, userID, reservation)
-	if !settled {
-		return
-	}
-	realtimeSettings := h.assemblyAI.RealtimeSettings()
-	writeJSON(w, http.StatusOK, realtimeTranscriptionTokenResponse{
-		Token:                     token,
-		ExpiresInSeconds:          realtimeSettings.ExpiresInSeconds,
-		MaxSessionDurationSeconds: realtimeSettings.MaxSessionDurationSeconds,
-		Region:                    realtimeSettings.Region,
-		WebsocketURL:              realtimeSettings.WebsocketURL,
-		SpeechModel:               realtimeSettings.SpeechModel,
-		Redaction:                 realtimeSettings.Redaction,
-		CreditReceipt:             creditReceipt,
 	})
 }
 

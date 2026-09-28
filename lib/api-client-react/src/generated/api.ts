@@ -93,7 +93,6 @@ import type {
   PasswordRecoveryVerificationInput,
   PasswordSetInput,
   ProfileUser,
-  RealtimeTranscriptionToken,
   RecoveryEmailEnrollmentInput,
   StaticAIResponse,
   StatusResponse,
@@ -5989,80 +5988,6 @@ export const useUpdateTranscriptionPreferences = <TError = ErrorType<ErrorEnvelo
         TContext
       > => {
       return useMutation(getUpdateTranscriptionPreferencesMutationOptions(options));
-    }
-
-export const getCreateRealtimeTranscriptionTokenUrl = () => {
-
-
-
-
-  return `/api/ai/realtime-token`
-}
-
-/**
- * @summary Create a single-use AssemblyAI edge-streaming token
- */
-export const createRealtimeTranscriptionToken = async ( options?: Parameters<typeof customFetch>[1]): Promise<RealtimeTranscriptionToken> => {
-
-  return customFetch<RealtimeTranscriptionToken>(getCreateRealtimeTranscriptionTokenUrl(),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-
-export const getCreateRealtimeTranscriptionTokenMutationKey = () => ['createRealtimeTranscriptionToken'] as const;
-
-export const getCreateRealtimeTranscriptionTokenMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, TError,void, TContext> => {
-
-const mutationKey = getCreateRealtimeTranscriptionTokenMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, void> = () => {
-
-
-          return  createRealtimeTranscriptionToken(requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreateRealtimeTranscriptionTokenMutationResult = NonNullable<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>>
-
-    export type CreateRealtimeTranscriptionTokenMutationError = ErrorType<ErrorEnvelope>
-
-
-    /**
- * @summary Create a single-use AssemblyAI edge-streaming token
- */
-export const useCreateRealtimeTranscriptionToken = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof createRealtimeTranscriptionToken>>,
-        TError,
-        void,
-        TContext
-      > => {
-      return useMutation(getCreateRealtimeTranscriptionTokenMutationOptions(options));
     }
 
 export const getMeetingExtractUrl = () => {

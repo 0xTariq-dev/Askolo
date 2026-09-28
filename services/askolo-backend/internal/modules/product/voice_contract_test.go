@@ -39,18 +39,6 @@ func TestVoiceResponseContractsMatchFixtures(t *testing.T) {
 	}
 	assertVoiceResponseFixture(t, "recorded-transcription-response.json", recorded)
 
-	receipt.Mode = "realtime"
-	realtime := realtimeTranscriptionTokenResponse{
-		Token:                     "synthetic-temporary-token",
-		ExpiresInSeconds:          assemblyAIRealtimeTokenExpiresInSeconds,
-		MaxSessionDurationSeconds: assemblyAIRealtimeMaxSessionDurationSeconds,
-		Region:                    assemblyAIRealtimeRegion,
-		WebsocketURL:              assemblyAIRealtimeWebsocketURL,
-		SpeechModel:               assemblyAIRealtimeSpeechModel,
-		Redaction:                 assemblyAIRealtimeRedaction,
-		CreditReceipt:             receipt,
-	}
-	assertVoiceResponseFixture(t, "realtime-token-response.json", realtime)
 }
 
 func assertVoiceResponseFixture(t *testing.T, fixtureName string, response any) {
@@ -81,9 +69,9 @@ func TestRequestAssemblyAIRealtimeTokenUsesEdgeTokenEndpoint(t *testing.T) {
 		query := r.URL.Query()
 		if r.Method != http.MethodGet || r.URL.Path != "/v3/token" ||
 			query.Get("expires_in_seconds") != "60" ||
-			query.Get("max_session_duration_seconds") != "10800" ||
+			query.Get("max_session_duration_seconds") != "180" ||
 			len(query) != 2 {
-			t.Errorf("request = %s %s?%s, want GET /v3/token with a 60s token and 10800s session cap", r.Method, r.URL.Path, r.URL.RawQuery)
+			t.Errorf("request = %s %s?%s, want GET /v3/token with a 60s token and 180s session cap", r.Method, r.URL.Path, r.URL.RawQuery)
 		}
 		if r.Header.Get("Authorization") != "synthetic-test-key" {
 			t.Errorf("authorization header = %q, want the raw synthetic key", r.Header.Get("Authorization"))
@@ -137,24 +125,9 @@ func TestRequestAssemblyAIRealtimeTokenRejectsInvalidProviderResponses(t *testin
 	}
 }
 
-func TestAssemblyAIRealtimeSettingsKeepTheEdgeContract(t *testing.T) {
-	settings := newAssemblyAIClient(
-		"synthetic-test-key",
-		"",
-		"",
-		"",
-		nil,
-		nil,
-	).RealtimeSettings()
-	if settings.Region != "edge" || settings.WebsocketURL != "wss://streaming.assemblyai.com/v3/ws" {
-		t.Fatalf("realtime region/URL = %q/%q, want global edge", settings.Region, settings.WebsocketURL)
-	}
-	if settings.ExpiresInSeconds != 60 || settings.MaxSessionDurationSeconds != 10_800 {
-		t.Fatalf("token/session durations = %d/%d, want 60/10800 seconds",
-			settings.ExpiresInSeconds, settings.MaxSessionDurationSeconds)
-	}
-	if settings.SpeechModel != "universal-3-5-pro" || settings.Redaction != "provider_pii_redaction" {
-		t.Fatalf("realtime model/redaction = %q/%q", settings.SpeechModel, settings.Redaction)
+func TestRealtimeSessionLimitIs180Seconds(t *testing.T) {
+	if assemblyAIRealtimeMaxSessionDurationSeconds != 180 {
+		t.Fatalf("realtime session limit = %d seconds, want 180", assemblyAIRealtimeMaxSessionDurationSeconds)
 	}
 }
 
