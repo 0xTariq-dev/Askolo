@@ -1,6 +1,7 @@
 import { Suspense, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getQueryRetryDelay, shouldRetryQuery } from '@workspace/api-client-react';
+import { ThemeProvider } from '@workspace/askolo-design-system/theme';
 import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
 import { Loader2 } from 'lucide-react';
 import { Toaster } from '@/components/ui/toaster';
@@ -141,13 +142,15 @@ function NativeAuthWithRoutes() {
 
 function App() {
   return (
-    <WouterRouter base={basePath}>
-      {isPublicProductionHost() ? (
-        <PublicSiteRoutes />
-      ) : (
-        <NativeAuthWithRoutes />
-      )}
-    </WouterRouter>
+    <ThemeProvider>
+      <WouterRouter base={basePath}>
+        {isPublicProductionHost() ? (
+          <PublicSiteRoutes />
+        ) : (
+          <NativeAuthWithRoutes />
+        )}
+      </WouterRouter>
+    </ThemeProvider>
   );
 }
 

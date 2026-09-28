@@ -1,4 +1,4 @@
-import { Button } from '@/components/ui/button';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { motion } from 'framer-motion';
 import { Github, KeyRound, Sparkles, UserPlus } from 'lucide-react';

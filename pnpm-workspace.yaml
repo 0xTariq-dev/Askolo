@@ -36,6 +36,7 @@ minimumReleaseAgeExclude:
 
 packages:
   - artifacts/*
+  - submodules/Askolo-UI/artifacts/askolo-design-system
   - lib/*
   - lib/integrations/*
   - scripts

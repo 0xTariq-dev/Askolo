@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import {
   Sheet,
   SheetContent,
