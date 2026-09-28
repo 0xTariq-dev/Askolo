@@ -27,48 +27,6 @@ args = "pnpm run validate:publish-paths"
 [workflows.workflow.metadata]
 isValidation = true
 
-[[workflows.workflow]]
-name = "submodules/Askolo-UI/artifacts/mockup-sandbox: Component Preview Server"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "XegfDyZt7HqfW2Bb8Ghoy"
-isCanvasWorkflow = true
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/mockup-sandbox run dev"
-cwd = "./submodules/Askolo-UI/artifacts/mockup-sandbox"
-waitForPort = 8081
-ensurePreviewReachable = "/"
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "8081"
-BASE_PATH = "/__mockup"
-
-[[workflows.workflow]]
-name = "submodules/Askolo-UI/artifacts/api-server: API Server"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "3B4_FFSkEVBkAeYMFRJ2e"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
-cwd = "./submodules/Askolo-UI/artifacts/api-server"
-waitForPort = 8080
-ensurePreviewReachable = "/"
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "8080"
-
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -103,4 +61,3 @@ ASKOLO_RELEASE_TAG = "1317b8f"
 
 [nix]
 channel = "stable-25_05"
-
