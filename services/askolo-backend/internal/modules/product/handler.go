@@ -83,8 +83,7 @@ type Handler struct {
 	store             *postgres.Store
 	logger            *slog.Logger
 	sessionCookieName string
-	assemblyAIKey     string
-	assemblyAIBaseURL string
+	assemblyAI        assemblyAIProvider
 	adminEmails       map[string]struct{}
 }
 
@@ -97,6 +96,29 @@ type voiceCreditReservation struct {
 }
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, sessionCookieName string) *Handler {
+	return newHandler(
+		cfg,
+		store,
+		logger,
+		sessionCookieName,
+		newAssemblyAIClient(
+			cfg.AssemblyAIKey,
+			assemblyAIRESTBaseURL,
+			assemblyAIRealtimeTokenBaseURL,
+			assemblyAIRealtimeWebsocketURL,
+			&http.Client{Timeout: 25 * time.Second},
+			nil,
+		),
+	)
+}
+
+func newHandler(
+	cfg config.Config,
+	store *postgres.Store,
+	logger *slog.Logger,
+	sessionCookieName string,
+	assemblyAI assemblyAIProvider,
+) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -104,8 +126,7 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 		store:             store,
 		logger:            logger,
 		sessionCookieName: sessionCookieName,
-		assemblyAIKey:     cfg.AssemblyAIKey,
-		assemblyAIBaseURL: assemblyAIRESTBaseURL,
+		assemblyAI:        assemblyAI,
 		adminEmails:       cfg.AdminEmails,
 	}
 }
@@ -1062,7 +1083,7 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "VOICE_CONSENT_REQUIRED", "Voice transcription consent is required.")
 		return
 	}
-	if h.assemblyAIKey == "" {
+	if h.assemblyAI == nil || !h.assemblyAI.Configured() {
 		writeError(w, http.StatusServiceUnavailable, "VOICE_NOT_CONFIGURED", "Voice transcription is not configured.")
 		return
 	}
@@ -1117,14 +1138,7 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 		}
 	}()
-	result, deletionStatus, err := transcribeAssemblyAI(
-		r.Context(),
-		&http.Client{Timeout: 25 * time.Second},
-		h.assemblyAIBaseURL,
-		h.assemblyAIKey,
-		audio,
-		input.Language,
-	)
+	result, deletionStatus, err := h.assemblyAI.Transcribe(r.Context(), audio, input.Language)
 	if err != nil {
 		if deletionStatus != "deleted" {
 			h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
@@ -1194,7 +1208,7 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "VOICE_CONSENT_REQUIRED", "Voice transcription consent is required.")
 		return
 	}
-	if h.assemblyAIKey == "" {
+	if h.assemblyAI == nil || !h.assemblyAI.Configured() {
 		writeError(w, http.StatusServiceUnavailable, "VOICE_NOT_CONFIGURED", "Voice transcription is not configured.")
 		return
 	}
@@ -1211,13 +1225,11 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 		}
 	}()
-	token, err := requestAssemblyAIRealtimeToken(
-		r.Context(),
-		&http.Client{Timeout: 10 * time.Second},
-		assemblyAIRealtimeTokenBaseURL,
-		h.assemblyAIKey,
-	)
+	token, err := h.assemblyAI.RealtimeToken(r.Context())
 	if err != nil {
+		if r.Context().Err() != nil {
+			return
+		}
 		writeError(w, http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "A real-time transcription session could not be started.")
 		return
 	}
@@ -1226,14 +1238,15 @@ func (h *Handler) realtimeToken(w http.ResponseWriter, r *http.Request) {
 	if !settled {
 		return
 	}
+	realtimeSettings := h.assemblyAI.RealtimeSettings()
 	writeJSON(w, http.StatusOK, realtimeTranscriptionTokenResponse{
 		Token:                     token,
-		ExpiresInSeconds:          assemblyAIRealtimeTokenExpiresInSeconds,
-		MaxSessionDurationSeconds: assemblyAIRealtimeMaxSessionDurationSeconds,
-		Region:                    assemblyAIRealtimeRegion,
-		WebsocketURL:              assemblyAIRealtimeWebsocketURL,
-		SpeechModel:               assemblyAIRealtimeSpeechModel,
-		Redaction:                 assemblyAIRealtimeRedaction,
+		ExpiresInSeconds:          realtimeSettings.ExpiresInSeconds,
+		MaxSessionDurationSeconds: realtimeSettings.MaxSessionDurationSeconds,
+		Region:                    realtimeSettings.Region,
+		WebsocketURL:              realtimeSettings.WebsocketURL,
+		SpeechModel:               realtimeSettings.SpeechModel,
+		Redaction:                 realtimeSettings.Redaction,
 		CreditReceipt:             creditReceipt,
 	})
 }

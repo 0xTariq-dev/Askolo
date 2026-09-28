@@ -146,6 +146,9 @@ func transcribeAssemblyAI(
 		ctx, client, http.MethodPost, baseURL+"/v2/upload", audio, apiKey, "application/octet-stream", 25*time.Second,
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return empty, "deletion_failed", ctx.Err()
+		}
 		return empty, "deletion_failed", errAssemblyAIProviderFailure
 	}
 	var uploaded struct {
@@ -175,6 +178,9 @@ func transcribeAssemblyAI(
 		ctx, client, http.MethodPost, baseURL+"/v2/transcript", payload, apiKey, "application/json", 25*time.Second,
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return empty, "deletion_failed", ctx.Err()
+		}
 		return empty, "deletion_failed", errAssemblyAIProviderFailure
 	}
 	var submitted struct {

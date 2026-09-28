@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,7 +57,8 @@ type realtimeTranscriptionTokenResponse struct {
 }
 
 type assemblyAIRealtimeTokenPayload struct {
-	Token string `json:"token"`
+	Token            string `json:"token"`
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
 }
 
 func requestAssemblyAIRealtimeToken(
@@ -73,7 +76,10 @@ func requestAssemblyAIRealtimeToken(
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = assemblyAIRealtimeTokenBaseURL
 	}
-	endpoint := strings.TrimRight(baseURL, "/") + "/v3/token?expires_in_seconds=60"
+	query := url.Values{}
+	query.Set("expires_in_seconds", strconv.Itoa(assemblyAIRealtimeTokenExpiresInSeconds))
+	query.Set("max_session_duration_seconds", strconv.Itoa(assemblyAIRealtimeMaxSessionDurationSeconds))
+	endpoint := strings.TrimRight(baseURL, "/") + "/v3/token?" + query.Encode()
 	response, cancel, err := assemblyAIRequest(
 		ctx,
 		assemblyAINoRedirectClient(client),
@@ -85,6 +91,9 @@ func requestAssemblyAIRealtimeToken(
 		10*time.Second,
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", errAssemblyAIProviderFailure
 	}
 	defer cancel()
@@ -99,7 +108,8 @@ func requestAssemblyAIRealtimeToken(
 		return "", errAssemblyAIProviderFailure
 	}
 	token := strings.TrimSpace(payload.Token)
-	if token == "" || token != payload.Token || len(token) > maxAssemblyAIRealtimeTokenCharacters {
+	if token == "" || token != payload.Token || len(token) > maxAssemblyAIRealtimeTokenCharacters ||
+		payload.ExpiresInSeconds != assemblyAIRealtimeTokenExpiresInSeconds {
 		return "", errAssemblyAIProviderFailure
 	}
 	return token, nil

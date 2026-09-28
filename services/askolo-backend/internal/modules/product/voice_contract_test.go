@@ -78,14 +78,18 @@ func assertVoiceResponseFixture(t *testing.T, fixtureName string, response any) 
 
 func TestRequestAssemblyAIRealtimeTokenUsesEdgeTokenEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v3/token" || r.URL.Query().Get("expires_in_seconds") != "60" {
-			t.Errorf("request = %s %s?%s, want GET /v3/token?expires_in_seconds=60", r.Method, r.URL.Path, r.URL.RawQuery)
+		query := r.URL.Query()
+		if r.Method != http.MethodGet || r.URL.Path != "/v3/token" ||
+			query.Get("expires_in_seconds") != "60" ||
+			query.Get("max_session_duration_seconds") != "10800" ||
+			len(query) != 2 {
+			t.Errorf("request = %s %s?%s, want GET /v3/token with a 60s token and 10800s session cap", r.Method, r.URL.Path, r.URL.RawQuery)
 		}
 		if r.Header.Get("Authorization") != "synthetic-test-key" {
 			t.Errorf("authorization header = %q, want the raw synthetic key", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"token":"synthetic-temporary-token"}`)
+		_, _ = io.WriteString(w, `{"token":"synthetic-temporary-token","expires_in_seconds":60}`)
 	}))
 	defer server.Close()
 
@@ -107,9 +111,11 @@ func TestRequestAssemblyAIRealtimeTokenRejectsInvalidProviderResponses(t *testin
 		body       string
 	}{
 		{name: "missing token", statusCode: http.StatusOK, body: `{}`},
+		{name: "missing token expiry", statusCode: http.StatusOK, body: `{"token":"synthetic-token"}`},
+		{name: "wrong token expiry", statusCode: http.StatusOK, body: `{"token":"synthetic-token","expires_in_seconds":600}`},
 		{name: "invalid JSON", statusCode: http.StatusOK, body: `not-json`},
-		{name: "trailing JSON", statusCode: http.StatusOK, body: `{"token":"one"}{"token":"two"}`},
-		{name: "oversized body", statusCode: http.StatusOK, body: `{"token":"` + strings.Repeat("x", maxAssemblyAIRealtimeTokenResponseBytes) + `"}`},
+		{name: "trailing JSON", statusCode: http.StatusOK, body: `{"token":"one","expires_in_seconds":60}{"token":"two"}`},
+		{name: "oversized body", statusCode: http.StatusOK, body: `{"token":"` + strings.Repeat("x", maxAssemblyAIRealtimeTokenResponseBytes) + `","expires_in_seconds":60}`},
 		{name: "provider failure", statusCode: http.StatusBadGateway, body: `{"error":"synthetic failure"}`},
 	}
 
@@ -128,6 +134,27 @@ func TestRequestAssemblyAIRealtimeTokenRejectsInvalidProviderResponses(t *testin
 				t.Fatalf("error = %v, want a generic provider failure", err)
 			}
 		})
+	}
+}
+
+func TestAssemblyAIRealtimeSettingsKeepTheEdgeContract(t *testing.T) {
+	settings := newAssemblyAIClient(
+		"synthetic-test-key",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+	).RealtimeSettings()
+	if settings.Region != "edge" || settings.WebsocketURL != "wss://streaming.assemblyai.com/v3/ws" {
+		t.Fatalf("realtime region/URL = %q/%q, want global edge", settings.Region, settings.WebsocketURL)
+	}
+	if settings.ExpiresInSeconds != 60 || settings.MaxSessionDurationSeconds != 10_800 {
+		t.Fatalf("token/session durations = %d/%d, want 60/10800 seconds",
+			settings.ExpiresInSeconds, settings.MaxSessionDurationSeconds)
+	}
+	if settings.SpeechModel != "universal-3-5-pro" || settings.Redaction != "provider_pii_redaction" {
+		t.Fatalf("realtime model/redaction = %q/%q", settings.SpeechModel, settings.Redaction)
 	}
 }
 

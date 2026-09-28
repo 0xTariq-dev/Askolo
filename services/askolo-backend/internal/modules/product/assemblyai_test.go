@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTranscribeAssemblyAIRedactsReturnsReviewSignalsAndDeletes(t *testing.T) {
@@ -53,14 +54,15 @@ func TestTranscribeAssemblyAIRedactsReturnsReviewSignalsAndDeletes(t *testing.T)
 	}))
 	defer server.Close()
 
-	result, deletionStatus, err := transcribeAssemblyAI(
-		context.Background(),
-		server.Client(),
-		server.URL,
+	provider := newAssemblyAIClient(
 		"synthetic-test-key",
-		[]byte{1, 2, 3},
-		"en-US",
+		server.URL,
+		"",
+		"",
+		server.Client(),
+		nil,
 	)
+	result, deletionStatus, err := provider.Transcribe(context.Background(), []byte{1, 2, 3}, "en-US")
 	if err != nil {
 		t.Fatalf("transcribeAssemblyAI returned error: %v", err)
 	}
@@ -229,4 +231,48 @@ func TestVoiceInputValidation(t *testing.T) {
 	if len(input.AudioBase64) != 200*1024 {
 		t.Fatalf("decoded audioBase64 length = %d, want %d", len(input.AudioBase64), 200*1024)
 	}
+}
+
+func TestTranscribeAssemblyAICancellationStopsUploadRequest(t *testing.T) {
+	transport := &waitForRequestCancellationTransport{started: make(chan struct{})}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := transcribeAssemblyAI(
+			ctx,
+			&http.Client{Transport: transport},
+			"https://api.assemblyai.com",
+			"synthetic-test-key",
+			[]byte{1},
+			"",
+		)
+		result <- err
+	}()
+
+	select {
+	case <-transport.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider upload request did not start")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("transcription error = %v, want context cancellation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("transcription did not stop after cancellation")
+	}
+}
+
+type waitForRequestCancellationTransport struct {
+	started chan struct{}
+}
+
+func (t *waitForRequestCancellationTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	close(t.started)
+	<-request.Context().Done()
+	return nil, request.Context().Err()
 }
