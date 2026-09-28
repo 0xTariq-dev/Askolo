@@ -4,6 +4,7 @@
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
+- [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
 - [AssemblyAI deletion claims](assemblyai-retention-claims.md) — report transcript-delete confirmation without promising the uploaded audio copy was removed.
