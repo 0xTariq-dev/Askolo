@@ -17,27 +17,6 @@ env = { "CI" = "true" }
 runButton = "Project"
 
 [[workflows.workflow]]
-name = "artifacts/personal-assistant: web"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "artifacts/personal-assistant"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/personal-assistant run dev"
-cwd = "./artifacts/personal-assistant"
-waitForPort = 18131
-ensurePreviewReachable = "/"
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "18131"
-BASE_PATH = "/"
-
-[[workflows.workflow]]
 name = "publish-paths"
 author = "agent"
 
@@ -47,26 +26,6 @@ args = "pnpm run validate:publish-paths"
 
 [workflows.workflow.metadata]
 isValidation = true
-
-[[workflows.workflow]]
-name = "artifacts/personal-assistant: api"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "artifacts/personal-assistant"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd ../.. && cd services/askolo-backend && bash ./scripts/run.sh"
-cwd = "./artifacts/personal-assistant"
-waitForPort = 8090
-ensurePreviewReachable = "/"
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "8090"
 
 [[workflows.workflow]]
 name = "submodules/Askolo-UI/artifacts/mockup-sandbox: Component Preview Server"
