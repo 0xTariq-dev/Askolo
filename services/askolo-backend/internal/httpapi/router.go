@@ -261,7 +261,11 @@ func New(
 	authorizationHandler := authorizationmodule.NewHandler(store, logger, cfg.SessionCookieName)
 	mux.Handle("/internal/authz/", internalAuth.Wrap(authorizationHandler.Routes()))
 
-	websocketHandler := websocket.New(logger, cfg.ServiceName, store, cfg.SessionCookieName)
+	productHandler := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName)
+	websocketHandler := websocket.New(
+		logger, cfg.ServiceName, store, cfg.SessionCookieName,
+		cfg.CanonicalOrigin, cfg.AuthRateLimitHMACSecret, productHandler,
+	)
 	mux.Handle("/internal/ws", internalAuth.Wrap(websocketHandler))
 	mux.Handle(PublishedWebsocketPath, websocketHandler)
 
@@ -278,7 +282,7 @@ func New(
 	apiMux.Handle("/api/auth/", authHandler.Routes())
 	apiMux.Handle("/api/auth/github", githubRoutes)
 	apiMux.Handle("/api/auth/github/", githubRoutes)
-	productRoutes := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName).Routes()
+	productRoutes := productHandler.Routes()
 	apiMux.Handle(PublishedAPIPath+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/habits"),

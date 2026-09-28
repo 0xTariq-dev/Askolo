@@ -17,7 +17,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import {
-  createAssistantRun,
   confirmAssistantRun,
   cancelAssistantRun,
   useGetAssistantConversation,
@@ -31,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
+import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, newCreditIdempotencyKey } from '@/lib/credit-api';
 
 const messageSchema = z.object({ text: z.string().min(1) });
@@ -163,19 +163,12 @@ export function AssistantSidebar() {
       if (!estimate.canReserve) {
         throw new Error('There are not enough AI credits for this request.');
       }
-      const run = await createAssistantRun(
-        {
-          conversationId: conversationQuery.data?.conversationId,
-          transcript: text,
-        },
-        {
-          headers: {
-            'Idempotency-Key': newCreditIdempotencyKey(),
-            'X-AI-Credit-Policy-Version': String(estimate.policyVersion),
-          },
-          signal: controller.signal,
-        },
-      );
+      const run = await createAssistantRunOverWebSocket({
+        conversationId: conversationQuery.data?.conversationId,
+        transcript: text,
+        idempotencyKey: newCreditIdempotencyKey(),
+        policyVersion: estimate.policyVersion,
+      }, controller.signal);
       incorporateRun(run);
       await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
     } catch (error) {
@@ -186,6 +179,7 @@ export function AssistantSidebar() {
         setAssistantError(
           creditErrorMessage(error, 'I could not complete that request. Please try again.'),
         );
+        await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
       }
     } finally {
       if (planningRequestRef.current === controller) planningRequestRef.current = null;

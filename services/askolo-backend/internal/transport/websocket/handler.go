@@ -5,32 +5,53 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
 	"askolo/backend/internal/platform/apierror"
 	policy "askolo/backend/internal/platform/authorization"
+	"askolo/backend/internal/platform/publicws"
 )
 
-const maxSessionDurationSeconds = 120
+const maxSessionDurationSeconds = 10 * 60
 
 type Handler struct {
 	logger            *slog.Logger
 	serviceName       string
 	store             *postgres.Store
 	sessionCookieName string
+	canonicalOrigin   string
+	messageHMACSecret string
+	services          publicws.Services
 }
 
-func New(logger *slog.Logger, serviceName string, store *postgres.Store, sessionCookieName string) *Handler {
+func New(
+	logger *slog.Logger,
+	serviceName string,
+	store *postgres.Store,
+	sessionCookieName string,
+	canonicalOrigin string,
+	messageHMACSecret string,
+	services publicws.Services,
+) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{logger: logger, serviceName: serviceName, store: store, sessionCookieName: sessionCookieName}
+	return &Handler{
+		logger: logger, serviceName: serviceName, store: store, sessionCookieName: sessionCookieName,
+		canonicalOrigin: canonicalOrigin, messageHMACSecret: messageHMACSecret, services: services,
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		apierror.Write(w, r, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed.")
+		return
+	}
+	origin, allowed := h.allowedOrigin(r)
+	if !allowed {
+		apierror.Write(w, r, http.StatusForbidden, "INVALID_ORIGIN", "This connection origin is not allowed.")
 		return
 	}
 	userID, status := h.sessionUserID(r)
@@ -67,11 +88,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The transport boundary is intentionally present before a WebSocket
-	// implementation is selected. The eventual adapter must enforce origin,
-	// authentication, frame limits, heartbeats, session duration, and close
-	// semantics before handing messages to an application module.
-	apierror.Write(w, r, http.StatusNotImplemented, "WEBSOCKET_NOT_CONFIGURED", "WebSocket transport is not configured.")
+	if len(h.messageHMACSecret) < 32 {
+		apierror.Write(w, r, http.StatusServiceUnavailable, "WEBSOCKET_UNAVAILABLE", "The connection is temporarily unavailable.")
+		return
+	}
+	writeDeadline := time.Now().Add(time.Duration(maxSessionDurationSeconds)*time.Second + 60*time.Second)
+	if err := http.NewResponseController(w).SetWriteDeadline(writeDeadline); err != nil {
+		apierror.Write(w, r, http.StatusServiceUnavailable, "WEBSOCKET_UNAVAILABLE", "The connection is temporarily unavailable.")
+		return
+	}
+	h.serveProtocol(w, r, userID, workspaceID, origin)
 }
 
 func (h *Handler) sessionUserID(r *http.Request) (string, int) {

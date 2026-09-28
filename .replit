@@ -38,15 +38,6 @@ PORT = "18131"
 BASE_PATH = "/"
 
 [[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "publish-paths"
-
-[[workflows.workflow]]
 name = "publish-paths"
 author = "agent"
 
@@ -56,6 +47,26 @@ args = "pnpm run validate:publish-paths"
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "artifacts/personal-assistant: api"
+author = "agent"
+mode = "sequential"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+artifactId = "artifacts/personal-assistant"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd ../.. && cd services/askolo-backend && bash ./scripts/run.sh"
+cwd = "./artifacts/personal-assistant"
+waitForPort = 8090
+ensurePreviewReachable = "/"
+router = "path"
+
+[workflows.workflow.tasks.env]
+PORT = "8090"
 
 [agent]
 stack = "PNPM_WORKSPACE"

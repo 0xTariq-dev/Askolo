@@ -52,8 +52,10 @@ var publicWSHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var publicWSIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,200}$`)
 
 func validatePublicWSString(value string, required bool) bool {
-	value = strings.TrimSpace(value)
-	return (!required || value != "") && len(value) <= 200 && publicWSIDPattern.MatchString(value)
+	return value == strings.TrimSpace(value) &&
+		(!required || value != "") &&
+		len(value) <= 200 &&
+		publicWSIDPattern.MatchString(value)
 }
 
 func validatePublicWSLease(ttl time.Duration) error {

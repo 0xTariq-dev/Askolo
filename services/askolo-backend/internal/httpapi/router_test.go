@@ -370,6 +370,7 @@ func TestProtocolShellsRequireAuthorizationBeforeConfigurationCheck(t *testing.T
 		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
 		if path == "/ws" {
 			request = httptest.NewRequest(http.MethodGet, path, nil)
+			request.Header.Set("Origin", "https://example.com")
 		}
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

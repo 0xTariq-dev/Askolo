@@ -314,7 +314,6 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/ai/voice-to-plan", h.voiceToPlan)
 	mux.HandleFunc("POST /api/ai/meeting-extract", h.meetingExtract)
 	mux.HandleFunc("POST /api/ai/transcribe-audio", h.transcribeAudio)
-	mux.HandleFunc("GET /api/ai/realtime", h.realtimeTranscription)
 	mux.HandleFunc("PATCH /api/user/profile", h.updateProfile)
 	mux.HandleFunc("DELETE /api/user/data", h.deleteUserData)
 	mux.HandleFunc("DELETE /api/user/account", h.deleteAccount)
