@@ -63,6 +63,51 @@ func TestLoadRejectsMissingSQLDirectory(t *testing.T) {
 	t.Fatalf("Load() error = %v, want fs.ErrNotExist", err)
 }
 
+func TestPublishCompatibilityGateAllowsOnlyReviewedHistoricalDataMigrations(t *testing.T) {
+	migrations, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if err := ValidatePublishMigrationCompatibility(migrations); err != nil {
+		t.Fatalf("current migrations are not Publish-compatible: %v", err)
+	}
+
+	unreviewed := append(append([]Migration(nil), migrations...), Migration{
+		Version: len(migrations),
+		Name:    "0007_unreviewed_seed",
+		SQL:     "INSERT INTO users (id) VALUES ('seed');",
+		SHA256:  "unreviewed",
+	})
+	if err := ValidatePublishMigrationCompatibility(unreviewed); err == nil ||
+		!strings.Contains(err.Error(), "without a reviewed Publish compatibility exception") {
+		t.Fatalf("unreviewed data migration error = %v, want compatibility block", err)
+	}
+}
+
+func TestMigrationSQLDataMutationScanner(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{"insert", "INSERT INTO users (id) VALUES ('x')", true},
+		{"update in CTE", "WITH changed AS (UPDATE users SET id = 'x' RETURNING id) SELECT * FROM changed", true},
+		{"update inside DO block", "DO $$ BEGIN UPDATE users SET id = 'x'; END $$;", true},
+		{"create table as select", "CREATE TABLE snapshot AS SELECT id FROM users;", true},
+		{"select into", "SELECT id INTO snapshot FROM users;", true},
+		{"materialized view seed", "CREATE MATERIALIZED VIEW snapshot AS SELECT id FROM users;", true},
+		{"comments and string values", "-- DELETE FROM users\nSELECT 'UPDATE users'; /* INSERT INTO users */", false},
+		{"foreign key actions", "REFERENCES users(id) ON DELETE CASCADE ON UPDATE NO ACTION", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := containsDataMutation(test.sql); got != test.want {
+				t.Fatalf("containsDataMutation() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestBaselineContractPinsArchiveAndMigrationChecksums(t *testing.T) {
 	if archiveBaselineContract.Version != 1 {
 		t.Fatalf("contract version = %d, want 1", archiveBaselineContract.Version)

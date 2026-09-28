@@ -92,18 +92,27 @@ production:
 | Zero-RPO guarantee | Not documented by Replit and not measured |
 | One-hour RTO | Not documented by Replit and not measured |
 | Matching application-code rollback and republish | Not tested |
-| Go API readiness against the managed production schema | Not verified; do not resolve by running Go DDL against production |
+| Go API compatibility check against a Replit-managed non-production schema | Implemented as a read-only inventory and required-data check; not verified against Replit Publish |
 
 ## Schema and migration boundary
 
 Replit Publish synchronizes the managed production schema from development.
 This task must validate recovery without bypassing that mechanism. The Go
-migration runner is for disposable/development databases and, in the future,
-an explicitly selected external PostgreSQL target. It must not be used to
-restore or migrate Replit-managed production.
+migration runner is limited to disposable/development databases. An external
+PostgreSQL target is a future option and is not authorized under the current
+policy. The runner must not be used to restore or migrate Replit-managed
+production.
 
-Before claiming that a restored managed database is application-ready, verify
-the Go API's readiness expectations against a safe non-production schema. If
-the managed Publish flow and the Go migration-ledger/fingerprint checks are
-incompatible, record and resolve that gap without applying production DDL from
-this development Repl.
+Production `/readyz` now uses a read-only structural inventory comparison and
+checks the assistant policy rows required by the current application. It does
+not require the Go runner's ledger. Development and staging continue to use the
+full ledger and drift check. A migration compatibility test rejects unreviewed
+data-changing SQL; the existing data-seeding migrations are frozen,
+checksum-pinned exceptions, and readiness checks their required data.
+
+This is a compatibility guard, not evidence that Publish executes migration
+files, transfers their DML, or transfers the Go ledger. The managed-production
+check still needs verification against a safe Replit-managed non-production
+environment. Keep the Go runner limited to development and disposable tests
+unless and until Replit confirms a supported transactional migration mechanism
+and project policy is updated.

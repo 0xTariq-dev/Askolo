@@ -27,6 +27,18 @@ import (
 
 const EmailChallengeCleanupPersistentFailureThreshold = 3
 
+const (
+	schemaReadinessModeMigrationLedger = "go_migration_ledger"
+	schemaReadinessModePublishCheck    = "replit_publish_compatibility"
+)
+
+func schemaReadinessModeForEnvironment(environment string) string {
+	if strings.EqualFold(strings.TrimSpace(environment), "production") {
+		return schemaReadinessModePublishCheck
+	}
+	return schemaReadinessModeMigrationLedger
+}
+
 type EmailChallengeCleanupReadiness struct {
 	Status                       string     `json:"status"`
 	ConsecutiveFailures          int        `json:"consecutiveFailures"`
@@ -90,6 +102,7 @@ func (o *migrationReadinessObserver) check(
 func (o *migrationReadinessObserver) observe(
 	logger *slog.Logger,
 	cfg config.Config,
+	mode string,
 	ready bool,
 	checkErr error,
 ) {
@@ -97,7 +110,7 @@ func (o *migrationReadinessObserver) observe(
 	if checkErr != nil {
 		reason = checkErr.Error()
 	} else if !ready {
-		reason = "migration schema is not ready"
+		reason = "database schema is not ready"
 	}
 
 	o.mu.Lock()
@@ -112,18 +125,20 @@ func (o *migrationReadinessObserver) observe(
 		return
 	}
 	if ready {
-		logger.Info("database migration schema is ready",
+		logger.Info("database schema readiness check passed",
 			"environment", cfg.Environment,
+			"schema_readiness_mode", mode,
 			"service", cfg.ServiceName,
-			"operation", "migration_readiness",
+			"operation", "schema_readiness",
 			"status", "ready",
 		)
 		return
 	}
-	logger.Warn("database migration schema readiness blocked",
+	logger.Warn("database schema readiness check blocked",
 		"environment", cfg.Environment,
+		"schema_readiness_mode", mode,
 		"service", cfg.ServiceName,
-		"operation", "migration_readiness",
+		"operation", "schema_readiness",
 		"status", "not_ready",
 		"reason", reason,
 	)
@@ -200,7 +215,10 @@ func New(
 		databaseReachable := false
 		authorizationStorageReady := false
 		migrationSchemaReady := false
-		migrationReadinessErr := errors.New("database is not configured")
+		migrationLedgerReady := false
+		managedProductionSchemaCompatible := false
+		schemaReadinessMode := schemaReadinessModeForEnvironment(cfg.Environment)
+		schemaReadinessErr := errors.New("database is not configured")
 		mfaSecurityReadiness := authmodule.MFASecurityReadiness{
 			Status:        "unavailable",
 			Environment:   cfg.Environment,
@@ -211,17 +229,29 @@ func New(
 			databaseReachable = store.Ping(pingContext) == nil
 			if databaseReachable {
 				authorizationStorageReady = store.AuthorizationSchemaReady(pingContext)
-				migrationSchemaReady, migrationReadinessErr = migrationReadinessObserver.check(
-					pingContext,
-					store.MigrationSchemaReady,
-				)
+				schemaProbe := store.MigrationSchemaReady
+				if schemaReadinessMode == schemaReadinessModePublishCheck {
+					schemaProbe = store.ProductionSchemaCompatible
+				}
+				migrationSchemaReady, schemaReadinessErr = migrationReadinessObserver.check(pingContext, schemaProbe)
+				if schemaReadinessMode == schemaReadinessModePublishCheck {
+					managedProductionSchemaCompatible = migrationSchemaReady
+				} else {
+					migrationLedgerReady = migrationSchemaReady
+				}
 				mfaSecurityReadiness = authHandler.MFASecurityReadiness(pingContext)
 			} else {
-				migrationReadinessErr = errors.New("database is not reachable")
+				schemaReadinessErr = errors.New("database is not reachable")
 			}
 			cancel()
 		}
-		migrationReadinessObserver.observe(logger, cfg, migrationSchemaReady, migrationReadinessErr)
+		migrationReadinessObserver.observe(
+			logger,
+			cfg,
+			schemaReadinessMode,
+			migrationSchemaReady,
+			schemaReadinessErr,
+		)
 		emailDeliveryReadiness := authHandler.EmailDeliveryReadiness()
 		emailDeliveryConfigured := emailDeliveryReadiness.ResendConfiguration == "configured" &&
 			emailDeliveryReadiness.ChallengeConfiguration == "configured"
@@ -234,19 +264,23 @@ func New(
 			emailChallengeCleanupReadiness,
 		)
 		writeJSON(w, statusCode, map[string]any{
-			"environment":               cfg.Environment,
-			"release":                   cfg.ReleaseTag,
-			"commit":                    cfg.BuildCommit,
-			"service":                   cfg.ServiceName,
-			"status":                    status,
-			"internalAuthConfigured":    cfg.InternalAuthToken != "",
-			"databaseReachable":         databaseReachable,
-			"authorizationStorageReady": authorizationStorageReady,
-			"migrationSchemaReady":      migrationSchemaReady,
-			"emailDeliveryConfigured":   emailDeliveryConfigured,
-			"emailDelivery":             emailDeliveryReadiness,
-			"emailChallengeCleanup":     emailChallengeCleanupReadiness,
-			"mfaSecurity":               mfaSecurityReadiness,
+			"environment":                       cfg.Environment,
+			"release":                           cfg.ReleaseTag,
+			"commit":                            cfg.BuildCommit,
+			"service":                           cfg.ServiceName,
+			"status":                            status,
+			"internalAuthConfigured":            cfg.InternalAuthToken != "",
+			"databaseReachable":                 databaseReachable,
+			"authorizationStorageReady":         authorizationStorageReady,
+			"schemaReadinessMode":               schemaReadinessMode,
+			"migrationLedgerReady":              migrationLedgerReady,
+			"managedProductionSchemaCompatible": managedProductionSchemaCompatible,
+			// Kept as the selected schema gate for compatibility with existing probes.
+			"migrationSchemaReady":    migrationSchemaReady,
+			"emailDeliveryConfigured": emailDeliveryConfigured,
+			"emailDelivery":           emailDeliveryReadiness,
+			"emailChallengeCleanup":   emailChallengeCleanupReadiness,
+			"mfaSecurity":             mfaSecurityReadiness,
 		})
 	})
 
@@ -310,7 +344,7 @@ func New(
 func dependencyReadinessStatus(
 	databaseReachable bool,
 	authorizationStorageReady bool,
-	migrationSchemaReady bool,
+	schemaReady bool,
 	emailDeliveryConfigured bool,
 	cleanupReadiness ...EmailChallengeCleanupReadiness,
 ) (string, int) {
@@ -320,7 +354,7 @@ func dependencyReadinessStatus(
 	// visible in the response without making cold starts depend on them.
 	persistentCleanupFailure := len(cleanupReadiness) > 0 &&
 		cleanupReadiness[0].Status == "persistent_failure"
-	if !databaseReachable || !authorizationStorageReady || !migrationSchemaReady || !emailDeliveryConfigured || persistentCleanupFailure {
+	if !databaseReachable || !authorizationStorageReady || !schemaReady || !emailDeliveryConfigured || persistentCleanupFailure {
 		return "degraded", http.StatusServiceUnavailable
 	}
 	return "ready", http.StatusOK

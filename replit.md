@@ -42,16 +42,21 @@ development integrations, and the development database only.
   `cd services/askolo-backend && GOSUMDB=sum.golang.org bash ./scripts/test-migrations.sh`.
   This creates a disposable local PostgreSQL instance; do not point migration
   tests at the app's `DATABASE_URL`.
-- The explicit Go migration runner is for development, disposable databases,
-  and externally managed PostgreSQL targets. Production migrations must be a
-  separate, approved release step after target verification, backup checks,
-  and a tested restore. Never run a production target from this development
+- The explicit Go migration runner is limited to development and disposable
+  test databases for now. The restore target is exercised only against the
+  temporary PostgreSQL cluster created by the migration test script. No
+  external or production database target is authorized from this development
   Repl.
 - Do not run DDL at API startup or as part of an ordinary app build. For
   Replit-managed production PostgreSQL, Publish owns schema synchronization and
   Replit documents no supported opt-out. Do not use the Go runner against that
-  production database. The migration-ledger/readiness compatibility and
-  production recovery procedure are tracked in
+  production database. Production `/readyz` uses a read-only schema inventory
+  and required assistant seed-data compatibility check instead of requiring the
+  Go migration ledger. The compatibility gate rejects new migration DML unless
+  it has an explicitly reviewed exception; the existing seed migrations are
+  checksum-pinned and their required data is checked at readiness. This does
+  not establish that Publish transfers migration-file DML or ledger rows. The
+  remaining Publish limitation and recovery procedure are tracked in
   [`docs/production-recovery-runbook.md`](docs/production-recovery-runbook.md).
 - Follow [`docs/go-migrations-runbook.md`](docs/go-migrations-runbook.md) for
   migration authoring, validation, adoption, and release constraints.

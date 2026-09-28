@@ -87,6 +87,39 @@ func TestRunDisposableDatabase(t *testing.T) {
 	}
 }
 
+func TestProductionSchemaCompatibilityDoesNotRequireMigrationLedger(t *testing.T) {
+	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
+	if baseURL == "" {
+		t.Skip("set ASKOLO_TEST_DATABASE_URL to run migration integration tests")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "publish_compatibility")
+	if err := Run(ctx, pool); err != nil {
+		t.Fatalf("apply disposable migrations: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DROP TABLE askolo_schema_migrations`); err != nil {
+		t.Fatalf("remove Go migration ledger: %v", err)
+	}
+	if err := ValidateProductionSchemaCompatibility(ctx, pool); err != nil {
+		t.Fatalf("production schema check with no Go ledger: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE ai_credit_policy_versions
+		SET operation_weights = '{"assistant":1}'::jsonb WHERE version = 1`); err != nil {
+		t.Fatalf("add assistant weight to historical policy row: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE ai_credit_policy_versions
+		SET operation_weights = '{"voice":1}'::jsonb
+		WHERE version = (SELECT MAX(version) FROM ai_credit_policy_versions)`); err != nil {
+		t.Fatalf("remove assistant weight from the latest policy row: %v", err)
+	}
+	if err := ValidateProductionSchemaCompatibility(ctx, pool); err == nil ||
+		!strings.Contains(err.Error(), "assistant policy seed data is incomplete") {
+		t.Fatalf("latest-policy data compatibility error = %v, want seed-data block", err)
+	}
+}
+
 func TestRunScopesConstraintLookupsToTheTargetSchema(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
 	if baseURL == "" {

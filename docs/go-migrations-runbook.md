@@ -2,15 +2,16 @@
 
 ## Scope
 
-This runbook covers disposable and development databases plus externally
-managed PostgreSQL targets. It does not authorize running Go migrations against
-Replit-managed production PostgreSQL. Replit Publish synchronizes structural
-changes from development to production, and Replit documents no supported
-setting to disable that behavior. See
+This runbook covers development and disposable test databases only. It does
+not authorize running Go migrations against external or Replit-managed
+production PostgreSQL. Replit Publish synchronizes structural changes from
+development to production, and Replit documents no supported setting to
+disable that behavior. See
 [Development and production databases](https://docs.replit.com/features/data-and-storage/development-and-production).
 
 Production currently uses Replit-managed PostgreSQL. A separate external
-PostgreSQL target is a future environment and is not selected or connected yet.
+PostgreSQL target is a future environment and is not selected, connected, or
+authorized for Go migrations.
 For current production recovery constraints, see
 [`production-recovery-runbook.md`](production-recovery-runbook.md).
 
@@ -42,11 +43,11 @@ When a backend change needs a schema update:
    `services/askolo-backend` and run the relevant backend tests before handing
    off the change.
 
-Use this Go runner for external staging or production only after the target
-database has been identified and the release owner has verified a backup and a
-successful restore. A production run is a separate, explicitly approved release
-step, never part of API startup or the ordinary application build. This
-development Repl must not be given a live production database URL.
+Do not use the Go runner against an external or production database under the
+current project policy. The `restore` CLI target is exercised only by the
+migration test script against its temporary local PostgreSQL cluster; it is not
+an operational restore procedure or approval to target a live restored
+database.
 
 The versioned `inventory-v1` fingerprint is scoped to `current_schema()` and
 does not depend on that schema's name. It inventories relations, columns and
@@ -67,28 +68,26 @@ edited applied migrations, and serializes operators with an advisory lock.
 Every migration and its history row commit in one transaction. A failed
 migration is visible and leaves no history row.
 
-The API's `/readyz` endpoint returns 503 until every embedded migration is
-recorded in order with matching names and checksums and the current schema
-fingerprint matches the latest migration record. It reports only a readiness
-boolean to callers; detailed failures are logged server-side only when the
-readiness state changes. The check is read-only and uses the health request's
-bounded database context.
+In development and staging, `/readyz` returns 503 until every embedded
+migration is recorded in order with matching names and checksums and the
+current schema fingerprint matches the latest migration record. Replit-managed
+production instead uses a read-only schema inventory and required assistant
+seed-data check; it does not require the Go runner ledger. That compatibility
+check is not proof that Publish transfers migration DML or ledger rows. The
+selected check is reported in `schemaReadinessMode`, and detailed failures are
+logged server-side only when readiness state changes. Both checks use the
+health request's bounded database context.
 
 The backend build runs `scripts/test-migrations.sh`. It creates a temporary
 PostgreSQL 16.x instance with a private Unix socket, runs the full migration
 integration suite (including the restricted-role runner test), and exercises
-the development and approved restore CLI targets. The script removes the
-temporary cluster on exit and clears `DATABASE_URL` before integration tests,
-so it cannot use a live application database.
+the development and restore CLI targets against that disposable cluster. The
+script removes the temporary cluster on exit and clears `DATABASE_URL` before
+integration tests, so it cannot use a live application database.
 
-For external staging, production, and restore targets, set
-`ASKOLO_MIGRATION_APPROVED=yes` only after backup verification, change review,
-and target identity verification. The current Repl is development-only;
-production credentials, target identity, release ownership, and a tested restore
-are unresolved blockers. Do not use a live URL from this workspace. Restore a
-backup to disposable PostgreSQL first, run the CLI with `-target restore`, then
-exercise the service before release. Do not use these commands to bypass
-Replit-managed production schema synchronization.
+`ASKOLO_MIGRATION_APPROVED=yes` is required for the restore-target test, but it
+does not authorize use against any non-disposable database. Keep migration
+validation isolated from application and production database URLs.
 
 Forward fixes are new numbered migrations; never edit an applied file. The
 clean baseline is strict and rejects an already-populated database. Existing

@@ -60,6 +60,21 @@ func TestMigrationReadinessProbeCoalescesAndCachesChecks(t *testing.T) {
 	}
 }
 
+func TestSchemaReadinessModeIsEnvironmentSpecific(t *testing.T) {
+	for _, test := range []struct {
+		environment string
+		want        string
+	}{
+		{"development", schemaReadinessModeMigrationLedger},
+		{"staging", schemaReadinessModeMigrationLedger},
+		{"production", schemaReadinessModePublishCheck},
+	} {
+		if got := schemaReadinessModeForEnvironment(test.environment); got != test.want {
+			t.Errorf("mode for %q = %q, want %q", test.environment, got, test.want)
+		}
+	}
+}
+
 func testConfig(token string) config.Config {
 	return config.Config{
 		ServiceName:       "askolo-backend",
@@ -267,6 +282,23 @@ func TestReadinessReportsMissingDependencies(t *testing.T) {
 		!strings.Contains(body, `"emailDeliveryConfigured":false`) ||
 		!strings.Contains(body, `"emailChallengeCleanup":{"status":"unknown"`) {
 		t.Fatalf("expected dependency readiness signals, got %q", body)
+	}
+}
+
+func TestProductionReadinessReportsPublishCompatibilityNotLedgerReadiness(t *testing.T) {
+	cfg := testConfig("secret")
+	cfg.Environment = "production"
+	handler := New(cfg, slog.Default(), nil)
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	body := response.Body.String()
+	if !strings.Contains(body, `"schemaReadinessMode":"replit_publish_compatibility"`) ||
+		!strings.Contains(body, `"migrationLedgerReady":false`) ||
+		!strings.Contains(body, `"managedProductionSchemaCompatible":false`) {
+		t.Fatalf("production readiness did not distinguish compatibility and ledger checks: %q", body)
 	}
 }
 
