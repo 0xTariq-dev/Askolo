@@ -69,6 +69,7 @@ timeoutMs = 20000
 
 [userenv.shared]
 AUTH_EMAIL_FROM = "noreply@mail.askolo.app"
+GOSUMDB = "sum.golang.org"
 
 # This workspace is the development Repl. Staging and production use separate
 # Replit projects and their own environment-specific resources.
