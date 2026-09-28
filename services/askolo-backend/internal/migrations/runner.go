@@ -380,6 +380,16 @@ func runOne(ctx context.Context, conn *pgxpool.Conn, m Migration) error {
 	// Keep production behavior unchanged while allowing schema-isolated
 	// disposable tests (and restores) to use their own search_path.
 	sqlText := strings.ReplaceAll(m.SQL, `REFERENCES "public".`, `REFERENCES `)
+	if m.Name == "0002_ai_credit_contract" {
+		// The migration source is checksum-protected history. Its constraint
+		// guards query pg_constraint by name alone, but constraint names can
+		// repeat across schemas and tables. Scope those lookups to the target
+		// relation without changing the recorded migration checksum.
+		sqlText, err = scopeAICreditConstraintLookups(sqlText)
+		if err != nil {
+			return fmt.Errorf("prepare migration %04d: %w", m.Version, err)
+		}
+	}
 	if _, err = tx.Exec(ctx, sqlText); err != nil {
 		return fmt.Errorf("migration %04d failed (rolled back): %w", m.Version, err)
 	}
@@ -400,6 +410,42 @@ func runOne(ctx context.Context, conn *pgxpool.Conn, m Migration) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func scopeAICreditConstraintLookups(sqlText string) (string, error) {
+	constraints := []struct {
+		table string
+		name  string
+	}{
+		{table: "ai_credit_grants", name: "ai_credit_grants_amount_positive"},
+		{table: "ai_credit_adjustments", name: "ai_credit_adjustments_amount_nonzero"},
+		{table: "ai_credit_reservations", name: "ai_credit_reservations_reserved_nonnegative"},
+		{table: "ai_credit_reservations", name: "ai_credit_reservations_settled_nonnegative"},
+		{table: "ai_credit_reservations", name: "ai_credit_reservations_refunded_nonnegative"},
+		{table: "ai_credit_reservations", name: "ai_credit_reservations_unit_rate_positive"},
+		{table: "ai_credit_reservations", name: "ai_credit_reservations_max_nonnegative"},
+		{table: "ai_credit_reservations", name: "ai_credit_reservations_duration_nonnegative"},
+		{table: "ai_credit_reservations", name: "ai_credit_reservations_connected_duration_nonnegative"},
+		{table: "ai_credit_reservation_events", name: "ai_credit_reservation_events_credits_nonnegative"},
+		{table: "ai_credit_reservation_events", name: "ai_credit_reservation_events_duration_nonnegative"},
+		{table: "ai_provider_usage_evidence", name: "ai_provider_usage_evidence_duration_nonnegative"},
+		{table: "ai_provider_usage_evidence", name: "ai_provider_usage_evidence_input_nonnegative"},
+		{table: "ai_provider_usage_evidence", name: "ai_provider_usage_evidence_output_nonnegative"},
+	}
+
+	for _, constraint := range constraints {
+		unscoped := fmt.Sprintf("WHERE conname='%s'", constraint.name)
+		scoped := fmt.Sprintf(
+			"WHERE conrelid=to_regclass('%s') AND conname='%s'",
+			constraint.table,
+			constraint.name,
+		)
+		if strings.Count(sqlText, unscoped) != 1 {
+			return "", fmt.Errorf("expected exactly one unscoped lookup for constraint %q", constraint.name)
+		}
+		sqlText = strings.Replace(sqlText, unscoped, scoped, 1)
+	}
+	return sqlText, nil
 }
 
 func verifyNoUnexpected(ctx context.Context, tx pgx.Tx, applied map[int]Migration, expected []Migration) error {

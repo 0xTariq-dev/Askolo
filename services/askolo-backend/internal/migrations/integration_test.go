@@ -87,6 +87,66 @@ func TestRunDisposableDatabase(t *testing.T) {
 	}
 }
 
+func TestRunScopesConstraintLookupsToTheTargetSchema(t *testing.T) {
+	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
+	if baseURL == "" {
+		t.Skip("set ASKOLO_TEST_DATABASE_URL to run migration integration tests")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, baseURL)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer admin.Close()
+
+	suffix := time.Now().UnixNano()
+	targetSchema := fmt.Sprintf("askolo_migrations_target_%d", suffix)
+	shadowSchema := fmt.Sprintf("askolo_migrations_shadow_%d", suffix)
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(targetSchema)); err != nil {
+		t.Fatalf("create target schema: %v", err)
+	}
+	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(targetSchema)+` CASCADE`)
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(shadowSchema)); err != nil {
+		t.Fatalf("create shadow schema: %v", err)
+	}
+	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(shadowSchema)+` CASCADE`)
+
+	shadow, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, shadowSchema))
+	if err != nil {
+		t.Fatalf("open shadow schema pool: %v", err)
+	}
+	defer shadow.Close()
+	if _, err := shadow.Exec(ctx, `CREATE TABLE ai_credit_grants (
+		amount_credits integer NOT NULL,
+		CONSTRAINT ai_credit_grants_amount_positive CHECK (amount_credits > 0)
+	)`); err != nil {
+		t.Fatalf("create shadow constraint: %v", err)
+	}
+
+	target, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, targetSchema))
+	if err != nil {
+		t.Fatalf("open target schema pool: %v", err)
+	}
+	defer target.Close()
+	if err := Run(ctx, target); err != nil {
+		t.Fatalf("run migrations with a same-named constraint in another schema: %v", err)
+	}
+
+	var constraintCount int
+	if err := target.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pg_constraint
+		WHERE conrelid=to_regclass('ai_credit_grants')
+		  AND conname='ai_credit_grants_amount_positive'
+	`).Scan(&constraintCount); err != nil {
+		t.Fatalf("check target constraint: %v", err)
+	}
+	if constraintCount != 1 {
+		t.Fatalf("target schema constraint count = %d, want 1", constraintCount)
+	}
+}
+
 func TestRunRejectsTamperedHistoryBeforeWrites(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
 	if baseURL == "" {
