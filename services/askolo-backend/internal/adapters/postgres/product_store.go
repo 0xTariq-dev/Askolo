@@ -688,6 +688,19 @@ func (s *Store) ReserveAICredits(ctx context.Context, id, userID, operation, pro
 	if err = tx.QueryRow(ctx, `SELECT granted_credits+adjustment_credits-reserved_credits-spent_credits+refunded_credits FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&balance); err != nil {
 		return result, false, err
 	}
+	// A concurrent request with the same key may have passed the initial
+	// lookup before it acquired the account lock. Recheck after serialization
+	// so it returns the committed reservation instead of hitting the unique
+	// idempotency index on INSERT.
+	err = tx.QueryRow(ctx, `SELECT id,status,reserved_credits,settled_credits,refunded_credits,policy_version,expires_at
+		FROM ai_credit_reservations WHERE user_id=$1 AND idempotency_key=$2`, userID, key).
+		Scan(&prior.ID, &prior.Status, &prior.ReservedCredits, &prior.SettledCredits, &prior.RefundedCredits, &prior.PolicyVersion, &prior.ExpiresAt)
+	if err == nil {
+		return prior, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return result, false, err
+	}
 	if balance < credits {
 		return result, false, nil
 	}
@@ -812,7 +825,7 @@ func (s *Store) RefundAICreditReservation(ctx context.Context, id, userID, actor
 	if err = tx.QueryRow(ctx, `SELECT settled_credits,refunded_credits,status FROM ai_credit_reservations WHERE id=$1 AND user_id=$2 FOR UPDATE`, id, userID).Scan(&settled, &refunded, &state); err != nil {
 		return err
 	}
-	if state != "settled" || amount > settled-refunded {
+	if state != "settled" {
 		return errors.New("refund exceeds settled credits")
 	}
 	var prior int
@@ -828,6 +841,9 @@ func (s *Store) RefundAICreditReservation(ctx context.Context, id, userID, actor
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
+	}
+	if amount > settled-refunded {
+		return errors.New("refund exceeds settled credits")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE ai_credit_reservations SET refunded_credits=refunded_credits+$2,updated_at=NOW() WHERE id=$1`, id, amount); err != nil {
 		return err

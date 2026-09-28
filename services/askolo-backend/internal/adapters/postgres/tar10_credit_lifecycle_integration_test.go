@@ -284,7 +284,7 @@ func TestTAR10CreditLifecycleIntegration(t *testing.T) {
 		if _, err := store.UpdateAICreditPolicy(ctx, policy.Version-1, policy, "actor"); err == nil {
 			t.Fatal("101%% margin accepted")
 		}
-		policy.Version = 3
+		policy.Version = 2
 		policy.OverrunMarginPercent = 0
 		if _, err := store.UpdateAICreditPolicy(ctx, 1, policy, "actor"); err == nil || !strings.Contains(err.Error(), "conflict") {
 			t.Fatalf("stale policy expectedVersion error=%v", err)
