@@ -103,6 +103,41 @@ function realtimeWebSocketURL(): string {
   return url.toString();
 }
 
+async function requestRealtimeConnectionGrant(
+  headers: Record<string, string>,
+): Promise<string> {
+  const basePath = import.meta.env.BASE_URL.endsWith('/')
+    ? import.meta.env.BASE_URL
+    : `${import.meta.env.BASE_URL}/`;
+  const url = new URL(`${basePath}api/ai/realtime/grant`, window.location.origin);
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      ...headers,
+    },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { connectionGrant?: unknown; error?: unknown }
+    | null;
+  if (!response.ok) {
+    const message = payload && typeof payload.error === 'string'
+      ? payload.error
+      : 'The live transcription session could not be authorized. Try again.';
+    throw new Error(message);
+  }
+  if (
+    !payload ||
+    typeof payload.connectionGrant !== 'string' ||
+    !/^[A-Za-z0-9_-]{43}$/.test(payload.connectionGrant)
+  ) {
+    throw new Error('The live transcription server returned an invalid connection grant.');
+  }
+  return payload.connectionGrant;
+}
+
 function waitForWebSocketOpen(socket: WebSocket, timeoutMs = 20_000): Promise<void> {
   return new Promise((resolve, reject) => {
     const cleanup = () => {
@@ -289,6 +324,7 @@ export function useVoiceTranscription({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const realtimeRef = useRef<WebSocket | null>(null);
+  const realtimeHeartbeatRef = useRef<number | null>(null);
   const pendingRealtimePcmRef = useRef(new Int16Array(0));
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -542,6 +578,10 @@ export function useVoiceTranscription({
 
   const closeRealtime = async (waitForTermination: boolean) => {
     cleanupMediaStream();
+    if (realtimeHeartbeatRef.current !== null) {
+      window.clearInterval(realtimeHeartbeatRef.current);
+      realtimeHeartbeatRef.current = null;
+    }
     const socket = realtimeRef.current;
     realtimeRef.current = null;
     if (!socket || socket.readyState === WebSocket.CLOSED) {
@@ -610,6 +650,13 @@ export function useVoiceTranscription({
         return;
       }
       mediaStreamRef.current = stream;
+      setStatus('Authorizing the secure live session…');
+      const connectionGrant = await requestRealtimeConnectionGrant(creditRequest.headers);
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        return;
+      }
       setStatus('Starting the secure live session…');
       const socket = new WebSocket(realtimeWebSocketURL());
       realtimeRef.current = socket;
@@ -721,8 +768,7 @@ export function useVoiceTranscription({
       mediaStreamRef.current = stream;
       socket.send(JSON.stringify({
         type: 'Start',
-        idempotencyKey: creditRequest.headers['Idempotency-Key'],
-        policyVersion: Number(creditRequest.headers['X-AI-Credit-Policy-Version']),
+        connectionGrant,
       }));
       await ready;
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
@@ -730,6 +776,10 @@ export function useVoiceTranscription({
         await closeRealtime(false);
         return;
       }
+      realtimeHeartbeatRef.current = window.setInterval(() => {
+        if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 512 * 1024) return;
+        socket.send(JSON.stringify({ type: 'Heartbeat' }));
+      }, 15_000);
 
       const AudioContextCtor = window.AudioContext ??
         (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;

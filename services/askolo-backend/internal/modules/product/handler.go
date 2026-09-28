@@ -80,13 +80,15 @@ func simpleSpec(name, table string, fields []postgres.ProductField, defaults map
 }
 
 type Handler struct {
-	store             *postgres.Store
-	logger            *slog.Logger
-	sessionCookieName string
-	canonicalOrigin   string
-	assemblyAI        assemblyAIProvider
-	adminEmails       map[string]struct{}
-	realtimeLimiter   *realtimeSessionLimiter
+	store               *postgres.Store
+	logger              *slog.Logger
+	sessionCookieName   string
+	canonicalOrigin     string
+	assemblyAI          assemblyAIProvider
+	adminEmails         map[string]struct{}
+	realtimeLimiter     *realtimeSessionLimiter
+	authRateLimitSecret string
+	realtimeIdleTimeout time.Duration
 }
 
 type voiceCreditReservation struct {
@@ -95,6 +97,7 @@ type voiceCreditReservation struct {
 	ReservedCredits int
 	SettledCredits  int
 	PolicyVersion   int
+	ExpiresAt       *time.Time
 }
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, sessionCookieName string) *Handler {
@@ -127,13 +130,15 @@ func newHandler(
 		logger = slog.Default()
 	}
 	return &Handler{
-		store:             store,
-		logger:            logger,
-		sessionCookieName: sessionCookieName,
-		assemblyAI:        assemblyAI,
-		adminEmails:       cfg.AdminEmails,
-		canonicalOrigin:   canonicalOrigin,
-		realtimeLimiter:   newRealtimeSessionLimiter(),
+		store:               store,
+		logger:              logger,
+		sessionCookieName:   sessionCookieName,
+		assemblyAI:          assemblyAI,
+		adminEmails:         cfg.AdminEmails,
+		canonicalOrigin:     canonicalOrigin,
+		realtimeLimiter:     newRealtimeSessionLimiter(),
+		authRateLimitSecret: cfg.AuthRateLimitHMACSecret,
+		realtimeIdleTimeout: realtimeClientIdleTimeout,
 	}
 }
 
@@ -169,6 +174,18 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 	mode string,
 	key string,
 	expectedVersion int,
+) (voiceCreditReservation, *voiceCreditReservationFailure) {
+	return h.reserveVoiceProviderCreditRequestWithTTL(ctx, userID, mode, key, expectedVersion, 300, true)
+}
+
+func (h *Handler) reserveVoiceProviderCreditRequestWithTTL(
+	ctx context.Context,
+	userID string,
+	mode string,
+	key string,
+	expectedVersion int,
+	ttlSeconds int,
+	claimReservation bool,
 ) (voiceCreditReservation, *voiceCreditReservationFailure) {
 	var result voiceCreditReservation
 	if key == "" || len(key) > 200 {
@@ -218,7 +235,7 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 			message: "AI credit policy is unavailable.",
 		}
 	}
-	reservation, created, err := h.store.ReserveAICredits(ctx, id, userID, "voice", "assemblyai", mode, key, cap, 300, p.Version)
+	reservation, created, err := h.store.ReserveAICredits(ctx, id, userID, "voice", "assemblyai", mode, key, cap, ttlSeconds, p.Version)
 	if err != nil {
 		return result, &voiceCreditReservationFailure{operation: "AI credit reservation failed", err: err}
 	}
@@ -228,19 +245,21 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 			message: "This operation is already being processed.",
 		}
 	}
-	claimed, err := h.store.ClaimAICreditReservation(ctx, reservation.ID, userID)
-	if err != nil || !claimed {
-		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":claim-failed"); releaseErr != nil {
-			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
-		}
-		return result, &voiceCreditReservationFailure{
-			status: http.StatusConflict, code: "CREDIT_RESERVATION_CONFLICT",
-			message: "This operation is already being processed.",
+	if claimReservation {
+		claimed, claimErr := h.store.ClaimAICreditReservation(ctx, reservation.ID, userID)
+		if claimErr != nil || !claimed {
+			if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":claim-failed"); releaseErr != nil {
+				h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
+			}
+			return result, &voiceCreditReservationFailure{
+				status: http.StatusConflict, code: "CREDIT_RESERVATION_CONFLICT",
+				message: "This operation is already being processed.",
+			}
 		}
 	}
 	return voiceCreditReservation{
 		ID: reservation.ID, Mode: mode, ReservedCredits: reservation.ReservedCredits,
-		SettledCredits: rate, PolicyVersion: reservation.PolicyVersion,
+		SettledCredits: rate, PolicyVersion: reservation.PolicyVersion, ExpiresAt: reservation.ExpiresAt,
 	}, nil
 }
 
@@ -303,6 +322,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/ai/voice-to-plan", h.voiceToPlan)
 	mux.HandleFunc("POST /api/ai/meeting-extract", h.meetingExtract)
 	mux.HandleFunc("POST /api/ai/transcribe-audio", h.transcribeAudio)
+	mux.HandleFunc("POST /api/ai/realtime/grant", h.realtimeConnectionGrant)
 	mux.HandleFunc("GET /api/ai/realtime", h.realtimeTranscription)
 	mux.HandleFunc("PATCH /api/user/profile", h.updateProfile)
 	mux.HandleFunc("DELETE /api/user/data", h.deleteUserData)

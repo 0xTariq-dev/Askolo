@@ -18,13 +18,13 @@ func TestDecodeRealtimeStart(t *testing.T) {
 		payload string
 		wantOK  bool
 	}{
-		{name: "valid", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3}`, wantOK: true},
-		{name: "wrong message type", payload: `{"type":"Terminate","idempotencyKey":"voice-key","policyVersion":3}`},
-		{name: "missing key", payload: `{"type":"Start","policyVersion":3}`},
-		{name: "padded key", payload: `{"type":"Start","idempotencyKey":" voice-key ","policyVersion":3}`},
-		{name: "invalid version", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":0}`},
-		{name: "unknown field", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3,"token":"not-accepted"}`},
-		{name: "trailing value", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3} {}`},
+		{name: "valid single-use grant", payload: `{"type":"Start","connectionGrant":"` + strings.Repeat("A", 43) + `"}`, wantOK: true},
+		{name: "wrong message type", payload: `{"type":"Terminate","connectionGrant":"` + strings.Repeat("A", 43) + `"}`},
+		{name: "missing grant", payload: `{"type":"Start"}`},
+		{name: "invalid grant encoding", payload: `{"type":"Start","connectionGrant":"not-a-grant"}`},
+		{name: "legacy client-supplied credit fields", payload: `{"type":"Start","idempotencyKey":"voice-key","policyVersion":3}`},
+		{name: "unknown field", payload: `{"type":"Start","connectionGrant":"` + strings.Repeat("A", 43) + `","token":"not-accepted"}`},
+		{name: "trailing value", payload: `{"type":"Start","connectionGrant":"` + strings.Repeat("A", 43) + `"} {}`},
 		{name: "malformed JSON", payload: `not-json`},
 	}
 	for _, test := range tests {
@@ -34,6 +34,18 @@ func TestDecodeRealtimeStart(t *testing.T) {
 				t.Fatalf("decodeRealtimeStart() accepted = %t, want %t", ok, test.wantOK)
 			}
 		})
+	}
+}
+
+func TestRealtimeConnectionGrantHashRequiresCanonicalToken(t *testing.T) {
+	valid := strings.Repeat("A", 43)
+	if hash, ok := realtimeConnectionGrantHash(valid); !ok || len(hash) != 64 {
+		t.Fatalf("realtimeConnectionGrantHash(valid) = (%q, %t), want a SHA-256 hex digest", hash, ok)
+	}
+	for _, token := range []string{"", "short", valid + "=", strings.Repeat("A", 44), strings.Repeat("A", 42) + "!"} {
+		if _, ok := realtimeConnectionGrantHash(token); ok {
+			t.Fatalf("realtimeConnectionGrantHash(%q) accepted an invalid token", token)
+		}
 	}
 }
 
@@ -185,6 +197,9 @@ func TestRelayRealtimeSessionForwardsAudioAndProviderEvents(t *testing.T) {
 	defer client.CloseNow()
 
 	frame := make([]byte, assemblyAIRealtimeMinPCMFrameBytes)
+	if err := client.Write(ctx, websocket.MessageText, []byte(`{"type":"Heartbeat"}`)); err != nil {
+		t.Fatalf("write heartbeat: %v", err)
+	}
 	if err := client.Write(ctx, websocket.MessageBinary, frame); err != nil {
 		t.Fatalf("write PCM frame: %v", err)
 	}
@@ -265,5 +280,52 @@ func TestRelayRealtimeSessionLimitStopsForwardingAudio(t *testing.T) {
 	case forwarded := <-provider.frames:
 		t.Fatalf("audio was forwarded after the session limit: %d bytes", len(forwarded))
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestRelayRealtimeSessionEndsIdleClient(t *testing.T) {
+	provider := &testRealtimeSession{
+		frames: make(chan []byte, 1),
+		events: make(chan assemblyAIRealtimeEvent, 2),
+		termination: assemblyAIRealtimeEvent{
+			Type: "Termination", Payload: []byte(`{"type":"Termination"}`),
+		},
+	}
+	handler := &Handler{realtimeIdleTimeout: 60 * time.Millisecond}
+	outcomes := make(chan realtimeSessionOutcome, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Errorf("accept test websocket: %v", err)
+			return
+		}
+		defer client.CloseNow()
+		outcomes <- handler.relayRealtimeSession(r.Context(), client, provider, time.Now())
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial test websocket: %v", err)
+	}
+	defer client.CloseNow()
+
+	messageType, payload, err := client.Read(ctx)
+	if err != nil {
+		t.Fatalf("read idle timeout event: %v", err)
+	}
+	if messageType != websocket.MessageText || !strings.Contains(string(payload), `"code":"CLIENT_IDLE_TIMEOUT"`) {
+		t.Fatalf("idle timeout event = %q, want CLIENT_IDLE_TIMEOUT", payload)
+	}
+	select {
+	case outcome := <-outcomes:
+		if outcome != realtimeOutcomeClientIdle {
+			t.Fatalf("session outcome = %q, want %q", outcome, realtimeOutcomeClientIdle)
+		}
+	case <-ctx.Done():
+		t.Fatal("idle session did not terminate")
 	}
 }

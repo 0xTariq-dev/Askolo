@@ -3,11 +3,17 @@ package product
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +28,10 @@ const (
 	realtimeProviderSetupLimit = 20 * time.Second
 	realtimeTerminationTimeout = 3 * time.Second
 	realtimeWriteDeadlineExtra = 60 * time.Second
+	realtimeClientIdleTimeout  = 45 * time.Second
+	realtimeGrantLifetime      = 60 * time.Second
+	realtimeGrantRateLimit     = 5
+	realtimeHeartbeatInterval  = 15 * time.Second
 	realtimeMaxActiveSessions  = 128
 	realtimeMaxSessionsPerUser = 2
 	maxRealtimeStartMessage    = 4096
@@ -64,9 +74,8 @@ func (l *realtimeSessionLimiter) acquire(userID string) (func(), bool) {
 }
 
 type realtimeStartMessage struct {
-	Type           string `json:"type"`
-	IdempotencyKey string `json:"idempotencyKey"`
-	PolicyVersion  int    `json:"policyVersion"`
+	Type            string `json:"type"`
+	ConnectionGrant string `json:"connectionGrant"`
 }
 
 type realtimeClientEvent struct {
@@ -85,6 +94,144 @@ type realtimeClientResult struct {
 type realtimeProviderResult struct {
 	event assemblyAIRealtimeEvent
 	err   error
+}
+
+type realtimeSessionOutcome string
+
+const (
+	realtimeOutcomeClientTerminated       realtimeSessionOutcome = "client_terminated"
+	realtimeOutcomeClientTerminateTimeout realtimeSessionOutcome = "client_termination_timeout"
+	realtimeOutcomeProviderTerminated     realtimeSessionOutcome = "provider_terminated"
+	realtimeOutcomeClientIdle             realtimeSessionOutcome = "client_idle_timeout"
+	realtimeOutcomeClientDisconnected     realtimeSessionOutcome = "client_disconnected"
+	realtimeOutcomeProviderFailed         realtimeSessionOutcome = "provider_failed"
+	realtimeOutcomeInvalidAudio           realtimeSessionOutcome = "invalid_audio"
+	realtimeOutcomeInvalidMessage         realtimeSessionOutcome = "invalid_client_message"
+	realtimeOutcomeDurationLimit          realtimeSessionOutcome = "duration_limit"
+)
+
+type realtimeConnectionGrantResponse struct {
+	ConnectionGrant string    `json:"connectionGrant"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+}
+
+func (h *Handler) realtimeConnectionGrant(w http.ResponseWriter, r *http.Request) {
+	_, allowed := h.allowedRealtimeOrigin(r)
+	if !allowed {
+		writeError(w, http.StatusForbidden, "INVALID_ORIGIN", "This voice session origin is not allowed.")
+		return
+	}
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+		return
+	}
+	allowed, err := h.allowRealtimeConnectionGrant(r.Context(), userID)
+	if err != nil {
+		h.storeError(w, "realtime connection grant rate limit failed", err)
+		return
+	}
+	if !allowed {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "VOICE_GRANT_RATE_LIMIT", "Too many live transcription starts were requested.")
+		return
+	}
+	consent, consentVersion, err := h.store.VoiceConsent(r.Context(), userID)
+	if err != nil {
+		h.storeError(w, "voice consent lookup failed", err)
+		return
+	}
+	if !consent || consentVersion != postgres.VoiceConsentVersion {
+		writeError(w, http.StatusForbidden, "VOICE_CONSENT_REQUIRED", "Voice transcription consent is required.")
+		return
+	}
+	if h.assemblyAI == nil || !h.assemblyAI.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "VOICE_NOT_CONFIGURED", "Voice transcription is not configured.")
+		return
+	}
+
+	expectedVersion, _ := strconv.Atoi(strings.TrimSpace(r.Header.Get("X-AI-Credit-Policy-Version")))
+	reservation, failure := h.reserveVoiceProviderCreditRequestWithTTL(
+		r.Context(),
+		userID,
+		"realtime",
+		strings.TrimSpace(r.Header.Get("Idempotency-Key")),
+		expectedVersion,
+		int(realtimeGrantLifetime/time.Second),
+		false,
+	)
+	if failure != nil {
+		if failure.err != nil {
+			h.logger.Error(failure.operation, "error", failure.err)
+			writeError(w, http.StatusServiceUnavailable, "INTERNAL_ERROR", "The live transcription session could not be authorized.")
+			return
+		}
+		writeError(w, failure.status, failure.code, failure.message)
+		return
+	}
+
+	randomToken := make([]byte, 32)
+	if _, err := rand.Read(randomToken); err != nil {
+		h.releaseRealtimeReservation(reservation.ID, userID, "grant-generation-failed")
+		h.logger.Error("realtime connection grant generation failed", "reservation_id", reservation.ID, "error", err)
+		writeError(w, http.StatusServiceUnavailable, "VOICE_UNAVAILABLE", "The live transcription session could not be authorized.")
+		return
+	}
+	token := base64.RawURLEncoding.EncodeToString(randomToken)
+	tokenHash := sha256.Sum256(randomToken)
+	stored, err := h.store.SetAICreditReservationProviderToken(
+		r.Context(),
+		reservation.ID,
+		userID,
+		hex.EncodeToString(tokenHash[:]),
+	)
+	if err != nil || !stored {
+		h.releaseRealtimeReservation(reservation.ID, userID, "grant-storage-failed")
+		if err != nil {
+			h.storeError(w, "realtime connection grant storage failed", err)
+			return
+		}
+		writeError(w, http.StatusConflict, "VOICE_GRANT_UNAVAILABLE", "The live transcription session could not be authorized.")
+		return
+	}
+	expiresAt := time.Now().UTC().Add(realtimeGrantLifetime)
+	if reservation.ExpiresAt != nil {
+		expiresAt = *reservation.ExpiresAt
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(realtimeConnectionGrantResponse{
+		ConnectionGrant: token,
+		ExpiresAt:       expiresAt,
+	})
+}
+
+func (h *Handler) allowRealtimeConnectionGrant(ctx context.Context, userID string) (bool, error) {
+	secret := strings.TrimSpace(h.authRateLimitSecret)
+	if len([]byte(secret)) < 32 {
+		return false, errors.New("realtime grant rate-limit secret is not configured")
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte("askolo:realtime-connection-grant:v1\x00" + userID))
+	return h.store.AllowAuthRateLimitBucket(
+		ctx,
+		hex.EncodeToString(mac.Sum(nil)),
+		realtimeGrantRateLimit,
+		time.Minute,
+	)
+}
+
+func (h *Handler) releaseRealtimeReservation(id, userID, reason string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := h.store.ReleaseAICreditReservation(ctx, id, userID, id+":"+reason); err != nil {
+		h.logger.Error("voice credit reservation release failed", "reservation_id", id, "error", err)
+	}
 }
 
 func (h *Handler) realtimeTranscription(w http.ResponseWriter, r *http.Request) {
@@ -161,16 +308,43 @@ func (h *Handler) realtimeTranscription(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	reservation, failure := h.reserveVoiceProviderCreditRequest(
-		r.Context(), userID, "realtime", strings.TrimSpace(start.IdempotencyKey), start.PolicyVersion,
+	tokenHash, ok := realtimeConnectionGrantHash(start.ConnectionGrant)
+	if !ok {
+		h.writeRealtimeError(conn, "INVALID_SESSION_GRANT", "The live transcription session could not be started.")
+		return
+	}
+	claimedReservation, claimed, err := h.store.ClaimAICreditReservationWithProviderToken(
+		r.Context(),
+		userID,
+		tokenHash,
 	)
-	if failure != nil {
-		if failure.err != nil {
-			h.logger.Error(failure.operation, "error", failure.err)
-			h.writeRealtimeError(conn, "INTERNAL_ERROR", "The live transcription session could not be started.")
-			return
-		}
-		h.writeRealtimeError(conn, failure.code, failure.message)
+	if err != nil {
+		h.logger.Error("realtime connection grant claim failed", "error", err)
+		h.writeRealtimeError(conn, "INTERNAL_ERROR", "The live transcription session could not be started.")
+		return
+	}
+	if !claimed {
+		h.writeRealtimeError(conn, "INVALID_SESSION_GRANT", "The live transcription session could not be started.")
+		return
+	}
+	reservation := voiceCreditReservation{
+		ID:              claimedReservation.ID,
+		Mode:            "realtime",
+		ReservedCredits: claimedReservation.ReservedCredits,
+		SettledCredits:  claimedReservation.ReservedCredits,
+		PolicyVersion:   claimedReservation.PolicyVersion,
+		ExpiresAt:       claimedReservation.ExpiresAt,
+	}
+	policySnapshot, policyErr := h.store.AICreditPolicyVersion(r.Context(), reservation.PolicyVersion)
+	if policyErr != nil {
+		h.releaseRealtimeReservation(reservation.ID, userID, "policy-lookup-failed")
+		h.storeError(w, "AI policy lookup failed", policyErr)
+		return
+	}
+	reservation.SettledCredits = policySnapshot.OperationWeights["voice"]
+	if reservation.SettledCredits < 1 || reservation.SettledCredits > reservation.ReservedCredits {
+		h.releaseRealtimeReservation(reservation.ID, userID, "invalid-policy")
+		h.writeRealtimeError(conn, "AI_POLICY_INVALID", "The live transcription session could not be started.")
 		return
 	}
 	providerStarted := false
@@ -215,7 +389,14 @@ func (h *Handler) realtimeTranscription(w http.ResponseWriter, r *http.Request) 
 				h.terminateRealtimeProvider(provider)
 				return
 			}
-			h.relayRealtimeSession(r.Context(), conn, provider, providerStartedAt)
+			outcome := h.relayRealtimeSession(r.Context(), conn, provider, providerStartedAt)
+			h.logger.Info(
+				"realtime voice session ended",
+				"user_id", userID,
+				"reservation_id", reservation.ID,
+				"outcome", string(outcome),
+				"duration_ms", time.Since(providerStartedAt).Milliseconds(),
+			)
 			return
 		}
 	}
@@ -272,12 +453,22 @@ func decodeRealtimeStart(payload []byte) (realtimeStartMessage, bool) {
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return realtimeStartMessage{}, false
 	}
-	if start.Type != "Start" || strings.TrimSpace(start.IdempotencyKey) == "" ||
-		len(start.IdempotencyKey) > 200 || strings.TrimSpace(start.IdempotencyKey) != start.IdempotencyKey ||
-		start.PolicyVersion < 1 {
+	if start.Type != "Start" {
+		return realtimeStartMessage{}, false
+	}
+	if _, ok := realtimeConnectionGrantHash(start.ConnectionGrant); !ok {
 		return realtimeStartMessage{}, false
 	}
 	return start, true
+}
+
+func realtimeConnectionGrantHash(token string) (string, bool) {
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
+	if err != nil || len(raw) != 32 || base64.RawURLEncoding.EncodeToString(raw) != token {
+		return "", false
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:]), true
 }
 
 func (h *Handler) writeRealtimeError(conn *websocket.Conn, code, message string) {
@@ -307,7 +498,7 @@ func (h *Handler) relayRealtimeSession(
 	client *websocket.Conn,
 	provider assemblyAIRealtimeSession,
 	sessionStartedAt time.Time,
-) {
+) realtimeSessionOutcome {
 	relayCtx, cancelRelay := context.WithCancel(ctx)
 	defer cancelRelay()
 	pcmCtx, cancelPCM := context.WithCancel(relayCtx)
@@ -322,8 +513,9 @@ func (h *Handler) relayRealtimeSession(
 	}
 
 	clientResults := make(chan realtimeClientResult, 1)
+	clientActivity := make(chan struct{}, 1)
 	go func() {
-		terminationSent, err := relayRealtimeClient(relayCtx, client, provider, pcmCtx, stopSendingPCM)
+		terminationSent, err := relayRealtimeClient(relayCtx, client, provider, pcmCtx, stopSendingPCM, clientActivity)
 		clientResults <- realtimeClientResult{terminationSent: terminationSent, err: err}
 	}()
 
@@ -350,6 +542,12 @@ func (h *Handler) relayRealtimeSession(
 	}
 	sessionTimer := time.NewTimer(remainingSessionTime)
 	defer sessionTimer.Stop()
+	idleTimeout := h.realtimeIdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = realtimeClientIdleTimeout
+	}
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
 	var terminationTimer *time.Timer
 	defer func() {
 		if terminationTimer != nil {
@@ -368,6 +566,15 @@ func (h *Handler) relayRealtimeSession(
 		}
 		terminationSent = true
 		h.terminateRealtimeProvider(provider)
+	}
+	resetIdleTimer := func() {
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(idleTimeout)
 	}
 
 	for {
@@ -391,30 +598,45 @@ func (h *Handler) relayRealtimeSession(
 			if errors.Is(result.err, errAssemblyAIInvalidPCMFrame) {
 				h.writeRealtimeError(client, "INVALID_AUDIO_FRAME", "The live audio frame is invalid.")
 				sendTermination()
-				return
+				return realtimeOutcomeInvalidAudio
 			}
 			if errors.Is(result.err, errRealtimeClientProtocol) {
 				h.writeRealtimeError(client, "INVALID_CLIENT_MESSAGE", "The live transcription session received an unsupported message.")
 				sendTermination()
-				return
+				return realtimeOutcomeInvalidMessage
 			}
 			sendTermination()
-			return
+			return realtimeOutcomeClientDisconnected
 
 		case result := <-providerResults:
 			if result.err != nil {
 				if ctx.Err() == nil {
 					h.writeRealtimeError(client, "VOICE_PROVIDER_FAILED", "Real-time transcription stopped unexpectedly. Try recorded transcription instead.")
+					return realtimeOutcomeProviderFailed
 				}
-				return
+				return realtimeOutcomeClientDisconnected
 			}
 			if err := writeRealtimeProviderEvent(ctx, client, result.event); err != nil {
 				sendTermination()
-				return
+				return realtimeOutcomeClientDisconnected
 			}
 			if result.event.Type == "Termination" {
-				return
+				if sessionLimitTriggered {
+					return realtimeOutcomeDurationLimit
+				}
+				if terminationSent {
+					return realtimeOutcomeClientTerminated
+				}
+				return realtimeOutcomeProviderTerminated
 			}
+
+		case <-clientActivity:
+			resetIdleTimer()
+
+		case <-idleTimer.C:
+			h.writeRealtimeError(client, "CLIENT_IDLE_TIMEOUT", "The live transcription session ended after an idle period.")
+			sendTermination()
+			return realtimeOutcomeClientIdle
 
 		case <-sessionTimerC:
 			sessionTimerC = nil
@@ -430,15 +652,18 @@ func (h *Handler) relayRealtimeSession(
 			})
 			cancelLimit()
 			if err != nil {
-				return
+				return realtimeOutcomeDurationLimit
 			}
 
 		case <-terminationTimerC:
-			return
+			if sessionLimitTriggered {
+				return realtimeOutcomeDurationLimit
+			}
+			return realtimeOutcomeClientTerminateTimeout
 
 		case <-ctx.Done():
 			sendTermination()
-			return
+			return realtimeOutcomeClientDisconnected
 		}
 	}
 }
@@ -449,6 +674,7 @@ func relayRealtimeClient(
 	provider assemblyAIRealtimeSession,
 	pcmCtx context.Context,
 	stopSendingPCM <-chan struct{},
+	clientActivity chan<- struct{},
 ) (bool, error) {
 	for {
 		messageType, payload, err := client.Read(ctx)
@@ -457,6 +683,10 @@ func relayRealtimeClient(
 		}
 		switch messageType {
 		case websocket.MessageBinary:
+			select {
+			case clientActivity <- struct{}{}:
+			default:
+			}
 			select {
 			case <-stopSendingPCM:
 				continue
@@ -469,10 +699,29 @@ func relayRealtimeClient(
 			var message struct {
 				Type string `json:"type"`
 			}
-			if len(payload) > maxRealtimeStartMessage || json.Unmarshal(payload, &message) != nil || message.Type != "Terminate" {
+			if len(payload) > maxRealtimeStartMessage {
 				return false, errRealtimeClientProtocol
 			}
-			return true, nil
+			decoder := json.NewDecoder(bytes.NewReader(payload))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&message) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+				return false, errRealtimeClientProtocol
+			}
+			switch message.Type {
+			case "Heartbeat":
+				select {
+				case clientActivity <- struct{}{}:
+				default:
+				}
+			case "Terminate":
+				select {
+				case clientActivity <- struct{}{}:
+				default:
+				}
+				return true, nil
+			default:
+				return false, errRealtimeClientProtocol
+			}
 		default:
 			return false, errRealtimeClientProtocol
 		}
