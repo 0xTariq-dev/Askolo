@@ -1,0 +1,3 @@
+[submodule "submodules/Askolo-UI"]
+	path = submodules/Askolo-UI
+	url = https://github.com/0xTariq-dev/Askolo-UI.git
