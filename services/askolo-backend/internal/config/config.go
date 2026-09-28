@@ -40,6 +40,8 @@ type Config struct {
 	Google                        GoogleOAuthConfig
 	GitHub                        GitHubOAuthConfig
 	AssemblyAIKey                 string
+	OpenAIAPIKey                  string
+	OpenAIBaseURL                 string
 	AllowedOAuthHosts             map[string]struct{}
 	AdminEmails                   map[string]struct{}
 }
@@ -241,6 +243,8 @@ func Load() (Config, error) {
 			EmailsURL:    "https://api.github.com/user/emails",
 		},
 		AssemblyAIKey:     strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
+		OpenAIAPIKey:      strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_API_KEY")),
+		OpenAIBaseURL:     strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_BASE_URL")),
 		AllowedOAuthHosts: oauthHosts(environment, canonicalOrigin),
 		AdminEmails:       adminEmails,
 	}, nil

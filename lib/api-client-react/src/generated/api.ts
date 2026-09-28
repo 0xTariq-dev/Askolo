@@ -25,6 +25,10 @@ import type {
   ActionItemUpdate,
   AssistantChatBody,
   AssistantChatResponse,
+  AssistantConfirmationInput,
+  AssistantConversation,
+  AssistantRun,
+  AssistantRunInput,
   AudioTranscriptionBody,
   AudioTranscriptionResponse,
   AuthUserEnvelope,
@@ -5671,6 +5675,402 @@ export const useAssistantChat = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAssistantChatMutationOptions(options));
+    }
+
+export const getGetAssistantConversationUrl = () => {
+
+
+
+
+  return `/api/ai/assistant/conversations/current`
+}
+
+/**
+ * @summary Get the current user's assistant conversation
+ */
+export const getAssistantConversation = async ( options?: Parameters<typeof customFetch>[1]): Promise<AssistantConversation> => {
+
+  return customFetch<AssistantConversation>(getGetAssistantConversationUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAssistantConversationQueryKey = () => {
+    return [
+    `/api/ai/assistant/conversations/current`
+    ] as const;
+    }
+
+
+export const getGetAssistantConversationQueryOptions = <TData = Awaited<ReturnType<typeof getAssistantConversation>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAssistantConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAssistantConversationQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAssistantConversation>>> = ({ signal }) => getAssistantConversation({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAssistantConversation>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAssistantConversationQueryResult = NonNullable<Awaited<ReturnType<typeof getAssistantConversation>>>
+export type GetAssistantConversationQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the current user's assistant conversation
+ */
+
+export function useGetAssistantConversation<TData = Awaited<ReturnType<typeof getAssistantConversation>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAssistantConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAssistantConversationQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAssistantRunUrl = () => {
+
+
+
+
+  return `/api/ai/assistant/runs`
+}
+
+/**
+ * @summary Start a guarded assistant run
+ */
+export const createAssistantRun = async (assistantRunInput: AssistantRunInput, options?: Parameters<typeof customFetch>[1]): Promise<AssistantRun> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AssistantRun>(getCreateAssistantRunUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assistantRunInput)
+  }
+);}
+
+
+
+
+
+export const getCreateAssistantRunMutationKey = () => ['createAssistantRun'] as const;
+
+export const getCreateAssistantRunMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAssistantRun>>, TError,CreateAssistantRunMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAssistantRun>>, TError,CreateAssistantRunMutationVariables, TContext> => {
+
+const mutationKey = getCreateAssistantRunMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAssistantRun>>, CreateAssistantRunMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAssistantRun(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAssistantRunMutationResult = NonNullable<Awaited<ReturnType<typeof createAssistantRun>>>
+    export type CreateAssistantRunMutationBody = BodyType<AssistantRunInput>
+    export type CreateAssistantRunMutationError = ErrorType<ErrorEnvelope>
+    export type CreateAssistantRunMutationVariables = {data: BodyType<AssistantRunInput>}
+
+    /**
+ * @summary Start a guarded assistant run
+ */
+export const useCreateAssistantRun = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAssistantRun>>, TError,CreateAssistantRunMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAssistantRun>>,
+        TError,
+        CreateAssistantRunMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateAssistantRunMutationOptions(options));
+    }
+
+export const getGetAssistantRunUrl = (id: string,) => {
+
+
+
+
+  return `/api/ai/assistant/runs/${id}`
+}
+
+/**
+ * @summary Get a user-scoped assistant run
+ */
+export const getAssistantRun = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<AssistantRun> => {
+
+  return customFetch<AssistantRun>(getGetAssistantRunUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAssistantRunQueryKey = (id: string,) => {
+    return [
+    `/api/ai/assistant/runs/${id}`
+    ] as const;
+    }
+
+
+export const getGetAssistantRunQueryOptions = <TData = Awaited<ReturnType<typeof getAssistantRun>>, TError = ErrorType<ErrorEnvelope>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAssistantRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAssistantRunQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAssistantRun>>> = ({ signal }) => getAssistantRun(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAssistantRun>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAssistantRunQueryResult = NonNullable<Awaited<ReturnType<typeof getAssistantRun>>>
+export type GetAssistantRunQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get a user-scoped assistant run
+ */
+
+export function useGetAssistantRun<TData = Awaited<ReturnType<typeof getAssistantRun>>, TError = ErrorType<ErrorEnvelope>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAssistantRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAssistantRunQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getConfirmAssistantRunUrl = (id: string,) => {
+
+
+
+
+  return `/api/ai/assistant/runs/${id}/confirm`
+}
+
+/**
+ * @summary Confirm a pending allow-listed assistant action
+ */
+export const confirmAssistantRun = async (id: string,
+    assistantConfirmationInput: AssistantConfirmationInput, options?: Parameters<typeof customFetch>[1]): Promise<AssistantRun> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AssistantRun>(getConfirmAssistantRunUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assistantConfirmationInput)
+  }
+);}
+
+
+
+
+
+export const getConfirmAssistantRunMutationKey = () => ['confirmAssistantRun'] as const;
+
+export const getConfirmAssistantRunMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmAssistantRun>>, TError,ConfirmAssistantRunMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmAssistantRun>>, TError,ConfirmAssistantRunMutationVariables, TContext> => {
+
+const mutationKey = getConfirmAssistantRunMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmAssistantRun>>, ConfirmAssistantRunMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  confirmAssistantRun(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmAssistantRunMutationResult = NonNullable<Awaited<ReturnType<typeof confirmAssistantRun>>>
+    export type ConfirmAssistantRunMutationBody = BodyType<AssistantConfirmationInput>
+    export type ConfirmAssistantRunMutationError = ErrorType<ErrorEnvelope>
+    export type ConfirmAssistantRunMutationVariables = {id: string;data: BodyType<AssistantConfirmationInput>}
+
+    /**
+ * @summary Confirm a pending allow-listed assistant action
+ */
+export const useConfirmAssistantRun = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmAssistantRun>>, TError,ConfirmAssistantRunMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmAssistantRun>>,
+        TError,
+        ConfirmAssistantRunMutationVariables,
+        TContext
+      > => {
+      return useMutation(getConfirmAssistantRunMutationOptions(options));
+    }
+
+export const getCancelAssistantRunUrl = (id: string,) => {
+
+
+
+
+  return `/api/ai/assistant/runs/${id}/cancel`
+}
+
+/**
+ * @summary Dismiss a pending assistant action
+ */
+export const cancelAssistantRun = async (id: string,
+    assistantConfirmationInput: AssistantConfirmationInput, options?: Parameters<typeof customFetch>[1]): Promise<AssistantRun> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AssistantRun>(getCancelAssistantRunUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assistantConfirmationInput)
+  }
+);}
+
+
+
+
+
+export const getCancelAssistantRunMutationKey = () => ['cancelAssistantRun'] as const;
+
+export const getCancelAssistantRunMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelAssistantRun>>, TError,CancelAssistantRunMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelAssistantRun>>, TError,CancelAssistantRunMutationVariables, TContext> => {
+
+const mutationKey = getCancelAssistantRunMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelAssistantRun>>, CancelAssistantRunMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  cancelAssistantRun(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelAssistantRunMutationResult = NonNullable<Awaited<ReturnType<typeof cancelAssistantRun>>>
+    export type CancelAssistantRunMutationBody = BodyType<AssistantConfirmationInput>
+    export type CancelAssistantRunMutationError = ErrorType<ErrorEnvelope>
+    export type CancelAssistantRunMutationVariables = {id: string;data: BodyType<AssistantConfirmationInput>}
+
+    /**
+ * @summary Dismiss a pending assistant action
+ */
+export const useCancelAssistantRun = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelAssistantRun>>, TError,CancelAssistantRunMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelAssistantRun>>,
+        TError,
+        CancelAssistantRunMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCancelAssistantRunMutationOptions(options));
     }
 
 export const getVoiceToPlanUrl = () => {

@@ -1429,6 +1429,256 @@ export const AssistantChatResponse = zod.object({
 
 
 /**
+ * @summary Get the current user's assistant conversation
+ */
+export const getAssistantConversationResponseMessagesItemIntentTitleMax = 120;
+
+
+
+export const GetAssistantConversationResponse = zod.object({
+  "conversationId": zod.string().optional(),
+  "messages": zod.array(zod.object({
+  "id": zod.string(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "runId": zod.string().optional(),
+  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']).optional(),
+  "intent": zod.object({
+  "tool": zod.enum(['create_action_item']),
+  "title": zod.string().min(1).max(getAssistantConversationResponseMessagesItemIntentTitleMax)
+}).optional(),
+  "intentSha256": zod.string().optional(),
+  "requiresConfirmation": zod.boolean().optional(),
+  "confirmationExpiresAt": zod.coerce.date().nullish(),
+  "result": zod.object({
+  "id": zod.number().int(),
+  "title": zod.string(),
+  "completed": zod.boolean()
+}).optional()
+}))
+})
+
+
+/**
+ * @summary Start a guarded assistant run
+ */
+export const createAssistantRunHeaderIdempotencyKeyMax = 200;
+
+
+
+
+export const CreateAssistantRunHeader = zod.object({
+  "Idempotency-Key": zod.string().min(1).max(createAssistantRunHeaderIdempotencyKeyMax),
+  "X-AI-Credit-Policy-Version": zod.number().int().min(1)
+})
+
+export const createAssistantRunBodyConversationIdMax = 128;
+
+export const createAssistantRunBodyTranscriptMax = 4096;
+
+
+
+export const CreateAssistantRunBody = zod.object({
+  "conversationId": zod.string().max(createAssistantRunBodyConversationIdMax).optional(),
+  "transcript": zod.string().min(1).max(createAssistantRunBodyTranscriptMax)
+})
+
+export const createAssistantRunResponseTranscriptSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const createAssistantRunResponseSettledCreditsMin = 0;
+
+
+export const createAssistantRunResponseIntentTitleMax = 120;
+
+export const createAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const CreateAssistantRunResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "transcriptSha256": zod.string().regex(createAssistantRunResponseTranscriptSha256RegExp),
+  "reservationId": zod.string(),
+  "baseCredits": zod.number().int().min(1),
+  "reservedCredits": zod.number().int().min(1),
+  "settledCredits": zod.number().int().min(createAssistantRunResponseSettledCreditsMin),
+  "policyVersion": zod.number().int().min(1),
+  "intent": zod.object({
+  "tool": zod.enum(['create_action_item']),
+  "title": zod.string().min(1).max(createAssistantRunResponseIntentTitleMax)
+}).optional(),
+  "intentSha256": zod.string().regex(createAssistantRunResponseIntentSha256RegExp).optional(),
+  "riskLevel": zod.enum(['write']).optional(),
+  "requiresConfirmation": zod.boolean(),
+  "confirmationExpiresAt": zod.coerce.date().nullish(),
+  "result": zod.object({
+  "id": zod.number().int(),
+  "title": zod.string(),
+  "completed": zod.boolean()
+}).optional(),
+  "message": zod.string().optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get a user-scoped assistant run
+ */
+export const GetAssistantRunParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const getAssistantRunResponseTranscriptSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const getAssistantRunResponseSettledCreditsMin = 0;
+
+
+export const getAssistantRunResponseIntentTitleMax = 120;
+
+export const getAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetAssistantRunResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "transcriptSha256": zod.string().regex(getAssistantRunResponseTranscriptSha256RegExp),
+  "reservationId": zod.string(),
+  "baseCredits": zod.number().int().min(1),
+  "reservedCredits": zod.number().int().min(1),
+  "settledCredits": zod.number().int().min(getAssistantRunResponseSettledCreditsMin),
+  "policyVersion": zod.number().int().min(1),
+  "intent": zod.object({
+  "tool": zod.enum(['create_action_item']),
+  "title": zod.string().min(1).max(getAssistantRunResponseIntentTitleMax)
+}).optional(),
+  "intentSha256": zod.string().regex(getAssistantRunResponseIntentSha256RegExp).optional(),
+  "riskLevel": zod.enum(['write']).optional(),
+  "requiresConfirmation": zod.boolean(),
+  "confirmationExpiresAt": zod.coerce.date().nullish(),
+  "result": zod.object({
+  "id": zod.number().int(),
+  "title": zod.string(),
+  "completed": zod.boolean()
+}).optional(),
+  "message": zod.string().optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Confirm a pending allow-listed assistant action
+ */
+export const ConfirmAssistantRunParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const confirmAssistantRunBodyExpectedIntentSHA256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const ConfirmAssistantRunBody = zod.object({
+  "expectedIntentSHA256": zod.string().regex(confirmAssistantRunBodyExpectedIntentSHA256RegExp)
+})
+
+export const confirmAssistantRunResponseTranscriptSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const confirmAssistantRunResponseSettledCreditsMin = 0;
+
+
+export const confirmAssistantRunResponseIntentTitleMax = 120;
+
+export const confirmAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const ConfirmAssistantRunResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "transcriptSha256": zod.string().regex(confirmAssistantRunResponseTranscriptSha256RegExp),
+  "reservationId": zod.string(),
+  "baseCredits": zod.number().int().min(1),
+  "reservedCredits": zod.number().int().min(1),
+  "settledCredits": zod.number().int().min(confirmAssistantRunResponseSettledCreditsMin),
+  "policyVersion": zod.number().int().min(1),
+  "intent": zod.object({
+  "tool": zod.enum(['create_action_item']),
+  "title": zod.string().min(1).max(confirmAssistantRunResponseIntentTitleMax)
+}).optional(),
+  "intentSha256": zod.string().regex(confirmAssistantRunResponseIntentSha256RegExp).optional(),
+  "riskLevel": zod.enum(['write']).optional(),
+  "requiresConfirmation": zod.boolean(),
+  "confirmationExpiresAt": zod.coerce.date().nullish(),
+  "result": zod.object({
+  "id": zod.number().int(),
+  "title": zod.string(),
+  "completed": zod.boolean()
+}).optional(),
+  "message": zod.string().optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Dismiss a pending assistant action
+ */
+export const CancelAssistantRunParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const cancelAssistantRunBodyExpectedIntentSHA256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const CancelAssistantRunBody = zod.object({
+  "expectedIntentSHA256": zod.string().regex(cancelAssistantRunBodyExpectedIntentSHA256RegExp)
+})
+
+export const cancelAssistantRunResponseTranscriptSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const cancelAssistantRunResponseSettledCreditsMin = 0;
+
+
+export const cancelAssistantRunResponseIntentTitleMax = 120;
+
+export const cancelAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const CancelAssistantRunResponse = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "transcriptSha256": zod.string().regex(cancelAssistantRunResponseTranscriptSha256RegExp),
+  "reservationId": zod.string(),
+  "baseCredits": zod.number().int().min(1),
+  "reservedCredits": zod.number().int().min(1),
+  "settledCredits": zod.number().int().min(cancelAssistantRunResponseSettledCreditsMin),
+  "policyVersion": zod.number().int().min(1),
+  "intent": zod.object({
+  "tool": zod.enum(['create_action_item']),
+  "title": zod.string().min(1).max(cancelAssistantRunResponseIntentTitleMax)
+}).optional(),
+  "intentSha256": zod.string().regex(cancelAssistantRunResponseIntentSha256RegExp).optional(),
+  "riskLevel": zod.enum(['write']).optional(),
+  "requiresConfirmation": zod.boolean(),
+  "confirmationExpiresAt": zod.coerce.date().nullish(),
+  "result": zod.object({
+  "id": zod.number().int(),
+  "title": zod.string(),
+  "completed": zod.boolean()
+}).optional(),
+  "message": zod.string().optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Convert a voice transcript into structured daily plan items
  */
 

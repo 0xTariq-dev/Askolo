@@ -732,6 +732,129 @@ export interface AssistantChatResponse {
   notification?: AssistantNotification;
 }
 
+export interface AssistantRunInput {
+  /** @maxLength 128 */
+  conversationId?: string;
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     */
+  transcript: string;
+}
+
+export interface AssistantConfirmationInput {
+  /** @pattern ^[0-9a-f]{64}$ */
+  expectedIntentSHA256: string;
+}
+
+export type AssistantIntentTool = typeof AssistantIntentTool[keyof typeof AssistantIntentTool];
+
+
+export const AssistantIntentTool = {
+  create_action_item: 'create_action_item',
+} as const;
+
+export interface AssistantIntent {
+  tool: AssistantIntentTool;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title: string;
+}
+
+export interface AssistantActionItemResult {
+  id: number;
+  title: string;
+  completed: boolean;
+}
+
+export type AssistantRunState = typeof AssistantRunState[keyof typeof AssistantRunState];
+
+
+export const AssistantRunState = {
+  planning: 'planning',
+  needs_confirmation: 'needs_confirmation',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  failed: 'failed',
+  rejected: 'rejected',
+} as const;
+
+export type AssistantRunRiskLevel = typeof AssistantRunRiskLevel[keyof typeof AssistantRunRiskLevel];
+
+
+export const AssistantRunRiskLevel = {
+  write: 'write',
+} as const;
+
+export interface AssistantRun {
+  id: string;
+  conversationId: string;
+  state: AssistantRunState;
+  /** @pattern ^[0-9a-f]{64}$ */
+  transcriptSha256: string;
+  reservationId: string;
+  /** @minimum 1 */
+  baseCredits: number;
+  /** @minimum 1 */
+  reservedCredits: number;
+  /** @minimum 0 */
+  settledCredits: number;
+  /** @minimum 1 */
+  policyVersion: number;
+  intent?: AssistantIntent;
+  /** @pattern ^[0-9a-f]{64}$ */
+  intentSha256?: string;
+  riskLevel?: AssistantRunRiskLevel;
+  requiresConfirmation: boolean;
+  /** @nullable */
+  confirmationExpiresAt?: string | null;
+  result?: AssistantActionItemResult;
+  message?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AssistantMessageRole = typeof AssistantMessageRole[keyof typeof AssistantMessageRole];
+
+
+export const AssistantMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export type AssistantMessageState = typeof AssistantMessageState[keyof typeof AssistantMessageState];
+
+
+export const AssistantMessageState = {
+  planning: 'planning',
+  needs_confirmation: 'needs_confirmation',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  failed: 'failed',
+  rejected: 'rejected',
+} as const;
+
+export interface AssistantMessage {
+  id: string;
+  role: AssistantMessageRole;
+  content: string;
+  runId?: string;
+  state?: AssistantMessageState;
+  intent?: AssistantIntent;
+  intentSha256?: string;
+  requiresConfirmation?: boolean;
+  /** @nullable */
+  confirmationExpiresAt?: string | null;
+  result?: AssistantActionItemResult;
+}
+
+export interface AssistantConversation {
+  conversationId?: string;
+  messages: AssistantMessage[];
+}
+
 export interface VoiceToPlanBody {
   /** @minLength 1 */
   transcript: string;

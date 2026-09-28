@@ -957,6 +957,7 @@ func (s *Store) DeleteUserData(ctx context.Context, userID string) error {
 		`DELETE FROM events WHERE user_id = $1`,
 		`DELETE FROM chores WHERE user_id = $1`,
 		`DELETE FROM notes WHERE user_id = $1`,
+		`DELETE FROM assistant_conversations WHERE user_id = $1`,
 		`DELETE FROM action_items WHERE user_id = $1`,
 		`DELETE FROM voice_preferences WHERE user_id = $1`,
 		`DELETE FROM ai_credit_accounts WHERE user_id = $1`,

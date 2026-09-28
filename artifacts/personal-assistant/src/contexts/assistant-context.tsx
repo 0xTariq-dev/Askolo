@@ -1,16 +1,16 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
+import type { AssistantMessage as AssistantApiMessage } from '@workspace/api-client-react';
 
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  id: string;
-}
+export interface ChatMessage extends AssistantApiMessage {}
 
 interface AssistantContextValue {
   isOpen: boolean;
   isFull: boolean;
   messages: ChatMessage[];
+  draft: string;
   open: () => void;
+  openWithDraft: (text: string) => void;
+  clearDraft: () => void;
   close: () => void;
   toggle: () => void;
   toggleFull: () => void;
@@ -29,8 +29,14 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isFull, setIsFull] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
+  const [draft, setDraft] = useState('');
 
   const open = () => setIsOpen(true);
+  const openWithDraft = (text: string) => {
+    setDraft(text);
+    setIsOpen(true);
+  };
+  const clearDraft = () => setDraft('');
   const close = () => {
     setIsOpen(false);
     setIsFull(false);
@@ -40,7 +46,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
 
   return (
     <AssistantContext.Provider
-      value={{ isOpen, isFull, messages, open, close, toggle, toggleFull, setMessages }}
+      value={{ isOpen, isFull, messages, draft, open, openWithDraft, clearDraft, close, toggle, toggleFull, setMessages }}
     >
       {children}
     </AssistantContext.Provider>

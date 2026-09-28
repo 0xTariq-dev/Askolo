@@ -48,6 +48,7 @@ import { PageTransition } from '@/components/ui/page-transition';
 import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { cn } from '@/lib/utils';
+import { useAssistantState } from '@/contexts/assistant-context';
 
 const CURRENT_VOICE_CONSENT_VERSION = 'voice-v3';
 
@@ -101,6 +102,7 @@ function VoiceWaveform({ active, level }: { active: boolean; level: number }) {
 
 export function PlanPage() {
   const qc = useQueryClient();
+  const { openWithDraft } = useAssistantState();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -543,6 +545,14 @@ export function PlanPage() {
                 >
                   {isGenerating ? 'Thinking...' : 'Generate Plan with AI'}
                   <Sparkles className="h-4 w-4 ml-2" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!notes.trim() || isGenerating || voiceIsBusy}
+                  onClick={() => openWithDraft(notes.trim())}
+                >
+                  Ask Assistant about these notes
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground" role="note">

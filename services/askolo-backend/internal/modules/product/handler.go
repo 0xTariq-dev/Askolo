@@ -89,6 +89,7 @@ type Handler struct {
 	realtimeLimiter     *realtimeSessionLimiter
 	authRateLimitSecret string
 	realtimeIdleTimeout time.Duration
+	assistantPlanner    assistantPlanner
 }
 
 type voiceCreditReservation struct {
@@ -138,6 +139,7 @@ func newHandler(
 		realtimeLimiter:     newRealtimeSessionLimiter(),
 		authRateLimitSecret: cfg.AuthRateLimitHMACSecret,
 		realtimeIdleTimeout: realtimeClientIdleTimeout,
+		assistantPlanner:    newOpenAIAssistantPlanner(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL),
 	}
 }
 
@@ -303,6 +305,11 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/ai/transcription-preferences", h.updateTranscriptionPreferences)
 	mux.HandleFunc("POST /api/ai/coaching", h.coaching)
 	mux.HandleFunc("POST /api/ai/assistant", h.assistant)
+	mux.HandleFunc("GET /api/ai/assistant/conversations/current", h.getAssistantConversation)
+	mux.HandleFunc("POST /api/ai/assistant/runs", h.createAssistantRun)
+	mux.HandleFunc("GET /api/ai/assistant/runs/{id}", h.getAssistantRun)
+	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/confirm", h.confirmAssistantRun)
+	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/cancel", h.cancelAssistantRun)
 	mux.HandleFunc("POST /api/ai/generate-plan", h.generatePlan)
 	mux.HandleFunc("POST /api/ai/voice-to-plan", h.voiceToPlan)
 	mux.HandleFunc("POST /api/ai/meeting-extract", h.meetingExtract)

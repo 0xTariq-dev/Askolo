@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
+import { useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -12,43 +13,49 @@ import {
   Maximize2,
   Minimize2,
   MessageSquare,
+  Check,
+  Loader2,
 } from 'lucide-react';
 import {
-  useAssistantChat,
-  useGetDashboardSummary,
+  createAssistantRun,
+  confirmAssistantRun,
+  cancelAssistantRun,
+  useGetAssistantConversation,
+  getGetAssistantConversationQueryKey,
   getGetDashboardSummaryQueryKey,
-  useListGmailMessages,
-  type AssistantEmailSummaryPriority,
+  getListActionItemsQueryKey,
+  type AssistantRun,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
-import { useNotifications } from '@/contexts/notification-context';
+import { creditApi, creditErrorMessage, newCreditIdempotencyKey } from '@/lib/credit-api';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
 
 export function AssistantSidebar() {
-  const { isOpen, isFull, messages, setMessages, toggle, close, toggleFull } =
-    useAssistantState();
-  const { addNotification } = useNotifications();
-  const chat = useAssistantChat();
+  const {
+    isOpen,
+    isFull,
+    messages,
+    setMessages,
+    toggle,
+    close,
+    toggleFull,
+    draft,
+    clearDraft,
+  } = useAssistantState();
+  const queryClient = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const planningRequestRef = useRef<AbortController | null>(null);
   const [isThinking, setIsThinking] = useState(false);
-
-  // The assistant is mounted in the shell on every authenticated route, but
-  // its dashboard context is only needed after the panel is opened.
-  const { data: summary } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey(), enabled: isOpen },
-  });
-  const calendarConnected = summary?.googleConnection?.calendarConnected ?? false;
-  const gmailConnected = summary?.googleConnection?.gmailConnected ?? false;
-
-  // Fetch emails only when sidebar is open and Gmail is connected
-  const { data: emailData } = useListGmailMessages({
-    query: { enabled: isOpen && gmailConnected, staleTime: 5 * 60 * 1000, queryKey: ['listGmailMessages'] },
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [assistantError, setAssistantError] = useState('');
+  const conversationQuery = useGetAssistantConversation({
+    query: { enabled: isOpen, staleTime: 0, refetchOnWindowFocus: true },
   });
 
   const form = useForm<MessageForm>({
@@ -60,80 +67,159 @@ export function AssistantSidebar() {
     if (isOpen) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking, isOpen]);
 
+  useEffect(() => () => planningRequestRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (!conversationQuery.data) return;
+    setMessages(
+      conversationQuery.data.messages.length > 0
+        ? conversationQuery.data.messages
+        : [{
+            role: 'assistant',
+            content: "Hi, I'm Askolo. Ask me to prepare one action item for your list.",
+            id: 'welcome',
+          }],
+    );
+  }, [conversationQuery.data, setMessages]);
+
+  useEffect(() => {
+    if (!draft) return;
+    form.reset({ text: draft });
+    clearDraft();
+  }, [draft, clearDraft, form]);
+
+  const incorporateRun = (run: AssistantRun) => {
+    setMessages((previous) => {
+      const updated = previous.map((message) =>
+        message.runId === run.id
+          ? {
+              ...message,
+              state: run.state,
+              intent: run.intent ?? message.intent,
+              intentSha256: run.intentSha256 ?? message.intentSha256,
+              requiresConfirmation: run.requiresConfirmation,
+              confirmationExpiresAt: run.confirmationExpiresAt ?? message.confirmationExpiresAt,
+              result: run.result ?? message.result,
+            }
+          : message,
+      );
+      if (!run.message || updated.some((message) => message.runId === run.id && message.content === run.message)) {
+        return updated;
+      }
+      return [
+        ...updated,
+        {
+          id: `run-${run.id}-${run.updatedAt}`,
+          role: 'assistant',
+          content: run.message,
+          runId: run.id,
+          state: run.state,
+          intent: run.intent,
+          intentSha256: run.intentSha256,
+          requiresConfirmation: run.requiresConfirmation,
+          confirmationExpiresAt: run.confirmationExpiresAt,
+          result: run.result,
+        },
+      ];
+    });
+  };
+
   const onSubmit = async (data: MessageForm) => {
     const text = data.text.trim();
-    if (!text || chat.isPending) return;
+    if (!text || isThinking) return;
 
-    const userMsg: ChatMessage = { role: 'user', content: text, id: `u-${Date.now()}` };
-    const nextMessages = [...messages, userMsg];
-    setMessages(nextMessages);
+    setMessages((previous) => [
+      ...previous,
+      { role: 'user', content: text, id: `local-${Date.now()}` },
+    ]);
     form.reset();
     setIsThinking(true);
+    setAssistantError('');
+    const controller = new AbortController();
+    planningRequestRef.current = controller;
 
-    const context = summary
-      ? {
-          habits: summary.habits.map((h) => ({
-            id: h.id,
-            name: h.name,
-            currentStreak: h.currentStreak,
-            longestStreak: h.longestStreak,
-            completedToday: h.completedToday,
-            color: h.color,
-            icon: h.icon,
-          })) as any,
-          goals: summary.goals as any,
-          todayPlan: summary.todayPlan.map((p) => ({
-            title: p.title,
-            completed: p.completed,
-            priority: p.priority,
-          })) as any,
-          upcomingEvents: calendarConnected ? summary.upcomingEvents : [],
-          recentEmails: gmailConnected
-            ? (emailData?.messages ?? []).slice(0, 10).map((m) => ({
-                subject: m.subject,
-                from: m.from,
-                priority: m.priority as AssistantEmailSummaryPriority,
-              }))
-            : [],
-        }
-      : undefined;
+    try {
+      const estimate = await creditApi.estimate('assistant', 1);
+      if (controller.signal.aborted) {
+        setAssistantError('Request stopped. No action was taken.');
+        await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
+        return;
+      }
+      if (!estimate.canReserve) {
+        throw new Error('There are not enough AI credits for this request.');
+      }
+      const run = await createAssistantRun(
+        {
+          conversationId: conversationQuery.data?.conversationId,
+          transcript: text,
+        },
+        {
+          headers: {
+            'Idempotency-Key': newCreditIdempotencyKey(),
+            'X-AI-Credit-Policy-Version': String(estimate.policyVersion),
+          },
+          signal: controller.signal,
+        },
+      );
+      incorporateRun(run);
+      await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setAssistantError('Request stopped. No action was taken.');
+        await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
+      } else {
+        setAssistantError(
+          creditErrorMessage(error, 'I could not complete that request. Please try again.'),
+        );
+      }
+    } finally {
+      if (planningRequestRef.current === controller) planningRequestRef.current = null;
+      setIsThinking(false);
+    }
+  };
 
-    chat.mutate(
-      { data: { messages: nextMessages.map((m) => ({ role: m.role, content: m.content })), context } },
-      {
-        onSuccess: (res) => {
-          if (res?.message) {
-            setMessages((prev) => [
-              ...prev,
-              { role: 'assistant', content: res.message, id: `a-${Date.now()}` },
-            ]);
-          }
-          if (res?.notification) {
-            const notifAction = res.notification.action;
-            addNotification({
-              type: (res.notification.type as any) ?? 'info',
-              title: res.notification.title ?? 'Reminder',
-              body: res.notification.body ?? '',
-              action:
-                notifAction?.label && notifAction?.href
-                  ? { label: notifAction.label, href: notifAction.href }
-                  : undefined,
-            });
-          }
-        },
-        onError: () => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'assistant',
-              content: 'Sorry, I had trouble responding. Please try again.',
-              id: `e-${Date.now()}`,
-            },
-          ]);
-        },
-        onSettled: () => setIsThinking(false),
-      },
-    );
+  const handleConfirm = async (message: ChatMessage) => {
+    if (!message.runId || !message.intentSha256 || pendingActionId) return;
+    setPendingActionId(message.runId);
+    setAssistantError('');
+    try {
+      const run = await confirmAssistantRun(message.runId, {
+        expectedIntentSHA256: message.intentSha256,
+      });
+      incorporateRun(run);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() }),
+        queryClient.invalidateQueries({ queryKey: getListActionItemsQueryKey() }),
+        queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() }),
+      ]);
+    } catch (error) {
+      setAssistantError(
+        creditErrorMessage(error, 'That action could not be confirmed. Review it and try again.'),
+      );
+      await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
+    } finally {
+      setPendingActionId(null);
+    }
+  };
+
+  const handleCancel = async (message: ChatMessage) => {
+    if (!message.runId || !message.intentSha256 || pendingActionId) return;
+    setPendingActionId(message.runId);
+    setAssistantError('');
+    try {
+      const run = await cancelAssistantRun(message.runId, {
+        expectedIntentSHA256: message.intentSha256,
+      });
+      incorporateRun(run);
+      await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
+    } catch (error) {
+      setAssistantError(
+        creditErrorMessage(error, 'That pending action could not be dismissed. Try again.'),
+      );
+      await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
+    } finally {
+      setPendingActionId(null);
+    }
   };
 
   return (
@@ -212,6 +298,11 @@ export function AssistantSidebar() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {conversationQuery.isError && (
+                <p className="text-xs text-destructive" role="status">
+                  Saved assistant history could not be loaded. New messages can still be sent.
+                </p>
+              )}
               {messages.map((msg, idx) => (
                 <motion.div
                   key={msg.id}
@@ -239,6 +330,51 @@ export function AssistantSidebar() {
                     )}
                   >
                     {msg.content}
+                    {msg.role === 'assistant' &&
+                      msg.state === 'needs_confirmation' &&
+                      msg.intent?.tool === 'create_action_item' &&
+                      msg.runId &&
+                      msg.intentSha256 && (
+                        <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Action item to add
+                          </p>
+                          <p className="text-sm font-medium break-words">{msg.intent.title}</p>
+                          {msg.confirmationExpiresAt &&
+                          new Date(msg.confirmationExpiresAt).getTime() > Date.now() ? (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={pendingActionId !== null || isThinking}
+                                onClick={() => void handleConfirm(msg)}
+                                aria-label={`Confirm adding ${msg.intent.title}`}
+                              >
+                                {pendingActionId === msg.runId ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Check className="h-4 w-4 mr-1" />
+                                )}
+                                Confirm add
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={pendingActionId !== null || isThinking}
+                                onClick={() => void handleCancel(msg)}
+                                aria-label={`Dismiss adding ${msg.intent.title}`}
+                              >
+                                Not now
+                              </Button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground" role="status">
+                              This confirmation has expired. Send the request again to review a new action.
+                            </p>
+                          )}
+                        </div>
+                      )}
                   </div>
                 </motion.div>
               ))}
@@ -256,6 +392,15 @@ export function AssistantSidebar() {
                     <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.15s]" />
                     <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.3s]" />
                   </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="self-center"
+                    onClick={() => planningRequestRef.current?.abort()}
+                  >
+                    Stop
+                  </Button>
                 </motion.div>
               )}
               <div ref={bottomRef} />
@@ -273,6 +418,7 @@ export function AssistantSidebar() {
                         <FormControl>
                           <Input
                             placeholder="Ask Askolo something…"
+                            aria-label="Message Askolo"
                             className="h-10 bg-background border-border text-sm"
                             {...field}
                             onKeyDown={(e) => {
@@ -290,12 +436,21 @@ export function AssistantSidebar() {
                     type="submit"
                     size="icon"
                     className="h-10 w-10 shrink-0"
-                    disabled={chat.isPending || isThinking}
+                    disabled={isThinking || pendingActionId !== null}
+                    aria-label="Send message"
                   >
                     <Send className="h-4 w-4" />
                   </Button>
                 </form>
               </Form>
+              {assistantError && (
+                <p className="mt-2 px-1 text-xs text-destructive" role="alert">
+                  {assistantError}
+                </p>
+              )}
+              <p className="mt-2 px-1 text-[10px] leading-relaxed text-muted-foreground">
+                Messages you send are saved to your account. Actions are only added after you confirm.
+              </p>
             </div>
           </motion.aside>
         )}
