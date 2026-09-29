@@ -50,7 +50,7 @@ import { PageTransition } from '@/components/ui/page-transition';
 import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { useLocation } from 'wouter';
 import { cn } from '@workspace/askolo-design-system/lib/utils';
-import { tokens } from '@workspace/askolo-design-system/tokens';
+import { THEME_PRESETS, useAskoloTheme } from '@workspace/askolo-design-system/theme';
 import { MonthGrid } from '@/components/calendar/month-grid';
 import { WeekGrid } from '@/components/calendar/week-grid';
 import { DayGrid } from '@/components/calendar/day-grid';
@@ -70,7 +70,6 @@ const eventSchema = z.object({
 
 type EventFormValues = z.infer<typeof eventSchema>;
 
-const DEFAULT_COLOR = tokens.color.light.chart1;
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 // ─── Date range helpers ──────────────────────────────────────────────────────
@@ -126,6 +125,9 @@ function headerLabel(date: Date, view: CalendarView): string {
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 export function CalendarPage() {
+  const { preferences } = useAskoloTheme();
+  const defaultEventColor =
+    THEME_PRESETS[preferences.accountThemeId][preferences.mode].chart1;
   const qc = useQueryClient();
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -217,7 +219,11 @@ export function CalendarPage() {
 
   const onSubmit = (data: EventFormValues) => {
     setIsSaving(true);
-    const payload = { ...data, endDate: data.endDate || data.startDate, color: editingEvent?.color || DEFAULT_COLOR };
+    const payload = {
+      ...data,
+      endDate: data.endDate || data.startDate,
+      color: editingEvent?.color || defaultEventColor,
+    };
     const googleEventId = editingEvent?.googleEventId ?? undefined;
 
     if (editingEvent) {

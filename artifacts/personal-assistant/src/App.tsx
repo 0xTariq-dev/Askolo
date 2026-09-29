@@ -2,13 +2,9 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getQueryRetryDelay, shouldRetryQuery } from '@workspace/api-client-react';
 import {
-  DEFAULT_THEME_PREFERENCES,
   ThemeProvider,
-  isSurfaceStyleId,
-  isThemeId,
   isThemeMode,
   type ResolvedThemePreferences,
-  type ThemeId,
 } from '@workspace/askolo-design-system/theme';
 import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
 import { Loader2 } from 'lucide-react';
@@ -20,6 +16,11 @@ import {
   toAppUrl,
   toPublicUrl,
 } from '@/lib/site-domains';
+import {
+  loadThemePreferences,
+  THEME_QUERY_PARAMETER,
+  THEME_STORAGE_KEY,
+} from '@/lib/theme-preferences';
 import { NativeAuthProvider, useAppAuth } from '@/contexts/auth-context';
 import {
   ActionsPage,
@@ -54,59 +55,6 @@ const queryClient = new QueryClient({
   },
 });
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
-const THEME_STORAGE_KEY = 'askolo-theme-preferences';
-const THEME_QUERY_PARAMETER = 'theme';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function loadThemePreferences(): ResolvedThemePreferences {
-  const defaults = DEFAULT_THEME_PREFERENCES;
-  let stored: Record<string, unknown> = {};
-  let queryMode: string | null = null;
-
-  if (typeof window !== 'undefined') {
-    queryMode = new URLSearchParams(window.location.search).get(THEME_QUERY_PARAMETER);
-
-    try {
-      const serialized = window.localStorage.getItem(THEME_STORAGE_KEY);
-      const parsed: unknown = serialized ? JSON.parse(serialized) : undefined;
-      if (isRecord(parsed)) stored = parsed;
-    } catch {
-      console.warn('Askolo could not read saved theme preferences.');
-    }
-  }
-
-  const rawSurfaceStyles = isRecord(stored.surfaceStyles) ? stored.surfaceStyles : {};
-  const rawSpaceOverrides = isRecord(stored.spaceOverrides) ? stored.spaceOverrides : {};
-  const spaceOverrides = Object.create(null) as Record<string, ThemeId>;
-  for (const [spaceId, themeId] of Object.entries(rawSpaceOverrides)) {
-    if (spaceId.trim() && spaceId.length <= 128 && isThemeId(themeId)) {
-      spaceOverrides[spaceId] = themeId;
-    }
-  }
-
-  return {
-    accountThemeId: isThemeId(stored.accountThemeId)
-      ? stored.accountThemeId
-      : defaults.accountThemeId,
-    mode: isThemeMode(queryMode)
-      ? queryMode
-      : isThemeMode(stored.mode)
-        ? stored.mode
-        : defaults.mode,
-    surfaceStyles: {
-      light: isSurfaceStyleId(rawSurfaceStyles.light)
-        ? rawSurfaceStyles.light
-        : defaults.surfaceStyles.light,
-      dark: isSurfaceStyleId(rawSurfaceStyles.dark)
-        ? rawSurfaceStyles.dark
-        : defaults.surfaceStyles.dark,
-    },
-    spaceOverrides,
-  };
-}
 
 function PersistentThemeProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<ResolvedThemePreferences>(

@@ -45,4 +45,5 @@
 - [Shell timing without GNU time](nix-shell-timing.md) — `/usr/bin/time` is unavailable; use `date +%s%N` for simple elapsed-time measurements.
 - [Outbound cancellation test harness](outbound-cancellation-tests.md) — prefer controlled RoundTrippers for request-cancellation tests; a blocked test-server handler can stall cleanup.
 - [Askolo app UI migration](askolo-ui-migration.md) — verify shared primitives, route-level token styling, and behavior-sensitive component API changes independently.
+- [Theme prepaint bootstrap](theme-prepaint-bootstrap.md) — use a classic head script for saved mode; Vite’s merged module bootstrap cannot guarantee pre-paint execution.
 

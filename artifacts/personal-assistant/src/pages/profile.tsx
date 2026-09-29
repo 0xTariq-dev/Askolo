@@ -45,6 +45,7 @@ import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import { useAppAuth } from '@/contexts/auth-context';
+import { ThemePresetSelector } from '@/components/settings/theme-preset-selector';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -381,6 +382,8 @@ export function ProfilePage() {
         <h1 className="text-2xl font-display font-bold tracking-tight">Profile</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage your identity, connections, and account.</p>
       </header>
+
+      <ThemePresetSelector />
 
       {/* ── Identity ───────────────────────────────────────────────────────── */}
       <Card>
