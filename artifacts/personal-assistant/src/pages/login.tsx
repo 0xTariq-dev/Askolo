@@ -429,7 +429,12 @@ export function LoginPage() {
               </FieldGroup>
               {error && <p id="auth-form-error" className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
-              <Button type="submit" className="w-full rounded-full" disabled={submitting}>
+              <Button
+                type="submit"
+                size="sm"
+                className="mx-auto min-h-11 w-full max-w-44"
+                disabled={submitting}
+              >
                 {submitting ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
               </Button>
             </form>

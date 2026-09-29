@@ -19,12 +19,12 @@ export function CButton60SocialAuthButtons({
     <div
       role="group"
       aria-label={intent === 'signup' ? 'Account sign-up providers' : 'Account sign-in providers'}
-      className="flex flex-wrap gap-2"
+      className="flex flex-wrap justify-center gap-2"
     >
       <Button
         type="button"
         aria-label={`${action} with Google`}
-        className="min-h-11 flex-1"
+        className="min-h-11 min-w-11 shrink-0"
         size="icon"
         variant="outline"
         onClick={onGoogleClick}
@@ -39,7 +39,7 @@ export function CButton60SocialAuthButtons({
       <Button
         type="button"
         aria-label={`${action} with GitHub`}
-        className="min-h-11 flex-1"
+        className="min-h-11 min-w-11 shrink-0"
         size="icon"
         variant="outline"
         onClick={onGithubClick}
