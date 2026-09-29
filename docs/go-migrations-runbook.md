@@ -103,6 +103,8 @@ data; the ordinary runner then applies later migrations such as 0002.
 New history rows carry a versioned fingerprint. Older unversioned histories
 retain a legacy drift check only so the runner can advance them; they are not
 accepted for baseline adoption. Unexpected drift must be investigated and
-	repaired by a reviewed migration. The AI ledger migration preserves existing
-balances and only adds absent zero-default counters; it does not activate live
-session-duration billing.
+repaired by a reviewed migration. The USD ledger migration preserves legacy
+credit balances and refuses to proceed when a nonzero net credit balance or
+open legacy reservation exists. It adds zero-default USD counters and seeds a
+new USD policy version; application settlement uses provider-reported usage
+without converting historical credits.

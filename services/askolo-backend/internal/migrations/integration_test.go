@@ -455,6 +455,53 @@ func quoteMigrationIdentifier(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
 
+func TestUSDLedgerMigrationPreservesHistoricalZeroReservation(t *testing.T) {
+	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
+	if baseURL == "" {
+		t.Skip("set ASKOLO_TEST_DATABASE_URL to run migration integration tests")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "usd_legacy_reservation")
+	migrations, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if len(migrations) <= 8 || migrations[8].Name != "0008_usd_micro_ledger" {
+		t.Fatalf("USD ledger migration missing from expected position")
+	}
+	if err := run(ctx, pool, migrations[:8]); err != nil {
+		t.Fatalf("apply legacy migrations: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('usd-legacy-sentinel', 'usd-legacy@example.test')`); err != nil {
+		t.Fatalf("insert sentinel user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO ai_credit_accounts
+		(user_id, granted_credits, adjustment_credits, reserved_credits, spent_credits, refunded_credits)
+		VALUES ('usd-legacy-sentinel', 0, 0, 0, 0, 0)`); err != nil {
+		t.Fatalf("insert sentinel account: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO ai_credit_reservations
+		(id, user_id, operation_type, provider, mode, status, idempotency_key, reserved_credits, settled_credits)
+		VALUES ('usd-legacy-settled', 'usd-legacy-sentinel', 'voice', 'assemblyai', 'realtime', 'settled', 'usd-legacy-key', 0, 1)`); err != nil {
+		t.Fatalf("insert historical settled reservation: %v", err)
+	}
+	if err := run(ctx, pool, migrations); err != nil {
+		t.Fatalf("apply USD ledger migration while preserving historical row: %v", err)
+	}
+	var currency, status string
+	var reservedCredits, settledCredits int
+	if err := pool.QueryRow(ctx, `SELECT currency, status, reserved_credits, settled_credits
+		FROM ai_credit_reservations WHERE id = 'usd-legacy-settled'`).
+		Scan(&currency, &status, &reservedCredits, &settledCredits); err != nil {
+		t.Fatalf("read historical reservation: %v", err)
+	}
+	if currency != "CREDITS" || status != "settled" || reservedCredits != 0 || settledCredits != 1 {
+		t.Fatalf("migration changed historical reservation: currency=%q status=%q reserved=%d settled=%d",
+			currency, status, reservedCredits, settledCredits)
+	}
+}
+
 func TestLedgerMigrationAddsMissingCounterAndEnforcesContract(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
 	if baseURL == "" {

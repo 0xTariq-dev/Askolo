@@ -25,8 +25,13 @@ type assistantPlanner interface {
 }
 
 type assistantModelPlan struct {
-	Intent string `json:"intent"`
-	Title  string `json:"title"`
+	Intent            string `json:"intent"`
+	Title             string `json:"title"`
+	ProviderModel     string `json:"-"`
+	ProviderRequestID string `json:"-"`
+	InputTokens       int64  `json:"-"`
+	OutputTokens      int64  `json:"-"`
+	UsageValid        bool   `json:"-"`
 }
 
 type openAIAssistantPlanner struct {
@@ -84,7 +89,7 @@ func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (a
 			{Role: "user", Content: transcript},
 		},
 		ResponseFormat:      map[string]string{"type": "json_object"},
-		MaxCompletionTokens: 8192,
+		MaxCompletionTokens: 256,
 	}
 	encoded, err := json.Marshal(requestBody)
 	if err != nil {
@@ -115,16 +120,41 @@ func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (a
 	}
 
 	var envelope struct {
+		Model string `json:"model"`
+		ID    string `json:"id"`
+		Usage struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+		} `json:"usage"`
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(responseBytes, &envelope); err != nil || len(envelope.Choices) != 1 {
+	if err := json.Unmarshal(responseBytes, &envelope); err != nil {
 		return assistantModelPlan{}, errors.New("assistant provider response was invalid")
 	}
-	return decodeAssistantModelPlan(envelope.Choices[0].Message.Content)
+	plan := assistantModelPlan{}
+	decodeErr := errors.New("assistant provider response did not contain a usable plan")
+	if len(envelope.Choices) == 1 {
+		plan, decodeErr = decodeAssistantModelPlan(envelope.Choices[0].Message.Content)
+	}
+	plan.ProviderModel = envelope.Model
+	plan.ProviderRequestID = envelope.ID
+	plan.InputTokens = envelope.Usage.PromptTokens
+	plan.OutputTokens = envelope.Usage.CompletionTokens
+	plan.UsageValid = envelope.Usage.PromptTokens > 0 && envelope.Usage.CompletionTokens > 0
+	if plan.ProviderModel != assistantPlannerModel {
+		return plan, errors.New("assistant provider model mismatch")
+	}
+	if decodeErr != nil {
+		return plan, decodeErr
+	}
+	if !plan.UsageValid {
+		return plan, errors.New("assistant provider usage was missing")
+	}
+	return plan, nil
 }
 
 func decodeAssistantModelPlan(content string) (assistantModelPlan, error) {

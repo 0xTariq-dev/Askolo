@@ -32,6 +32,7 @@ type AssistantRunRecord struct {
 	ConversationID        string          `json:"conversationId"`
 	UserID                string          `json:"-"`
 	State                 string          `json:"state"`
+	Currency              string          `json:"currency"`
 	TranscriptSHA256      string          `json:"transcriptSha256"`
 	ReservationID         string          `json:"reservationId"`
 	BaseCredits           int             `json:"baseCredits"`
@@ -46,6 +47,13 @@ type AssistantRunRecord struct {
 	ConfirmationExpiresAt *time.Time      `json:"confirmationExpiresAt,omitempty"`
 	Result                json.RawMessage `json:"result,omitempty"`
 	AssistantMessage      string          `json:"message,omitempty"`
+	BaseUSDMicros         int64           `json:"baseUsdMicros"`
+	ReservedUSDMicros     int64           `json:"reservedUsdMicros"`
+	SettledUSDMicros      int64           `json:"settledUsdMicros"`
+	ProviderModel         string          `json:"providerModel,omitempty"`
+	ProviderRequestID     string          `json:"providerRequestId,omitempty"`
+	InputTokens           int64           `json:"inputTokens,omitempty"`
+	OutputTokens          int64           `json:"outputTokens,omitempty"`
 	CreatedAt             time.Time       `json:"createdAt"`
 	UpdatedAt             time.Time       `json:"updatedAt"`
 }
@@ -81,6 +89,10 @@ type AssistantPlanOutcome struct {
 	ToolArgsSHA256       string
 	Settle               bool
 	SettledCredits       int
+	ProviderModel        string
+	ProviderRequestID    string
+	InputTokens          int64
+	OutputTokens         int64
 }
 
 type assistantActionIntent struct {
@@ -95,7 +107,7 @@ type assistantRow interface {
 func (s *Store) StartAssistantRun(
 	ctx context.Context,
 	userID, workspaceID, conversationID, idempotencyKey, transcript string,
-	expectedPolicyVersion int,
+	expectedPolicyVersion int, usdArgs ...any,
 ) (AssistantRunRecord, AICreditReservation, bool, error) {
 	var emptyRun AssistantRunRecord
 	var emptyReservation AICreditReservation
@@ -146,32 +158,51 @@ func (s *Store) StartAssistantRun(
 		return emptyRun, emptyReservation, false, ErrAssistantRateLimited
 	}
 
-	var policyVersion, operationWeight, margin int
-	var rawWeights []byte
-	err = tx.QueryRow(ctx, `SELECT version,operation_weights,overrun_margin_percent
+	var policyVersion, margin int
+	var rawCards []byte
+	err = tx.QueryRow(ctx, `SELECT version,overrun_margin_percent,rate_cards
 		FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).
-		Scan(&policyVersion, &rawWeights, &margin)
+		Scan(&policyVersion, &margin, &rawCards)
 	if err != nil {
 		return emptyRun, emptyReservation, false, err
 	}
 	if policyVersion != expectedPolicyVersion {
 		return emptyRun, emptyReservation, false, ErrAssistantPolicyChanged
 	}
-	var weights map[string]int
-	if err = json.Unmarshal(rawWeights, &weights); err != nil {
+	if margin < 0 || margin > 100 {
 		return emptyRun, emptyReservation, false, ErrAssistantPolicyInvalid
 	}
-	operationWeight = weights["assistant"]
-	if operationWeight < 1 || operationWeight > 100000 || margin < 0 || margin > 100 {
+	var cards map[string]USDRateCard
+	if json.Unmarshal(rawCards, &cards) != nil {
 		return emptyRun, emptyReservation, false, ErrAssistantPolicyInvalid
 	}
-	reservedCredits := operationWeight * (100 + margin) / 100
-	if operationWeight*(100+margin)%100 != 0 {
-		reservedCredits++
-	}
-	if reservedCredits < 1 || reservedCredits > 100000 {
+	card, ok := cards["openai:assistant:gpt-5.6-luna"]
+	if !ok || card.Meter != "tokens" || card.InputUsdMicrosPerMillion <= 0 || card.OutputUsdMicrosPerMillion <= 0 {
 		return emptyRun, emptyReservation, false, ErrAssistantPolicyInvalid
 	}
+	providerModel, inputCap, outputCap := "gpt-5.6-luna", int64(4096), int64(256)
+	if len(usdArgs) > 0 {
+		if v, ok := usdArgs[0].(string); ok && v != "" {
+			providerModel = v
+		}
+	}
+	if len(usdArgs) > 1 {
+		if v, ok := usdArgs[1].(int64); ok {
+			inputCap = v
+		}
+	}
+	if len(usdArgs) > 2 {
+		if v, ok := usdArgs[2].(int64); ok {
+			outputCap = v
+		}
+	}
+	if providerModel != card.Model || inputCap < 1 || outputCap < 1 {
+		return emptyRun, emptyReservation, false, ErrAssistantPolicyInvalid
+	}
+	maxMicros := (card.InputUsdMicrosPerMillion*inputCap + 999999) / 1000000
+	maxMicros += (card.OutputUsdMicrosPerMillion*outputCap + 999999) / 1000000
+	maxMicros = (maxMicros*(100+int64(margin)) + 99) / 100
+	snapshot, _ := json.Marshal(card)
 
 	if conversationID == "" {
 		conversationID, err = id.New()
@@ -203,9 +234,7 @@ func (s *Store) StartAssistantRun(
 	if err != nil {
 		return emptyRun, emptyReservation, false, err
 	}
-	reservation, created, err := reserveAssistantCreditTx(
-		ctx, tx, reservationID, userID, creditKey, reservedCredits, policyVersion,
-	)
+	reservation, created, err := reserveAssistantUSDTx(ctx, tx, reservationID, userID, creditKey, providerModel, maxMicros, policyVersion, snapshot)
 	if err != nil {
 		return emptyRun, emptyReservation, false, err
 	}
@@ -230,10 +259,10 @@ func (s *Store) StartAssistantRun(
 
 	if _, err = tx.Exec(ctx, `INSERT INTO assistant_runs(
 		id,conversation_id,user_id,idempotency_key_hash,transcript,transcript_sha256,state,
-		reservation_id,base_credits,reserved_credits,policy_version
-	) VALUES($1,$2,$3,$4,$5,$6,'planning',$7,$8,$9,$10)`,
+		reservation_id,currency,base_credits,reserved_credits,base_usd_micros,reserved_usd_micros,policy_version
+	) VALUES($1,$2,$3,$4,$5,$6,'planning',$7,'USD',0,0,$8,$9,$10)`,
 		runID, conversationID, userID, keyHash, transcript, transcriptHash,
-		reservation.ID, operationWeight, reservation.ReservedCredits, policyVersion,
+		reservation.ID, maxMicros, maxMicros, policyVersion,
 	); err != nil {
 		return emptyRun, emptyReservation, false, err
 	}
@@ -342,6 +371,56 @@ func reserveAssistantCreditTx(
 	}, true, nil
 }
 
+func reserveAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID, key, model string, amount int64, policyVersion int, snapshot []byte) (AICreditReservation, bool, error) {
+	var r AICreditReservation
+	var priorID, priorStatus string
+	var priorPolicy int
+	var priorExpires *time.Time
+	var priorReserved, priorSettled, priorRefunded int64
+	err := tx.QueryRow(ctx, `SELECT id,status,reserved_usd_micros,settled_usd_micros,refunded_usd_micros,policy_version,expires_at FROM ai_credit_reservations WHERE user_id=$1 AND currency='USD' AND idempotency_key=$2`, userID, key).Scan(&priorID, &priorStatus, &priorReserved, &priorSettled, &priorRefunded, &priorPolicy, &priorExpires)
+	if err == nil {
+		return AICreditReservation{ID: priorID, Status: priorStatus, ReservedCredits: 1, PolicyVersion: priorPolicy, ExpiresAt: priorExpires}, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return r, false, err
+	}
+	if _, err = tx.Exec(ctx, `SELECT id FROM ai_credit_reservations WHERE user_id=$1 AND currency='USD' AND status='reserved' AND expires_at<=NOW() FOR UPDATE`, userID); err != nil {
+		return r, false, err
+	}
+	if _, err = tx.Exec(ctx, `WITH expired AS (UPDATE ai_credit_reservations SET status='expired',closed_at=NOW(),updated_at=NOW() WHERE user_id=$1 AND currency='USD' AND status='reserved' AND expires_at<=NOW() RETURNING id,user_id,reserved_usd_micros), total AS (SELECT COALESCE(sum(reserved_usd_micros),0) amount FROM expired) UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros-(SELECT amount FROM total),updated_at=NOW() WHERE user_id=$1`, userID); err != nil {
+		return r, false, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id) VALUES($1) ON CONFLICT DO NOTHING`, userID); err != nil {
+		return r, false, err
+	}
+	var balance int64
+	if err = tx.QueryRow(ctx, `SELECT granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&balance); err != nil {
+		return r, false, err
+	}
+	err = tx.QueryRow(ctx, `SELECT id,status,reserved_usd_micros,settled_usd_micros,refunded_usd_micros,policy_version,expires_at FROM ai_credit_reservations WHERE user_id=$1 AND currency='USD' AND idempotency_key=$2`, userID, key).Scan(&priorID, &priorStatus, &priorReserved, &priorSettled, &priorRefunded, &priorPolicy, &priorExpires)
+	if err == nil {
+		return AICreditReservation{ID: priorID, Status: priorStatus, ReservedCredits: 1, PolicyVersion: priorPolicy, ExpiresAt: priorExpires}, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return r, false, err
+	}
+	if balance < amount {
+		return r, false, nil
+	}
+	expires := time.Now().UTC().Add(5 * time.Minute)
+	tag, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros+$2,updated_at=NOW() WHERE user_id=$1 AND granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros>=$2`, userID, amount)
+	if err != nil || tag.RowsAffected() != 1 {
+		return r, false, ErrAssistantInsufficient
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_reservations(id,user_id,operation_type,provider,mode,model,status,idempotency_key,reserved_credits,settled_credits,refunded_credits,max_credits,unit_rate,currency,reserved_usd_micros,max_usd_micros,rate_snapshot,expires_at,policy_version) VALUES($1,$2,'assistant','openai','assistant',$3,'reserved',$4,0,0,0,0,1,'USD',$5,$5,$6,$7,$8)`, id, userID, model, key, amount, snapshot, expires, policyVersion); err != nil {
+		return r, false, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,credits,currency,amount_usd_micros,idempotency_key) VALUES($1,$2,'reserved',0,'USD',$3,$4)`, id, userID, amount, key+":reserved"); err != nil {
+		return r, false, err
+	}
+	return AICreditReservation{ID: id, Status: "reserved", ReservedCredits: 1, PolicyVersion: policyVersion, ExpiresAt: &expires}, true, nil
+}
+
 func (s *Store) MarkAssistantProviderStarted(ctx context.Context, userID, runID string) (bool, error) {
 	if s == nil || s.pool == nil {
 		return false, errors.New("database is not configured")
@@ -380,21 +459,23 @@ func (s *Store) FinishAssistantPlanning(ctx context.Context, userID, runID strin
 	if run.State != "planning" {
 		return run, nil
 	}
-	settled := 0
+	if outcome.Settle && outcome.ProviderModel == "" {
+		outcome.State = "failed"
+		outcome.Message = "Assistant usage could not be priced from provider evidence."
+		outcome.Settle = false
+	}
+	settled := int64(0)
 	if outcome.Settle {
-		if outcome.SettledCredits < 0 || outcome.SettledCredits > run.ReservedCredits {
-			return AssistantRunRecord{}, errors.New("invalid assistant settlement")
-		}
-		if err = settleAssistantCreditTx(ctx, tx, run.ReservationID, userID, run.ReservationID+":settle", outcome.SettledCredits); err != nil {
+		settled, err = settleAssistantUSDTx(ctx, tx, run.ReservationID, userID, outcome)
+		if err != nil {
 			return AssistantRunRecord{}, err
 		}
-		settled = outcome.SettledCredits
-	} else if err = releaseAssistantCreditTx(ctx, tx, run.ReservationID, userID, run.ReservationID+":release"); err != nil {
+	} else if err = releaseAssistantUSDTx(ctx, tx, run.ReservationID, userID, run.ReservationID+":release"); err != nil {
 		return AssistantRunRecord{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE assistant_runs SET
 		state=$3,intent=$4::jsonb,intent_sha256=NULLIF($5,''),risk_level=NULLIF($6,''),
-		requires_confirmation=$7,confirmation_expires_at=$8,settled_credits=$9,
+		requires_confirmation=$7,confirmation_expires_at=$8,settled_credits=0,settled_usd_micros=$9,
 		assistant_message=$10,updated_at=NOW()
 		WHERE id=$1 AND user_id=$2 AND state='planning'`,
 		runID, userID, outcome.State, nullableJSON(outcome.Intent), outcome.IntentSHA256,
@@ -478,6 +559,65 @@ func settleAssistantCreditTx(ctx context.Context, tx pgx.Tx, id, userID, key str
 	return nil
 }
 
+func settleAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID string, outcome AssistantPlanOutcome) (int64, error) {
+	var reserved int64
+	var state, model string
+	var snapshot []byte
+	if err := tx.QueryRow(ctx, `SELECT reserved_usd_micros,status,COALESCE(model,''),rate_snapshot FROM ai_credit_reservations WHERE id=$1 AND user_id=$2 AND currency='USD' FOR UPDATE`, id, userID).Scan(&reserved, &state, &model, &snapshot); err != nil {
+		return 0, err
+	}
+	if state != "claimed" {
+		return 0, errors.New("invalid assistant USD reservation state")
+	}
+	if model != outcome.ProviderModel || outcome.InputTokens < 0 || outcome.OutputTokens < 0 {
+		return 0, errors.New("assistant provider evidence mismatch")
+	}
+	var card USDRateCard
+	if json.Unmarshal(snapshot, &card) != nil || card.Meter != "tokens" || card.InputUsdMicrosPerMillion <= 0 || card.OutputUsdMicrosPerMillion <= 0 {
+		return 0, errors.New("assistant reservation rate is not token priced")
+	}
+	actual := (card.InputUsdMicrosPerMillion*outcome.InputTokens + 999999) / 1000000
+	actual += (card.OutputUsdMicrosPerMillion*outcome.OutputTokens + 999999) / 1000000
+	if actual > reserved {
+		return 0, errors.New("assistant measured usage exceeds reservation")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros-$2,spent_usd_micros=spent_usd_micros+$3 WHERE user_id=$1 AND reserved_usd_micros>=$2`, userID, reserved, actual); err != nil {
+		return 0, err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE ai_credit_reservations SET status='settled',settled_usd_micros=$2,refunded_usd_micros=reserved_usd_micros-$2,closed_at=NOW(),updated_at=NOW() WHERE id=$1 AND currency='USD'`, id, actual)
+	if err != nil || tag.RowsAffected() != 1 {
+		return 0, ErrAssistantCreditConflict
+	}
+	evidence, _ := json.Marshal(map[string]any{"providerModel": outcome.ProviderModel, "providerRequestId": outcome.ProviderRequestID, "inputTokens": outcome.InputTokens, "outputTokens": outcome.OutputTokens})
+	if _, err = tx.Exec(ctx, `INSERT INTO ai_provider_usage_evidence(reservation_id,user_id,provider,mode,model,usage_unit,input_tokens,output_tokens,provider_request_id,idempotency_key,evidence,payload) VALUES($1,$2,'openai','assistant',$3,'tokens',$4,$5,$6,$7,$8,$8) ON CONFLICT DO NOTHING`, id, userID, outcome.ProviderModel, outcome.InputTokens, outcome.OutputTokens, outcome.ProviderRequestID, id+":usage", evidence); err != nil {
+		return 0, err
+	}
+	return actual, nil
+}
+
+func releaseAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID, key string) error {
+	var reserved int64
+	var state string
+	if err := tx.QueryRow(ctx, `SELECT reserved_usd_micros,status FROM ai_credit_reservations WHERE id=$1 AND user_id=$2 AND currency='USD' FOR UPDATE`, id, userID).Scan(&reserved, &state); err != nil {
+		return err
+	}
+	if state == "released" {
+		return nil
+	}
+	if state != "claimed" && state != "reserved" {
+		return errors.New("invalid assistant USD release state")
+	}
+	tag, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros-$2 WHERE user_id=$1 AND reserved_usd_micros>=$2`, userID, reserved)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ErrAssistantCreditConflict
+	}
+	if _, err = tx.Exec(ctx, `UPDATE ai_credit_reservations SET status='released',refunded_usd_micros=reserved_usd_micros,closed_at=NOW(),updated_at=NOW() WHERE id=$1 AND currency='USD'`, id); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,credits,currency,amount_usd_micros,idempotency_key) VALUES($1,$2,'released',0,'USD',$3,$4) ON CONFLICT DO NOTHING`, id, userID, reserved, key)
+	return err
+}
+
 func releaseAssistantCreditTx(ctx context.Context, tx pgx.Tx, id, userID, key string) error {
 	var reserved int
 	var state string
@@ -534,6 +674,9 @@ func (s *Store) GetAssistantRun(ctx context.Context, userID, runID string) (Assi
 	run, err := scanAssistantRun(s.pool.QueryRow(ctx, assistantRunSelect+` WHERE user_id=$1 AND id=$2`, userID, runID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AssistantRunRecord{}, ErrAssistantNotFound
+	}
+	if err == nil {
+		_ = s.pool.QueryRow(ctx, `SELECT COALESCE(model,''),COALESCE(provider_request_id,''),COALESCE(input_tokens,0),COALESCE(output_tokens,0) FROM ai_provider_usage_evidence WHERE reservation_id=$1 ORDER BY recorded_at DESC LIMIT 1`, run.ReservationID).Scan(&run.ProviderModel, &run.ProviderRequestID, &run.InputTokens, &run.OutputTokens)
 	}
 	return run, err
 }
@@ -594,7 +737,8 @@ func (s *Store) GetAssistantConversation(ctx context.Context, userID, workspaceI
 
 const assistantRunSelect = `SELECT
 	id,conversation_id,user_id,transcript_sha256,state,reservation_id,base_credits,
-	reserved_credits,settled_credits,policy_version,provider_started,
+	reserved_credits,settled_credits,currency,policy_version,provider_started,
+	COALESCE(base_usd_micros,0),COALESCE(reserved_usd_micros,0),COALESCE(settled_usd_micros,0),
 	COALESCE(intent::text,''),COALESCE(intent_sha256,''),COALESCE(risk_level,''),
 	requires_confirmation,confirmation_expires_at,COALESCE(result::text,''),
 	COALESCE(assistant_message,''),created_at,updated_at
@@ -614,7 +758,7 @@ func scanAssistantRun(row assistantRow) (AssistantRunRecord, error) {
 	var expires sql.NullTime
 	err := row.Scan(&run.ID, &run.ConversationID, &run.UserID, &run.TranscriptSHA256, &run.State,
 		&run.ReservationID, &run.BaseCredits, &run.ReservedCredits, &run.SettledCredits,
-		&run.PolicyVersion, &run.ProviderStarted, &intent, &intentHash, &riskLevel,
+		&run.Currency, &run.PolicyVersion, &run.ProviderStarted, &run.BaseUSDMicros, &run.ReservedUSDMicros, &run.SettledUSDMicros, &intent, &intentHash, &riskLevel,
 		&run.RequiresConfirmation, &expires, &result, &message, &run.CreatedAt, &run.UpdatedAt)
 	if err != nil {
 		return AssistantRunRecord{}, err

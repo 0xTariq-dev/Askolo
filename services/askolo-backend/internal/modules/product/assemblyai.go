@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -31,9 +32,11 @@ var (
 )
 
 type assemblyAITranscriptionResult struct {
-	Transcript string
-	Confidence *float64
-	Words      []assemblyAIWord
+	Transcript        string
+	Confidence        *float64
+	Words             []assemblyAIWord
+	AudioDurationMs   int64
+	ProviderRequestID string
 }
 
 type assemblyAIWord struct {
@@ -68,6 +71,47 @@ type assemblyAITranscriptResponse struct {
 
 type assemblyAIHTTPStatusError struct {
 	statusCode int
+}
+
+func audioDurationMillis(seconds float64) int64 {
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds > float64(maxVoiceRecordingDurationMS)/1000 {
+		return 0
+	}
+	// Convert the provider's decimal representation without using the result
+	// as a money amount; billing receives only this bounded integer meter.
+	text := strconv.FormatFloat(seconds, 'f', 6, 64)
+	parts := strings.SplitN(text, ".", 2)
+	whole, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || whole < 0 || whole > maxVoiceRecordingDurationMS/1000 {
+		return 0
+	}
+	fraction := int64(0)
+	if len(parts) == 2 {
+		f := parts[1]
+		for len(f) < 3 {
+			f += "0"
+		}
+		roundUp := len(f) > 3 && strings.Trim(f[3:], "0") != ""
+		if len(f) > 3 {
+			f = f[:3]
+		}
+		fraction, err = strconv.ParseInt(f, 10, 64)
+		if err != nil {
+			return 0
+		}
+		if roundUp {
+			fraction++
+			if fraction == 1000 {
+				whole++
+				fraction = 0
+			}
+		}
+	}
+	ms := whole*1000 + fraction
+	if ms < 1 || ms > maxVoiceRecordingDurationMS {
+		return 0
+	}
+	return ms
 }
 
 func (e assemblyAIHTTPStatusError) Error() string {
@@ -217,9 +261,11 @@ func transcribeAssemblyAI(
 						transcript.Confidence = nil
 					}
 					return assemblyAITranscriptionResult{
-						Transcript: transcript.Text,
-						Confidence: transcript.Confidence,
-						Words:      transcript.Words,
+						Transcript:        transcript.Text,
+						Confidence:        transcript.Confidence,
+						Words:             transcript.Words,
+						AudioDurationMs:   audioDurationMillis(transcript.AudioDuration),
+						ProviderRequestID: submitted.ID,
 					}, deletionStatus, nil
 				case "error":
 					deletionStatus, _ := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)

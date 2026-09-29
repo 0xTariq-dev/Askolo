@@ -1,126 +1,72 @@
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 type CreditRequestOptions = RequestInit & { body?: BodyInit | null };
+export type UsdMicros = number;
 
 export type CreditUsage = {
-  balance: number;
-  granted: number;
-  adjustments: number;
-  reserved: number;
-  spent: number;
-  refunded: number;
+  currency: 'USD';
+  balanceUsdMicros: UsdMicros;
+  grantedUsdMicros: UsdMicros;
+  adjustmentsUsdMicros: UsdMicros;
+  reservedUsdMicros: UsdMicros;
+  spentUsdMicros: UsdMicros;
+  refundedUsdMicros: UsdMicros;
 };
-
-export type CreditReceipt = {
-  id: string | number;
-  operationType?: string;
-  provider?: string;
-  mode?: string;
-  status?: string;
-  reservedCredits?: number;
-  settledCredits?: number;
-  refundedCredits?: number;
-  expiresAt?: string | null;
-  createdAt?: string | null;
-  reservationId?: string;
-  eventType?: string;
-  credits?: number;
-  durationMs?: number | null;
-  policyVersion?: number;
-  userId?: string;
-  amountCredits?: number;
-  sourceType?: string;
-  reason?: string;
-  actorUserId?: string;
-  reversalOfId?: number | null;
-  reversalOfGrantId?: number | null;
+export type CreditReservation = {
+  id: string; operationType: string; provider: string; model: string; mode: string;
+  status: string; reservedUsdMicros: UsdMicros; settledUsdMicros: UsdMicros;
+  refundedUsdMicros: UsdMicros; usageUnit: string; usageUnits: number;
+  policyVersion: number; expiresAt: string | null; createdAt: string;
 };
-
+export type CreditEvent = {
+  id: string; reservationId: string; eventType: string; amountUsdMicros: UsdMicros;
+  usageUnit: string; usageUnits: number; details: unknown; createdAt: string;
+};
+export type CreditAdjustment = { id: number; userId: string; amountUsdMicros: UsdMicros; reason: string; actorUserId: string; reversalOfId: number | null; createdAt: string };
+export type CreditGrant = { id: number; userId: string; amountUsdMicros: UsdMicros; reason: string; actorUserId: string; createdAt: string };
 export type CreditUsageResponse = {
   usage: CreditUsage;
-  recent: {
-    reservations: CreditReceipt[];
-    events: CreditReceipt[];
-  };
-  ledgerEntries?: {
-    adjustments: CreditReceipt[];
-    grants: CreditReceipt[];
-  };
+  reservations: CreditReservation[];
+  events: CreditEvent[];
+  adjustments: CreditAdjustment[];
+  grants: CreditGrant[];
 };
-
 export type CreditAccountResponse = CreditUsage & {
-  policyVersion: number;
-  canManage: boolean;
-  enforcement: 'strict' | string;
+  policyVersion: number; canManage: boolean; enforcement: 'strict' | string;
 };
-
 export type CreditEstimate = {
-  pricingKey: string;
-  units: number;
-  estimatedCredits: number;
-  unit: string;
-  creditsPerUnit: number;
-  hardCapCredits: number;
-  availableCredits: number;
-  policyVersion: number;
-  canReserve: boolean;
-  overrunMarginPercent: number;
+  pricingKey: string; units: number; unit: string; estimatedUsdMicros: UsdMicros;
+  hardCapUsdMicros: UsdMicros; availableUsdMicros: UsdMicros; policyVersion: number;
+  canReserve: boolean; overrunMarginPercent: number; currency: 'USD';
 };
-
+export type RateCard = {
+  provider: string; mode: string; model: string; meter: string;
+  usdMicrosPerHour: UsdMicros | null; inputUsdMicrosPerMillion: UsdMicros | null;
+  outputUsdMicrosPerMillion: UsdMicros | null;
+};
 export type CreditPolicy = {
-  version: number;
-  operationWeights: Record<string, number>;
-  monthlyGrantCredits: number;
-  rolloverCapCredits: number;
-  rolloverExpiryDays: number;
-  overrunMarginPercent: number;
-  changeReason?: string;
-  createdBy?: string;
-  createdAt?: string;
+  version: number; rateCards: Record<string, RateCard>;
+  monthlyGrantUsdMicros: UsdMicros; rolloverCapUsdMicros: UsdMicros;
+  rolloverExpiryDays: number; overrunMarginPercent: number;
+  changeReason?: string; createdBy?: string; createdAt?: string;
 };
-
-export type AdminAdjustmentInput = {
-  userId: string;
-  amountCredits: number;
-  reason: string;
-  idempotencyKey: string;
-};
-
+export type AdminAdjustmentInput = { userId: string; amountUsdMicros: UsdMicros; reason: string; idempotencyKey: string };
 export type CreditReceiptDetails = {
-  reservationId: string;
-  reservedCredits: number;
-  settledCredits: number;
-  refundedCredits: number;
-  balance: number;
-  policyVersion: number;
+  reservationId: string; reservedUsdMicros: UsdMicros; settledUsdMicros: UsdMicros;
+  refundedUsdMicros: UsdMicros; balanceUsdMicros: UsdMicros; policyVersion: number;
+  usageUnit: string; usageUnits: number;
 };
 
 async function request<T>(path: string, options: CreditRequestOptions = {}): Promise<T> {
   const response = await fetch(`${basePath}${path}`, {
-    credentials: 'include',
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
-    },
+    credentials: 'include', ...options,
+    headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
   });
-
-  const payload = (await response.json().catch(() => null)) as
-    | { error?: string; code?: string; requestId?: string }
-    | T
-    | null;
+  const payload = await response.json().catch(() => null) as { error?: string; code?: string; requestId?: string } | T | null;
   if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
-        ? payload.error
-        : `Request failed (${response.status})`;
+    const message = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string' ? payload.error : `Request failed (${response.status})`;
     const error = new Error(message);
-    Object.assign(error, {
-      status: response.status,
-      code: payload && typeof payload === 'object' && 'code' in payload ? payload.code : undefined,
-      requestId: payload && typeof payload === 'object' && 'requestId' in payload ? payload.requestId : undefined,
-    });
+    Object.assign(error, { status: response.status, code: payload && typeof payload === 'object' && 'code' in payload ? payload.code : undefined, requestId: payload && typeof payload === 'object' && 'requestId' in payload ? payload.requestId : undefined });
     throw error;
   }
   return payload as T;
@@ -129,52 +75,33 @@ async function request<T>(path: string, options: CreditRequestOptions = {}): Pro
 export const creditApi = {
   account: () => request<CreditAccountResponse>('/api/ai/credits'),
   usage: () => request<CreditUsageResponse>('/api/ai/credits/usage'),
-  estimate: (pricingKey: string, units: number) =>
-    request<CreditEstimate>(`/api/ai/credits/estimate?pricingKey=${encodeURIComponent(pricingKey)}&units=${units}`),
+  estimate: (pricingKey: 'voice.recorded' | 'voice.realtime' | 'assistant', units: number) => request<CreditEstimate>(`/api/ai/credits/estimate?pricingKey=${encodeURIComponent(pricingKey)}&units=${Math.max(0, Math.trunc(units))}`),
   adminPolicy: () => request<CreditPolicy>('/api/admin/ai-credit-policy'),
-  updateAdminPolicy: (
-    policy: Omit<CreditPolicy, 'version' | 'createdBy' | 'createdAt'>,
-    expectedVersion: number,
-    changeReason: string,
-  ) =>
-    request<CreditPolicy>('/api/admin/ai-credit-policy', {
-      method: 'PATCH',
-      body: JSON.stringify({ ...policy, expectedVersion, changeReason }),
-    }),
-  adminAdjustment: (input: AdminAdjustmentInput) =>
-    request<CreditUsage>('/api/admin/ai-credit-adjustments', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-  adminReverseAdjustment: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'reason' | 'idempotencyKey'>) =>
-    request<CreditUsage>(`/api/admin/ai-credit-adjustments/${id}/reverse`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-  adminReverseGrant: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'reason' | 'idempotencyKey'>) =>
-    request<CreditUsage>(`/api/admin/ai-credit-grants/${id}/reverse`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-  adminRefundReservation: (
-    id: string,
-    input: Pick<AdminAdjustmentInput, 'userId' | 'amountCredits' | 'reason' | 'idempotencyKey'>,
-  ) =>
-    request<{ status: string; reason: string }>(`/api/admin/ai-credit-reservations/${encodeURIComponent(id)}/refund`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-  adminUsage: (userId: string) =>
-    request<CreditUsageResponse>(`/api/admin/ai-credit-usage/${encodeURIComponent(userId)}`),
+  updateAdminPolicy: (policy: Pick<CreditPolicy, 'rateCards' | 'monthlyGrantUsdMicros' | 'rolloverCapUsdMicros' | 'rolloverExpiryDays' | 'overrunMarginPercent'>, expectedVersion: number, changeReason: string) => request<CreditPolicy>('/api/admin/ai-credit-policy', { method: 'PATCH', body: JSON.stringify({ ...policy, expectedVersion, changeReason }) }),
+  adminAdjustment: (input: AdminAdjustmentInput) => request<CreditUsage>('/api/admin/ai-credit-adjustments', { method: 'POST', body: JSON.stringify(input) }),
+  adminReverseAdjustment: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-adjustments/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),
+  adminReverseGrant: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-grants/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),
+  adminRefundReservation: (id: string, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<{ status: string; reason: string }>(`/api/admin/ai-credit-reservations/${encodeURIComponent(id)}/refund`, { method: 'POST', body: JSON.stringify(input) }),
+  adminUsage: (userId: string) => request<CreditUsageResponse>(`/api/admin/ai-credit-usage/${encodeURIComponent(userId)}`),
 };
 
-export function creditErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+export function formatUsdMicros(micros: number, locale = 'en-US'): string {
+  const safe = Number.isSafeInteger(micros) ? micros : 0;
+  const sign = safe < 0 ? '-' : '';
+  const absolute = Math.abs(safe);
+  const dollars = Math.floor(absolute / 1_000_000);
+  const fraction = String(absolute % 1_000_000).padStart(6, '0').replace(/0+$/, '').padEnd(2, '0');
+  return `${sign}$${new Intl.NumberFormat(locale).format(dollars)}.${fraction}`;
 }
-
+export function parseUsdMicros(value: string): number {
+  const normalized = value.trim().replace(/^\-\$/, '-').replace(/^\$/, '').replace(/,/g, '');
+  if (!/^-?\d+(?:\.\d{1,6})?$/.test(normalized)) return 0;
+  const [whole, fraction = ''] = normalized.split('.');
+  const micros = Number(`${whole}${fraction.padEnd(6, '0')}`);
+  return Number.isSafeInteger(micros) ? micros : 0;
+}
+export function creditErrorMessage(error: unknown, fallback: string): string { return error instanceof Error && error.message ? error.message : fallback; }
 export function newCreditIdempotencyKey(): string {
-  if (!globalThis.crypto?.randomUUID) {
-    throw new Error('Secure request identifiers are not available in this browser.');
-  }
+  if (!globalThis.crypto?.randomUUID) throw new Error('Secure request identifiers are not available in this browser.');
   return globalThis.crypto.randomUUID();
 }

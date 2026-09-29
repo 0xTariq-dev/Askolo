@@ -22,17 +22,25 @@ const (
 )
 
 type voiceCreditReceipt struct {
-	ID              string `json:"id"`
-	ReservationID   string `json:"reservationId"`
-	OperationType   string `json:"operationType"`
-	Provider        string `json:"provider"`
-	Mode            string `json:"mode"`
-	Status          string `json:"status"`
-	ReservedCredits int    `json:"reservedCredits"`
-	SettledCredits  int    `json:"settledCredits"`
-	RefundedCredits int    `json:"refundedCredits"`
-	Balance         int    `json:"balance"`
-	PolicyVersion   int    `json:"policyVersion"`
+	ID                string `json:"id"`
+	ReservationID     string `json:"reservationId"`
+	OperationType     string `json:"operationType"`
+	Provider          string `json:"provider"`
+	Mode              string `json:"mode"`
+	Status            string `json:"status"`
+	ReservedUsdMicros int64  `json:"reservedUsdMicros,omitempty"`
+	SettledUsdMicros  int64  `json:"settledUsdMicros,omitempty"`
+	RefundedUsdMicros int64  `json:"refundedUsdMicros,omitempty"`
+	BalanceUsdMicros  int64  `json:"balanceUsdMicros,omitempty"`
+	UsageUnit         string `json:"usageUnit,omitempty"`
+	UsageUnits        int64  `json:"usageUnits,omitempty"`
+	PolicyVersion     int    `json:"policyVersion"`
+	// Deprecated legacy fields retained only so older internal callers can
+	// decode historical responses; USD fields are authoritative.
+	ReservedCredits int `json:"reservedCredits,omitempty"`
+	SettledCredits  int `json:"settledCredits,omitempty"`
+	RefundedCredits int `json:"refundedCredits"`
+	Balance         int `json:"balance,omitempty"`
 }
 
 type audioTranscriptionResponse struct {

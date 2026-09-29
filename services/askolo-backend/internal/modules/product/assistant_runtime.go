@@ -72,6 +72,7 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 	run, _, created, err := h.store.StartAssistantRun(
 		r.Context(), userID, postgres.DefaultWorkspaceID(userID),
 		strings.TrimSpace(input.ConversationID), idempotencyKey, transcript, policyVersion,
+		assistantPlannerModel, int64(4096), int64(256),
 	)
 	if err != nil {
 		if h.handleAssistantStoreError(w, err) {
@@ -113,7 +114,14 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 	if r.Context().Err() != nil {
 		outcome := postgres.AssistantPlanOutcome{
 			State: "cancelled", Message: "I stopped this request. No action was taken.",
-			AuditEvent: "run_cancelled", Settle: run.ProviderStarted, SettledCredits: run.BaseCredits,
+			AuditEvent: "run_cancelled",
+		}
+		if plan.UsageValid && plan.ProviderModel == assistantPlannerModel {
+			outcome.Settle = true
+			outcome.ProviderModel = plan.ProviderModel
+			outcome.ProviderRequestID = plan.ProviderRequestID
+			outcome.InputTokens = plan.InputTokens
+			outcome.OutputTokens = plan.OutputTokens
 		}
 		finishAssistantPlanning(h, userID, run.ID, outcome)
 		return
@@ -122,7 +130,9 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("assistant provider operation failed", "run_id", run.ID, "error_type", fmt.Sprintf("%T", planErr))
 		outcome := postgres.AssistantPlanOutcome{
 			State: "failed", Message: "I couldn't complete that request. Please try again.",
-			AuditEvent: "provider_failed", Settle: run.ProviderStarted, SettledCredits: run.BaseCredits,
+			AuditEvent: "provider_failed", Settle: plan.UsageValid && plan.ProviderModel == assistantPlannerModel,
+			ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
+			InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
 		}
 		if _, finishErr := h.store.FinishAssistantPlanning(context.Background(), userID, run.ID, outcome); finishErr != nil {
 			h.storeError(w, "assistant provider failure recording failed", finishErr)
@@ -134,7 +144,9 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 
 	outcome := postgres.AssistantPlanOutcome{
 		State: "completed", Message: "I can prepare one action item at a time. Tell me the single item you want me to add.",
-		AuditEvent: "plan_ready", Settle: true, SettledCredits: run.BaseCredits,
+		AuditEvent: "plan_ready", Settle: plan.UsageValid,
+		ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
+		InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
 	}
 	switch plan.Intent {
 	case "none":

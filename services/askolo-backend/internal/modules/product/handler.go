@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
@@ -90,14 +92,16 @@ type Handler struct {
 	authRateLimitSecret string
 	realtimeIdleTimeout time.Duration
 	assistantPlanner    assistantPlanner
+	realtimeMeters      sync.Map
 }
 
 type voiceCreditReservation struct {
-	ID              string
-	Mode            string
-	ReservedCredits int
-	SettledCredits  int
-	PolicyVersion   int
+	ID                string
+	Mode              string
+	Model             string
+	ReservedUsdMicros int64
+	PolicyVersion     int
+	RateCard          postgres.USDRateCard
 }
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, sessionCookieName string) *Handler {
@@ -196,7 +200,7 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 		}
 	}
 	id := "voice-" + fmt.Sprintf("%x", raw)
-	p, err := h.store.AICreditPolicy(ctx)
+	p, err := h.store.USDPolicy(ctx)
 	if err != nil {
 		return result, &voiceCreditReservationFailure{operation: "AI policy lookup failed", err: err}
 	}
@@ -206,25 +210,31 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 			message: "The AI credit policy changed. Refresh the estimate and try again.",
 		}
 	}
-	rate := p.OperationWeights["voice"]
-	if rate < 1 || rate > 100000 || mode == "" {
+	model := assemblyAIRealtimeSpeechModel
+	card, known := p.RateCards["assemblyai:"+mode+":"+model]
+	if !known || card.Meter != "hour" || card.UsdMicrosPerHour <= 0 || mode == "" {
 		return result, &voiceCreditReservationFailure{
 			status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID",
 			message: "AI credit policy is unavailable.",
 		}
 	}
-	margin := p.OverrunMarginPercent
-	cap := rate * (100 + margin) / 100
-	if rate*(100+margin)%100 != 0 {
-		cap++
+	maxMS := int64(maxVoiceRecordingDurationMS)
+	if mode == "realtime" {
+		maxMS = int64(assemblyAIRealtimeMaxSessionDurationSeconds) * 1000
 	}
-	if cap > 100000 {
+	base, ok := ceilMulDiv(card.UsdMicrosPerHour, maxMS, 3600000)
+	if !ok {
 		return result, &voiceCreditReservationFailure{
 			status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID",
 			message: "AI credit policy is unavailable.",
 		}
 	}
-	reservation, created, err := h.store.ReserveAICredits(ctx, id, userID, "voice", "assemblyai", mode, key, cap, 300, p.Version)
+	cap, ok := applyMargin(base, p.OverrunMarginPercent)
+	if !ok {
+		return result, &voiceCreditReservationFailure{status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID", message: "AI credit policy is unavailable."}
+	}
+	snapshot, _ := json.Marshal(card)
+	reservation, created, err := h.store.ReserveUSD(ctx, id, userID, "voice", "assemblyai", mode, model, key, cap, 300, p.Version, snapshot)
 	if err != nil {
 		return result, &voiceCreditReservationFailure{operation: "AI credit reservation failed", err: err}
 	}
@@ -234,9 +244,9 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 			message: "This operation is already being processed.",
 		}
 	}
-	claimed, claimErr := h.store.ClaimAICreditReservation(ctx, reservation.ID, userID)
+	claimed, claimErr := h.store.ClaimUSDReservation(ctx, reservation.ID, userID)
 	if claimErr != nil || !claimed {
-		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":claim-failed"); releaseErr != nil {
+		if releaseErr := h.store.ReleaseUSDReservation(context.Background(), reservation.ID, userID, reservation.ID+":claim-failed"); releaseErr != nil {
 			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 		}
 		return result, &voiceCreditReservationFailure{
@@ -245,35 +255,113 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 		}
 	}
 	return voiceCreditReservation{
-		ID: reservation.ID, Mode: mode, ReservedCredits: reservation.ReservedCredits,
-		SettledCredits: rate, PolicyVersion: reservation.PolicyVersion,
+		ID: reservation.ID, Mode: mode, Model: model, ReservedUsdMicros: reservation.ReservedUsdMicros,
+		PolicyVersion: reservation.PolicyVersion, RateCard: card,
 	}, nil
 }
 
-func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation) (voiceCreditReceipt, bool) {
-	receipt, err := h.settleVoiceProviderCreditRecord(userID, reservation)
-	if err != nil {
-		h.logger.Error("voice credit settlement failed", "reservation_id", reservation.ID, "error", err)
-		writeError(w, http.StatusServiceUnavailable, "AI_CREDIT_SETTLEMENT_FAILED", "The provider operation completed but credit settlement could not be confirmed. Check your credit history before retrying.")
+func ceilMulDiv(a, b, divisor int64) (int64, bool) {
+	if a < 0 || b < 0 || divisor <= 0 || (a != 0 && b > math.MaxInt64/a) {
+		return 0, false
+	}
+	product := a * b
+	if product > math.MaxInt64-(divisor-1) {
+		return 0, false
+	}
+	return (product + divisor - 1) / divisor, true
+}
+
+func applyMargin(base int64, margin int) (int64, bool) {
+	if base < 0 || margin < 0 || margin > 100 {
+		return 0, false
+	}
+	return ceilMulDiv(base, int64(100+margin), 100)
+}
+
+func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation, durationMS int64, source string) (voiceCreditReceipt, bool) {
+	actual, ok := ceilMulDiv(reservation.RateCard.UsdMicrosPerHour, durationMS, 3600000)
+	if !ok || actual < 1 || actual > reservation.ReservedUsdMicros {
+		writeError(w, http.StatusBadGateway, "VOICE_USAGE_UNAVAILABLE", "The provider did not return valid usage for this operation.")
 		return voiceCreditReceipt{}, false
 	}
-	return receipt, true
+	payload, _ := json.Marshal(map[string]string{"meterSource": source})
+	evidence := postgres.USDEvidence{UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS, Payload: payload}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := h.store.RecordUSDEvidence(ctx, reservation.ID, userID, "assemblyai", reservation.Mode, reservation.Model, reservation.ID+":usage", evidence); err != nil {
+		h.storeError(w, "provider usage recording failed", err)
+		return voiceCreditReceipt{}, false
+	}
+	if err := h.store.SettleUSDReservation(ctx, reservation.ID, userID, reservation.ID+":settle", actual); err != nil {
+		h.storeError(w, "USD settlement failed", err)
+		return voiceCreditReceipt{}, false
+	}
+	usage, err := h.store.USDUsage(ctx, userID)
+	if err != nil {
+		h.storeError(w, "USD usage lookup failed", err)
+		return voiceCreditReceipt{}, false
+	}
+	return voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: reservation.Mode, Status: "settled", ReservedUsdMicros: reservation.ReservedUsdMicros, SettledUsdMicros: actual, RefundedUsdMicros: reservation.ReservedUsdMicros - actual, BalanceUsdMicros: usage.BalanceUsdMicros, UsageUnit: "milliseconds", UsageUnits: durationMS, PolicyVersion: reservation.PolicyVersion}, true
 }
 
+// settleVoiceProviderCreditRecord is kept for the legacy public websocket
+// adapter. New realtime sessions settle only after provider metering arrives.
 func (h *Handler) settleVoiceProviderCreditRecord(userID string, reservation voiceCreditReservation) (voiceCreditReceipt, error) {
-	if err := h.store.SettleAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":settle", reservation.SettledCredits); err != nil {
+	return voiceCreditReceipt{}, errors.New("provider usage is required before USD settlement")
+}
+
+func (h *Handler) settleVoiceProviderCreditRecordWithUsage(userID string, reservation voiceCreditReservation, durationMS int64, source string) (voiceCreditReceipt, error) {
+	actual, ok := ceilMulDiv(reservation.RateCard.UsdMicrosPerHour, durationMS, 3600000)
+	if !ok || actual < 1 || actual > reservation.ReservedUsdMicros {
+		return voiceCreditReceipt{}, errors.New("invalid provider usage")
+	}
+	payload, _ := json.Marshal(map[string]string{"meterSource": source})
+	evidence := postgres.USDEvidence{UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS, Payload: payload}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := h.store.RecordUSDEvidence(ctx, reservation.ID, userID, "assemblyai", reservation.Mode, reservation.Model, reservation.ID+":usage", evidence); err != nil {
 		return voiceCreditReceipt{}, err
 	}
-	usage, err := h.store.AICreditUsage(context.Background(), userID)
+	if err := h.store.SettleUSDReservation(ctx, reservation.ID, userID, reservation.ID+":settle", actual); err != nil {
+		return voiceCreditReceipt{}, err
+	}
+	usage, err := h.store.USDUsage(ctx, userID)
 	if err != nil {
 		return voiceCreditReceipt{}, err
 	}
-	return voiceCreditReceipt{
-		ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice",
-		Provider: "assemblyai", Mode: reservation.Mode, Status: "settled",
-		ReservedCredits: reservation.ReservedCredits, SettledCredits: reservation.SettledCredits,
-		RefundedCredits: 0, Balance: usage.Balance, PolicyVersion: reservation.PolicyVersion,
-	}, nil
+	return voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: reservation.Mode, Status: "settled", ReservedUsdMicros: reservation.ReservedUsdMicros, SettledUsdMicros: actual, RefundedUsdMicros: reservation.ReservedUsdMicros - actual, BalanceUsdMicros: usage.BalanceUsdMicros, UsageUnit: "milliseconds", UsageUnits: durationMS, PolicyVersion: reservation.PolicyVersion}, nil
+}
+
+func durationSecondsMillis(seconds float64) (int64, bool) {
+	if seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return 0, false
+	}
+	text := strconv.FormatFloat(seconds, 'f', 6, 64)
+	parts := strings.SplitN(text, ".", 2)
+	whole, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	fraction := "000"
+	roundUp := false
+	if len(parts) == 2 {
+		raw := parts[1]
+		fraction = (raw + "000")[:3]
+		roundUp = len(raw) > 3 && strings.Trim(raw[3:], "0") != ""
+	}
+	msFraction, err := strconv.ParseInt(fraction, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if roundUp {
+		msFraction++
+		if msFraction == 1000 {
+			whole++
+			msFraction = 0
+		}
+	}
+	ms := whole*1000 + msFraction
+	return ms, ms > 0 && ms <= int64(assemblyAIRealtimeMaxSessionDurationSeconds)*1000
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -763,17 +851,17 @@ func (h *Handler) aiCredits(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
-	usage, err := h.store.AICreditUsage(r.Context(), userID)
+	usage, err := h.store.USDUsage(r.Context(), userID)
 	if err != nil {
 		h.storeError(w, "AI credit lookup failed", err)
 		return
 	}
-	p, err := h.store.AICreditPolicy(r.Context())
+	p, err := h.store.USDPolicy(r.Context())
 	if err != nil {
 		h.storeError(w, "AI policy lookup failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"balance": usage.Balance, "granted": usage.Granted, "adjustments": usage.Adjustments, "reserved": usage.Reserved, "spent": usage.Spent, "refunded": usage.Refunded, "policyVersion": p.Version, "canManage": h.isCreditAdmin(r, userID), "enforcement": "strict"})
+	writeJSON(w, http.StatusOK, map[string]any{"currency": "USD", "balanceUsdMicros": usage.BalanceUsdMicros, "grantedUsdMicros": usage.GrantedUsdMicros, "adjustmentsUsdMicros": usage.AdjustmentsUsdMicros, "reservedUsdMicros": usage.ReservedUsdMicros, "spentUsdMicros": usage.SpentUsdMicros, "refundedUsdMicros": usage.RefundedUsdMicros, "policyVersion": p.Version, "canManage": h.isCreditAdmin(r, userID), "enforcement": "strict"})
 }
 
 func (h *Handler) aiCreditUsage(w http.ResponseWriter, r *http.Request) {
@@ -785,19 +873,18 @@ func (h *Handler) aiCreditUsage(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
-	usage, err := h.store.AICreditUsage(r.Context(), userID)
+	usage, err := h.store.USDUsage(r.Context(), userID)
 	if err != nil {
 		h.storeError(w, "AI credit usage lookup failed", err)
 		return
 	}
-	recent, err := h.store.AICreditRecent(r.Context(), userID, 25)
+	recent, err := h.store.USDRecent(r.Context(), userID, 25)
 	if err != nil {
 		h.storeError(w, "AI credit history lookup failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"usage": usage, "recent": recent,
-		"ledgerEntries": map[string]any{"adjustments": recent["adjustments"], "grants": recent["grants"]},
+		"currency": "USD", "usage": usage, "reservations": recent["reservations"], "events": recent["events"], "adjustments": recent["adjustments"], "grants": recent["grants"],
 	})
 }
 
@@ -810,19 +897,18 @@ func (h *Handler) adminCreditUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_USER", "A valid user is required.")
 		return
 	}
-	usage, err := h.store.AICreditUsage(r.Context(), target)
+	usage, err := h.store.USDUsage(r.Context(), target)
 	if err != nil {
 		h.storeError(w, "AI credit usage lookup failed", err)
 		return
 	}
-	recent, err := h.store.AICreditRecent(r.Context(), target, 100)
+	recent, err := h.store.USDRecent(r.Context(), target, 100)
 	if err != nil {
 		h.storeError(w, "AI credit history lookup failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"usage": usage, "recent": recent,
-		"ledgerEntries": map[string]any{"adjustments": recent["adjustments"], "grants": recent["grants"]},
+		"currency": "USD", "usage": usage, "reservations": recent["reservations"], "events": recent["events"], "adjustments": recent["adjustments"], "grants": recent["grants"],
 	})
 }
 
@@ -855,7 +941,7 @@ func (h *Handler) adminPolicy(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireCreditAdmin(w, r); !ok {
 		return
 	}
-	result, err := h.store.AICreditPolicy(r.Context())
+	result, err := h.store.USDPolicy(r.Context())
 	if err != nil {
 		h.storeError(w, "AI policy lookup failed", err)
 		return
@@ -869,7 +955,7 @@ func (h *Handler) updateAdminPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		postgres.AICreditPolicy
+		postgres.USDPolicy
 		ExpectedVersion int    `json:"expectedVersion"`
 		ChangeReason    string `json:"changeReason"`
 	}
@@ -879,7 +965,8 @@ func (h *Handler) updateAdminPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Version = input.ExpectedVersion + 1
 	input.ChangeReason = strings.TrimSpace(input.ChangeReason)
-	result, err := h.store.UpdateAICreditPolicy(r.Context(), input.ExpectedVersion, input.AICreditPolicy, actor)
+	input.USDPolicy.ChangeReason = input.ChangeReason
+	result, err := h.store.UpdateUSDPolicy(r.Context(), input.ExpectedVersion, input.USDPolicy, actor)
 	if err != nil && strings.Contains(err.Error(), "policy version conflict") {
 		writeError(w, http.StatusConflict, "POLICY_VERSION_CONFLICT", "The policy changed; reload and try again.")
 		return
@@ -898,7 +985,7 @@ func (h *Handler) adminAdjustment(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		UserID         string `json:"userId"`
-		Amount         int    `json:"amountCredits"`
+		Amount         int64  `json:"amountUsdMicros"`
 		Reason         string `json:"reason"`
 		IdempotencyKey string `json:"idempotencyKey"`
 	}
@@ -906,7 +993,7 @@ func (h *Handler) adminAdjustment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_ADJUSTMENT", "A valid user and adjustment are required.")
 		return
 	}
-	if err := h.store.AddAICreditAdjustment(r.Context(), input.UserID, actor, input.Amount, input.Reason, input.IdempotencyKey); err != nil {
+	if err := h.store.AddUSDAdjustment(r.Context(), input.UserID, actor, input.Amount, input.Reason, input.IdempotencyKey); err != nil {
 		if strings.Contains(err.Error(), "idempotency") {
 			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This request key was already used.")
 			return
@@ -918,7 +1005,7 @@ func (h *Handler) adminAdjustment(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, "AI adjustment failed", err)
 		return
 	}
-	usage, err := h.store.AICreditUsage(r.Context(), input.UserID)
+	usage, err := h.store.USDUsage(r.Context(), input.UserID)
 	if err != nil {
 		h.storeError(w, "AI usage lookup failed", err)
 		return
@@ -945,7 +1032,7 @@ func (h *Handler) adminReverseAdjustment(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "INVALID_REVERSAL", "A valid reversal is required.")
 		return
 	}
-	if err := h.store.ReverseAICreditEntry(r.Context(), input.UserID, actor, id, input.IdempotencyKey, input.Reason); err != nil {
+	if err := h.store.ReverseUSDAdjustment(r.Context(), input.UserID, actor, id, input.IdempotencyKey, input.Reason); err != nil {
 		if strings.Contains(err.Error(), "already reversed") {
 			writeError(w, http.StatusConflict, "ALREADY_REVERSED", "This entry was already reversed.")
 			return
@@ -957,7 +1044,7 @@ func (h *Handler) adminReverseAdjustment(w http.ResponseWriter, r *http.Request)
 		h.storeError(w, "AI reversal failed", err)
 		return
 	}
-	usage, err := h.store.AICreditUsage(r.Context(), input.UserID)
+	usage, err := h.store.USDUsage(r.Context(), input.UserID)
 	if err != nil {
 		h.storeError(w, "AI usage lookup failed", err)
 		return
@@ -984,7 +1071,7 @@ func (h *Handler) adminReverseGrant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REVERSAL", "A valid reversal is required.")
 		return
 	}
-	if err := h.store.ReverseAICreditGrant(r.Context(), input.UserID, actor, id, input.IdempotencyKey, input.Reason); err != nil {
+	if err := h.store.ReverseUSDGrant(r.Context(), input.UserID, actor, id, input.IdempotencyKey, input.Reason); err != nil {
 		if strings.Contains(err.Error(), "already reversed") {
 			writeError(w, http.StatusConflict, "ALREADY_REVERSED", "This grant was already reversed.")
 			return
@@ -1000,7 +1087,7 @@ func (h *Handler) adminReverseGrant(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, "AI grant reversal failed", err)
 		return
 	}
-	usage, err := h.store.AICreditUsage(r.Context(), input.UserID)
+	usage, err := h.store.USDUsage(r.Context(), input.UserID)
 	if err != nil {
 		h.storeError(w, "AI usage lookup failed", err)
 		return
@@ -1020,7 +1107,7 @@ func (h *Handler) adminRefundReservation(w http.ResponseWriter, r *http.Request)
 	}
 	var input struct {
 		UserID         string `json:"userId"`
-		Amount         int    `json:"amountCredits"`
+		Amount         int64  `json:"amountUsdMicros"`
 		Reason         string `json:"reason"`
 		IdempotencyKey string `json:"idempotencyKey"`
 	}
@@ -1028,7 +1115,7 @@ func (h *Handler) adminRefundReservation(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "INVALID_REFUND", "A valid refund is required.")
 		return
 	}
-	if err := h.store.RefundAICreditReservation(r.Context(), id, input.UserID, actor, input.IdempotencyKey, input.Reason, input.Amount); err != nil {
+	if err := h.store.RefundUSDReservation(r.Context(), id, input.UserID, actor, input.IdempotencyKey, input.Reason, input.Amount); err != nil {
 		if strings.Contains(err.Error(), "idempotency") {
 			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This request key was already used.")
 			return
@@ -1054,27 +1141,42 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.URL.Query().Get("pricingKey")
 	units, err := strconv.Atoi(r.URL.Query().Get("units"))
-	p, policyErr := h.store.AICreditPolicy(r.Context())
+	p, policyErr := h.store.USDPolicy(r.Context())
 	if policyErr != nil {
 		h.storeError(w, "AI policy lookup failed", policyErr)
 		return
 	}
-	rate, known := p.OperationWeights[key]
-	if key == "" || !known || rate < 1 || rate > 100000 || units < 1 || units > 100000 || units > 100000/rate {
+	card, known := p.RateCards[key]
+	if key == "" || !known || units < 1 || units > 10000000 {
 		writeError(w, http.StatusBadRequest, "INVALID_ESTIMATE", "A valid pricing key and units are required.")
 		return
 	}
-	balance, err := h.store.AICreditBalance(r.Context(), userID)
-	if err != nil {
-		h.storeError(w, "AI credit lookup failed", err)
+	var estimated int64
+	var ok bool
+	switch card.Meter {
+	case "hour":
+		estimated, ok = ceilMulDiv(card.UsdMicrosPerHour, int64(units), 3600)
+	case "input_tokens", "output_tokens", "tokens":
+		estimated, ok = ceilMulDiv(card.InputUsdMicrosPerMillion+card.OutputUsdMicrosPerMillion, int64(units), 1000000)
+	default:
+		ok = false
+	}
+	if !ok || estimated < 1 {
+		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
 		return
 	}
-	estimated := units * rate
-	hardCap := estimated * (100 + p.OverrunMarginPercent) / 100
-	if estimated*(100+p.OverrunMarginPercent)%100 != 0 {
-		hardCap++
+	hardCap, ok := applyMargin(estimated, p.OverrunMarginPercent)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pricingKey": key, "units": units, "estimatedCredits": estimated, "unit": "unit", "creditsPerUnit": rate, "overrunMarginPercent": p.OverrunMarginPercent, "hardCapCredits": hardCap, "availableCredits": balance, "policyVersion": p.Version, "canReserve": balance >= hardCap})
+	usage, err := h.store.USDUsage(r.Context(), userID)
+	if err != nil {
+		h.storeError(w, "USD usage lookup failed", err)
+		return
+	}
+	unit := card.Meter
+	writeJSON(w, http.StatusOK, map[string]any{"currency": "USD", "pricingKey": key, "units": units, "estimatedUsdMicros": estimated, "hardCapUsdMicros": hardCap, "availableUsdMicros": usage.BalanceUsdMicros, "policyVersion": p.Version, "canReserve": usage.BalanceUsdMicros >= hardCap, "overrunMarginPercent": p.OverrunMarginPercent, "unit": unit})
 }
 
 func (h *Handler) transcriptionPreferences(w http.ResponseWriter, r *http.Request) {
@@ -1211,7 +1313,7 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		if providerSucceeded {
 			return
 		}
-		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
+		if releaseErr := h.store.ReleaseUSDReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
 			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 		}
 	}()
@@ -1243,7 +1345,7 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	providerSucceeded = true
-	creditReceipt, settled := h.settleVoiceProviderCredit(w, userID, reservation)
+	creditReceipt, settled := h.settleVoiceProviderCredit(w, userID, reservation, result.AudioDurationMs, result.ProviderRequestID)
 	if !settled {
 		return
 	}

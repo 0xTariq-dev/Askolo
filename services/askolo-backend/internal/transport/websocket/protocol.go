@@ -369,6 +369,15 @@ func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, 
 				}
 				continue
 			}
+			if result.eventType == "AskoloSettlement" {
+				if err := h.sendEvent(state, queuedEvent{
+					eventType: "voice.settlement", voiceReservationID: result.voiceReservationID,
+					payload: result.payload,
+				}); err != nil {
+					return
+				}
+				continue
+			}
 			if err := h.sendEvent(state, queuedEvent{
 				eventType: "voice.provider", voiceReservationID: result.voiceReservationID,
 				payload: result.payload,

@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -293,4 +295,64 @@ func TestTAR10CreditLifecycleIntegration(t *testing.T) {
 			t.Fatal("negative adjustment overdraw succeeded")
 		}
 	})
+}
+
+func TestTAR10USDMicroLedgerLifecycleIntegration(t *testing.T) {
+	ctx, pool, store := openTAR10(t)
+	tar10User(t, ctx, pool, "usd-user")
+	tar10User(t, ctx, pool, "usd-admin")
+	if _, err := pool.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id,granted_credits) VALUES('usd-user',3)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddUSDAdjustment(ctx, "usd-user", "usd-admin", 2_000_000, "USD grant", "usd-grant-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddUSDAdjustment(ctx, "usd-user", "usd-admin", 2_000_000, "USD grant", "usd-grant-key"); err != nil {
+		t.Fatal(err)
+	}
+	r, created, err := store.ReserveUSD(ctx, "usd-reservation", "usd-user", "voice", "assemblyai", "recorded", "universal-3-5-pro", "usd-key", 1_000_000, 60, 2, json.RawMessage(`{"usdMicrosPerHour":210000}`))
+	if err != nil || !created {
+		t.Fatalf("reserve: %v created=%v", err, created)
+	}
+	if replay, replayed, err := store.ReserveUSD(ctx, "different-id", "usd-user", "voice", "assemblyai", "recorded", "universal-3-5-pro", "usd-key", 1_000_000, 60, 2, json.RawMessage(`{"usdMicrosPerHour":210000}`)); err != nil || replayed || replay.ID != r.ID {
+		t.Fatalf("idempotent reserve replay: %#v created=%v err=%v", replay, replayed, err)
+	}
+	if _, _, err := store.ReserveUSD(ctx, "different-id", "usd-user", "voice", "assemblyai", "recorded", "universal-3-5-pro", "usd-key", 9_000_000, 60, 2, json.RawMessage(`{"usdMicrosPerHour":210000}`)); !errors.Is(err, ErrUSDReservationConflict) {
+		t.Fatalf("mismatched replay error=%v", err)
+	}
+	if claimed, err := store.ClaimUSDReservation(ctx, r.ID, "usd-user"); err != nil || !claimed {
+		t.Fatal(err)
+	}
+	if err := store.SettleUSDReservation(ctx, r.ID, "usd-user", "usd-settle", 600_000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RefundUSDReservation(ctx, r.ID, "usd-user", "usd-admin", "usd-refund", "provider correction", 100_000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RefundUSDReservation(ctx, r.ID, "usd-user", "usd-admin", "usd-refund", "provider correction", 100_000); err != nil {
+		t.Fatal(err)
+	}
+	usage, err := store.USDUsage(ctx, "usd-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.GrantedUsdMicros != 2_000_000 || usage.SpentUsdMicros != 600_000 || usage.RefundedUsdMicros != 100_000 {
+		t.Fatalf("unexpected USD usage: %#v", usage)
+	}
+	var legacy int
+	if err := pool.QueryRow(ctx, `SELECT granted_credits FROM ai_credit_accounts WHERE user_id='usd-user'`).Scan(&legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy != 3 {
+		t.Fatalf("legacy credits changed: %d", legacy)
+	}
+	recent, err := store.USDRecent(ctx, "usd-user", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"reservations", "events", "adjustments", "grants"} {
+		if _, ok := recent[key]; !ok {
+			t.Fatalf("recent missing %s", key)
+		}
+	}
 }

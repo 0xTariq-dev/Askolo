@@ -227,7 +227,7 @@ func (h *Handler) realtimeTranscription(w http.ResponseWriter, r *http.Request) 
 		if providerStarted {
 			return
 		}
-		if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
+		if releaseErr := h.store.ReleaseUSDReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
 			h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 		}
 	}()
@@ -243,16 +243,9 @@ func (h *Handler) realtimeTranscription(w http.ResponseWriter, r *http.Request) 
 			defer provider.Close()
 			cancelSetup()
 
-			receipt, settleErr := h.settleVoiceProviderCreditRecord(userID, reservation)
-			if settleErr != nil {
-				h.logger.Error("voice credit settlement failed", "reservation_id", reservation.ID, "error", settleErr)
-				h.writeRealtimeError(conn, "AI_CREDIT_SETTLEMENT_FAILED", "The provider session started, but its credit charge could not be confirmed. Check your credit history before retrying.")
-				h.terminateRealtimeProvider(provider)
-				return
-			}
 			ready := realtimeClientEvent{
 				Type: "AskoloReady", MaxSessionDurationSecs: assemblyAIRealtimeMaxSessionDurationSeconds,
-				CreditReceipt: &receipt,
+				CreditReceipt: &voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: "realtime", Status: "claimed", ReservedUsdMicros: reservation.ReservedUsdMicros, PolicyVersion: reservation.PolicyVersion},
 			}
 			readyCtx, cancelReady := context.WithDeadline(
 				r.Context(),
@@ -264,7 +257,30 @@ func (h *Handler) realtimeTranscription(w http.ResponseWriter, r *http.Request) 
 				h.terminateRealtimeProvider(provider)
 				return
 			}
-			outcome := h.relayRealtimeSession(r.Context(), conn, provider, providerStartedAt)
+			outcome := h.relayRealtimeSession(r.Context(), conn, provider, providerStartedAt, reservation.ID)
+			durationMS := time.Since(providerStartedAt).Milliseconds()
+			if durationMS < 1 {
+				durationMS = 1
+			}
+			maxDurationMS := int64(assemblyAIRealtimeMaxSessionDurationSeconds) * 1000
+			if durationMS > maxDurationMS {
+				durationMS = maxDurationMS
+			}
+			source := "server_elapsed"
+			if meter, ok := h.realtimeMeters.LoadAndDelete(reservation.ID); ok {
+				if measured, valid := meter.(int64); valid && measured > 0 {
+					durationMS, source = measured, "provider"
+				}
+			}
+			receipt, settleErr := h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, durationMS, source)
+			if settleErr == nil {
+				writeCtx, cancelWrite := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = writeRealtimeClientEvent(writeCtx, conn, realtimeClientEvent{Type: "AskoloSettlement", CreditReceipt: &receipt})
+				cancelWrite()
+			} else {
+				h.logger.Error("realtime USD settlement failed", "reservation_id", reservation.ID, "error", settleErr)
+				h.writeRealtimeError(conn, "AI_SETTLEMENT_FAILED", "The provider usage could not be confirmed.")
+			}
 			h.logger.Info(
 				"realtime voice session ended",
 				"user_id", userID,
@@ -363,6 +379,7 @@ func (h *Handler) relayRealtimeSession(
 	client *websocket.Conn,
 	provider assemblyAIRealtimeSession,
 	sessionStartedAt time.Time,
+	reservationIDs ...string,
 ) realtimeSessionOutcome {
 	relayCtx, cancelRelay := context.WithCancel(ctx)
 	defer cancelRelay()
@@ -480,6 +497,16 @@ func (h *Handler) relayRealtimeSession(
 					return realtimeOutcomeProviderFailed
 				}
 				return realtimeOutcomeClientDisconnected
+			}
+			if result.event.Type == "Termination" && len(reservationIDs) > 0 {
+				var payload struct {
+					SessionDurationSeconds float64 `json:"session_duration_seconds"`
+				}
+				if json.Unmarshal(result.event.Payload, &payload) == nil {
+					if duration, ok := durationSecondsMillis(payload.SessionDurationSeconds); ok {
+						h.realtimeMeters.Store(reservationIDs[0], duration)
+					}
+				}
 			}
 			if err := writeRealtimeProviderEvent(ctx, client, result.event); err != nil {
 				sendTermination()

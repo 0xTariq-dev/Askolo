@@ -3,11 +3,9 @@ import { Link } from 'wouter';
 import { Coins, RefreshCw } from 'lucide-react';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { creditApi, creditErrorMessage, type CreditEstimate } from '@/lib/credit-api';
-import { useLocale } from '@/contexts/locale-context';
+import { creditApi, creditErrorMessage, formatUsdMicros, type CreditEstimate } from '@/lib/credit-api';
 
 export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink?: boolean }) {
-  const { formatNumber } = useLocale();
   const [estimate, setEstimate] = useState<CreditEstimate | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -16,7 +14,7 @@ export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink
     setLoading(true);
     setError('');
     try {
-      setEstimate(await creditApi.estimate('voice', 1));
+      setEstimate(await creditApi.estimate('voice.recorded', 60));
     } catch (loadError) {
       setError(creditErrorMessage(loadError, 'The voice estimate is unavailable.'));
     } finally {
@@ -64,19 +62,19 @@ export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink
           <div className="flex flex-col gap-1 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
             <p>
               <span className="text-muted-foreground">Estimated:</span>{' '}
-              <strong><bdi>{formatNumber(estimate.estimatedCredits)} credits</bdi></strong>
+             <strong><bdi>{formatUsdMicros(estimate.estimatedUsdMicros)}</bdi></strong>
             </p>
             <p>
               <span className="text-muted-foreground">Maximum reserved:</span>{' '}
-              <strong><bdi>{formatNumber(estimate.hardCapCredits)} credits</bdi></strong>
+               <strong><bdi>{formatUsdMicros(estimate.hardCapUsdMicros)}</bdi></strong>
             </p>
             <p>
               <span className="text-muted-foreground">Available:</span>{' '}
-              <strong><bdi>{formatNumber(estimate.availableCredits)} credits</bdi></strong>
+               <strong><bdi>{formatUsdMicros(estimate.availableUsdMicros)}</bdi></strong>
             </p>
             {!estimate.canReserve && (
               <p role="alert" className="basis-full font-medium text-destructive">
-                Your balance is below the amount needed to start voice input.
+                 Your USD balance is below the amount needed to start voice input.
               </p>
             )}
             <p className="basis-full text-xs text-muted-foreground">

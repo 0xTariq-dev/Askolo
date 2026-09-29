@@ -69,7 +69,9 @@ func (h *Handler) StartVoice(
 	providerStarted := false
 	defer func() {
 		if !providerStarted {
-			if releaseErr := h.store.ReleaseAICreditReservation(context.Background(), reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
+			releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer releaseCancel()
+			if releaseErr := h.store.ReleaseUSDReservation(releaseCtx, reservation.ID, userID, reservation.ID+":release"); releaseErr != nil {
 				h.logger.Error("voice credit reservation release failed", "reservation_id", reservation.ID, "error", releaseErr)
 			}
 		}
@@ -92,32 +94,35 @@ func (h *Handler) StartVoice(
 		return fail(publicws.Failure(http.StatusBadGateway, "VOICE_PROVIDER_FAILED", "Real-time transcription could not be started. Try recorded transcription instead.", err))
 	}
 	providerStarted = true
-	receipt, err := h.settleVoiceProviderCreditRecord(userID, reservation)
-	if err != nil {
-		h.logger.Error("voice credit settlement failed", "reservation_id", reservation.ID, "error", err)
-		terminateCtx, cancelTerminate := context.WithTimeout(context.Background(), realtimeTerminationTimeout)
-		_ = provider.SendTermination(terminateCtx)
-		cancelTerminate()
-		provider.Close()
-		releaseLimit()
-		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "AI_CREDIT_SETTLEMENT_FAILED", "The provider session started, but its credit charge could not be confirmed. Check your credit history before retrying.", err)
-	}
 	payload, err := json.Marshal(map[string]any{
 		"maxSessionDurationSeconds": assemblyAIRealtimeMaxSessionDurationSeconds,
-		"creditReceipt":             receipt,
+		"creditReceipt":             voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: "realtime", Status: "claimed", ReservedUsdMicros: reservation.ReservedUsdMicros, PolicyVersion: reservation.PolicyVersion},
 	})
 	if err != nil {
+		_, settleErr := h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, 1, "server_elapsed")
+		if settleErr != nil {
+			h.logger.Error("public voice setup settlement failed", "reservation_id", reservation.ID, "error", settleErr)
+		}
 		provider.Close()
 		releaseLimit()
 		return nil, nil, publicws.Failure(http.StatusInternalServerError, "VOICE_UNAVAILABLE", "Real-time transcription is temporarily unavailable.", err)
 	}
-	return &publicVoiceSession{provider: provider, releaseLimit: releaseLimit}, payload, nil
+	return &publicVoiceSession{provider: provider, handler: h, userID: userID, reservation: reservation, startedAt: time.Now(), releaseLimit: releaseLimit}, payload, nil
 }
 
 type publicVoiceSession struct {
-	provider     assemblyAIRealtimeSession
-	releaseLimit func()
-	closeOnce    sync.Once
+	provider           assemblyAIRealtimeSession
+	handler            *Handler
+	userID             string
+	reservation        voiceCreditReservation
+	startedAt          time.Time
+	mu                 sync.Mutex
+	settled            bool
+	pendingTermination bool
+	meteredDurationMS  int64
+	meterSource        string
+	releaseLimit       func()
+	closeOnce          sync.Once
 }
 
 func (s *publicVoiceSession) SendPCMFrame(ctx context.Context, frame []byte) error {
@@ -125,8 +130,55 @@ func (s *publicVoiceSession) SendPCMFrame(ctx context.Context, frame []byte) err
 }
 
 func (s *publicVoiceSession) ReadProviderMessage(ctx context.Context) (string, json.RawMessage, error) {
+	s.mu.Lock()
+	if s.pendingTermination {
+		s.pendingTermination = false
+		s.mu.Unlock()
+		return "Termination", nil, nil
+	}
+	s.mu.Unlock()
+
 	event, err := s.provider.ReadProviderMessage(ctx)
-	return event.Type, event.Payload, err
+	if err != nil || event.Type != "Termination" {
+		return event.Type, event.Payload, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.settled {
+		return event.Type, event.Payload, nil
+	}
+	if s.meteredDurationMS == 0 {
+		durationMS := time.Since(s.startedAt).Milliseconds()
+		var payload struct {
+			SessionDurationSeconds float64 `json:"session_duration_seconds"`
+		}
+		source := "server_elapsed"
+		if json.Unmarshal(event.Payload, &payload) == nil {
+			if measured, ok := durationSecondsMillis(payload.SessionDurationSeconds); ok {
+				durationMS, source = measured, "assemblyai_session_duration"
+			}
+		}
+		maxMS := int64(assemblyAIRealtimeMaxSessionDurationSeconds) * 1000
+		if durationMS < 1 {
+			durationMS = 1
+		}
+		if durationMS > maxMS {
+			durationMS = maxMS
+		}
+		s.meteredDurationMS = durationMS
+		s.meterSource = source
+	}
+	receipt, settleErr := s.handler.settleVoiceProviderCreditRecordWithUsage(
+		s.userID, s.reservation, s.meteredDurationMS, s.meterSource,
+	)
+	if settleErr != nil {
+		return "", nil, settleErr
+	}
+	s.settled = true
+	s.pendingTermination = true
+	settlement, _ := json.Marshal(map[string]any{"creditReceipt": receipt})
+	return "AskoloSettlement", settlement, nil
 }
 
 func (s *publicVoiceSession) SendTermination(ctx context.Context) error {
@@ -142,7 +194,30 @@ func (s *publicVoiceSession) Close() {
 		return
 	}
 	s.closeOnce.Do(func() {
+		closedAt := time.Now()
 		s.provider.Close()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if !s.settled && s.handler != nil {
+			durationMS := s.meteredDurationMS
+			source := s.meterSource
+			if durationMS < 1 {
+				durationMS = closedAt.Sub(s.startedAt).Milliseconds()
+				source = "server_elapsed"
+			}
+			maxMS := int64(assemblyAIRealtimeMaxSessionDurationSeconds) * 1000
+			if durationMS < 1 {
+				durationMS = 1
+			}
+			if durationMS > maxMS {
+				durationMS = maxMS
+			}
+			if _, err := s.handler.settleVoiceProviderCreditRecordWithUsage(s.userID, s.reservation, durationMS, source); err != nil {
+				s.handler.logger.Error("public voice settlement failed", "reservation_id", s.reservation.ID, "error", err)
+			} else {
+				s.settled = true
+			}
+		}
 		if s.releaseLimit != nil {
 			s.releaseLimit()
 		}
@@ -227,17 +302,28 @@ func (h *Handler) RunAssistant(
 	plan, planErr := h.assistantPlanner.Plan(planCtx, transcript)
 	cancel()
 	if ctx.Err() != nil {
-		finishAssistantPlanning(h, userID, run.ID, postgres.AssistantPlanOutcome{
+		outcome := postgres.AssistantPlanOutcome{
 			State: "cancelled", Message: "I stopped this request. No action was taken.",
-			AuditEvent: "run_cancelled", Settle: true, SettledCredits: run.BaseCredits,
-		})
+			AuditEvent: "run_cancelled",
+		}
+		if plan.UsageValid && plan.ProviderModel == assistantPlannerModel {
+			outcome.Settle = true
+			outcome.ProviderModel = plan.ProviderModel
+			outcome.ProviderRequestID = plan.ProviderRequestID
+			outcome.InputTokens = plan.InputTokens
+			outcome.OutputTokens = plan.OutputTokens
+		}
+		finishAssistantPlanning(h, userID, run.ID, outcome)
 		return nil, ctx.Err()
 	}
 	if planErr != nil {
 		h.logger.Warn("assistant provider operation failed", "run_id", run.ID, "error_type", fmt.Sprintf("%T", planErr))
 		outcome := postgres.AssistantPlanOutcome{
 			State: "failed", Message: "I couldn't complete that request. Please try again.",
-			AuditEvent: "provider_failed", Settle: true, SettledCredits: run.BaseCredits,
+			AuditEvent:    "provider_failed",
+			Settle:        plan.UsageValid && plan.ProviderModel == assistantPlannerModel,
+			ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
+			InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
 		}
 		if _, finishErr := h.store.FinishAssistantPlanning(context.Background(), userID, run.ID, outcome); finishErr != nil {
 			return nil, assistantPublicError(finishErr)
@@ -247,7 +333,9 @@ func (h *Handler) RunAssistant(
 
 	outcome := postgres.AssistantPlanOutcome{
 		State: "completed", Message: "I can prepare one action item at a time. Tell me the single item you want me to add.",
-		AuditEvent: "plan_ready", Settle: true, SettledCredits: run.BaseCredits,
+		AuditEvent: "plan_ready", Settle: plan.UsageValid,
+		ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
+		InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
 	}
 	switch plan.Intent {
 	case "none":

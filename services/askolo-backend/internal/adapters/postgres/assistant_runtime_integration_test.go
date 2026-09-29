@@ -27,6 +27,26 @@ func prepareAssistantConfirmation(
 	if policy.OperationWeights["assistant"] < 1 {
 		t.Fatal("assistant credit weight is not configured")
 	}
+	usdPolicy, err := store.USDPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usdPolicy.Version++
+	usdPolicy.ChangeReason = "isolated assistant USD test rate"
+	usdPolicy.RateCards["openai:assistant:gpt-5.6-luna"] = USDRateCard{
+		Provider: "openai", Mode: "assistant", Model: "gpt-5.6-luna", Meter: "tokens",
+		InputUsdMicrosPerMillion: 1000000, OutputUsdMicrosPerMillion: 2000000,
+	}
+	if _, err := store.UpdateUSDPolicy(ctx, usdPolicy.Version-1, usdPolicy, userID); err != nil {
+		t.Fatal(err)
+	}
+	policy, err = store.AICreditPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddUSDAdjustment(ctx, userID, userID, 100000000, "isolated assistant USD funding", "assistant-funding-"+idempotencyKey); err != nil {
+		t.Fatal(err)
+	}
 
 	run, _, created, err := store.StartAssistantRun(
 		ctx, userID, DefaultWorkspaceID(userID), "", idempotencyKey, transcript, policy.Version,
@@ -54,6 +74,8 @@ func prepareAssistantConfirmation(
 		Message: "Please confirm this action item.", AuditEvent: "plan_ready",
 		ToolName: "create_action_item", ToolArgsSHA256: intentHash,
 		Settle: true, SettledCredits: run.BaseCredits,
+		ProviderModel: "gpt-5.6-luna", ProviderRequestID: "assistant-test-request",
+		InputTokens: 32, OutputTokens: 16,
 	}
 	finished, err := store.FinishAssistantPlanning(ctx, userID, run.ID, outcome)
 	if err != nil {

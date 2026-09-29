@@ -36,7 +36,7 @@ import { Form, FormControl, FormField, FormItem } from '@workspace/askolo-design
 import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
-import { creditApi, creditErrorMessage, newCreditIdempotencyKey } from '@/lib/credit-api';
+import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
@@ -66,6 +66,7 @@ export function AssistantSidebar() {
   const [isThinking, setIsThinking] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState('');
+  const [assistantEstimate, setAssistantEstimate] = useState<CreditEstimate | null>(null);
   const [voiceConsentOpen, setVoiceConsentOpen] = useState(false);
   const [voiceConsentSaving, setVoiceConsentSaving] = useState(false);
   const [voiceConsentError, setVoiceConsentError] = useState('');
@@ -177,6 +178,7 @@ export function AssistantSidebar() {
 
     try {
       const estimate = await creditApi.estimate('assistant', 1);
+      setAssistantEstimate(estimate);
       if (controller.signal.aborted) {
         setAssistantError('Request stopped. No action was taken.');
         await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
@@ -549,6 +551,11 @@ export function AssistantSidebar() {
               {assistantError && (
                 <p className="mt-2 px-1 text-xs text-destructive" role="alert">
                   {assistantError}
+                </p>
+              )}
+              {assistantEstimate && !isThinking && (
+                <p className="mt-2 px-1 text-[11px] text-muted-foreground" data-testid="text-assistant-usage-estimate">
+                  This request is estimated at <bdi dir="ltr">{formatUsdMicros(assistantEstimate.estimatedUsdMicros)}</bdi>, with a maximum reservation of <bdi dir="ltr">{formatUsdMicros(assistantEstimate.hardCapUsdMicros)}</bdi>. Available: <bdi dir="ltr">{formatUsdMicros(assistantEstimate.availableUsdMicros)}</bdi>.
                 </p>
               )}
               <p className="mt-2 px-1 text-[10px] leading-relaxed text-muted-foreground">

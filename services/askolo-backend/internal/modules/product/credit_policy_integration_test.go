@@ -279,18 +279,25 @@ func TestCreditAdminAllowlistedVerifiedUserCanUpdatePolicy(t *testing.T) {
 		AdminEmails: map[string]struct{}{"operator@example.test": {}},
 	}, fixture.store, slog.Default(), "askolo_session").Routes()
 
-	current, err := fixture.store.AICreditPolicy(fixture.ctx)
+	current, err := fixture.store.USDPolicy(fixture.ctx)
 	if err != nil {
 		t.Fatalf("read initial policy: %v", err)
 	}
+	// The integration fixture may predate the USD tariff columns, or contain
+	// legacy/non-USD cards. Exercise the USD endpoint with an explicit,
+	// independently valid AssemblyAI tariff snapshot.
+	current.RateCards = map[string]postgres.USDRateCard{
+		"assemblyai:recorded:universal-3-5-pro": {Provider: "assemblyai", Mode: "recorded", Model: "universal-3-5-pro", Meter: "hour", UsdMicrosPerHour: 210000},
+		"assemblyai:realtime:universal-3-5-pro": {Provider: "assemblyai", Mode: "realtime", Model: "universal-3-5-pro", Meter: "hour", UsdMicrosPerHour: 450000},
+	}
 	body, err := json.Marshal(map[string]any{
-		"expectedVersion":      current.Version,
-		"changeReason":         "authorized integration test",
-		"operationWeights":     current.OperationWeights,
-		"monthlyGrantCredits":  current.MonthlyGrantCredits,
-		"rolloverCapCredits":   current.RolloverCapCredits,
-		"rolloverExpiryDays":   current.RolloverExpiryDays,
-		"overrunMarginPercent": current.OverrunMarginPercent,
+		"expectedVersion":       current.Version,
+		"changeReason":          "authorized integration test",
+		"rateCards":             current.RateCards,
+		"monthlyGrantUsdMicros": int64(0),
+		"rolloverCapUsdMicros":  int64(0),
+		"rolloverExpiryDays":    30,
+		"overrunMarginPercent":  10,
 	})
 	if err != nil {
 		t.Fatalf("encode policy update: %v", err)
@@ -304,7 +311,7 @@ func TestCreditAdminAllowlistedVerifiedUserCanUpdatePolicy(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%q", response.Code, http.StatusOK, response.Body.String())
 	}
-	updated, err := fixture.store.AICreditPolicy(fixture.ctx)
+	updated, err := fixture.store.USDPolicy(fixture.ctx)
 	if err != nil {
 		t.Fatalf("read updated policy: %v", err)
 	}
