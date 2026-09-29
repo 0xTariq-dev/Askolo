@@ -429,14 +429,16 @@ export function LoginPage() {
               </FieldGroup>
               {error && <p id="auth-form-error" className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
-              <Button
-                type="submit"
-                size="sm"
-                className="mx-auto min-h-11 w-full max-w-44"
-                disabled={submitting}
-              >
-                {submitting ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
-              </Button>
+              <div className="flex justify-center">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="min-h-11 w-full max-w-44 rounded-full text-center"
+                  disabled={submitting}
+                >
+                  {submitting ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+                </Button>
+              </div>
             </form>
             <FieldSeparator className="text-xs">Or continue with</FieldSeparator>
             <CButton60SocialAuthButtons
