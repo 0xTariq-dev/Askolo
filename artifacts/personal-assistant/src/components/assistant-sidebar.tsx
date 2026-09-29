@@ -15,6 +15,8 @@ import {
   MessageSquare,
   Check,
   Loader2,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 import {
   confirmAssistantRun,
@@ -24,6 +26,9 @@ import {
   getGetDashboardSummaryQueryKey,
   getListActionItemsQueryKey,
   type AssistantRun,
+  useGetTranscriptionPreferences,
+  useUpdateTranscriptionPreferences,
+  getGetTranscriptionPreferencesQueryKey,
 } from '@workspace/api-client-react';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Input } from '@workspace/askolo-design-system/components/ui/input';
@@ -32,6 +37,8 @@ import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, newCreditIdempotencyKey } from '@/lib/credit-api';
+import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
+import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -55,6 +62,13 @@ export function AssistantSidebar() {
   const [isThinking, setIsThinking] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState('');
+  const [voiceConsentOpen, setVoiceConsentOpen] = useState(false);
+  const [voiceConsentSaving, setVoiceConsentSaving] = useState(false);
+  const [voiceConsentError, setVoiceConsentError] = useState('');
+  const [liveVoice, setLiveVoice] = useState(false);
+  const { data: voicePreferences } = useGetTranscriptionPreferences();
+  const updateVoicePreferences = useUpdateTranscriptionPreferences();
+  const voice = useVoiceTranscription({ realtime: liveVoice });
   const conversationQuery = useGetAssistantConversation({
     query: {
       queryKey: getGetAssistantConversationQueryKey(),
@@ -184,6 +198,32 @@ export function AssistantSidebar() {
     } finally {
       if (planningRequestRef.current === controller) planningRequestRef.current = null;
       setIsThinking(false);
+    }
+  };
+
+  const startAssistantVoice = async () => {
+    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== 'voice-v3') {
+      setVoiceConsentError('');
+      setVoiceConsentOpen(true);
+      return;
+    }
+    await voice.start();
+  };
+
+  useEffect(() => {
+    if (voice.state === 'review' && voice.transcript) form.setValue('text', voice.transcript, { shouldValidate: true });
+  }, [voice.state, voice.transcript, form]);
+
+  const saveVoiceConsent = async () => {
+    setVoiceConsentSaving(true);
+    try {
+      const updated = await updateVoicePreferences.mutateAsync({ data: { consent: true } });
+      queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+      setVoiceConsentOpen(false);
+    } catch {
+      setVoiceConsentError('Consent could not be saved. Please try again.');
+    } finally {
+      setVoiceConsentSaving(false);
     }
   };
 
@@ -432,17 +472,17 @@ export function AssistantSidebar() {
             {/* Input */}
             <div className="p-3 border-t border-border bg-card/50 shrink-0">
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="flex gap-2">
+                <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-wrap gap-2">
                   <FormField
                     control={form.control}
                     name="text"
                     render={({ field }) => (
                       <FormItem className="flex-1">
                         <FormControl>
-                          <Input
+                         <Input
                             placeholder="Ask Askolo something…"
                             aria-label="Message Askolo"
-                            className="h-10 bg-background border-border text-sm"
+                             className="h-10 min-w-0 flex-1 bg-background border-border text-sm"
                             {...field}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
@@ -455,17 +495,36 @@ export function AssistantSidebar() {
                       </FormItem>
                     )}
                   />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setLiveVoice((value) => !value)} disabled={voice.isBusy || isThinking} aria-pressed={liveVoice} data-testid="button-toggle-assistant-live-voice">{liveVoice ? 'Recorded mode' : 'Live mode'}</Button>
+                  <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startAssistantVoice(); }} onPointerUp={voice.stop} onPointerCancel={voice.cancel} onBlur={voice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startAssistantVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); voice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={voice.state === 'processing' || isThinking} aria-label={voice.isListening ? 'Release to stop voice input' : 'Press and hold to record voice input'} data-testid="button-assistant-voice">
+                    {voice.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
                   <Button
                     type="submit"
                     size="icon"
                     className="h-10 w-10 shrink-0"
-                    disabled={isThinking || pendingActionId !== null}
+                     disabled={isThinking || pendingActionId !== null || voice.isBusy}
                     aria-label="Send message"
                   >
                     <Send className="h-4 w-4" />
                   </Button>
                 </form>
               </Form>
+              {(voice.status || voice.error || voice.reviewSignals.length > 0) && (
+                <div className="mt-2 space-y-1 px-1 text-xs" aria-live="polite">
+                  {voice.status && <p className="text-muted-foreground">{voice.status}</p>}
+                  {voice.error && <p role="alert" className="text-destructive">{voice.error}</p>}
+                  {voice.reviewSignals.length > 0 && <p className="text-warning">Review low-confidence details before pressing Send.</p>}
+                  {voice.deletionStatus && <p className="text-muted-foreground">{voice.deletionStatus.providerTranscript === 'deleted' ? 'Provider transcript deletion confirmed; this does not confirm provider audio deletion.' : 'Provider transcript deletion could not be confirmed; provider retention may apply.'}</p>}
+                  {voice.state === 'review' && <p className="text-success">Transcript placed in the editable message field. Press Send only when ready.</p>}
+                  {(voice.state === 'error' || voice.state === 'review' || voice.isBusy) && (
+                    <div className="flex flex-wrap gap-2">
+                      {(voice.state === 'error' || voice.state === 'review') && <Button type="button" size="sm" variant="outline" onClick={() => void voice.retry()} disabled={!voice.recording}>Retry transcription</Button>}
+                      <Button type="button" size="sm" variant="ghost" onClick={voice.cancel}>Discard voice input</Button>
+                    </div>
+                  )}
+                </div>
+              )}
               {assistantError && (
                 <p className="mt-2 px-1 text-xs text-destructive" role="alert">
                   {assistantError}
@@ -478,6 +537,7 @@ export function AssistantSidebar() {
           </motion.aside>
         )}
       </AnimatePresence>
+      <VoiceConsentDialog open={voiceConsentOpen} onOpenChange={setVoiceConsentOpen} onConfirm={() => void saveVoiceConsent()} saving={voiceConsentSaving} error={voiceConsentError} />
     </>
   );
 }

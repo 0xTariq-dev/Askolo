@@ -121,6 +121,7 @@ export function PlanPage() {
   const voiceBaseNotesRef = useRef('');
   const audioRef = useRef<HTMLAudioElement>(null);
   const [recordingUrl, setRecordingUrl] = useState('');
+  const [liveMode, setLiveMode] = useState(false);
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const {
@@ -143,7 +144,7 @@ export function PlanPage() {
     reset: resetVoiceInput,
     retry: retryVoiceRecording,
     clearRecording,
-  } = useVoiceTranscription();
+  } = useVoiceTranscription({ realtime: liveMode });
 
   useEffect(() => {
     if (!recording) {
@@ -505,6 +506,12 @@ export function PlanPage() {
             )}
 
             <div className="pt-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>Voice is optional. Review the transcript before generating your plan.</span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setLiveMode((value) => !value)} disabled={voiceIsBusy} aria-pressed={liveMode} data-testid="button-toggle-live-voice">
+                  {liveMode ? 'Use recorded mode' : 'Use live mode'}
+                </Button>
+              </div>
               <div className="flex items-center justify-end gap-2">
                 <Button
                   type="button"

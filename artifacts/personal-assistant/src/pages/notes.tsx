@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -14,6 +14,9 @@ import {
   CheckCircle2,
   ListTodo,
   Sparkles,
+  Mic,
+  MicOff,
+  Upload,
 } from 'lucide-react';
 import {
   useListNotes,
@@ -25,6 +28,9 @@ import {
   getListActionItemsQueryKey,
   getGetDashboardSummaryQueryKey,
   Note,
+  useGetTranscriptionPreferences,
+  useUpdateTranscriptionPreferences,
+  getGetTranscriptionPreferencesQueryKey,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PageTransition } from '@/components/ui/page-transition';
@@ -36,7 +42,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@workspace/askolo-design-system/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@workspace/askolo-design-system/components/ui/tabs';
 import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
+import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 
 const noteSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -57,12 +64,22 @@ export function NotesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [meetingNotes, setMeetingNotes] = useState('');
+  const [meetingReviewText, setMeetingReviewText] = useState('');
+  const [noteReviewText, setNoteReviewText] = useState('');
   const [meetingResult, setMeetingResult] = useState<{
     summary: string;
     decisions: string[];
     actionItems: { id: number; title: string; dueDate: string | null; completed: boolean }[];
   } | null>(null);
   const [activeTab, setActiveTab] = useState('notes');
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentError, setConsentError] = useState('');
+  const [consentSaving, setConsentSaving] = useState(false);
+  const [liveVoice, setLiveVoice] = useState(false);
+  const { data: voicePreferences } = useGetTranscriptionPreferences();
+  const updateVoicePreferences = useUpdateTranscriptionPreferences();
+  const voice = useVoiceTranscription({ realtime: liveVoice });
+  const noteVoice = useVoiceTranscription();
 
   const form = useForm<NoteForm>({
     resolver: zodResolver(noteSchema),
@@ -149,6 +166,54 @@ export function NotesPage() {
         },
       },
     );
+  };
+
+  const startVoice = async () => {
+    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== 'voice-v3') {
+      setConsentError('');
+      setConsentOpen(true);
+      return;
+    }
+    await voice.start();
+  };
+
+  const startNoteVoice = async () => {
+    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== 'voice-v3') {
+      setConsentError('');
+      setConsentOpen(true);
+      return;
+    }
+    await noteVoice.start();
+  };
+
+  const canUseVoice = Boolean(voicePreferences?.consentGiven && voicePreferences.consentVersion === 'voice-v3');
+
+  const saveConsent = async () => {
+    setConsentSaving(true);
+    try {
+      const updated = await updateVoicePreferences.mutateAsync({ data: { consent: true } });
+      qc.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+      setConsentOpen(false);
+    } catch {
+      setConsentError('Consent could not be saved. Please try again.');
+    } finally {
+      setConsentSaving(false);
+    }
+  };
+
+  const applyVoiceTranscript = () => {
+    if (meetingReviewText.trim()) setMeetingNotes(meetingReviewText.trim());
+  };
+
+  useEffect(() => {
+    if (voice.state === 'review') setMeetingReviewText(voice.transcript);
+  }, [voice.state, voice.transcript]);
+  useEffect(() => {
+    if (noteVoice.state === 'review') setNoteReviewText(noteVoice.transcript);
+  }, [noteVoice.state, noteVoice.transcript]);
+
+  const applyNoteTranscript = () => {
+    if (noteReviewText.trim()) form.setValue('content', noteReviewText.trim(), { shouldValidate: true });
   };
 
   return (
@@ -265,10 +330,39 @@ export function NotesPage() {
                 onChange={(e) => setMeetingNotes(e.target.value)}
                 data-testid="meeting-notes-input"
               />
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs text-muted-foreground" aria-live="polite">
+                  {voice.state === 'listening' ? `Recording ${voice.recordingSeconds}s…` : voice.state === 'review' ? 'Transcript ready for review.' : 'Add audio only when it helps.'}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setLiveVoice((value) => !value)} disabled={voice.isBusy} aria-pressed={liveVoice} data-testid="button-toggle-notes-live-voice">{liveVoice ? 'Recorded mode' : 'Live mode'}</Button>
+                  <Button type="button" variant="outline" size="sm" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startVoice(); }} onPointerUp={voice.stop} onPointerCancel={voice.cancel} onBlur={voice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); voice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={voice.isBusy && voice.state !== 'listening'} aria-label={voice.isListening ? 'Release to stop recording' : 'Press and hold to record meeting notes'} data-testid="button-notes-voice">
+                    {voice.isListening ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />} {voice.isListening ? 'Release to stop' : 'Record'}
+                  </Button>
+                  <input id="meeting-audio-file" type="file" accept="audio/webm,audio/mp4,audio/m4a,audio/wav,audio/ogg,audio/mpeg" className="sr-only" onClick={(event) => { if (!canUseVoice) { event.preventDefault(); setConsentOpen(true); } }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void voice.transcribeFile(file); event.currentTarget.value = ''; }} />
+                  <Button type="button" variant="outline" size="sm" asChild data-testid="button-upload-meeting-audio">
+                    <label htmlFor="meeting-audio-file" className="cursor-pointer"><Upload className="mr-2 h-4 w-4" /> Upload audio</label>
+                  </Button>
+                </div>
+                {voice.error && <p className="w-full text-xs text-destructive" role="alert">{voice.error}</p>}
+                {(voice.isBusy || voice.state === 'error') && <div className="flex w-full gap-2"><Button type="button" size="sm" variant="ghost" onClick={voice.cancel}>{voice.isBusy ? 'Cancel voice input' : 'Discard'}</Button>{voice.state === 'error' && <Button type="button" size="sm" variant="outline" onClick={() => void voice.retry()} disabled={!voice.recording}>Retry</Button>}</div>}
+                {voice.reviewSignals.length > 0 && <p className="w-full text-xs text-warning">Review low-confidence names, numbers, and times before using this transcript.</p>}
+                {voice.state === 'review' && voice.transcript && (
+                  <div className="w-full space-y-2 rounded-md border border-primary/20 bg-primary/5 p-3">
+                    <p className="text-sm font-medium">Review transcript</p>
+                    <Textarea aria-label="Editable meeting transcript" value={meetingReviewText} onChange={(event) => setMeetingReviewText(event.target.value)} className="min-h-24 bg-background" dir="auto" />
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" onClick={applyVoiceTranscript}>Insert into meeting notes</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => { if (meetingReviewText.trim()) { setMeetingNotes(meetingReviewText.trim()); meetingExtract.mutate({ data: { notes: meetingReviewText.trim() } }); } }}>Use for extraction</Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={voice.reset}>Discard</Button>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex justify-end">
-                <Button
+                  <Button
                   onClick={extractMeeting}
-                  disabled={meetingExtract.isPending || !meetingNotes.trim()}
+                   disabled={meetingExtract.isPending || !meetingNotes.trim() || voice.isBusy || noteVoice.isBusy}
                   className="gap-2"
                   data-testid="button-extract-meeting"
                 >
@@ -374,6 +468,16 @@ export function NotesPage() {
                 placeholder="Write your thoughts..."
                 className="min-h-[160px] bg-background border-border resize-none"
               />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startNoteVoice(); }} onPointerUp={noteVoice.stop} onPointerCancel={noteVoice.cancel} onBlur={noteVoice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startNoteVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); noteVoice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={noteVoice.isBusy} aria-label={noteVoice.isListening ? 'Release to stop note recording' : 'Press and hold to record note audio'} data-testid="button-note-voice">{noteVoice.isListening ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />} {noteVoice.isListening ? 'Release to stop' : 'Record audio'}</Button>
+                <input id="note-audio-file" type="file" accept="audio/webm,audio/mp4,audio/m4a,audio/wav,audio/ogg,audio/mpeg" className="sr-only" onClick={(event) => { if (!canUseVoice) { event.preventDefault(); setConsentOpen(true); } }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void noteVoice.transcribeFile(file); event.currentTarget.value = ''; }} />
+                <Button type="button" variant="outline" size="sm" asChild><label htmlFor="note-audio-file" className="cursor-pointer"><Upload className="mr-2 h-4 w-4" /> Upload audio</label></Button>
+                <span className="text-xs text-muted-foreground" aria-live="polite">{noteVoice.isListening ? `Recording ${noteVoice.recordingSeconds}s…` : noteVoice.status || 'Review before inserting; saving the note remains explicit.'}</span>
+              </div>
+              {noteVoice.error && <p role="alert" className="text-xs text-destructive">{noteVoice.error}</p>}
+              {noteVoice.reviewSignals.length > 0 && <p className="text-xs text-warning">Review low-confidence names, numbers, and times.</p>}
+              {noteVoice.deletionStatus && <p className="text-xs text-muted-foreground">{noteVoice.deletionStatus.providerTranscript === 'deleted' ? 'Provider transcript deletion confirmed; this does not confirm provider audio deletion.' : 'Provider transcript deletion could not be confirmed; provider retention may apply.'}</p>}
+              {noteVoice.state === 'review' && noteVoice.transcript && <div className="space-y-2 rounded-md border border-primary/20 bg-primary/5 p-3"><Label htmlFor="note-transcript-review">Editable transcript</Label><Textarea id="note-transcript-review" value={noteReviewText} onChange={(event) => setNoteReviewText(event.target.value)} className="min-h-24 bg-background" /><div className="flex gap-2"><Button type="button" size="sm" onClick={applyNoteTranscript}>Insert into note</Button><Button type="button" size="sm" variant="outline" onClick={noteVoice.reset}>Discard</Button><Button type="button" size="sm" variant="outline" onClick={() => void noteVoice.retry()} disabled={!noteVoice.recording}>Retry</Button></div></div>}
               {form.formState.errors.content && (
                 <p className="text-xs text-destructive">{form.formState.errors.content.message}</p>
               )}
@@ -398,6 +502,7 @@ export function NotesPage() {
           </form>
         </DialogContent>
       </Dialog>
+      <VoiceConsentDialog open={consentOpen} onOpenChange={setConsentOpen} onConfirm={() => void saveConsent()} saving={consentSaving} error={consentError} />
     </PageTransition>
   );
 }

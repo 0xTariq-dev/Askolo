@@ -60,6 +60,7 @@ export interface VoiceTranscriptionResult {
   reset: () => void;
   retry: () => Promise<void>;
   clearRecording: () => void;
+  transcribeFile: (file: File) => Promise<void>;
 }
 
 const DEFAULT_MAX_RECORDING_MS = 2 * 60 * 1000;
@@ -68,7 +69,8 @@ const MIN_RECORDED_SPEECH_MS = 700;
 const MIN_ACTIVE_AUDIO_MS = 140;
 const ACTIVE_AUDIO_RMS_THRESHOLD = 0.008;
 const LOW_CONFIDENCE_THRESHOLD = 0.78;
-const REALTIME_MAX_SESSION_SECONDS = 180;
+const DEFAULT_REALTIME_MAX_SESSION_SECONDS = 180;
+const SUPPORTED_FILE_TYPES = new Set(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/wav', 'audio/ogg', 'audio/mpeg']);
 
 interface RealtimeWordEvent {
   text?: string;
@@ -274,6 +276,7 @@ export function useVoiceTranscription({
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [recording, setRecording] = useState<CompletedVoiceRecording | null>(null);
+  const realtimeMaxSessionSecondsRef = useRef(DEFAULT_REALTIME_MAX_SESSION_SECONDS);
 
   const stateRef = useRef<VoiceState>('idle');
   const modeRef = useRef<VoiceMode | null>(null);
@@ -590,6 +593,7 @@ export function useVoiceTranscription({
     }
     updateMode('live');
     updateState('starting');
+    realtimeMaxSessionSecondsRef.current = DEFAULT_REALTIME_MAX_SESSION_SECONDS;
     let postflight = '';
     let realtimeReadyTimeout: number | null = null;
     voiceCreditPostflightRef.current = '';
@@ -673,6 +677,9 @@ export function useVoiceTranscription({
           if (readySettled) return;
           try {
             postflight = creditPostflightMessage(envelope.payload?.creditReceipt, creditRequest.estimate);
+            if (typeof envelope.payload?.maxSessionDurationSeconds === 'number' && envelope.payload.maxSessionDurationSeconds > 0) {
+              realtimeMaxSessionSecondsRef.current = envelope.payload.maxSessionDurationSeconds;
+            }
             voiceCreditPostflightRef.current = postflight;
             setStatus(`${postflight} Connecting live transcription…`);
             readySettled = true;
@@ -793,7 +800,7 @@ export function useVoiceTranscription({
       audioSourceRef.current = source;
       audioProcessorRef.current = processor;
       updateState('listening');
-      setStatus(`${postflight} Live transcription is active for up to ${REALTIME_MAX_SESSION_SECONDS} seconds. Review the final text before submitting it.`);
+      setStatus(`${postflight} Live transcription is active for up to ${realtimeMaxSessionSecondsRef.current} seconds. Review the final text before submitting it.`);
     } catch (captureError) {
       await closeRealtime(false);
       if (realtimeReadyTimeout !== null) window.clearTimeout(realtimeReadyTimeout);
@@ -931,6 +938,61 @@ export function useVoiceTranscription({
 
   const clearRecording = () => setRecording(null);
 
+  const transcribeFile = async (file: File) => {
+    const sessionId = sessionRef.current + 1;
+    sessionRef.current = sessionId;
+    cancelRequestedRef.current = false;
+    updateMode('recorded');
+    updateState('processing');
+    setError('');
+    setStatus('Checking the audio before transcription…');
+    try {
+      if (!SUPPORTED_FILE_TYPES.has(file.type)) throw new Error('Choose an audio file in WebM, MP4, M4A, WAV, OGG, or MPEG format.');
+      if (file.size > maxAudioBytes) throw new Error('This audio file is too large. Keep it under 8 MiB.');
+      const audio = document.createElement('audio');
+      audio.preload = 'metadata';
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const durationMs = await new Promise<number>((resolve, reject) => {
+          audio.onloadedmetadata = () => resolve(Math.round(audio.duration * 1000));
+          audio.onerror = () => reject(new Error('The audio duration could not be read.'));
+          audio.src = objectUrl;
+        });
+        if (!Number.isFinite(durationMs) || durationMs < 700 || durationMs > maxRecordingMs) {
+        throw new Error('Audio must be between 1 second and 2 minutes.');
+        }
+        if (!(await validateRecordedSpeech(file, durationMs))) throw new Error('This audio is too short or contains no clear speech.');
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        const audioBase64 = await blobToBase64(file);
+        const creditRequest = await prepareVoiceCreditRequest();
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        setStatus(`Estimate: ${creditRequest.estimate.estimatedCredits} credits; transcribing audio…`);
+        const data = await transcribeAudioRequest({
+        audioBase64,
+        mimeType: file.type as 'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
+        durationMs,
+        language,
+        }, { credentials: 'include', headers: creditRequest.headers });
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        const spokenText = removeRepeatedTail(data.transcript);
+        setTranscript(spokenText);
+        setLiveText(spokenText);
+        setReviewSignals(data.reviewSignals);
+        setDeletionStatus(data.deletion);
+        setRecording({ blob: file, mimeType: file.type, durationMs, transcript: spokenText });
+        updateState(spokenText ? 'review' : 'error');
+        setError(spokenText ? '' : 'No speech was detected. Try again or type instead.');
+        setStatus(`${creditPostflightMessage(data.creditReceipt, creditRequest.estimate)} Review the transcript before using it.`);
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch (fileError) {
+      updateState('error');
+      setError(fileError instanceof Error ? fileError.message : 'Audio transcription failed. Try again.');
+      setStatus('');
+    }
+  };
+
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -940,7 +1002,8 @@ export function useVoiceTranscription({
     const timer = window.setInterval(() => {
       setRecordingSeconds((current) => {
         const next = current + 1;
-        if (mode !== 'live' && next >= maxRecordingMs / 1000 && !durationStopRequestedRef.current) {
+        const sessionLimit = mode === 'live' ? realtimeMaxSessionSecondsRef.current : maxRecordingMs / 1000;
+        if (next >= sessionLimit && !durationStopRequestedRef.current) {
           durationStopRequestedRef.current = true;
           window.setTimeout(stop, 0);
         }
@@ -976,5 +1039,6 @@ export function useVoiceTranscription({
     reset,
     retry,
     clearRecording,
+    transcribeFile,
   };
 }
