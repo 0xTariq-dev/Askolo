@@ -347,7 +347,6 @@ export function LoginPage() {
             </div>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Private by default · Google integrations are optional</p>
       </section>
 
       <motion.div
@@ -365,7 +364,6 @@ export function LoginPage() {
           eyebrow={isPasswordMode ? 'Your workspace awaits' : 'Secure account access'}
           title={cardTitle}
           description={cardDescription}
-          footer="Private by default · Google integrations are optional"
         >
 
         {isPasswordMode ? (

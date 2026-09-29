@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   ArrowRight,
   Star,
-  Lock,
 } from 'lucide-react';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
@@ -225,12 +224,6 @@ export function LandingPage() {
             transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.6, ease: 'easeOut' }}
             className="mt-10 flex flex-wrap items-center justify-center gap-6 text-xs text-muted-foreground"
           >
-            <span className="flex items-center gap-1.5">
-              <Lock className="h-3.5 w-3.5 text-success" /> Private by default
-            </span>
-            <span className="flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-success" /> Google integrations are optional
-            </span>
             <span className="flex items-center gap-1.5">
               <Star className="h-3.5 w-3.5 text-primary" /> Built for individuals and families
             </span>
