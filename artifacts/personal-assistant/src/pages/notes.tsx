@@ -28,15 +28,15 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@workspace/askolo-design-system/components/ui/tabs';
+import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 
 const noteSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -307,7 +307,7 @@ export function NotesPage() {
                       <ul className="space-y-2">
                         {meetingResult.decisions.map((decision, idx) => (
                           <li key={idx} className="flex gap-2 text-sm text-muted-foreground">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                            <CheckCircle2 className="h-4 w-4 text-success shrink-0 mt-0.5" />
                             {decision}
                           </li>
                         ))}
@@ -329,7 +329,7 @@ export function NotesPage() {
                       {meetingResult.actionItems.map((item) => (
                         <li
                           key={item.id}
-                          className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/5"
+                          className="flex items-start gap-3 p-3 rounded-lg bg-muted/40 border border-border"
                         >
                           <div className="mt-0.5 h-4 w-4 rounded border border-muted-foreground/50 shrink-0" />
                           <div className="flex-1">

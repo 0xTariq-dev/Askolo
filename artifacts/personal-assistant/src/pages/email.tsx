@@ -23,14 +23,14 @@ import {
   type GmailMessage,
 } from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@workspace/askolo-design-system/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 import logoUrl from '/logo.png';
 
 const PRIORITY_ORDER = ['urgent', 'follow-up', 'fyi', 'archive'] as const;
@@ -166,7 +166,7 @@ export function EmailPage() {
 
         <Card className="border border-border/60 bg-card/50 backdrop-blur-sm">
           <CardContent className="p-8 sm:p-12 text-center">
-            <div className="mx-auto h-20 w-20 rounded-2xl bg-primary/10 border border-white/10 flex items-center justify-center mb-6 shadow-2xl shadow-black/20">
+            <div className="mx-auto h-20 w-20 rounded-2xl bg-primary/10 border border-border flex items-center justify-center mb-6 shadow-sm">
               <img src={logoUrl} alt="Askolo" className="h-12 w-12 object-contain" />
             </div>
             <h2 className="text-2xl font-display font-semibold mb-3">Connect Gmail</h2>
@@ -269,7 +269,7 @@ export function EmailPage() {
                       'px-3 py-1 rounded-md text-xs border capitalize',
                       tone === t
                         ? 'bg-primary/20 border-primary/30 text-primary'
-                        : 'border-border hover:bg-white/5'
+                        : 'border-border hover:bg-accent'
                     )}
                   >
                     {t}
@@ -313,11 +313,11 @@ function EmailCard({
   onReply: () => void;
 }) {
   const priorityColor = {
-    urgent: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-    'follow-up': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    fyi: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    urgent: 'bg-destructive/10 text-destructive border-destructive/20',
+    'follow-up': 'bg-warning/10 text-warning border-warning/20',
+    fyi: 'bg-info/10 text-info border-info/20',
     archive: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-  }[message.priority] || 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+  }[message.priority] || 'bg-info/10 text-info border-info/20';
 
   const priorityIcon = {
     urgent: AlertCircle,

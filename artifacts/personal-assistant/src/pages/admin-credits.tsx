@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeftRight, ChevronDown, Coins, FilePenLine, Loader2, RotateCcw, Search, ShieldCheck, SlidersHorizontal, UserRound, WalletCards } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Separator } from '@/components/ui/separator';
-import { useToast } from '@/hooks/use-toast';
+import { Separator } from '@workspace/askolo-design-system/components/ui/separator';
+import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { creditApi, creditErrorMessage, newCreditIdempotencyKey, type CreditPolicy, type CreditReceipt, type CreditUsageResponse } from '@/lib/credit-api';
 
 type LedgerAction = {
@@ -160,7 +160,7 @@ export function AdminCreditsPage() {
 
   if (loading || !policyForm || !policy) {
     if (loading) {
-      return <PageTransition className="mx-auto max-w-5xl space-y-6" aria-busy="true"><div className="h-12 w-64 animate-pulse rounded-lg bg-white/5" /><div className="h-64 animate-pulse rounded-2xl bg-white/5" /><div className="h-96 animate-pulse rounded-2xl bg-white/5" /></PageTransition>;
+      return <PageTransition className="mx-auto max-w-5xl space-y-6" aria-busy="true"><div className="h-12 w-64 animate-pulse rounded-lg bg-muted" /><div className="h-64 animate-pulse rounded-2xl bg-muted" /><div className="h-96 animate-pulse rounded-2xl bg-muted" /></PageTransition>;
     }
     return (
       <PageTransition className="mx-auto max-w-3xl space-y-5">

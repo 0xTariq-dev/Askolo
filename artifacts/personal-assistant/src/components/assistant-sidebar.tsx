@@ -25,10 +25,10 @@ import {
   getListActionItemsQueryKey,
   type AssistantRun,
 } from '@workspace/api-client-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
-import { cn } from '@/lib/utils';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Form, FormControl, FormField, FormItem } from '@workspace/askolo-design-system/components/ui/form';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, newCreditIdempotencyKey } from '@/lib/credit-api';
@@ -258,7 +258,7 @@ export function AssistantSidebar() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={reducedMotion ? { duration: 0 } : undefined}
-            className="fixed inset-0 z-40 bg-black/50"
+            className="fixed inset-0 z-40 bg-background/80"
             onClick={close}
           />
         )}
@@ -336,7 +336,7 @@ export function AssistantSidebar() {
                       'h-7 w-7 rounded-full flex items-center justify-center shrink-0 border',
                       msg.role === 'user'
                         ? 'bg-primary/20 border-primary/30 text-primary'
-                        : 'bg-white/10 border-white/10 text-foreground',
+                        : 'bg-muted border-border text-foreground',
                     )}
                   >
                     {msg.role === 'user' ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
@@ -346,7 +346,7 @@ export function AssistantSidebar() {
                       'max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
                       msg.role === 'user'
                         ? 'bg-primary text-primary-foreground rounded-br-sm'
-                        : 'bg-white/5 border border-white/10 text-foreground rounded-bl-sm',
+                        : 'bg-muted border border-border text-foreground rounded-bl-sm',
                     )}
                   >
                     {msg.content}
@@ -407,10 +407,10 @@ export function AssistantSidebar() {
                   transition={reducedMotion ? { duration: 0 } : undefined}
                   className="flex gap-2.5"
                 >
-                  <div className="h-7 w-7 rounded-full bg-white/10 border border-white/10 flex items-center justify-center">
+                  <div className="h-7 w-7 rounded-full bg-muted border border-border flex items-center justify-center">
                     <Bot className="h-3.5 w-3.5" />
                   </div>
-                  <div className="bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm px-3.5 py-2.5 flex items-center gap-1">
+                  <div className="bg-muted border border-border rounded-2xl rounded-bl-sm px-3.5 py-2.5 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce motion-reduce:animate-none" />
                     <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce motion-reduce:animate-none [animation-delay:0.15s]" />
                     <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce motion-reduce:animate-none [animation-delay:0.3s]" />

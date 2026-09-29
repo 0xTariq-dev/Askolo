@@ -26,16 +26,16 @@ import {
   getGetDashboardSummaryQueryKey,
   Chore,
 } from '@workspace/api-client-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { Tabs, TabsList, TabsTrigger } from '@workspace/askolo-design-system/components/ui/tabs';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@workspace/askolo-design-system/components/ui/dropdown-menu';
 import { PageTransition } from '@/components/ui/page-transition';
-import { cn } from '@/lib/utils';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 
 const FREQUENCIES = ['once', 'daily', 'weekly', 'monthly'] as const;
 
@@ -290,7 +290,7 @@ function ChoreCard({
 }) {
   const isOverdue = !chore.completed && chore.dueDate && isPast(startOfDay(new Date(chore.dueDate)));
   return (
-    <Card className={cn('group bg-card/40 hover:bg-card/60 border-border transition-colors', isOverdue && 'border-rose-500/30')}>      
+    <Card className={cn('group bg-card/70 hover:bg-accent border-border transition-colors', isOverdue && 'border-destructive/30')}>
       <CardContent className="p-5 flex items-start gap-4">
         <button
           onClick={onToggle}
@@ -298,8 +298,8 @@ function ChoreCard({
           className={cn(
             'shrink-0 h-12 w-12 rounded-xl flex items-center justify-center border transition-colors',
             chore.completed
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-              : 'bg-black/20 border-white/10 text-muted-foreground hover:bg-white/5 hover:border-white/20',
+              ? 'bg-success/10 border-success/30 text-success'
+              : 'bg-muted border-border text-muted-foreground hover:bg-accent hover:border-primary/30',
           )}
         >
           {chore.completed ? <CheckCircle2 className="h-6 w-6" /> : <div className="h-5 w-5 rounded-full border-2 border-current opacity-30" />}
@@ -313,7 +313,7 @@ function ChoreCard({
             <span className="flex items-center gap-1"><User className="h-3 w-3" /> {chore.assignedTo || 'Unassigned'}</span>
             <span className="flex items-center gap-1"><Repeat className="h-3 w-3" /> {chore.frequency}</span>
             {chore.dueDate && (
-              <span className={cn('flex items-center gap-1', isOverdue && 'text-rose-400')}>
+              <span className={cn('flex items-center gap-1', isOverdue && 'text-destructive')}>
                 <Clock className="h-3 w-3" />
                 {isOverdue ? 'Overdue ' : 'Due '}
                 {format(new Date(chore.dueDate), 'MMM d')}

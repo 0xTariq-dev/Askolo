@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link } from 'wouter';
-import { Button } from '@/components/ui/button';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
@@ -10,7 +10,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen w-full flex flex-col bg-background text-foreground relative overflow-hidden">
       {/* Ambient background glows */}
       <div className="hidden sm:block absolute top-[0%] left-[-10%] w-[60%] h-[60%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="hidden sm:block absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
+       <div className="hidden sm:block absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Header */}
       <header className="relative z-10 w-full border-b border-border/60 bg-background/80 backdrop-blur-sm">

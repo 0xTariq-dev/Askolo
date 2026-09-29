@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   CheckCircle2,
   Target,
@@ -18,8 +18,8 @@ import {
   Users,
   Lock,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
@@ -87,6 +87,7 @@ const howItWorks = [
 ];
 
 export function LandingPage() {
+  const prefersReducedMotion = useReducedMotion();
   const ctaHref = toAppUrl('/sign-up');
   const secondaryHref = toAppUrl('/sign-in');
 
@@ -105,9 +106,9 @@ export function LandingPage() {
         <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24 text-center">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: 'easeOut' }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, ease: 'easeOut' }}
           >
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-8">
               <Sparkles className="h-3.5 w-3.5" />
@@ -116,9 +117,9 @@ export function LandingPage() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.1, ease: 'easeOut' }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
           >
             <div className="h-24 sm:h-28 w-auto mb-8 mx-auto relative">
               <img
@@ -133,33 +134,33 @@ export function LandingPage() {
 
           <motion.h1
             id="landing-heading"
-            initial={{ opacity: 0, y: 20 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.2, ease: 'easeOut' }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.2, ease: 'easeOut' }}
             className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold tracking-tight mb-6"
           >
             Your AI personal assistant for <span className="text-primary">calmer days</span>
           </motion.h1>
 
           <motion.p
-            initial={{ opacity: 0, y: 20 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.3, ease: 'easeOut' }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.3, ease: 'easeOut' }}
             className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed"
           >
             Askolo brings habits, goals, daily plans, calendar, chores, notes, and action items into one calm workspace — with an AI coach that helps individuals and families stay on track.
           </motion.p>
 
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.4, ease: 'easeOut' }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.4, ease: 'easeOut' }}
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
             <Button
               size="lg"
               asChild
-              className="rounded-full px-8 py-6 text-lg font-medium shadow-[0_0_40px_-10px_rgba(234,179,8,0.3)] hover:shadow-[0_0_60px_-10px_rgba(234,179,8,0.5)] transition-all duration-300 group"
+              className="rounded-full px-8 py-6 text-lg font-medium shadow-lg transition-all duration-300 group"
             >
               <a href={ctaHref}>
                 Get Started Free
@@ -170,23 +171,23 @@ export function LandingPage() {
               size="lg"
               variant="outline"
               asChild
-              className="rounded-full px-8 py-6 text-lg font-medium border-white/10 hover:bg-white/5 transition-all"
+              className="rounded-full px-8 py-6 text-lg font-medium border-border hover:bg-accent transition-all"
             >
               <a href={secondaryHref}>Sign In</a>
             </Button>
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0 }}
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.7, delay: 0.6, ease: 'easeOut' }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.6, ease: 'easeOut' }}
             className="mt-10 flex flex-wrap items-center justify-center gap-6 text-xs text-muted-foreground"
           >
             <span className="flex items-center gap-1.5">
-              <Lock className="h-3.5 w-3.5 text-emerald-400" /> Private by default
+              <Lock className="h-3.5 w-3.5 text-success" /> Private by default
             </span>
             <span className="flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Google integrations are optional
+              <ShieldCheck className="h-3.5 w-3.5 text-success" /> Google integrations are optional
             </span>
             <span className="flex items-center gap-1.5">
               <Star className="h-3.5 w-3.5 text-primary" /> Built for individuals and families
@@ -200,7 +201,7 @@ export function LandingPage() {
         id="features"
         aria-labelledby="features-heading"
         style={{ contentVisibility: 'auto', containIntrinsicSize: '0 720px' }}
-        className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40"
+        className="py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
       >
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
@@ -216,9 +217,9 @@ export function LandingPage() {
             {features.map((feature, index) => (
               <motion.li
                 key={feature.title}
-                initial={{ opacity: 0, y: 20 }}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.05 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: index * 0.05 }}
               >
                 <Card className="h-full bg-card/40 border-border hover:bg-card/60 hover:border-primary/20 transition-all duration-300">
                   <CardContent className="p-5">
@@ -256,9 +257,9 @@ export function LandingPage() {
             {howItWorks.map((item, index) => (
               <motion.li
                 key={item.step}
-                initial={{ opacity: 0, y: 20 }}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 + index * 0.1 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.2 + index * 0.1 }}
               >
                 <Card className="h-full bg-card/40 border-border">
                   <CardContent className="p-6">
@@ -280,7 +281,7 @@ export function LandingPage() {
         id="integrations"
         aria-labelledby="integrations-heading"
         style={{ contentVisibility: 'auto', containIntrinsicSize: '0 700px' }}
-        className="py-16 sm:py-24 px-4 sm:px-6 bg-white/[0.02] border-y border-border/40"
+        className="py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
       >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 sm:mb-14">
@@ -296,8 +297,8 @@ export function LandingPage() {
             <Card className="bg-card/40 border-border">
               <CardContent className="p-6 sm:p-8">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="h-12 w-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                    <Calendar className="h-6 w-6 text-blue-400" />
+                  <div className="h-12 w-12 rounded-xl bg-info/10 border border-info/20 flex items-center justify-center">
+                    <Calendar className="h-6 w-6 text-info" />
                   </div>
                   <h3 className="font-display font-semibold text-lg">Google Calendar</h3>
                 </div>
@@ -315,8 +316,8 @@ export function LandingPage() {
             <Card className="bg-card/40 border-border">
               <CardContent className="p-6 sm:p-8">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="h-12 w-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-                    <Mail className="h-6 w-6 text-red-400" />
+                  <div className="h-12 w-12 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center justify-center">
+                    <Mail className="h-6 w-6 text-destructive" />
                   </div>
                   <h3 className="font-display font-semibold text-lg">Gmail</h3>
                 </div>
@@ -333,7 +334,7 @@ export function LandingPage() {
           </div>
 
           <div className="mt-8 flex items-start gap-4 rounded-xl border border-border/60 bg-card/30 p-5 text-sm text-muted-foreground">
-            <ShieldCheck className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+            <ShieldCheck className="h-5 w-5 text-success shrink-0 mt-0.5" />
             <p className="leading-relaxed">
               The Google consent screen shows <strong>Askolo</strong> because the app uses its own Google Cloud OAuth project. You can revoke access at any time in your{' '}
               <a
@@ -366,7 +367,7 @@ export function LandingPage() {
           <Button
             size="lg"
             asChild
-            className="rounded-full px-8 py-6 text-lg font-medium shadow-[0_0_40px_-10px_rgba(234,179,8,0.3)] hover:shadow-[0_0_60px_-10px_rgba(234,179,8,0.5)] transition-all duration-300 group"
+            className="rounded-full px-8 py-6 text-lg font-medium shadow-lg transition-all duration-300 group"
           >
             <a href={ctaHref}>
               Get Started Free

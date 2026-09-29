@@ -26,15 +26,15 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@workspace/askolo-design-system/components/ui/tabs';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 
 const actionSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -163,9 +163,9 @@ export function ActionsPage() {
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Open" value={openCount} icon={Circle} color="text-amber-500" bg="bg-amber-500/10" />
-        <StatCard label="From meetings" value={meetingCount} icon={Headphones} color="text-blue-400" bg="bg-blue-400/10" />
-        <StatCard label="Manual" value={manualCount} icon={Zap} color="text-emerald-400" bg="bg-emerald-400/10" />
+        <StatCard label="Open" value={openCount} icon={Circle} color="text-warning" bg="bg-warning/10" />
+        <StatCard label="From meetings" value={meetingCount} icon={Headphones} color="text-info" bg="bg-info/10" />
+        <StatCard label="Manual" value={manualCount} icon={Zap} color="text-success" bg="bg-success/10" />
       </div>
 
       <Tabs value={filter} onValueChange={setFilter} className="w-full">
@@ -212,7 +212,7 @@ export function ActionsPage() {
                           data-testid={`button-toggle-action-${item.id}`}
                         >
                           {item.completed ? (
-                            <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                            <CheckCircle2 className="h-6 w-6 text-success" />
                           ) : (
                             <Circle className="h-6 w-6 text-muted-foreground/50 hover:text-primary transition-colors" />
                           )}
@@ -335,7 +335,7 @@ function StatCard({
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-2xl font-display font-bold mt-1">{value}</p>
         </div>
-        <div className={cn('h-10 w-10 rounded-xl flex items-center justify-center border border-white/5', bg, color)}>
+        <div className={cn('h-10 w-10 rounded-xl flex items-center justify-center border border-border', bg, color)}>
           <Icon className="h-5 w-5" />
         </div>
       </CardContent>

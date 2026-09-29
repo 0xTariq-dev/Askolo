@@ -36,26 +36,26 @@ import {
 import { ApiError } from '@workspace/api-client-react';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar as DatePicker } from '@/components/ui/calendar';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@workspace/askolo-design-system/components/ui/popover';
+import { Calendar as DatePicker } from '@workspace/askolo-design-system/components/ui/calendar';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
 import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
-import { cn } from '@/lib/utils';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { useAssistantState } from '@/contexts/assistant-context';
 
 const CURRENT_VOICE_CONSENT_VERSION = 'voice-v3';
 
 const priorityColors = {
-  high: 'border-rose-500 bg-rose-500/10 text-rose-500',
-  medium: 'border-amber-500 bg-amber-500/10 text-amber-500',
-  low: 'border-blue-500 bg-blue-500/10 text-blue-500',
+  high: 'border-destructive bg-destructive/10 text-destructive',
+  medium: 'border-warning bg-warning/10 text-warning',
+  low: 'border-info bg-info/10 text-info',
 };
 
 const planSchema = z.object({
@@ -79,7 +79,7 @@ function formatRecordingTime(seconds: number): string {
 function VoiceWaveform({ active, level }: { active: boolean; level: number }) {
   return (
     <div
-      className="flex h-8 items-center gap-0.5 rounded-md border border-rose-500/20 bg-rose-500/5 px-2"
+      className="flex h-8 items-center gap-0.5 rounded-md border border-destructive/20 bg-destructive/5 px-2"
       role="img"
       aria-label={active ? 'Live microphone level' : 'Microphone inactive'}
     >
@@ -90,7 +90,7 @@ function VoiceWaveform({ active, level }: { active: boolean; level: number }) {
         return (
           <span
             key={index}
-            className={cn('w-0.5 rounded-full transition-[height] duration-75', active ? 'bg-rose-500' : 'bg-muted-foreground/40')}
+            className={cn('w-0.5 rounded-full transition-[height] duration-75', active ? 'bg-destructive' : 'bg-muted-foreground/40')}
             style={{ height }}
             aria-hidden="true"
           />
@@ -338,7 +338,7 @@ export function PlanPage() {
             <CardTitle className="text-lg font-display flex items-center gap-2">
               <ListTodo className="h-5 w-5 text-foreground" />
               Structured Plan
-              <span className="ml-2 text-xs font-medium text-muted-foreground bg-black/20 px-2 py-0.5 rounded-md border border-white/5">
+                <span className="ml-2 text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-md border border-border">
                 {format(selectedDate, 'MMM d')}
               </span>
             </CardTitle>
@@ -349,7 +349,7 @@ export function PlanPage() {
           <div className="max-h-[min(42vh,34rem)] overflow-y-auto p-4 space-y-3">
             {isLoading ? (
               <div className="space-y-3">
-                {[...Array(5)].map((_, index) => <div key={index} className="h-16 w-full bg-white/5 animate-pulse rounded-xl" />)}
+                {[...Array(5)].map((_, index) => <div key={index} className="h-16 w-full bg-muted animate-pulse rounded-xl" />)}
               </div>
             ) : isGenerating ? (
               <div className="space-y-3">
@@ -362,8 +362,8 @@ export function PlanPage() {
                   className={cn(
                     'group flex items-center justify-between p-3.5 rounded-xl border transition-all duration-200',
                     plan.completed
-                      ? 'bg-black/20 border-white/5 opacity-60'
-                      : 'bg-card hover:bg-card/80 border-white/10 hover:border-white/20 shadow-sm',
+                      ? 'bg-muted border-border opacity-60'
+                      : 'bg-card hover:bg-accent border-border hover:border-primary/30 shadow-sm',
                   )}
                 >
                   <div className="flex items-center gap-4 flex-1 overflow-hidden">
@@ -407,7 +407,7 @@ export function PlanPage() {
               ))
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 text-muted-foreground">
-                <div className="h-16 w-16 bg-black/20 rounded-full flex items-center justify-center mb-4 border border-white/5">
+                <div className="h-16 w-16 bg-muted rounded-full flex items-center justify-center mb-4 border border-border">
                   <ListTodo className="h-8 w-8 opacity-50" />
                 </div>
                 <p>No plan for this day yet.</p>
@@ -418,7 +418,7 @@ export function PlanPage() {
               </div>
             )}
             {sortedPlans.length > 0 && !isLoading && !isGenerating && (
-              <Button variant="ghost" className="w-full mt-4 text-muted-foreground border border-dashed border-white/10 hover:border-white/20 hover:bg-white/5" onClick={openAdd}>
+              <Button variant="ghost" className="w-full mt-4 text-muted-foreground border border-dashed border-border hover:border-primary/30 hover:bg-accent" onClick={openAdd}>
                 <Plus className="h-4 w-4 mr-2" /> Add item
               </Button>
             )}
@@ -440,6 +440,7 @@ export function PlanPage() {
                 <PopoverContent align="end" className="w-auto p-0">
                   <DatePicker
                     mode="single"
+                    autoFocus
                     selected={selectedDate}
                     onSelect={(date) => {
                       if (date) {
@@ -447,7 +448,6 @@ export function PlanPage() {
                         setDatePickerOpen(false);
                       }
                     }}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -456,7 +456,7 @@ export function PlanPage() {
 
             <Textarea
               aria-label="Daily plan notes"
-              className="min-h-[180px] resize-y bg-black/20 border-white/5 focus-visible:ring-1 focus-visible:ring-primary/50 text-lg leading-relaxed placeholder:text-muted-foreground/40 p-4"
+              className="min-h-[180px] resize-y bg-muted/40 border-border focus-visible:ring-1 focus-visible:ring-primary/50 text-lg leading-relaxed placeholder:text-muted-foreground/40 p-4"
               placeholder={`Write your intentions, tasks, meetings, anything on your mind...\n\nExample:\n"I have a marketing sync at 10am, need to buy groceries for dinner, finish the Q3 report by EOD, and squeeze in a 30min run."`}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -465,18 +465,18 @@ export function PlanPage() {
             {(voiceState !== 'idle' || voiceStatus || voiceError || generationError) && (
               <div className="mt-3 space-y-1 text-xs" aria-live="polite" aria-atomic="true">
                 {voiceState === 'listening' && (
-                  <div className="flex flex-wrap items-center gap-2 text-rose-500">
-                    <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" aria-hidden="true" />
+                  <div className="flex flex-wrap items-center gap-2 text-destructive">
+                    <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" aria-hidden="true" />
                     <span>{voiceMode === 'recorded' ? 'Recording voice note' : 'Live US transcription'} · {formatRecordingTime(recordingSeconds)}</span>
                     <VoiceWaveform active level={audioLevel} />
                   </div>
                 )}
                 {voiceStatus && <p className="text-muted-foreground">{voiceStatus}</p>}
                 {voiceState === 'review' && transcript && (
-                  <p className="text-emerald-600 dark:text-emerald-400">Transcript ready. Review the text above before generating.</p>
+                  <p className="text-success">Transcript ready. Review the text above before generating.</p>
                 )}
                 {voiceReviewSignals.length > 0 && (
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
+                  <div className="rounded-lg border border-warning/30 bg-warning/10 p-2 text-warning">
                     <p className="font-medium">Please verify low-confidence details:</p>
                     <ul className="mt-1 list-disc pl-4">
                       {voiceReviewSignals.map((signal) => (
@@ -491,7 +491,7 @@ export function PlanPage() {
                   <p
                     role={voiceDeletionStatus.providerTranscript === 'deletion_failed' ? 'alert' : 'status'}
                     className={voiceDeletionStatus.providerTranscript === 'deletion_failed'
-                      ? 'text-amber-700 dark:text-amber-300'
+                      ? 'text-warning'
                       : 'text-muted-foreground'}
                   >
                     {voiceDeletionStatus.providerTranscript === 'deleted'
@@ -533,7 +533,7 @@ export function PlanPage() {
                   aria-label={isListening ? 'Release to stop voice recording' : 'Press and hold to record voice note'}
                   aria-pressed={isListening}
                   title="Press and hold to record"
-                  className={cn('border-border', isListening && 'bg-rose-500/10 text-rose-500 border-rose-500/30 animate-pulse')}
+                  className={cn('border-border', isListening && 'bg-destructive/10 text-destructive border-destructive/30 animate-pulse')}
                   data-testid="button-voice-record"
                 >
                   {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -645,8 +645,8 @@ export function PlanPage() {
               <div className="flex gap-4">
                 {(['high', 'medium', 'low'] as const).map((priority) => (
                   <label key={priority} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" value={priority} {...form.register('priority')} className={`accent-${priority === 'high' ? 'rose' : priority === 'medium' ? 'amber' : 'blue'}-500`} />
-                    <span className={cn('font-medium', priority === 'high' ? 'text-rose-500' : priority === 'medium' ? 'text-amber-500' : 'text-blue-500')}>
+                    <input type="radio" value={priority} {...form.register('priority')} className="accent-primary" />
+                    <span className={cn('font-medium', priority === 'high' ? 'text-destructive' : priority === 'medium' ? 'text-warning' : 'text-info')}>
                       {priority[0].toUpperCase() + priority.slice(1)}
                     </span>
                   </label>

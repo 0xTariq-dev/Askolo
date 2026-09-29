@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import { ArrowDownLeft, ArrowUpRight, Check, Clipboard, Coins, Download, History, Loader2, RefreshCw, ShieldCheck, Sparkles, WalletCards } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@workspace/askolo-design-system/components/ui/dialog';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@workspace/askolo-design-system/components/ui/skeleton';
 import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { creditApi, creditErrorMessage, type CreditAccountResponse, type CreditReceipt, type CreditUsageResponse } from '@/lib/credit-api';
 
 function formatDate(value?: string | null) {
@@ -22,7 +22,7 @@ function ReceiptRow({ receipt, onOpen }: { receipt: CreditReceipt; onOpen: () =>
   const positive = isEvent && receipt.eventType === 'refunded';
   return (
     <button type="button" onClick={onOpen} data-testid={`button-open-receipt-${receipt.id}`} className="group flex w-full items-center gap-3 rounded-xl border border-border/70 bg-background/35 p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${positive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' : 'border-primary/25 bg-primary/10 text-primary'}`}>
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${positive ? 'border-success/30 bg-success/10 text-success' : 'border-primary/25 bg-primary/10 text-primary'}`}>
         {positive ? <ArrowDownLeft className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
       </span>
       <span className="min-w-0 flex-1">
@@ -30,7 +30,7 @@ function ReceiptRow({ receipt, onOpen }: { receipt: CreditReceipt; onOpen: () =>
         <span className="block truncate text-xs text-muted-foreground">{formatDate(receipt.createdAt)} · {isEvent ? receipt.reservationId : receipt.id}</span>
       </span>
       <span className="shrink-0 text-right">
-        <span className={`block font-mono text-sm font-semibold ${positive ? 'text-emerald-500' : 'text-foreground'}`}>{positive ? '+' : ''}{amount} cr</span>
+        <span className={`block font-mono text-sm font-semibold ${positive ? 'text-success' : 'text-foreground'}`}>{positive ? '+' : ''}{amount} cr</span>
         {!isEvent && <span className="text-[11px] capitalize text-muted-foreground">{receipt.status}</span>}
       </span>
     </button>
@@ -98,15 +98,15 @@ export function CreditsPage() {
   const usageItems = [
     { label: 'Granted', value: account?.granted ?? 0, tone: 'text-sky-400' },
     { label: 'Adjustments', value: account?.adjustments ?? 0, tone: 'text-violet-400' },
-    { label: 'Reserved', value: account?.reserved ?? 0, tone: 'text-amber-400' },
-    { label: 'Spent', value: account?.spent ?? 0, tone: 'text-rose-400' },
-    { label: 'Refunded', value: account?.refunded ?? 0, tone: 'text-emerald-400' },
+    { label: 'Reserved', value: account?.reserved ?? 0, tone: 'text-warning' },
+    { label: 'Spent', value: account?.spent ?? 0, tone: 'text-destructive' },
+    { label: 'Refunded', value: account?.refunded ?? 0, tone: 'text-success' },
   ];
   const grants = usage.ledgerEntries?.grants ?? [];
 
   return (
     <PageTransition className="mx-auto max-w-5xl space-y-6">
-      {loadError && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">{loadError} Your last loaded balance is still shown.</p>}
+      {loadError && <p role="status" className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">{loadError} Your last loaded balance is still shown.</p>}
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-primary"><WalletCards className="h-3.5 w-3.5" /> Account credits</p>
@@ -131,7 +131,7 @@ export function CreditsPage() {
           <CardHeader className="pb-2"><CardDescription className="flex items-center gap-2"><Coins className="h-4 w-4 text-primary" /> Available now</CardDescription></CardHeader>
           <CardContent><p className="font-mono text-5xl font-semibold tracking-tight" data-testid="text-credit-balance">{balance.toLocaleString()}<span className="ml-2 text-base font-sans font-medium text-muted-foreground">credits</span></p><p className="mt-3 text-xs text-muted-foreground">Enforcement is strict. A voice request needs at least one available credit.</p></CardContent>
         </Card>
-        <Card><CardHeader className="pb-2"><CardDescription>Policy version</CardDescription></CardHeader><CardContent><p className="font-mono text-3xl font-semibold">v{account?.policyVersion ?? '—'}</p><Badge className="mt-3 border-emerald-500/20 bg-emerald-500/10 text-emerald-500"><ShieldCheck className="mr-1 h-3 w-3" /> Strict ledger</Badge></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardDescription>Policy version</CardDescription></CardHeader><CardContent><p className="font-mono text-3xl font-semibold">v{account?.policyVersion ?? '—'}</p><Badge className="mt-3 border-success/20 bg-success/10 text-success"><ShieldCheck className="mr-1 h-3 w-3" /> Strict ledger</Badge></CardContent></Card>
       </section>
 
       <VoiceCreditPreflight showWalletLink={false} />
@@ -153,7 +153,7 @@ export function CreditsPage() {
                   <p className="font-mono text-sm font-semibold">{(grant.amountCredits ?? grant.credits ?? 0).toLocaleString()} credits · {grant.reason || 'Credit grant'}</p>
                   <p className="text-xs text-muted-foreground">Granted {formatDate(grant.createdAt)}</p>
                 </div>
-                <Badge className={expired ? 'w-fit border-border bg-muted text-muted-foreground' : expiresAt ? 'w-fit border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300' : 'w-fit border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'}>
+                <Badge className={expired ? 'w-fit border-border bg-muted text-muted-foreground' : expiresAt ? 'w-fit border-warning/30 bg-warning/10 text-warning' : 'w-fit border-success/30 bg-success/10 text-success'}>
                   {expiresAt ? `${expired ? 'Expired' : 'Expires'} ${formatDate(grant.expiresAt)}` : 'No expiry recorded'}
                 </Badge>
               </div>

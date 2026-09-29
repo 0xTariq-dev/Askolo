@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { format, eachDayOfInterval, startOfWeek, endOfWeek } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { EventChip } from './event-chip';
 import { layoutEvents } from './types';
 import { snapTimeFromY } from './snap-time';
@@ -86,12 +86,14 @@ export function WeekGrid({
                   {dayPlans.map((p) => (
                     <div
                       key={p.id}
-                      className="text-xs px-1.5 py-0.5 rounded truncate"
-                      style={{
-                        backgroundColor: p.priority === 'high' ? '#ef444420' : '#f59e0b20',
-                        color: p.priority === 'high' ? '#ef4444' : '#f59e0b',
-                        borderLeft: `2px solid ${p.priority === 'high' ? '#ef4444' : '#f59e0b'}`,
-                      }}
+                      className={cn(
+                        'text-xs px-1.5 py-0.5 rounded truncate border-s-2',
+                        p.priority === 'high'
+                          ? 'bg-destructive/10 text-destructive border-destructive'
+                          : p.priority === 'medium'
+                            ? 'bg-warning/10 text-warning border-warning'
+                            : 'bg-muted text-muted-foreground border-border',
+                      )}
                     >
                       {p.title}
                     </div>
@@ -105,7 +107,7 @@ export function WeekGrid({
                           <div
                             key={h.id}
                             className={cn('h-1.5 w-1.5 rounded-full shrink-0', done ? 'opacity-100' : 'opacity-20')}
-                            style={{ backgroundColor: h.color || '#3b82f6' }}
+                            style={{ backgroundColor: h.color || 'hsl(var(--chart-1))' }}
                             title={`${h.name}${done ? ' ✓' : ''}`}
                           />
                         );

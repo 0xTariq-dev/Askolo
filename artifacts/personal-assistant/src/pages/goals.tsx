@@ -25,23 +25,23 @@ import {
   Goal
 } from '@workspace/api-client-react';
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Slider } from '@/components/ui/slider';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@workspace/askolo-design-system/components/ui/dropdown-menu';
+import { Slider } from '@workspace/askolo-design-system/components/ui/slider';
 import { PageTransition } from '@/components/ui/page-transition';
 
 const CATEGORY_COLORS: Record<string, string> = {
-  'Health': 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30',
-  'Career': 'bg-blue-500/20 text-blue-500 border-blue-500/30',
-  'Finance': 'bg-amber-500/20 text-amber-500 border-amber-500/30',
-  'Learning': 'bg-purple-500/20 text-purple-500 border-purple-500/30',
-  'Personal': 'bg-rose-500/20 text-rose-500 border-rose-500/30',
-  'Other': 'bg-white/10 text-white/80 border-white/20',
+  'Health': 'bg-success/10 text-success border-success/30',
+  'Career': 'bg-info/10 text-info border-info/30',
+  'Finance': 'bg-warning/10 text-warning border-warning/30',
+  'Learning': 'bg-chart-4/10 text-chart-4 border-chart-4/30',
+  'Personal': 'bg-chart-5/10 text-chart-5 border-chart-5/30',
+  'Other': 'bg-muted text-muted-foreground border-border',
 };
 
 const goalSchema = z.object({
@@ -212,9 +212,9 @@ export function GoalsPage() {
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Your Growth Journey</h1>
           <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground font-medium">
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" /> {activeCount} Active</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> {activeCount} Active</span>
             <span className="text-muted-foreground/30">•</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" /> {completedCount} Completed</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-success" /> {completedCount} Completed</span>
             <span className="text-muted-foreground/30">•</span>
             <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground/50" /> {pausedCount} Paused</span>
           </div>
@@ -378,7 +378,7 @@ function GoalCard({ goal, onEdit, onDelete, onIncrement, onComplete }: {
                   </span>
                   
                   {goal.status === 'active' && (
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">
                       Active
                     </span>
                   )}
@@ -388,7 +388,7 @@ function GoalCard({ goal, onEdit, onDelete, onIncrement, onComplete }: {
                     </span>
                   )}
                   {isCompleted && (
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20 flex items-center gap-1">
                       <Check className="h-3 w-3" /> Completed
                     </span>
                   )}
@@ -404,16 +404,16 @@ function GoalCard({ goal, onEdit, onDelete, onIncrement, onComplete }: {
 
             <div className="space-y-2 max-w-xl">
               <div className="flex justify-between text-xs font-medium">
-                <span className={isCompleted ? 'text-emerald-500' : 'text-primary'}>{goal.progress}% Complete</span>
+                <span className={isCompleted ? 'text-success' : 'text-primary'}>{goal.progress}% Complete</span>
                 {goal.targetDate && (
                   <span className="text-muted-foreground flex items-center gap-1">
                     <Calendar className="h-3 w-3" /> Target: {format(new Date(goal.targetDate), 'MMM d, yyyy')}
                   </span>
                 )}
               </div>
-              <div className="h-2 w-full bg-black/20 rounded-full overflow-hidden border border-white/5 relative">
+              <div className="h-2 w-full bg-muted rounded-full overflow-hidden border border-border relative">
                 <div 
-                  className={`absolute top-0 bottom-0 left-0 rounded-full transition-all duration-500 ease-out ${isCompleted ? 'bg-emerald-500' : 'bg-primary'}`}
+                  className={`absolute top-0 bottom-0 left-0 rounded-full transition-all duration-500 ease-out ${isCompleted ? 'bg-success' : 'bg-primary'}`}
                   style={{ width: `${goal.progress}%` }}
                 />
               </div>

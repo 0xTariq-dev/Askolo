@@ -24,12 +24,12 @@ import {
   getGetTranscriptionPreferencesQueryKey,
 } from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@workspace/askolo-design-system/components/ui/card';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Avatar, AvatarFallback, AvatarImage } from '@workspace/askolo-design-system/components/ui/avatar';
+import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,8 +40,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { useToast } from '@/hooks/use-toast';
+} from '@workspace/askolo-design-system/components/ui/alert-dialog';
+import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import { useAppAuth } from '@/contexts/auth-context';
@@ -698,8 +698,8 @@ export function ProfilePage() {
           {/* Calendar row */}
           <div className="flex items-center justify-between py-2">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                <Calendar className="h-4 w-4 text-blue-400" />
+              <div className="h-9 w-9 rounded-lg bg-info/10 border border-info/20 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-info" />
               </div>
               <div>
                 <p className="text-sm font-medium">Google Calendar</p>
@@ -745,8 +745,8 @@ export function ProfilePage() {
           {/* Gmail row */}
           <div className="flex items-center justify-between py-2">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-                <Mail className="h-4 w-4 text-red-400" />
+              <div className="h-9 w-9 rounded-lg bg-destructive/10 border border-destructive/20 flex items-center justify-center">
+                <Mail className="h-4 w-4 text-destructive" />
               </div>
               <div>
                 <p className="text-sm font-medium">Gmail</p>

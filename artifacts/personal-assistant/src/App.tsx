@@ -4,7 +4,7 @@ import { getQueryRetryDelay, shouldRetryQuery } from '@workspace/api-client-reac
 import { ThemeProvider } from '@workspace/askolo-design-system/theme';
 import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
 import { Loader2 } from 'lucide-react';
-import { Toaster } from '@/components/ui/toaster';
+import { Toaster } from '@workspace/askolo-design-system/components/ui/toaster';
 
 import {
   isAppProductionHost,

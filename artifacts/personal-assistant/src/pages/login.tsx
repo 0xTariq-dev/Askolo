@@ -1,6 +1,6 @@
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { motion } from 'framer-motion';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Github, KeyRound, Sparkles, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ApiError } from '@workspace/api-client-react';
@@ -61,6 +61,7 @@ async function postAuth<T>(request: () => Promise<T>): Promise<T> {
 }
 
 export function LoginPage() {
+  const prefersReducedMotion = useReducedMotion();
   const { mfaRequired } = useAppAuth();
   const initialMode: PasswordMode = mfaRequired
     ? 'mfa'
@@ -293,35 +294,66 @@ export function LoginPage() {
   const cooldownLabel = `${Math.floor(resendSeconds / 60)}:${String(resendSeconds % 60).padStart(2, '0')}`;
 
   return (
-    <main className="min-h-screen w-full flex bg-background relative overflow-hidden flex-col items-center justify-center p-4">
-      <div className="absolute top-[0%] left-[-10%] w-[60%] h-[60%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
+    <main className="relative grid min-h-dvh w-full overflow-hidden bg-background lg:grid-cols-2">
+      <h1 className="sr-only lg:hidden">Askolo account access</h1>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-br from-primary/15 via-primary/5 to-transparent" />
+      <section className="relative hidden flex-col justify-between border-r border-border/60 p-10 lg:flex xl:p-16" aria-label="Askolo overview">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10">
+            <img src={logoUrl} alt="" className="h-7 w-7 object-contain" />
+          </div>
+          <span className="font-display text-xl font-semibold tracking-tight">Askolo</span>
+        </div>
+        <div className="max-w-xl">
+          <p className="mb-5 text-sm font-medium uppercase tracking-wider text-primary">A calmer way to move through the day</p>
+          <h1 className="max-w-2xl font-display text-5xl font-semibold leading-tight tracking-tight xl:text-7xl">
+            Keep the important things moving.
+          </h1>
+          <p className="mt-6 max-w-lg text-lg leading-relaxed text-muted-foreground">
+            Bring your habits, plans, goals, notes, and calendar into one focused workspace that helps you decide what comes next.
+          </p>
+          <div className="mt-10 grid max-w-lg grid-cols-2 gap-3">
+            <div className="rounded-xl border border-border bg-card/70 p-4">
+              <p className="text-2xl font-display font-semibold text-primary">01</p>
+              <p className="mt-2 text-sm text-muted-foreground">Choose today’s focus</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card/70 p-4">
+              <p className="text-2xl font-display font-semibold text-primary">02</p>
+              <p className="mt-2 text-sm text-muted-foreground">Make steady progress</p>
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">Private by default · Google integrations are optional</p>
+      </section>
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, ease: 'easeOut' }}
-        className="z-10 flex flex-col items-center w-full max-w-md text-center"
+        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.8, ease: 'easeOut' }}
+        className="relative z-10 flex w-full flex-col items-center justify-center px-4 py-10 text-center sm:px-8 lg:min-h-dvh"
       >
-        <div className="h-20 w-20 bg-card border border-white/10 rounded-2xl flex items-center justify-center mb-8 shadow-2xl shadow-black/50 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent opacity-50" />
-          <img src={logoUrl} alt="Askolo" className="h-10 w-10 object-contain relative z-10" />
+        <div className="mb-8 flex items-center gap-3 lg:hidden">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10">
+            <img src={logoUrl} alt="" className="h-7 w-7 object-contain" />
+          </div>
+          <span className="font-display text-xl font-semibold tracking-tight">Askolo</span>
         </div>
 
-        <h1 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4 tracking-tight">
-          Welcome to <span className="text-primary">Askolo</span>
-        </h1>
-        <p className="text-muted-foreground text-lg mb-10 max-w-sm font-sans">
-          Your beautifully designed mission control for habits, goals, and daily focus.
+        <div className="w-full max-w-md rounded-2xl border border-border bg-card/80 p-6 text-left shadow-xl shadow-black/10 backdrop-blur-sm sm:p-8">
+        <p className="text-xs font-medium uppercase tracking-wider text-primary">Your workspace awaits</p>
+        <h2 className="mt-3 text-3xl font-display font-semibold tracking-tight text-foreground">
+          Welcome back.
+        </h2>
+        <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
+          Sign in to pick up where you left off, or create an account to start building a calmer routine.
         </p>
 
         {isPasswordMode ? (
-          <div className="flex w-full max-w-xs flex-col gap-3">
+          <div className="mt-7 flex w-full flex-col gap-3">
             <Button
               size="lg"
               onClick={() => beginProviderLogin('google', providerIntent)}
-              className="w-full rounded-full px-8 py-6 text-lg font-medium shadow-[0_0_40px_-10px_rgba(234,179,8,0.3)]"
+               className="w-full rounded-full px-8 py-6 text-lg font-medium shadow-lg"
               data-testid="button-google-login"
             >
               <Sparkles className="mr-2 h-5 w-5 text-primary-foreground/70" />
@@ -331,7 +363,7 @@ export function LoginPage() {
               size="lg"
               variant="outline"
               onClick={() => beginProviderLogin('github', providerIntent)}
-              className="w-full rounded-full px-8 py-6 text-lg font-medium border-white/10 hover:bg-white/5"
+               className="w-full rounded-full px-8 py-6 text-lg font-medium border-border hover:bg-accent"
               data-testid="button-github-login"
             >
               <Github className="mr-2 h-5 w-5" />
@@ -381,7 +413,7 @@ export function LoginPage() {
             </div>
           </div>
         ) : mode === 'mfa-support-complete' ? (
-          <div className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-card p-6 text-left">
+           <div className="mt-7 flex w-full flex-col gap-4">
             <h2 className="text-lg font-semibold text-foreground">{heading}</h2>
             <p className="text-sm text-muted-foreground">
               We verified control of your primary email and signed out all active sessions.
@@ -396,7 +428,7 @@ export function LoginPage() {
             </Button>
           </div>
         ) : (
-          <div className="flex w-full max-w-xs flex-col gap-3">
+           <div className="mt-7 flex w-full flex-col gap-3">
             <form onSubmit={submitPasswordFlow} className="space-y-3 rounded-xl border border-border bg-card p-4 text-left">
               <h2 className="text-lg font-semibold text-foreground">{heading}</h2>
               <p className="text-sm text-muted-foreground">
@@ -611,6 +643,7 @@ export function LoginPage() {
             </Button>
           </div>
         )}
+        </div>
       </motion.div>
     </main>
   );

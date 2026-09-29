@@ -41,15 +41,16 @@ import {
   getGetDashboardSummaryQueryKey,
   type Event,
 } from '@workspace/api-client-react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
 import { PageTransition } from '@/components/ui/page-transition';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { useLocation } from 'wouter';
-import { cn } from '@/lib/utils';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { tokens } from '@workspace/askolo-design-system/tokens';
 import { MonthGrid } from '@/components/calendar/month-grid';
 import { WeekGrid } from '@/components/calendar/week-grid';
 import { DayGrid } from '@/components/calendar/day-grid';
@@ -69,7 +70,7 @@ const eventSchema = z.object({
 
 type EventFormValues = z.infer<typeof eventSchema>;
 
-const DEFAULT_COLOR = '#3b82f6';
+const DEFAULT_COLOR = tokens.color.light.chart1;
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 // ─── Date range helpers ──────────────────────────────────────────────────────
@@ -362,7 +363,7 @@ export function CalendarPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <PageTransition className="flex flex-col h-full max-w-6xl mx-auto pb-4 gap-0">
+    <PageTransition className="flex flex-col h-full max-w-6xl mx-auto gap-0">
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-4 shrink-0">
         <div>
@@ -440,7 +441,7 @@ export function CalendarPage() {
       </div>
 
       {/* ── Calendar body ────────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 border border-border/50 rounded-xl overflow-hidden bg-card/30">
+      <div className="flex-1 min-h-0 border border-border rounded-2xl overflow-hidden bg-card shadow-sm">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="space-y-3 w-full p-6">

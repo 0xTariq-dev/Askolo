@@ -30,13 +30,13 @@ import {
   Habit
 } from '@workspace/api-client-react';
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@workspace/askolo-design-system/components/ui/dropdown-menu';
 import { PageTransition } from '@/components/ui/page-transition';
 
 const PRESET_COLORS = [
@@ -338,7 +338,7 @@ function HabitCard({ habit, onToggle, onEdit, onDelete, onHover, isSelected }: {
             className={`shrink-0 h-12 w-12 rounded-xl flex items-center justify-center border transition-colors ${
               isCompleted 
                 ? 'bg-primary/20 border-primary/30 text-primary' 
-                : 'bg-black/20 border-white/10 text-muted-foreground hover:bg-white/5 hover:border-white/20'
+                : 'bg-muted border-border text-muted-foreground hover:bg-accent hover:border-primary/30'
             }`}
             data-testid={`toggle-habit-${habit.id}`}
           >
@@ -375,7 +375,7 @@ function HabitCard({ habit, onToggle, onEdit, onDelete, onHover, isSelected }: {
             )}
             <div className="flex items-center gap-3 mt-2 text-xs font-medium">
               <div className="flex items-center gap-1">
-                <Flame className={`h-3.5 w-3.5 ${habit.currentStreak > 0 ? 'text-orange-500 fill-orange-500/20' : 'text-muted-foreground/30'}`} />
+                <Flame className={`h-3.5 w-3.5 ${habit.currentStreak > 0 ? 'text-warning fill-warning/20' : 'text-muted-foreground/30'}`} />
                 <span className={habit.currentStreak > 0 ? 'text-foreground/90' : 'text-muted-foreground'}>
                   {habit.currentStreak} {habit.currentStreak === 1 ? 'day' : 'days'}
                 </span>
@@ -469,7 +469,7 @@ function HeatmapSection({ habit }: { habit: Habit }) {
           </div>
           
           {isLoading ? (
-            <div className="h-24 w-full bg-white/5 animate-pulse rounded-md" />
+            <div className="h-24 w-full bg-muted animate-pulse rounded-md" />
           ) : (
             <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
               {columns.map((col, colIdx) => (
@@ -479,9 +479,9 @@ function HeatmapSection({ habit }: { habit: Habit }) {
                       key={day.dateStr}
                       title={`${format(day.date, 'MMM d, yyyy')}${day.completed ? ' (Completed)' : ''}`}
                       className={`w-3.5 h-3.5 rounded-[3px] transition-colors ${
-                        day.completed 
-                          ? 'opacity-100 shadow-[0_0_8px_rgba(0,0,0,0.3)]' 
-                          : 'bg-white/5 opacity-40 hover:opacity-70'
+                        day.completed
+                          ? 'opacity-100 shadow-sm'
+                          : 'bg-muted opacity-40 hover:opacity-70'
                       } ${day.isToday && !day.completed ? 'ring-1 ring-white/20 ring-offset-1 ring-offset-background' : ''}`}
                       style={day.completed ? { backgroundColor: heatmapColor } : {}}
                     />

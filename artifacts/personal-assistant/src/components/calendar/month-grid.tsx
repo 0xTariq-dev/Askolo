@@ -1,5 +1,5 @@
 import { format, isSameMonth, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { EventChip } from './event-chip';
 import type { Event } from '@workspace/api-client-react';
 import type { DailyPlan, Habit } from './types';
@@ -122,7 +122,7 @@ export function MonthGrid({
                           'h-1.5 w-1.5 rounded-full shrink-0 transition-opacity',
                           done ? 'opacity-100' : 'opacity-20',
                         )}
-                        style={{ backgroundColor: h.color || '#3b82f6' }}
+                        style={{ backgroundColor: h.color || 'hsl(var(--chart-1))' }}
                         title={`${h.name}${done ? ' ✓' : ''}`}
                       />
                     );
@@ -138,16 +138,16 @@ export function MonthGrid({
 }
 
 function PlanChip({ plan }: { plan: DailyPlan }) {
-  const priorityColor =
-    plan.priority === 'high' ? '#ef4444' : plan.priority === 'medium' ? '#f59e0b' : '#6b7280';
   return (
     <div
-      className="w-full text-left text-xs px-1.5 py-0.5 rounded truncate"
-      style={{
-        backgroundColor: priorityColor + '20',
-        color: priorityColor,
-        borderLeft: `2px solid ${priorityColor}`,
-      }}
+      className={cn(
+        'w-full text-left text-xs px-1.5 py-0.5 rounded truncate border-s-2',
+        plan.priority === 'high'
+          ? 'bg-destructive/10 text-destructive border-destructive'
+          : plan.priority === 'medium'
+            ? 'bg-warning/10 text-warning border-warning'
+            : 'bg-muted text-muted-foreground border-border',
+      )}
       title={plan.title}
     >
       {plan.completed ? <s className="opacity-60">{plan.title}</s> : plan.title}

@@ -15,11 +15,11 @@ import {
   Unlink,
   Mail
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Link } from 'wouter';
 import { format, isToday } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { goApi } from '@/lib/go-api';
 import { PageTransition } from '@/components/ui/page-transition';
 
@@ -91,21 +91,33 @@ export function DashboardPage() {
 
   return (
     <PageTransition className="space-y-8 pb-10 max-w-7xl mx-auto">
-      <header>
-        <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Good morning.</h1>
-        <p className="text-muted-foreground mt-2 text-lg">Here is your focus for today, {format(new Date(), 'EEEE, MMMM d')}.</p>
+      <header className="grid gap-6 rounded-2xl border border-border bg-card/70 p-6 shadow-sm md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:p-8">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.2em] text-primary">Daily command center</p>
+          <h1 className="mt-3 text-4xl font-display font-semibold tracking-tight md:text-5xl">Good morning.</h1>
+          <p className="mt-3 max-w-xl text-base leading-relaxed text-muted-foreground">
+            Here is your focus for {format(new Date(), 'EEEE, MMMM d')}. Small, clear steps are enough to move the day forward.
+          </p>
+        </div>
+        <div className="rounded-xl border border-border bg-background/70 px-5 py-4 md:min-w-48">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Today’s progress</p>
+          <p className="mt-1 text-3xl font-display font-semibold text-primary">
+            {summary?.habitsCompletedToday || 0}<span className="text-lg text-muted-foreground">/{summary?.habitsTotal || 0}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">habits completed</p>
+        </div>
       </header>
 
       {/* Google status card */}
       <Card className={cn(
         'border-border bg-card/50 backdrop-blur-sm shadow-sm',
-        googleConnected ? 'border-emerald-500/20' : 'border-amber-500/20'
+        googleConnected ? 'border-primary/30' : 'border-warning/30'
       )}>
         <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className={cn(
               'h-10 w-10 rounded-full flex items-center justify-center border',
-              googleConnected ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+              googleConnected ? 'bg-success/10 border-success/30 text-success' : 'bg-warning/10 border-warning/30 text-warning'
             )}>
               {googleConnected ? <Link2 className="h-5 w-5" /> : <Unlink className="h-5 w-5" />}
             </div>
@@ -139,29 +151,29 @@ export function DashboardPage() {
           title="Habits Today" 
           value={`${summary?.habitsCompletedToday || 0}/${summary?.habitsTotal || 0}`}
           icon={CheckCircle2}
-          color="text-emerald-500"
-          bg="bg-emerald-500/10"
+          color="text-success"
+          bg="bg-success/10"
         />
         <StatsCard 
           title="Active Goals" 
           value={summary?.goalsActive || 0}
           icon={Target}
-          color="text-amber-500"
-          bg="bg-amber-500/10"
+          color="text-warning"
+          bg="bg-warning/10"
         />
         <StatsCard 
           title="Tasks Remaining" 
           value={(summary?.todayPlan || []).filter(p => !p.completed).length}
           icon={ListTodo}
-          color="text-blue-500"
-          bg="bg-blue-500/10"
+          color="text-info"
+          bg="bg-info/10"
         />
         <StatsCard 
           title="Pending Chores" 
           value={(summary?.pendingChores || []).length}
           icon={ClipboardList}
-          color="text-purple-500"
-          bg="bg-purple-500/10"
+          color="text-chart-4"
+          bg="bg-chart-4/10"
         />
       </div>
 
@@ -169,10 +181,10 @@ export function DashboardPage() {
       {coachingLoading ? (
         <Card className="border-border bg-card/50 backdrop-blur-sm shadow-sm animate-pulse">
            <CardContent className="p-6 flex gap-4 items-center">
-              <div className="h-10 w-10 rounded-full bg-white/5"></div>
+              <div className="h-10 w-10 rounded-full bg-muted"></div>
               <div className="space-y-2 flex-1">
-                <div className="h-4 w-32 bg-white/5 rounded-md"></div>
-                <div className="h-3 w-3/4 bg-white/5 rounded-md"></div>
+                <div className="h-4 w-32 bg-muted rounded-md"></div>
+                <div className="h-3 w-3/4 bg-muted rounded-md"></div>
               </div>
            </CardContent>
         </Card>
@@ -210,7 +222,7 @@ export function DashboardPage() {
               {summary?.todayPlan && summary.todayPlan.length > 0 ? (
                 <div className="space-y-3">
                   {summary.todayPlan.map(plan => (
-                    <div key={plan.id} className="flex items-center justify-between p-3 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-colors">
+                    <div key={plan.id} className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/40 hover:bg-accent transition-colors">
                       <div className="flex items-center gap-3">
                         <div className={`h-5 w-5 rounded-full border flex items-center justify-center ${plan.completed ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/50'}`}>
                           {plan.completed && <CheckCircle2 className="h-3 w-3" />}
@@ -218,13 +230,13 @@ export function DashboardPage() {
                         <span className={plan.completed ? 'line-through text-muted-foreground' : 'font-medium'}>{plan.title}</span>
                       </div>
                       {plan.timeBlock && (
-                        <span className="text-xs text-muted-foreground bg-black/20 px-2 py-1 rounded-md border border-white/5">{plan.timeBlock}</span>
+                        <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md border border-border">{plan.timeBlock}</span>
                       )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-10 bg-black/20 rounded-xl border border-dashed border-white/10">
+                <div className="text-center py-10 bg-muted/40 rounded-xl border border-dashed border-border">
                   <p className="text-muted-foreground text-sm">No plan created for today.</p>
                   <Button variant="link" className="text-primary mt-2" asChild>
                     <Link href="/plan">Create your plan</Link>
@@ -237,7 +249,7 @@ export function DashboardPage() {
           <Card className="border-border bg-card/50 backdrop-blur-sm shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border/50 mb-4">
               <CardTitle className="text-lg font-display flex items-center gap-2">
-                <Zap className="h-5 w-5 text-amber-500" />
+                <Zap className="h-5 w-5 text-warning" />
                 Open Actions
               </CardTitle>
               <Link href="/actions" className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 group">
@@ -248,7 +260,7 @@ export function DashboardPage() {
               {summary?.openActionItems && summary.openActionItems.length > 0 ? (
                 <div className="space-y-1">
                   {summary.openActionItems.slice(0, 5).map(action => (
-                    <div key={action.id} className="flex items-start gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors">
+                    <div key={action.id} className="flex items-start gap-3 p-3 rounded-lg hover:bg-accent transition-colors">
                       <div className="mt-0.5 h-4 w-4 rounded border border-muted-foreground/50 shrink-0" />
                       <div className="flex-1">
                         <p className="text-sm font-medium">{action.title}</p>
@@ -275,7 +287,7 @@ export function DashboardPage() {
           <Card className="border-border bg-card/50 backdrop-blur-sm shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border/50 mb-4">
               <CardTitle className="text-lg font-display flex items-center gap-2">
-                <Flame className="h-5 w-5 text-orange-500" />
+                <Flame className="h-5 w-5 text-warning" />
                 Habits
               </CardTitle>
             </CardHeader>
@@ -285,13 +297,13 @@ export function DashboardPage() {
                   {summary.habits.map(habit => (
                     <div key={habit.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className={`h-10 w-10 rounded-xl flex items-center justify-center border ${habit.completedToday ? 'bg-primary/20 border-primary/30 text-primary' : 'bg-black/20 border-white/5 text-muted-foreground'}`}>
+                        <div className={`h-10 w-10 rounded-xl flex items-center justify-center border ${habit.completedToday ? 'bg-primary/20 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground'}`}>
                           {habit.icon ? <span className="text-sm">{habit.icon.substring(0, 2)}</span> : <CheckCircle2 className="h-5 w-5" />}
                         </div>
                         <span className="text-sm font-medium">{habit.name}</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-xs font-medium">
-                        <Flame className={`h-4 w-4 ${habit.currentStreak > 0 ? 'text-orange-500 fill-orange-500/20' : 'text-muted-foreground/30'}`} />
+                        <Flame className={`h-4 w-4 ${habit.currentStreak > 0 ? 'text-warning fill-warning/20' : 'text-muted-foreground/30'}`} />
                         <span className={habit.currentStreak > 0 ? 'text-foreground' : 'text-muted-foreground'}>
                           {habit.currentStreak}
                         </span>
@@ -308,7 +320,7 @@ export function DashboardPage() {
           <Card className="border-border bg-card/50 backdrop-blur-sm shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border/50 mb-4">
               <CardTitle className="text-lg font-display flex items-center gap-2">
-                <CalendarIcon className="h-5 w-5 text-blue-400" />
+                <CalendarIcon className="h-5 w-5 text-info" />
                 Upcoming
               </CardTitle>
             </CardHeader>
@@ -348,7 +360,7 @@ function StatsCard({ title, value, icon: Icon, color, bg }: { title: string, val
             <p className="text-sm font-medium text-muted-foreground mb-2">{title}</p>
             <p className="text-3xl font-display font-bold">{value}</p>
           </div>
-          <div className={`h-12 w-12 rounded-2xl flex items-center justify-center border border-white/5 shadow-inner ${bg} ${color}`}>
+          <div className={`h-12 w-12 rounded-2xl flex items-center justify-center border border-border shadow-inner ${bg} ${color}`}>
             <Icon className="h-6 w-6" />
           </div>
         </div>
