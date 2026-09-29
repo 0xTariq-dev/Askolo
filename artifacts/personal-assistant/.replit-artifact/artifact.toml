@@ -35,7 +35,8 @@ localPort = 8090
 run = "cd ../.. && cd services/askolo-backend && bash ./scripts/run.sh"
 
 [services.production]
-build = ["bash", "services/askolo-backend/scripts/build.sh"]
+# Keep Go tests isolated from application DBs during publishing; the migration script provisions disposable PostgreSQL.
+build = ["env", "-u", "DATABASE_URL", "-u", "ASKOLO_TEST_DATABASE_URL", "bash", "services/askolo-backend/scripts/build.sh"]
 run = "for binary in services/askolo-backend/bin/askolo-backend ../services/askolo-backend/bin/askolo-backend ../../services/askolo-backend/bin/askolo-backend ../../../services/askolo-backend/bin/askolo-backend; do if [ -x \"$binary\" ]; then exec \"$binary\"; fi; done; echo 'Askolo backend binary not found from deployment working directory' >&2; exit 127"
 
 [services.production.health.startup]
