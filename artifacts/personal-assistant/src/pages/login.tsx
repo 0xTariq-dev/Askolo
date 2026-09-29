@@ -323,8 +323,8 @@ export function LoginPage() {
     <main className="relative grid min-h-dvh w-full overflow-hidden bg-background lg:grid-cols-2">
       <h1 className="sr-only lg:hidden">Askolo account access</h1>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-br from-primary/15 via-primary/5 to-transparent" />
-      <section className="relative hidden flex-col justify-between border-r border-border/60 p-10 lg:flex xl:p-16" aria-label="Askolo overview">
-        <div className="flex items-center gap-4">
+      <section className="relative hidden flex-col justify-center border-r border-border/60 p-10 lg:flex xl:p-16" aria-label="Askolo overview">
+        <div className="absolute start-10 top-10 flex items-center gap-4 xl:start-16 xl:top-16">
           <img src={logoUrl} alt="" width={64} height={64} className="h-16 w-16 object-contain" />
           <span className="font-display text-2xl font-semibold tracking-tight">Askolo</span>
         </div>
