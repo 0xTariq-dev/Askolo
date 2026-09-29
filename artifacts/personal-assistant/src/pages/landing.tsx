@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { motion, useInView, useReducedMotion } from 'framer-motion';
+import { useEffect } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   CheckCircle2,
   Target,
@@ -88,13 +88,22 @@ const howItWorks = [
 
 export function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
-  const heroRef = useRef<HTMLElement | null>(null);
-  const heroInView = useInView(heroRef, { amount: 0.05 });
   const {
     preferences: { mode },
   } = useAskoloTheme();
   const ctaHref = toAppUrl('/sign-up');
   const secondaryHref = toAppUrl('/sign-in');
+  const pageBackground = (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none sticky top-0 z-0 -mb-[100dvh] h-dvh w-full shrink-0 overflow-hidden opacity-40"
+    >
+      <AskoloTunnelConcept
+        theme={mode}
+        reducedMotion={Boolean(prefersReducedMotion)}
+      />
+    </div>
+  );
 
   useEffect(() => {
     setPageMetadata({
@@ -105,22 +114,13 @@ export function LandingPage() {
   }, []);
 
   return (
-    <PublicLayout>
+    <PublicLayout background={pageBackground}>
       {/* Hero */}
       <section
-        ref={heroRef}
         id="hero"
         aria-labelledby="landing-heading"
-        className="relative isolate overflow-hidden"
+        className="relative"
       >
-        <div className="pointer-events-none absolute inset-0 z-0 opacity-40">
-          <AskoloTunnelConcept
-            theme={mode}
-            reducedMotion={Boolean(prefersReducedMotion)}
-            paused={!heroInView}
-          />
-        </div>
-        <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-background/10 via-background/45 to-background/90" />
         <div className="relative z-20 max-w-6xl mx-auto px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24 text-center">
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
@@ -145,7 +145,7 @@ export function LandingPage() {
             transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.2, ease: 'easeOut' }}
             className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold tracking-tight mb-6"
           >
-            Your AI personal assistant for <span className="text-primary">calmer days</span>
+            Askolo
           </motion.h1>
 
           <motion.div
@@ -211,7 +211,7 @@ export function LandingPage() {
       <section
         id="features"
         aria-labelledby="features-heading"
-        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 border-y border-border/40"
       >
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
@@ -289,7 +289,7 @@ export function LandingPage() {
       <section
         id="integrations"
         aria-labelledby="integrations-heading"
-        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 border-y border-border/40"
       >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 sm:mb-14">

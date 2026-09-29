@@ -7,7 +7,13 @@ import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
 
-export function PublicLayout({ children }: { children: ReactNode }) {
+export function PublicLayout({
+  children,
+  background,
+}: {
+  children: ReactNode;
+  background?: ReactNode;
+}) {
   const {
     preferences: { mode },
     setMode,
@@ -15,9 +21,12 @@ export function PublicLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="relative flex min-h-dvh w-full flex-col overflow-x-clip bg-background text-foreground">
-      {/* Ambient background glows */}
-      <div className="hidden sm:block absolute top-[0%] left-[-10%] w-[60%] h-[60%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
-       <div className="hidden sm:block absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
+      {background ?? (
+        <>
+          <div className="pointer-events-none absolute left-[-10%] top-0 hidden h-[60%] w-[60%] rounded-full bg-primary/10 blur-[120px] sm:block" />
+          <div className="pointer-events-none absolute bottom-[-10%] right-[-10%] hidden h-[50%] w-[50%] rounded-full bg-primary/10 blur-[120px] sm:block" />
+        </>
+      )}
 
       <a
         href="#main-content"
