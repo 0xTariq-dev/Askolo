@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useRef } from 'react';
+import { motion, useInView, useReducedMotion } from 'framer-motion';
 import {
   CheckCircle2,
   Target,
@@ -12,15 +12,15 @@ import {
   Sparkles,
   ShieldCheck,
   ArrowRight,
-  ArrowUpRight,
-  Play,
   Star,
-  Users,
   Lock,
 } from 'lucide-react';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
+import { AskoloTunnelConcept } from '@workspace/askolo-design-system/components/hero-animation/AskoloTunnelConcept';
+import { useAskoloTheme } from '@workspace/askolo-design-system/theme';
 import { PublicLayout } from '@/components/layout/public-layout';
+import { BrandSlogan } from '@/components/landing/brand-slogan';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { setPageMetadata } from '@/lib/seo';
@@ -88,6 +88,11 @@ const howItWorks = [
 
 export function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
+  const heroRef = useRef<HTMLElement | null>(null);
+  const heroInView = useInView(heroRef, { amount: 0.05 });
+  const {
+    preferences: { mode },
+  } = useAskoloTheme();
   const ctaHref = toAppUrl('/sign-up');
   const secondaryHref = toAppUrl('/sign-in');
 
@@ -102,9 +107,21 @@ export function LandingPage() {
   return (
     <PublicLayout>
       {/* Hero */}
-      <section id="hero" aria-labelledby="landing-heading" className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24 text-center">
+      <section
+        ref={heroRef}
+        id="hero"
+        aria-labelledby="landing-heading"
+        className="relative isolate overflow-hidden"
+      >
+        <div className="pointer-events-none absolute inset-0 z-0 opacity-40">
+          <AskoloTunnelConcept
+            theme={mode}
+            reducedMotion={Boolean(prefersReducedMotion)}
+            paused={!heroInView}
+          />
+        </div>
+        <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-background/10 via-background/45 to-background/90" />
+        <div className="relative z-20 max-w-6xl mx-auto px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24 text-center">
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -142,14 +159,19 @@ export function LandingPage() {
             Your AI personal assistant for <span className="text-primary">calmer days</span>
           </motion.h1>
 
-          <motion.p
+          <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.3, ease: 'easeOut' }}
-            className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed"
+            className="mx-auto mb-10 max-w-3xl"
           >
-            Askolo brings habits, goals, daily plans, calendar, chores, notes, and action items into one calm workspace — with an AI coach that helps individuals and families stay on track.
-          </motion.p>
+            <BrandSlogan />
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground sm:text-base">
+              Askolo brings habits, goals, daily plans, calendar, chores, notes,
+              and action items into one calm workspace — with an AI coach that
+              helps individuals and families stay on track.
+            </p>
+          </motion.div>
 
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
@@ -158,9 +180,9 @@ export function LandingPage() {
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
             <Button
-              size="lg"
+              size="default"
               asChild
-              className="rounded-full px-8 py-6 text-lg font-medium shadow-lg transition-all duration-300 group"
+              className="group min-h-11"
             >
               <a href={ctaHref}>
                 Get Started Free
@@ -168,10 +190,10 @@ export function LandingPage() {
               </a>
             </Button>
             <Button
-              size="lg"
+              size="default"
               variant="outline"
               asChild
-              className="rounded-full px-8 py-6 text-lg font-medium border-border hover:bg-accent transition-all"
+              className="min-h-11"
             >
               <a href={secondaryHref}>Sign In</a>
             </Button>
@@ -200,8 +222,7 @@ export function LandingPage() {
       <section
         id="features"
         aria-labelledby="features-heading"
-        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 720px' }}
-        className="py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
       >
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
@@ -240,8 +261,7 @@ export function LandingPage() {
       <section
         id="how-it-works"
         aria-labelledby="how-it-works-heading"
-        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 560px' }}
-        className="py-16 sm:py-24 px-4 sm:px-6"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6"
       >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
@@ -280,8 +300,7 @@ export function LandingPage() {
       <section
         id="integrations"
         aria-labelledby="integrations-heading"
-        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 700px' }}
-        className="py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 bg-muted/30 border-y border-border/40"
       >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 sm:mb-14">
@@ -354,8 +373,7 @@ export function LandingPage() {
       <section
         id="final-cta"
         aria-labelledby="final-cta-heading"
-        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 360px' }}
-        className="py-16 sm:py-24 px-4 sm:px-6 text-center"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 text-center"
       >
         <div className="max-w-3xl mx-auto">
           <h2 id="final-cta-heading" className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
