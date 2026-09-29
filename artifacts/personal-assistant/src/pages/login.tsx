@@ -323,8 +323,8 @@ export function LoginPage() {
     <main className="relative grid min-h-dvh w-full overflow-hidden bg-background lg:grid-cols-2">
       <h1 className="sr-only lg:hidden">Askolo account access</h1>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-br from-primary/15 via-primary/5 to-transparent" />
-      <section className="relative hidden flex-col justify-center border-r border-border/60 p-10 lg:flex xl:p-16" aria-label="Askolo overview">
-        <div className="absolute start-10 top-10 flex items-center gap-4 xl:start-16 xl:top-16">
+      <section dir="auto" lang="en" className="relative hidden flex-col justify-between border-e border-border/60 p-10 lg:flex xl:p-16" aria-label="Askolo overview">
+        <div className="flex items-center gap-4">
           <img src={logoUrl} alt="" width={64} height={64} className="h-16 w-16 object-contain" />
           <span className="font-display text-2xl font-semibold tracking-tight">Askolo</span>
         </div>
@@ -347,6 +347,7 @@ export function LoginPage() {
             </div>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">Private by default · Google integrations are optional</p>
       </section>
 
       <motion.div
@@ -364,11 +365,12 @@ export function LoginPage() {
           eyebrow={isPasswordMode ? 'Your workspace awaits' : 'Secure account access'}
           title={cardTitle}
           description={cardDescription}
+          footer="Private by default · Google integrations are optional"
         >
 
         {isPasswordMode ? (
           <div className="flex w-full flex-col gap-5">
-            <form onSubmit={submitPasswordFlow} className="space-y-4 text-left">
+            <form onSubmit={submitPasswordFlow} className="space-y-4 text-start">
               <FieldGroup className="gap-4">
                 <Field>
                   <FieldLabel htmlFor="auth-email">Email address</FieldLabel>

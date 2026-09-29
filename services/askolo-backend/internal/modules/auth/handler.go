@@ -351,6 +351,7 @@ func (h *Handler) user(w http.ResponseWriter, r *http.Request) {
 			"firstName":         user.FirstName,
 			"lastName":          user.LastName,
 			"profileImageUrl":   user.ProfileImageURL,
+			"preferredLocale":   user.PreferredLocale,
 			"status":            user.Status,
 			"emailVerified":     user.EmailVerifiedAt != nil,
 			"accountCreatedVia": user.AccountCreatedVia,

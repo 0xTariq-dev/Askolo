@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, subDays, addDays, isSameDay } from 'date-fns';
+import { useLocale } from '@/contexts/locale-context';
 import { z } from 'zod';
 import { useForm as useHookForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -407,6 +408,7 @@ function HabitCard({ habit, onToggle, onEdit, onDelete, onHover, isSelected }: {
 }
 
 function HeatmapSection({ habit }: { habit: Habit }) {
+  const { formatDate } = useLocale();
   const { data: completions, isLoading } = useGetHabitCompletions(habit.id, {
     query: {
       enabled: !!habit.id,
@@ -477,7 +479,7 @@ function HeatmapSection({ habit }: { habit: Habit }) {
                   {col.map((day) => (
                     <div
                       key={day.dateStr}
-                      title={`${format(day.date, 'MMM d, yyyy')}${day.completed ? ' (Completed)' : ''}`}
+                      title={`${formatDate(day.date, { month: 'short', day: 'numeric', year: 'numeric' })}${day.completed ? ' (Completed)' : ''}`}
                       className={`w-3.5 h-3.5 rounded-[3px] transition-colors ${
                         day.completed
                           ? 'opacity-100 shadow-sm'

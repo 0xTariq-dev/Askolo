@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
+import { useLocale } from '@/contexts/locale-context';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -101,6 +102,7 @@ function VoiceWaveform({ active, level }: { active: boolean; level: number }) {
 }
 
 export function PlanPage() {
+  const { formatDate } = useLocale();
   const qc = useQueryClient();
   const { openWithDraft } = useAssistantState();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -336,8 +338,8 @@ export function PlanPage() {
             <CardTitle className="text-lg font-display flex items-center gap-2">
               <ListTodo className="h-5 w-5 text-foreground" />
               Structured Plan
-                <span className="ml-2 text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-md border border-border">
-                {format(selectedDate, 'MMM d')}
+                <span className="ms-2 text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-md border border-border">
+                {formatDate(selectedDate, { month: 'short', day: 'numeric' })}
               </span>
             </CardTitle>
             <Button variant="ghost" size="icon" onClick={openAdd} className="h-8 w-8 text-muted-foreground hover:text-foreground" aria-label="Add plan item">
@@ -431,8 +433,8 @@ export function PlanPage() {
               <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                 <PopoverTrigger asChild>
                   <Button type="button" variant="outline" size="sm" className="w-full justify-start sm:w-auto">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    Plan for {format(selectedDate, 'MMM d, yyyy')}
+                    <CalendarIcon className="me-2 h-4 w-4" />
+                    Plan for {formatDate(selectedDate, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-auto p-0">

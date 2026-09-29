@@ -112,6 +112,7 @@ type User struct {
 	FirstName         string
 	LastName          string
 	ProfileImageURL   string
+	PreferredLocale   *string
 	Status            string
 	EmailVerifiedAt   *time.Time
 	AccountCreatedVia string
@@ -841,13 +842,13 @@ func (s *Store) GetUser(ctx context.Context, userID string) (User, error) {
 	var user User
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, COALESCE(email, ''), COALESCE(first_name, ''), COALESCE(last_name, ''),
-		       COALESCE(profile_image_url, ''), COALESCE(status, 'active'),
+		       COALESCE(profile_image_url, ''), preferred_locale, COALESCE(status, 'active'),
 		       email_verified_at, COALESCE(account_created_via, '')
 		FROM users
 		WHERE id = $1
 	`, userID).Scan(
 		&user.ID, &user.Email, &user.FirstName, &user.LastName,
-		&user.ProfileImageURL, &user.Status, &user.EmailVerifiedAt, &user.AccountCreatedVia,
+		&user.ProfileImageURL, &user.PreferredLocale, &user.Status, &user.EmailVerifiedAt, &user.AccountCreatedVia,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -862,13 +863,13 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (User, error)
 	var user User
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, COALESCE(email, ''), COALESCE(first_name, ''), COALESCE(last_name, ''),
-		       COALESCE(profile_image_url, ''), COALESCE(status, 'active'),
+		       COALESCE(profile_image_url, ''), preferred_locale, COALESCE(status, 'active'),
 		       email_verified_at, COALESCE(account_created_via, '')
 		FROM users
 		WHERE lower(email) = lower($1)
 	`, strings.TrimSpace(email)).Scan(
 		&user.ID, &user.Email, &user.FirstName, &user.LastName,
-		&user.ProfileImageURL, &user.Status, &user.EmailVerifiedAt, &user.AccountCreatedVia,
+		&user.ProfileImageURL, &user.PreferredLocale, &user.Status, &user.EmailVerifiedAt, &user.AccountCreatedVia,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound

@@ -23,8 +23,8 @@ export function CCard12AuthCard({
 }) {
 
   return (
-    <Card className="mx-auto w-full max-w-md border-border bg-card/80 shadow-xl shadow-black/10 backdrop-blur-sm">
-      <CardHeader className="text-left">
+    <Card dir="auto" lang="en" className="mx-auto w-full max-w-md border-border bg-card/80 shadow-xl shadow-black/10 backdrop-blur-sm">
+      <CardHeader className="text-start">
         <p className="text-xs font-medium uppercase tracking-wider text-primary">
           {eyebrow}
         </p>

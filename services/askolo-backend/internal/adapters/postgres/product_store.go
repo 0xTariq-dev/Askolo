@@ -926,18 +926,33 @@ func (s *Store) SetVoiceConsent(ctx context.Context, userID string, enabled bool
 	return err
 }
 
-func (s *Store) UpdateUserProfile(ctx context.Context, userID, firstName, lastName string) (User, error) {
+func (s *Store) UpdateUserProfile(
+	ctx context.Context,
+	userID string,
+	firstName, lastName, preferredLocale *string,
+) (User, error) {
 	if s == nil || s.pool == nil {
 		return User{}, errors.New("database is not configured")
 	}
+	firstNameProvided, firstNameValue := optionalStringValue(firstName)
+	lastNameProvided, lastNameValue := optionalStringValue(lastName)
+	localeProvided, localeValue := optionalStringValue(preferredLocale)
 	_, err := s.pool.Exec(ctx, `
-		UPDATE users SET first_name = NULLIF($2, ''), last_name = NULLIF($3, ''), updated_at = NOW()
+		UPDATE users
+		SET first_name = CASE WHEN $2::boolean THEN NULLIF($3::text, '') ELSE first_name END,
+		    last_name = CASE WHEN $4::boolean THEN NULLIF($5::text, '') ELSE last_name END,
+		    preferred_locale = CASE WHEN $6::boolean THEN $7::text ELSE preferred_locale END,
+		    updated_at = NOW()
 		WHERE id = $1
-	`, userID, firstName, lastName)
+	`, userID, firstNameProvided, firstNameValue, lastNameProvided, lastNameValue, localeProvided, localeValue)
 	if err != nil {
 		return User{}, err
 	}
 	return s.GetUser(ctx, userID)
+}
+
+func optionalStringValue(value *string) (bool, *string) {
+	return value != nil, value
 }
 
 func (s *Store) DeleteUserData(ctx context.Context, userID string) error {
@@ -961,6 +976,7 @@ func (s *Store) DeleteUserData(ctx context.Context, userID string) error {
 		`DELETE FROM action_items WHERE user_id = $1`,
 		`DELETE FROM voice_preferences WHERE user_id = $1`,
 		`DELETE FROM ai_credit_accounts WHERE user_id = $1`,
+		`UPDATE users SET preferred_locale = NULL, updated_at = NOW() WHERE id = $1`,
 	} {
 		if _, err := tx.Exec(ctx, query, userID); err != nil {
 			return err

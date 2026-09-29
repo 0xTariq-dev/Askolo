@@ -13,6 +13,87 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestUpdateUserProfilePersistsPreferredLocale(t *testing.T) {
+	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
+	if baseURL == "" {
+		t.Skip("set ASKOLO_TEST_DATABASE_URL to run profile integration tests")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	adminPool, err := pgxpool.New(ctx, baseURL)
+	if err != nil {
+		t.Fatalf("open integration database: %v", err)
+	}
+	if err := adminPool.Ping(ctx); err != nil {
+		adminPool.Close()
+		t.Fatalf("ping integration database: %v", err)
+	}
+
+	schema := fmt.Sprintf("askolo_profile_locale_%d", time.Now().UnixNano())
+	quotedSchema := quoteAICreditIdentifier(schema)
+	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+quotedSchema); err != nil {
+		adminPool.Close()
+		t.Fatalf("create integration schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = adminPool.Exec(context.Background(), `DROP SCHEMA `+quotedSchema+` CASCADE`)
+		adminPool.Close()
+	})
+
+	if _, err := adminPool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.users (
+			id text PRIMARY KEY,
+			email text,
+			first_name text,
+			last_name text,
+			profile_image_url text,
+			preferred_locale varchar(2)
+				CHECK (preferred_locale IS NULL OR preferred_locale IN ('en', 'ar')),
+			status text,
+			email_verified_at timestamptz,
+			account_created_via text,
+			updated_at timestamptz NOT NULL DEFAULT NOW()
+		)
+	`, quotedSchema)); err != nil {
+		t.Fatalf("create users table: %v", err)
+	}
+	if _, err := adminPool.Exec(ctx, `INSERT INTO `+quotedSchema+`.users (id, email, status) VALUES ('locale-user', 'locale@example.test', 'active')`); err != nil {
+		t.Fatalf("create profile user: %v", err)
+	}
+
+	store, err := New(ctx, aiCreditDatabaseURL(t, baseURL, schema))
+	if err != nil {
+		t.Fatalf("open profile store: %v", err)
+	}
+	t.Cleanup(store.Close)
+
+	locale := "ar"
+	updated, err := store.UpdateUserProfile(ctx, "locale-user", nil, nil, &locale)
+	if err != nil {
+		t.Fatalf("update preferred locale: %v", err)
+	}
+	if updated.PreferredLocale == nil || *updated.PreferredLocale != locale {
+		t.Fatalf("updated preferred locale = %v, want %q", updated.PreferredLocale, locale)
+	}
+
+	reread, err := store.GetUser(ctx, "locale-user")
+	if err != nil {
+		t.Fatalf("read persisted preferred locale: %v", err)
+	}
+	if reread.PreferredLocale == nil || *reread.PreferredLocale != locale {
+		t.Fatalf("persisted preferred locale = %v, want %q", reread.PreferredLocale, locale)
+	}
+
+	unchanged, err := store.UpdateUserProfile(ctx, "locale-user", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("update profile without a locale: %v", err)
+	}
+	if unchanged.PreferredLocale == nil || *unchanged.PreferredLocale != locale {
+		t.Fatalf("preferred locale after unrelated profile update = %v, want %q", unchanged.PreferredLocale, locale)
+	}
+}
+
 func TestSpendAICreditsEnforcesBalanceAtomically(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
 	if baseURL == "" {

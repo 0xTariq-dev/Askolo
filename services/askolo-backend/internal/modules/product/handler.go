@@ -1284,15 +1284,30 @@ func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Unauthorized.")
 		return
 	}
-	var input struct{ FirstName, LastName string }
+	var input struct {
+		FirstName       *string `json:"firstName"`
+		LastName        *string `json:"lastName"`
+		PreferredLocale *string `json:"preferredLocale"`
+	}
 	if !decodeBody(w, r, &input) {
 		return
 	}
-	if len(input.FirstName) > 100 || len(input.LastName) > 100 {
+	if input.FirstName == nil && input.LastName == nil && input.PreferredLocale == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PROFILE", "At least one profile field is required.")
+		return
+	}
+	if (input.FirstName != nil && len(*input.FirstName) > 100) ||
+		(input.LastName != nil && len(*input.LastName) > 100) {
 		writeError(w, http.StatusBadRequest, "INVALID_PROFILE", "Profile fields are too long.")
 		return
 	}
-	user, err := h.store.UpdateUserProfile(r.Context(), userID, strings.TrimSpace(input.FirstName), strings.TrimSpace(input.LastName))
+	if input.PreferredLocale != nil && !isSupportedPreferredLocale(*input.PreferredLocale) {
+		writeError(w, http.StatusBadRequest, "INVALID_PROFILE", "The preferred locale is not supported.")
+		return
+	}
+	firstName := trimOptionalString(input.FirstName)
+	lastName := trimOptionalString(input.LastName)
+	user, err := h.store.UpdateUserProfile(r.Context(), userID, firstName, lastName, input.PreferredLocale)
 	if err != nil {
 		h.storeError(w, "profile update failed", err)
 		return
@@ -1306,6 +1321,7 @@ type profileUserResponse struct {
 	FirstName       string `json:"firstName"`
 	LastName        string `json:"lastName"`
 	ProfileImageURL string `json:"profileImageUrl"`
+	PreferredLocale *string `json:"preferredLocale"`
 	Status          string `json:"status"`
 	AuthProvider    string `json:"authProvider"`
 }
@@ -1317,9 +1333,22 @@ func toProfileUserResponse(user postgres.User) profileUserResponse {
 		FirstName:       user.FirstName,
 		LastName:        user.LastName,
 		ProfileImageURL: user.ProfileImageURL,
+		PreferredLocale: user.PreferredLocale,
 		Status:          user.Status,
 		AuthProvider:    user.AccountCreatedVia,
 	}
+}
+
+func trimOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	return &trimmed
+}
+
+func isSupportedPreferredLocale(value string) bool {
+	return value == "en" || value == "ar"
 }
 
 func (h *Handler) deleteUserData(w http.ResponseWriter, r *http.Request) {

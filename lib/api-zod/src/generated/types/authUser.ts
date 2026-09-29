@@ -5,6 +5,7 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthUserPreferredLocale } from './authUserPreferredLocale';
 
 export interface AuthUser {
   id: string;
@@ -12,6 +13,7 @@ export interface AuthUser {
   firstName: string;
   lastName: string;
   profileImageUrl: string;
+  preferredLocale: AuthUserPreferredLocale;
   status: string;
   emailVerified: boolean;
   accountCreatedVia: string;

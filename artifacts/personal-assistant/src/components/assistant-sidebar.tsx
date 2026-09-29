@@ -39,6 +39,7 @@ import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, newCreditIdempotencyKey } from '@/lib/credit-api';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
+import { useLocale } from '@/contexts/locale-context';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -59,6 +60,8 @@ export function AssistantSidebar() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const planningRequestRef = useRef<AbortController | null>(null);
   const reducedMotion = useReducedMotion();
+  const { direction } = useLocale();
+  const hiddenOffset = direction === 'rtl' ? '-100%' : '100%';
   const [isThinking, setIsThinking] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState('');
@@ -284,7 +287,7 @@ export function AssistantSidebar() {
         aria-expanded={isOpen}
         aria-controls="assistant-panel"
         className={cn(
-          'fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full shadow-lg flex items-center justify-center transition-colors',
+          'fixed bottom-6 end-6 z-50 h-12 w-12 rounded-full shadow-lg flex items-center justify-center transition-colors',
           isOpen
             ? 'bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30'
             : 'bg-primary text-primary-foreground hover:bg-primary/90',
@@ -315,12 +318,12 @@ export function AssistantSidebar() {
             key="sidebar"
             id="assistant-panel"
             aria-label="Askolo assistant"
-            initial={reducedMotion ? { x: 0, opacity: 1 } : { x: '100%' }}
+            initial={reducedMotion ? { x: 0, opacity: 1 } : { x: hiddenOffset }}
             animate={{ x: 0 }}
-            exit={reducedMotion ? { opacity: 0 } : { x: '100%' }}
+            exit={reducedMotion ? { opacity: 0 } : { x: hiddenOffset }}
             transition={reducedMotion ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 300 }}
             className={cn(
-              'fixed top-0 right-0 bottom-0 z-50 flex flex-col bg-card border-l border-border shadow-2xl',
+              'fixed top-0 end-0 bottom-0 z-50 flex flex-col bg-card border-s border-border shadow-2xl',
               isFull ? 'w-full' : 'w-[380px] max-w-full',
             )}
           >
@@ -386,14 +389,14 @@ export function AssistantSidebar() {
                     {msg.role === 'user' ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
                   </div>
                   <div
-                    className={cn(
-                      'max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
+                      className={cn(
+                        'max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
                       msg.role === 'user'
                         ? 'bg-primary text-primary-foreground rounded-br-sm'
                         : 'bg-muted border border-border text-foreground rounded-bl-sm',
                     )}
                   >
-                    {msg.content}
+                    <p dir="auto">{msg.content}</p>
                     {msg.role === 'assistant' &&
                       msg.state === 'needs_confirmation' &&
                       msg.intent?.tool === 'create_action_item' &&
@@ -403,7 +406,7 @@ export function AssistantSidebar() {
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             Action item to add
                           </p>
-                          <p className="text-sm font-medium break-words">{msg.intent.title}</p>
+                          <p dir="auto" className="text-sm font-medium break-words">{msg.intent.title}</p>
                           {msg.confirmationExpiresAt &&
                           new Date(msg.confirmationExpiresAt).getTime() > Date.now() ? (
                             <div className="flex flex-wrap gap-2 pt-1">
@@ -483,10 +486,11 @@ export function AssistantSidebar() {
                     render={({ field }) => (
                       <FormItem className="flex-1">
                         <FormControl>
-                         <Input
+                          <Input
                             placeholder="Ask Askolo something…"
                             aria-label="Message Askolo"
-                             className="h-10 min-w-0 flex-1 bg-background border-border text-sm"
+                            dir="auto"
+                            className="h-10 min-w-0 flex-1 bg-background border-border text-sm"
                             {...field}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {

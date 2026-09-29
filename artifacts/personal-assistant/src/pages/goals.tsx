@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { format } from 'date-fns';
+import { useLocale } from '@/contexts/locale-context';
 import { 
   Target, 
   Plus, 
@@ -362,6 +363,7 @@ function GoalCard({ goal, onEdit, onDelete, onIncrement, onComplete }: {
   onIncrement: () => void,
   onComplete: () => void
 }) {
+  const { formatDate } = useLocale();
   const isCompleted = goal.status === 'completed';
   const categoryStyle = goal.category ? CATEGORY_COLORS[goal.category] || CATEGORY_COLORS['Other'] : CATEGORY_COLORS['Other'];
   
@@ -407,7 +409,7 @@ function GoalCard({ goal, onEdit, onDelete, onIncrement, onComplete }: {
                 <span className={isCompleted ? 'text-success' : 'text-primary'}>{goal.progress}% Complete</span>
                 {goal.targetDate && (
                   <span className="text-muted-foreground flex items-center gap-1">
-                    <Calendar className="h-3 w-3" /> Target: {format(new Date(goal.targetDate), 'MMM d, yyyy')}
+                    <Calendar className="h-3 w-3" /> Target: {formatDate(new Date(goal.targetDate), { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 )}
               </div>

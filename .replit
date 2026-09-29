@@ -61,3 +61,15 @@ ASKOLO_RELEASE_TAG = "1317b8f"
 
 [nix]
 channel = "stable-25_05"
+
+[[ports]]
+localPort = 8090
+externalPort = 80
+
+[[ports]]
+localPort = 18131
+externalPort = 3000
+
+[[ports]]
+localPort = 20962
+externalPort = 3001

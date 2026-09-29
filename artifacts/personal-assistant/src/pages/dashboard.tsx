@@ -18,12 +18,14 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Link } from 'wouter';
-import { format, isToday } from 'date-fns';
+import { isToday } from 'date-fns';
 import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { goApi } from '@/lib/go-api';
 import { PageTransition } from '@/components/ui/page-transition';
+import { useLocale } from '@/contexts/locale-context';
 
 export function DashboardPage() {
+  const { formatDate, formatNumber } = useLocale();
   const { data: summary, isLoading } = useGetDashboardSummary();
   const [coaching, setCoaching] = useState<string | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(true);
@@ -96,13 +98,13 @@ export function DashboardPage() {
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-primary">Daily command center</p>
           <h1 className="mt-3 text-4xl font-display font-semibold tracking-tight md:text-5xl">Good morning.</h1>
           <p className="mt-3 max-w-xl text-base leading-relaxed text-muted-foreground">
-            Here is your focus for {format(new Date(), 'EEEE, MMMM d')}. Small, clear steps are enough to move the day forward.
+            Here is your focus for {formatDate(new Date(), { weekday: 'long', month: 'long', day: 'numeric' })}. Small, clear steps are enough to move the day forward.
           </p>
         </div>
         <div className="rounded-xl border border-border bg-background/70 px-5 py-4 md:min-w-48">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Today’s progress</p>
           <p className="mt-1 text-3xl font-display font-semibold text-primary">
-            {summary?.habitsCompletedToday || 0}<span className="text-lg text-muted-foreground">/{summary?.habitsTotal || 0}</span>
+            {formatNumber(summary?.habitsCompletedToday || 0, { useGrouping: false })}<span className="text-lg text-muted-foreground">/{formatNumber(summary?.habitsTotal || 0, { useGrouping: false })}</span>
           </p>
           <p className="text-xs text-muted-foreground">habits completed</p>
         </div>
@@ -266,7 +268,7 @@ export function DashboardPage() {
                         <p className="text-sm font-medium">{action.title}</p>
                         {action.dueDate && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            Due {format(new Date(action.dueDate), 'MMM d')}
+                            Due {formatDate(new Date(action.dueDate), { month: 'short', day: 'numeric' })}
                           </p>
                         )}
                       </div>
@@ -328,11 +330,11 @@ export function DashboardPage() {
               {summary?.upcomingEvents && summary.upcomingEvents.length > 0 ? (
                 <div className="space-y-4">
                   {summary.upcomingEvents.slice(0, 4).map(event => (
-                    <div key={event.id} className="border-l-2 pl-3 py-1 text-sm bg-gradient-to-r from-white/5 to-transparent rounded-r-md" style={{ borderColor: event.color || 'hsl(var(--primary))' }}>
-                      <p className="font-medium">{event.title}</p>
+                    <div key={event.id} className="border-s-2 ps-3 py-1 text-sm bg-gradient-to-r from-white/5 to-transparent rounded-e-md" style={{ borderColor: event.color || 'hsl(var(--primary))' }}>
+                      <p className="font-medium" dir="auto">{event.title}</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {isToday(new Date(event.startDate)) ? 'Today' : format(new Date(event.startDate), 'MMM d')}
-                        {!event.allDay && event.startTime ? `, ${event.startTime}` : ''}
+                        {isToday(new Date(event.startDate)) ? 'Today' : formatDate(new Date(event.startDate), { month: 'short', day: 'numeric' })}
+                        {!event.allDay && event.startTime ? <> · <bdi dir="ltr">{event.startTime}</bdi></> : ''}
                       </p>
                     </div>
                   ))}

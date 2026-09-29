@@ -1,0 +1,228 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-09-29 04:34+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+
+#. js-lingui-explicit-id
+#: src/lib/locale.test.ts:46
+#: src/lib/locale.test.ts:47
+#: src/lib/locale.test.ts:51
+#: src/lib/locale.test.ts:52
+#: src/lib/messages.ts:61
+msgid "calendar.moreEvents"
+msgstr "{count, plural, one {{formattedCount} more event} other {{formattedCount} more events}}"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:51
+msgid "profile.account"
+msgstr "Account"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:28
+msgid "nav.actions"
+msgstr "Actions"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:30
+msgid "nav.aiCredits"
+msgstr "AI Credits"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:52
+msgid "calendar.allDay"
+msgstr "All day"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:6
+msgid "common.arabic"
+msgstr "Arabic"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:35
+msgid "nav.mobileTitle"
+msgstr "Askolo navigation"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:40
+msgid "app.workspace"
+msgstr "Askolo workspace"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:25
+msgid "nav.calendar"
+msgstr "Calendar"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:43
+msgid "profile.languageDescription"
+msgstr "Choose the language and reading direction used in Askolo."
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:26
+msgid "nav.chores"
+msgstr "Chores"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:47
+msgid "profile.languageSyncFailed"
+msgstr "Could not sync your language preference. It is still applied on this device."
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:24
+msgid "nav.dailyPlan"
+msgstr "Daily Plan"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:21
+msgid "nav.dashboard"
+msgstr "Dashboard"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:58
+msgid "calendar.viewDay"
+msgstr "Day"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:29
+msgid "nav.email"
+msgstr "Email"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:5
+msgid "common.english"
+msgstr "English"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:9
+msgid "common.features"
+msgstr "Features"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:8
+msgid "common.getStarted"
+msgstr "Get Started"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:23
+msgid "nav.goals"
+msgstr "Goals"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:22
+msgid "nav.habits"
+msgstr "Habits"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:10
+msgid "common.integrations"
+msgstr "Integrations"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:4
+msgid "common.language"
+msgstr "Language"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:42
+msgid "profile.language"
+msgstr "Language"
+
+#. js-lingui-explicit-id
+#: src/lib/locale.test.ts:50
+#: src/lib/messages.ts:59
+msgid "calendar.lastSynced"
+msgstr "Last synced {time}"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:32
+msgid "nav.main"
+msgstr "Main navigation"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:56
+msgid "calendar.viewMonth"
+msgstr "Month"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:36
+msgid "nav.mobileDescription"
+msgstr "Navigate between your Askolo workspaces."
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:55
+msgid "calendar.next"
+msgstr "Next period"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:60
+msgid "calendar.notSynced"
+msgstr "Not yet synced this session"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:27
+msgid "nav.notes"
+msgstr "Notes"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:33
+msgid "nav.openMenu"
+msgstr "Open navigation menu"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:41
+msgid "app.overview"
+msgstr "Overview"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:54
+msgid "calendar.previous"
+msgstr "Previous period"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:11
+msgid "common.privacyPolicy"
+msgstr "Privacy Policy"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:7
+msgid "common.signIn"
+msgstr "Sign In"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:31
+msgid "nav.signOut"
+msgstr "Sign Out"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:34
+msgid "nav.skipToMain"
+msgstr "Skip to main content"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:17
+msgid "common.switchToDark"
+msgstr "Switch to dark appearance"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:13
+msgid "common.switchToLight"
+msgstr "Switch to light appearance"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:12
+msgid "common.termsOfService"
+msgstr "Terms of Service"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:53
+msgid "calendar.today"
+msgstr "Today"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:57
+msgid "calendar.viewWeek"
+msgstr "Week"

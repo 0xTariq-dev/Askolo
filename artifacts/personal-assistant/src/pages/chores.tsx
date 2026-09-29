@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { useForm as useHookForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { format, isPast, startOfDay } from 'date-fns';
+import { useLocale } from '@/contexts/locale-context';
 import {
   ClipboardList,
   Plus,
@@ -288,6 +289,7 @@ function ChoreCard({
   onDelete: () => void;
   onToggle: () => void;
 }) {
+  const { formatDate } = useLocale();
   const isOverdue = !chore.completed && chore.dueDate && isPast(startOfDay(new Date(chore.dueDate)));
   return (
     <Card className={cn('group bg-card/70 hover:bg-accent border-border transition-colors', isOverdue && 'border-destructive/30')}>
@@ -316,7 +318,7 @@ function ChoreCard({
               <span className={cn('flex items-center gap-1', isOverdue && 'text-destructive')}>
                 <Clock className="h-3 w-3" />
                 {isOverdue ? 'Overdue ' : 'Due '}
-                {format(new Date(chore.dueDate), 'MMM d')}
+                {formatDate(new Date(chore.dueDate), { month: 'short', day: 'numeric' })}
               </span>
             )}
           </div>

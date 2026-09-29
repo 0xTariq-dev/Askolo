@@ -46,6 +46,7 @@ import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import { useAppAuth } from '@/contexts/auth-context';
 import { ThemePresetSelector } from '@/components/settings/theme-preset-selector';
+import { LanguageSelector } from '@/components/settings/language-selector';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -384,6 +385,7 @@ export function ProfilePage() {
       </header>
 
       <ThemePresetSelector />
+      <LanguageSelector />
 
       {/* ── Identity ───────────────────────────────────────────────────────── */}
       <Card>
@@ -404,7 +406,7 @@ export function ProfilePage() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadingPhoto || authProvider !== 'password'}
-                className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow hover:bg-primary/90 transition-colors"
+                className="absolute -bottom-1 -end-1 h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow hover:bg-primary/90 transition-colors"
                 aria-label="Change photo"
               >
                 {uploadingPhoto ? (
@@ -443,7 +445,7 @@ export function ProfilePage() {
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={saveName} disabled={savingName}>
-                  {savingName && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                  {savingName && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                   Save
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditingName(false)}>
@@ -486,7 +488,7 @@ export function ProfilePage() {
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={changePassword} disabled={changingPassword || !newPassword || (authProvider === 'password' && !currentPassword)}>
-                    {changingPassword && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                    {changingPassword && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                     Change password
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setPasswordFormOpen(false)}>
@@ -534,7 +536,7 @@ export function ProfilePage() {
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={verifyRecoveryEmail} disabled={savingRecoveryEmail || recoveryCode.length !== 6}>
-                  {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                  {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                   Verify recovery email
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setRecoveryStep('idle')} disabled={savingRecoveryEmail}>
@@ -571,7 +573,7 @@ export function ProfilePage() {
                 onClick={enrollRecoveryEmail}
                 disabled={savingRecoveryEmail || !recoveryEmail || !recoveryReauthPassword}
               >
-                {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                    {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                 Send verification code
               </Button>
             </>
@@ -628,7 +630,7 @@ export function ProfilePage() {
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={confirmMFAEnrollment} disabled={mfaBusy || mfaCode.length !== 6}>
-                  {mfaBusy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                  {mfaBusy && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                   Confirm MFA
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => { setMfaSecret(''); setMfaCode(''); setMfaStep('idle'); }} disabled={mfaBusy}>
@@ -649,7 +651,7 @@ export function ProfilePage() {
                 />
               </div>
               <Button size="sm" onClick={startMFAEnrollment} disabled={mfaBusy || !mfaPassword}>
-                {mfaBusy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                {mfaBusy && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                 Set up authenticator app
               </Button>
             </>
@@ -730,9 +732,9 @@ export function ProfilePage() {
                 onClick={() => disconnectGoogle('calendar')}
               >
                 {disconnecting === 'calendar' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
                 ) : (
-                  <Unplug className="h-3.5 w-3.5 mr-1.5" />
+                  <Unplug className="h-3.5 w-3.5 me-1.5" />
                 )}
                 Disconnect
               </Button>
@@ -777,9 +779,9 @@ export function ProfilePage() {
                 onClick={() => disconnectGoogle('gmail')}
               >
                 {disconnecting === 'gmail' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
                 ) : (
-                  <Unplug className="h-3.5 w-3.5 mr-1.5" />
+                  <Unplug className="h-3.5 w-3.5 me-1.5" />
                 )}
                 Disconnect
               </Button>
@@ -848,8 +850,8 @@ export function ProfilePage() {
             </div>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10 shrink-0 ml-4">
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10 shrink-0 ms-4">
+                  <Trash2 className="h-3.5 w-3.5 me-1.5" />
                   Delete data
                 </Button>
               </AlertDialogTrigger>
@@ -867,7 +869,7 @@ export function ProfilePage() {
                     onClick={deleteData}
                     disabled={deletingData}
                   >
-                    {deletingData && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                    {deletingData && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                     Yes, delete my data
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -887,8 +889,8 @@ export function ProfilePage() {
             </div>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="sm" variant="destructive" className="shrink-0 ml-4">
-                  <LogOut className="h-3.5 w-3.5 mr-1.5" />
+                <Button size="sm" variant="destructive" className="shrink-0 ms-4">
+                  <LogOut className="h-3.5 w-3.5 me-1.5" />
                   Delete account
                 </Button>
               </AlertDialogTrigger>
@@ -906,7 +908,7 @@ export function ProfilePage() {
                     onClick={deleteAccount}
                     disabled={deletingAccount}
                   >
-                    {deletingAccount && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                    {deletingAccount && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                     Yes, delete my account
                   </AlertDialogAction>
                 </AlertDialogFooter>

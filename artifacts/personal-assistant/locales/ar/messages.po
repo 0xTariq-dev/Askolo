@@ -1,0 +1,228 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-09-29 04:34+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ar\n"
+
+#. js-lingui-explicit-id
+#: src/lib/locale.test.ts:46
+#: src/lib/locale.test.ts:47
+#: src/lib/locale.test.ts:51
+#: src/lib/locale.test.ts:52
+#: src/lib/messages.ts:61
+msgid "calendar.moreEvents"
+msgstr "{count, plural, zero {لا توجد أحداث إضافية} one {حدث إضافي واحد} two {حدثان إضافيان} few {{formattedCount} أحداث إضافية} many {{formattedCount} حدثًا إضافيًا} other {{formattedCount} حدث إضافي}}"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:51
+msgid "profile.account"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:28
+msgid "nav.actions"
+msgstr "الإجراءات"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:30
+msgid "nav.aiCredits"
+msgstr "رصيد الذكاء الاصطناعي"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:52
+msgid "calendar.allDay"
+msgstr "طوال اليوم"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:6
+msgid "common.arabic"
+msgstr "العربية"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:35
+msgid "nav.mobileTitle"
+msgstr "قائمة تنقل أسكولو"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:40
+msgid "app.workspace"
+msgstr "مساحة عمل أسكولو"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:25
+msgid "nav.calendar"
+msgstr "التقويم"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:43
+msgid "profile.languageDescription"
+msgstr "اختر اللغة واتجاه القراءة المستخدمين في أسكولو."
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:26
+msgid "nav.chores"
+msgstr "المهام المنزلية"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:47
+msgid "profile.languageSyncFailed"
+msgstr "تعذرت مزامنة تفضيل اللغة. سيظل مفعّلًا على هذا الجهاز."
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:24
+msgid "nav.dailyPlan"
+msgstr "الخطة اليومية"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:21
+msgid "nav.dashboard"
+msgstr "لوحة التحكم"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:58
+msgid "calendar.viewDay"
+msgstr "اليوم"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:29
+msgid "nav.email"
+msgstr "البريد الإلكتروني"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:5
+msgid "common.english"
+msgstr "الإنجليزية"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:9
+msgid "common.features"
+msgstr "المزايا"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:8
+msgid "common.getStarted"
+msgstr "ابدأ الآن"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:23
+msgid "nav.goals"
+msgstr "الأهداف"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:22
+msgid "nav.habits"
+msgstr "العادات"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:10
+msgid "common.integrations"
+msgstr "التكاملات"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:4
+msgid "common.language"
+msgstr "اللغة"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:42
+msgid "profile.language"
+msgstr "اللغة"
+
+#. js-lingui-explicit-id
+#: src/lib/locale.test.ts:50
+#: src/lib/messages.ts:59
+msgid "calendar.lastSynced"
+msgstr "آخر مزامنة: {time}"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:32
+msgid "nav.main"
+msgstr "التنقل الرئيسي"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:56
+msgid "calendar.viewMonth"
+msgstr "الشهر"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:36
+msgid "nav.mobileDescription"
+msgstr "تنقل بين مساحات عمل أسكولو."
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:55
+msgid "calendar.next"
+msgstr "الفترة التالية"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:60
+msgid "calendar.notSynced"
+msgstr "لم تتم المزامنة في هذه الجلسة بعد"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:27
+msgid "nav.notes"
+msgstr "الملاحظات"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:33
+msgid "nav.openMenu"
+msgstr "فتح قائمة التنقل"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:41
+msgid "app.overview"
+msgstr "نظرة عامة"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:54
+msgid "calendar.previous"
+msgstr "الفترة السابقة"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:11
+msgid "common.privacyPolicy"
+msgstr "سياسة الخصوصية"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:7
+msgid "common.signIn"
+msgstr "تسجيل الدخول"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:31
+msgid "nav.signOut"
+msgstr "تسجيل الخروج"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:34
+msgid "nav.skipToMain"
+msgstr "تخطي إلى المحتوى الرئيسي"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:17
+msgid "common.switchToDark"
+msgstr "التبديل إلى المظهر الداكن"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:13
+msgid "common.switchToLight"
+msgstr "التبديل إلى المظهر الفاتح"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:12
+msgid "common.termsOfService"
+msgstr "شروط الخدمة"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:53
+msgid "calendar.today"
+msgstr "اليوم"
+
+#. js-lingui-explicit-id
+#: src/lib/messages.ts:57
+msgid "calendar.viewWeek"
+msgstr "الأسبوع"

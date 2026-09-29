@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { ApiError } from '@workspace/api-client-react';
 import { toPublicUrl } from '@/lib/site-domains';
 import { goApi } from '@/lib/go-api';
+import type { Locale } from '@/lib/locale';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -12,6 +13,7 @@ export type AppUser = {
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;
+  preferredLocale: Locale | null;
   imageUrl?: string;
   authProvider?: string;
   status?: string;
@@ -26,7 +28,11 @@ type AppAuthValue = {
   mfaRequired: boolean;
   authProvider: string | null;
   signOut: (options?: SignOutOptions) => Promise<void>;
-  updateProfile: (profile: { firstName: string; lastName: string }) => Promise<void>;
+  updateProfile: (profile: {
+    firstName?: string;
+    lastName?: string;
+    preferredLocale?: Locale;
+  }) => Promise<void>;
   updateProfileImage: (file: File) => Promise<void>;
   updatePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 };
@@ -85,8 +91,8 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
         }
         window.location.assign(options?.redirectUrl ?? toPublicUrl('/'));
       },
-      updateProfile: async ({ firstName, lastName }) => {
-        const updated = await goApi.updateProfile({ firstName, lastName });
+      updateProfile: async (profile) => {
+        const updated = await goApi.updateProfile(profile);
         setUser(updated);
       },
       updateProfileImage: async () => {

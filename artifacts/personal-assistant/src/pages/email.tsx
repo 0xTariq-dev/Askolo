@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { format } from 'date-fns';
 import {
   Mail,
   RefreshCw,
@@ -32,6 +31,7 @@ import { Label } from '@workspace/askolo-design-system/components/ui/label';
 import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { cn } from '@workspace/askolo-design-system/lib/utils';
 import logoUrl from '/logo.png';
+import { useLocale } from '@/contexts/locale-context';
 
 const PRIORITY_ORDER = ['urgent', 'follow-up', 'fyi', 'archive'] as const;
 const PRIORITY_LABELS: Record<string, string> = {
@@ -312,6 +312,7 @@ function EmailCard({
   message: GmailMessage;
   onReply: () => void;
 }) {
+  const { formatDate } = useLocale();
   const priorityColor = {
     urgent: 'bg-destructive/10 text-destructive border-destructive/20',
     'follow-up': 'bg-warning/10 text-warning border-warning/20',
@@ -345,10 +346,10 @@ function EmailCard({
           <p className="text-sm text-foreground/80 mt-2 line-clamp-2">{message.snippet || ''}</p>
           <div className="flex items-center justify-between mt-3">
             <span className="text-xs text-muted-foreground">
-              {message.internalDate ? format(Number(message.internalDate), 'MMM d, h:mm a') : ''}
+              {message.internalDate ? formatDate(Number(message.internalDate), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
             </span>
             <Button size="sm" variant="outline" onClick={onReply} className="border-border">
-              <Reply className="h-4 w-4 mr-2" /> Draft reply
+              <Reply className="h-4 w-4 me-2" /> Draft reply
             </Button>
           </div>
         </div>

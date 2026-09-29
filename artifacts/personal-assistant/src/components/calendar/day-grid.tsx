@@ -6,6 +6,7 @@ import { layoutEvents } from './types';
 import { snapTimeFromY } from './snap-time';
 import type { Event } from '@workspace/api-client-react';
 import type { DailyPlan, Habit } from './types';
+import { useLocale } from '@/contexts/locale-context';
 
 const PX_PER_HOUR = 64;
 const TOTAL_HEIGHT = PX_PER_HOUR * 24;
@@ -33,6 +34,7 @@ export function DayGrid({
   onSlotClick,
 }: DayGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { formatDate, formatNumber, t } = useLocale();
   const dateStr = format(currentDate, 'yyyy-MM-dd');
   const isTodayCell = dateStr === todayStr;
 
@@ -67,18 +69,18 @@ export function DayGrid({
             isTodayCell ? 'bg-primary text-primary-foreground' : 'bg-muted',
           )}
         >
-          {format(currentDate, 'd')}
+          {formatNumber(currentDate.getDate(), { useGrouping: false })}
         </div>
         <div>
-          <p className="font-semibold">{format(currentDate, 'EEEE')}</p>
-          <p className="text-sm text-muted-foreground">{format(currentDate, 'MMMM yyyy')}</p>
+          <p className="font-semibold">{formatDate(currentDate, { weekday: 'long' })}</p>
+          <p className="text-sm text-muted-foreground">{formatDate(currentDate, { month: 'long', year: 'numeric' })}</p>
         </div>
       </div>
 
       {/* All-day + habit strip */}
       {hasAllDay && (
         <div className="px-4 py-2 border-b border-border/40 space-y-1">
-          <p className="text-xs text-muted-foreground mb-1">All day</p>
+          <p className="text-xs text-muted-foreground mb-1">{t('calendar.allDay')}</p>
           {allDayEvents.map((e) => (
             <EventChip key={e.id} event={e} onClick={() => onEventClick(e)} />
           ))}
@@ -94,7 +96,7 @@ export function DayGrid({
                     : 'bg-muted text-muted-foreground border-border',
               )}
             >
-              {p.completed ? <s className="opacity-60">{p.title}</s> : p.title}
+              {p.completed ? <s className="opacity-60"><bdi dir="auto">{p.title}</bdi></s> : <bdi dir="auto">{p.title}</bdi>}
             </div>
           ))}
           {/* Habit dots */}
@@ -113,7 +115,7 @@ export function DayGrid({
                       style={{ backgroundColor: h.color || 'hsl(var(--chart-1))' }}
                     />
                     <span className={cn('text-xs', done ? 'text-foreground' : 'text-muted-foreground/50 line-through')}>
-                      {h.name}
+                      <bdi dir="auto">{h.name}</bdi>
                     </span>
                   </div>
                 );
@@ -131,12 +133,12 @@ export function DayGrid({
             {HOURS.map((h) => (
               <div
                 key={h}
-                className="absolute left-0 right-0 flex items-start justify-end pr-2"
+                className="absolute start-0 end-0 flex items-start justify-end pe-2"
                 style={{ top: h * PX_PER_HOUR - 8 }}
               >
                 {h > 0 && (
                   <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {String(h).padStart(2, '0')}:00
+                    <bdi dir="ltr">{formatNumber(h, { minimumIntegerDigits: 2, useGrouping: false })}:00</bdi>
                   </span>
                 )}
               </div>
@@ -154,19 +156,19 @@ export function DayGrid({
             }}
           >
             {HOURS.map((h) => (
-              <div key={h} className="absolute left-0 right-0 border-t border-border/25" style={{ top: h * PX_PER_HOUR }} />
+              <div key={h} className="absolute start-0 end-0 border-t border-border/25" style={{ top: h * PX_PER_HOUR }} />
             ))}
             {HOURS.map((h) => (
               <div
                 key={`${h}-half`}
-                className="absolute left-0 right-0 border-t border-border/10 border-dashed"
+                  className="absolute start-0 end-0 border-t border-border/10 border-dashed"
                 style={{ top: h * PX_PER_HOUR + PX_PER_HOUR / 2 }}
               />
             ))}
 
             {isTodayCell && (
-              <div className="absolute left-0 right-0 z-10 flex items-center" style={{ top: nowTop }}>
-                <div className="h-2 w-2 rounded-full bg-primary -ml-1 shrink-0" />
+              <div className="absolute start-0 end-0 z-10 flex items-center" style={{ top: nowTop }}>
+                <div className="h-2 w-2 rounded-full bg-primary -ms-1 shrink-0" />
                 <div className="flex-1 h-px bg-primary" />
               </div>
             )}
@@ -176,11 +178,11 @@ export function DayGrid({
               return (
                 <div
                   key={event.id}
-                  className="absolute z-5 pr-1"
+                  className="absolute z-5 pe-1"
                   style={{
                     top: (startMinute / 60) * PX_PER_HOUR + 1,
                     height: Math.max(((endMinute - startMinute) / 60) * PX_PER_HOUR - 2, 20),
-                    left: `${column * colW}%`,
+                    insetInlineStart: `${column * colW}%`,
                     width: `${colW}%`,
                   }}
                   onClick={(e) => e.stopPropagation()}

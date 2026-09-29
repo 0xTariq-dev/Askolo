@@ -100,7 +100,10 @@ CREATE TABLE %susers (
 	email_verified_at timestamptz,
 	account_created_via text,
 	created_at timestamptz DEFAULT now() NOT NULL,
-	updated_at timestamptz DEFAULT now() NOT NULL
+	updated_at timestamptz DEFAULT now() NOT NULL,
+	preferred_locale varchar(2),
+	CONSTRAINT users_preferred_locale_check
+		CHECK (preferred_locale IS NULL OR preferred_locale IN ('en', 'ar'))
 );
 CREATE TABLE %ssessions (
 	sid varchar PRIMARY KEY,

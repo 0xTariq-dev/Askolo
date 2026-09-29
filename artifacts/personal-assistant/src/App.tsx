@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getQueryRetryDelay, shouldRetryQuery } from '@workspace/api-client-react';
 import {
@@ -22,6 +22,8 @@ import {
   THEME_STORAGE_KEY,
 } from '@/lib/theme-preferences';
 import { NativeAuthProvider, useAppAuth } from '@/contexts/auth-context';
+import { LocaleProvider } from '@/contexts/locale-context';
+import type { Locale } from '@/lib/locale';
 import {
   ActionsPage,
   AdminCreditsPage,
@@ -140,23 +142,41 @@ function NativeProtectedRoutes() {
   if (!isSignedIn) return <LoginPage />;
 
   return (
-    <AppLayout>
-      <Switch>
-        <Route path="/dashboard" component={DashboardPage} />
-        <Route path="/habits" component={HabitsPage} />
-        <Route path="/goals" component={GoalsPage} />
-        <Route path="/plan" component={PlanPage} />
-        <Route path="/calendar" component={CalendarPage} />
-        <Route path="/chores" component={ChoresPage} />
-        <Route path="/notes" component={NotesPage} />
-        <Route path="/actions" component={ActionsPage} />
-        <Route path="/assistant"><Redirect to="/dashboard" /></Route>
-        <Route path="/email" component={EmailPage} />
-        <Route path="/profile" component={ProfilePage} />
-        <Route path="/credits" component={CreditsPage} />
-        <Route path="/admin/credits" component={AdminCreditsPage} />
-      </Switch>
-    </AppLayout>
+    <AccountLocaleProvider>
+      <AppLayout>
+        <Switch>
+          <Route path="/dashboard" component={DashboardPage} />
+          <Route path="/habits" component={HabitsPage} />
+          <Route path="/goals" component={GoalsPage} />
+          <Route path="/plan" component={PlanPage} />
+          <Route path="/calendar" component={CalendarPage} />
+          <Route path="/chores" component={ChoresPage} />
+          <Route path="/notes" component={NotesPage} />
+          <Route path="/actions" component={ActionsPage} />
+          <Route path="/assistant"><Redirect to="/dashboard" /></Route>
+          <Route path="/email" component={EmailPage} />
+          <Route path="/profile" component={ProfilePage} />
+          <Route path="/credits" component={CreditsPage} />
+          <Route path="/admin/credits" component={AdminCreditsPage} />
+        </Switch>
+      </AppLayout>
+    </AccountLocaleProvider>
+  );
+}
+
+function AccountLocaleProvider({ children }: { children: ReactNode }) {
+  const { user, updateProfile } = useAppAuth();
+  const persistAccountLocale = useCallback(
+    (locale: Locale) => updateProfile({ preferredLocale: locale }),
+    [updateProfile],
+  );
+  return (
+    <LocaleProvider
+      initialLocale={user?.preferredLocale}
+      persistAccountLocale={persistAccountLocale}
+    >
+      {children}
+    </LocaleProvider>
   );
 }
 
@@ -181,13 +201,15 @@ function NativeAuthWithRoutes() {
 function App() {
   return (
     <PersistentThemeProvider>
-      <WouterRouter base={basePath}>
-        {isPublicProductionHost() ? (
-          <PublicSiteRoutes />
-        ) : (
-          <NativeAuthWithRoutes />
-        )}
-      </WouterRouter>
+      <LocaleProvider>
+        <WouterRouter base={basePath}>
+          {isPublicProductionHost() ? (
+            <PublicSiteRoutes />
+          ) : (
+            <NativeAuthWithRoutes />
+          )}
+        </WouterRouter>
+      </LocaleProvider>
     </PersistentThemeProvider>
   );
 }

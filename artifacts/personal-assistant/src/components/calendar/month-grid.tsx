@@ -1,10 +1,11 @@
-import { format, isSameMonth, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, isSameMonth, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays } from 'date-fns';
 import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { EventChip } from './event-chip';
 import type { Event } from '@workspace/api-client-react';
 import type { DailyPlan, Habit } from './types';
+import { useLocale } from '@/contexts/locale-context';
 
-const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const REFERENCE_MONDAY = new Date(2024, 0, 1);
 const MAX_CHIPS = 3;
 const MAX_HABIT_DOTS = 6;
 
@@ -29,18 +30,22 @@ export function MonthGrid({
   onEventClick,
   onDayClick,
 }: MonthGridProps) {
+  const { formatDate, formatNumber, plural } = useLocale();
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
   const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
   const cells = eachDayOfInterval({ start: gridStart, end: gridEnd });
   const hasHabits = habits.length > 0;
+  const weekDays = Array.from({ length: 7 }, (_, index) =>
+    formatDate(addDays(REFERENCE_MONDAY, index), { weekday: 'short' }),
+  );
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Day-of-week header */}
       <div className="grid grid-cols-7 border-b border-border/50">
-        {WEEK_DAYS.map((d) => (
+        {weekDays.map((d) => (
           <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">
             {d}
           </div>
@@ -76,20 +81,22 @@ export function MonthGrid({
             <div
               key={dateStr}
               className={cn(
-                'border-b border-r border-border/40 p-1 flex flex-col gap-0.5 overflow-hidden',
+                'border-b border-e border-border/40 p-1 flex flex-col gap-0.5 overflow-hidden',
                 !isCurrentMonth && 'bg-muted/20',
               )}
             >
               {/* Day number */}
               <button
                 onClick={() => onDayClick(day)}
+                aria-label={formatDate(day, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                data-testid={`calendar-day-${dateStr}`}
                 className={cn(
                   'self-start h-6 w-6 rounded-full text-xs font-medium flex items-center justify-center shrink-0 transition-colors hover:bg-muted',
                   isTodayCell && 'bg-primary text-primary-foreground hover:bg-primary/90',
                   !isCurrentMonth && !isTodayCell && 'text-muted-foreground/50',
                 )}
               >
-                {format(day, 'd')}
+                  {formatNumber(day.getDate(), { useGrouping: false })}
               </button>
 
               {/* Event + plan chips */}
@@ -103,9 +110,9 @@ export function MonthGrid({
                 {overflow > 0 && (
                   <button
                     onClick={() => onDayClick(day)}
-                    className="text-[10px] text-muted-foreground hover:text-foreground text-left px-1"
+                    className="text-[10px] text-muted-foreground hover:text-foreground text-start px-1"
                   >
-                    +{overflow} more
+                    {plural('calendar.moreEvents', overflow)}
                   </button>
                 )}
               </div>
@@ -141,7 +148,7 @@ function PlanChip({ plan }: { plan: DailyPlan }) {
   return (
     <div
       className={cn(
-        'w-full text-left text-xs px-1.5 py-0.5 rounded truncate border-s-2',
+        'w-full text-start text-xs px-1.5 py-0.5 rounded truncate border-s-2',
         plan.priority === 'high'
           ? 'bg-destructive/10 text-destructive border-destructive'
           : plan.priority === 'medium'
@@ -149,6 +156,7 @@ function PlanChip({ plan }: { plan: DailyPlan }) {
             : 'bg-muted text-muted-foreground border-border',
       )}
       title={plan.title}
+      dir="auto"
     >
       {plan.completed ? <s className="opacity-60">{plan.title}</s> : plan.title}
     </div>

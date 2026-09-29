@@ -33,6 +33,7 @@ export const GetCurrentAuthUserResponse = zod.object({
   "firstName": zod.string(),
   "lastName": zod.string(),
   "profileImageUrl": zod.string(),
+  "preferredLocale": zod.enum(['en', 'ar']).nullable(),
   "status": zod.string(),
   "emailVerified": zod.boolean(),
   "accountCreatedVia": zod.string(),
@@ -303,7 +304,8 @@ export const LogoutMobileSessionResponse = zod.object({
 
 export const UpdateUserProfileBody = zod.object({
   "firstName": zod.string().optional(),
-  "lastName": zod.string().optional()
+  "lastName": zod.string().optional(),
+  "preferredLocale": zod.enum(['en', 'ar']).optional()
 })
 
 export const UpdateUserProfileResponse = zod.object({
@@ -312,6 +314,7 @@ export const UpdateUserProfileResponse = zod.object({
   "firstName": zod.string(),
   "lastName": zod.string(),
   "profileImageUrl": zod.string(),
+  "preferredLocale": zod.enum(['en', 'ar']).nullable(),
   "status": zod.string(),
   "authProvider": zod.string()
 })

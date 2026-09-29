@@ -4,6 +4,15 @@ html {
   scroll-behavior: smooth;
 }
 
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]), textarea, [contenteditable="true"]) {
+  unicode-bidi: plaintext;
+}
+
+:where(input[type="email"], input[type="url"], input[type="tel"], input[type="number"], input[type="password"], input[type="date"], input[type="time"], input[type="datetime-local"]) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

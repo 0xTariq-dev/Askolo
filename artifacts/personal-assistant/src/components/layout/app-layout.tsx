@@ -33,18 +33,19 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import logoUrl from '/logo.png';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { useAppAuth } from '@/contexts/auth-context';
+import { useLocale } from '@/contexts/locale-context';
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/habits', label: 'Habits', icon: CheckCircle2 },
-  { href: '/goals', label: 'Goals', icon: Target },
-  { href: '/plan', label: 'Daily Plan', icon: ListTodo },
-  { href: '/calendar', label: 'Calendar', icon: Calendar },
-  { href: '/chores', label: 'Chores', icon: ClipboardList },
-  { href: '/notes', label: 'Notes', icon: StickyNote },
-  { href: '/actions', label: 'Actions', icon: Zap },
-  { href: '/email', label: 'Email', icon: Mail },
-  { href: '/credits', label: 'AI Credits', icon: WalletCards },
+  { href: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
+  { href: '/habits', labelKey: 'nav.habits', icon: CheckCircle2 },
+  { href: '/goals', labelKey: 'nav.goals', icon: Target },
+  { href: '/plan', labelKey: 'nav.dailyPlan', icon: ListTodo },
+  { href: '/calendar', labelKey: 'nav.calendar', icon: Calendar },
+  { href: '/chores', labelKey: 'nav.chores', icon: ClipboardList },
+  { href: '/notes', labelKey: 'nav.notes', icon: StickyNote },
+  { href: '/actions', labelKey: 'nav.actions', icon: Zap },
+  { href: '/email', labelKey: 'nav.email', icon: Mail },
+  { href: '/credits', labelKey: 'nav.aiCredits', icon: WalletCards },
 ];
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -72,6 +73,8 @@ function NavigationPanel({
   onSignOut,
   showNotifications = false,
 }: NavigationPanelProps) {
+  const { t } = useLocale();
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-6">
@@ -89,7 +92,7 @@ function NavigationPanel({
       </div>
 
       <nav
-        aria-label="Main navigation"
+        aria-label={t('nav.main')}
         className="flex-1 space-y-1 overflow-y-auto px-3 py-6"
       >
         {navItems.map((item) => {
@@ -103,6 +106,7 @@ function NavigationPanel({
               key={item.href}
               href={item.href}
               onClick={onNavigate}
+      aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-all duration-200',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
@@ -110,7 +114,7 @@ function NavigationPanel({
                   ? 'bg-sidebar-primary/10 text-sidebar-primary'
                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
               )}
-              data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+              data-testid={`nav-${item.href.slice(1).replaceAll('/', '-')}`}
             >
               <Icon
                 className={cn(
@@ -121,7 +125,7 @@ function NavigationPanel({
                 )}
                 aria-hidden="true"
               />
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}
@@ -141,10 +145,10 @@ function NavigationPanel({
           </Avatar>
           <span className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <span className="truncate text-sm font-medium text-sidebar-foreground transition-colors group-hover:text-sidebar-primary">
-              {displayName}
+              <bdi dir="auto">{displayName}</bdi>
             </span>
             <span className="truncate text-xs text-sidebar-foreground/60">
-              {email}
+              <bdi lang="en" dir="ltr">{email}</bdi>
             </span>
           </span>
           <UserCircle
@@ -158,8 +162,8 @@ function NavigationPanel({
           onClick={onSignOut}
           data-testid="button-logout"
         >
-          <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
-          Sign Out
+          <LogOut className="me-2 h-4 w-4" aria-hidden="true" />
+          {t('nav.signOut')}
         </Button>
       </div>
     </div>
@@ -173,6 +177,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const isMobile = useIsMobile();
+  const { direction, formatDate, t } = useLocale();
 
   // Run once per session to check Google connection status
   useGoogleConnectionCheck();
@@ -214,7 +219,11 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
     const touch = event.touches[0];
     if (!touch) return;
 
-    if (isMobileNavOpen || touch.clientX <= MOBILE_EDGE_GESTURE_WIDTH) {
+    const fromInlineStart =
+      direction === 'rtl'
+        ? touch.clientX >= window.innerWidth - MOBILE_EDGE_GESTURE_WIDTH
+        : touch.clientX <= MOBILE_EDGE_GESTURE_WIDTH;
+    if (isMobileNavOpen || fromInlineStart) {
       touchStartRef.current = { x: touch.clientX, y: touch.clientY };
     }
   };
@@ -235,9 +244,15 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!isMobileNavOpen && start.x <= MOBILE_EDGE_GESTURE_WIDTH && deltaX > 0) {
+    const fromInlineStart =
+      direction === 'rtl'
+        ? start.x >= window.innerWidth - MOBILE_EDGE_GESTURE_WIDTH
+        : start.x <= MOBILE_EDGE_GESTURE_WIDTH;
+    const opensFromEdge = direction === 'rtl' ? deltaX < 0 : deltaX > 0;
+    const closesTowardEdge = direction === 'rtl' ? deltaX > 0 : deltaX < 0;
+    if (!isMobileNavOpen && fromInlineStart && opensFromEdge) {
       setIsMobileNavOpen(true);
-    } else if (isMobileNavOpen && deltaX < 0) {
+    } else if (isMobileNavOpen && closesTowardEdge) {
       closeMobileNav();
     }
   };
@@ -250,13 +265,13 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
     >
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg"
+        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg"
       >
-        Skip to main content
+        {t('nav.skipToMain')}
       </a>
 
       {/* Desktop sidebar */}
-      <aside className="relative z-10 hidden w-64 shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
+      <aside className="relative z-10 hidden w-64 shrink-0 border-e border-border bg-sidebar md:flex md:flex-col">
         <NavigationPanel
           location={location}
           displayName={displayName}
@@ -271,15 +286,15 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
       {/* Mobile navigation drawer */}
       <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
         <SheetContent
-          side="left"
+          side={direction === 'rtl' ? 'right' : 'left'}
           id="mobile-navigation"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          className="w-[min(19rem,calc(100vw-2rem))] max-w-none border-r border-border bg-sidebar p-0"
+          className="w-[min(19rem,calc(100vw-2rem))] max-w-none border-e border-border bg-sidebar p-0"
         >
-          <SheetTitle className="sr-only">Askolo navigation</SheetTitle>
+          <SheetTitle className="sr-only">{t('nav.mobileTitle')}</SheetTitle>
           <SheetDescription className="sr-only">
-            Navigate between your Askolo workspaces.
+            {t('nav.mobileDescription')}
           </SheetDescription>
           <NavigationPanel
             location={location}
@@ -294,7 +309,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
       </Sheet>
 
       {/* Main content */}
-      <main id="main-content" className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <main id="main-content" tabIndex={-1} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Mobile header */}
         <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 md:hidden">
           <div className="flex items-center gap-2">
@@ -303,7 +318,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
               size="icon"
               className="h-10 w-10 shrink-0"
               onClick={() => setIsMobileNavOpen(true)}
-              aria-label="Open navigation menu"
+              aria-label={t('nav.openMenu')}
               aria-expanded={isMobileNavOpen}
               aria-controls="mobile-navigation"
             >
@@ -324,14 +339,17 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
           <div className="relative flex min-h-full flex-col">
             <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border/60 bg-background/80 px-4 py-5 backdrop-blur-md md:px-8">
               <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-primary">Askolo workspace</p>
+                 <p className="text-xs font-medium uppercase tracking-wider text-primary">{t('app.workspace')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {navItems.find((item) => location === item.href || location.startsWith(`${item.href}/`))?.label ?? 'Overview'}
+                   {(() => {
+                     const item = navItems.find((entry) => location === entry.href || location.startsWith(`${entry.href}/`));
+                     return item ? t(item.labelKey) : t('app.overview');
+                   })()}
                 </p>
               </div>
-              <div className="hidden items-center gap-2 text-right text-xs text-muted-foreground sm:flex">
+              <div className="hidden items-center gap-2 text-end text-xs text-muted-foreground sm:flex">
                 <span className="rounded-full border border-border bg-card px-3 py-1.5">
-                  {new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date())}
+                  <bdi>{formatDate(new Date(), { weekday: 'short', month: 'short', day: 'numeric' })}</bdi>
                 </span>
               </div>
             </header>
@@ -343,10 +361,10 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
         <footer className="flex shrink-0 flex-col items-center justify-center gap-4 border-t border-border/50 bg-background px-4 py-4 text-xs text-muted-foreground sm:flex-row sm:gap-6 md:px-8">
           <span>© {new Date().getFullYear()} Askolo</span>
           <a href={toPublicUrl('/privacy')} className="transition-colors hover:text-primary">
-            Privacy Policy
+            {t('common.privacyPolicy')}
           </a>
           <a href={toPublicUrl('/terms')} className="transition-colors hover:text-primary">
-            Terms of Service
+            {t('common.termsOfService')}
           </a>
         </footer>
       </main>

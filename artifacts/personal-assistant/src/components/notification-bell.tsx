@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Bell, Info, AlertTriangle, Zap, X, CheckCheck, VolumeX } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { formatDistanceToNow } from 'date-fns';
+import { useLocale } from '@/contexts/locale-context';
 import { useNotifications, type AppNotification } from '@/contexts/notification-context';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@workspace/askolo-design-system/components/ui/popover';
@@ -14,6 +14,7 @@ function typeIcon(type: AppNotification['type']) {
 }
 
 export function NotificationBell({ className }: { className?: string }) {
+  const { formatRelativeDate, formatNumber } = useLocale();
   const { notifications, unreadCount, markAllRead, clearAll, markRead, suppressNotification } = useNotifications();
   const [, setLocation] = useLocation();
   const popoverOpenRef = useRef(false);
@@ -39,7 +40,7 @@ export function NotificationBell({ className }: { className?: string }) {
               className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-0.5 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold leading-none"
               aria-hidden
             >
-              {unreadCount > 9 ? '9+' : unreadCount}
+              {unreadCount > 9 ? '9+' : formatNumber(unreadCount, { useGrouping: false })}
             </span>
           )}
         </button>
@@ -110,7 +111,7 @@ export function NotificationBell({ className }: { className?: string }) {
                     )}
                   </div>
                   <p className="text-[10px] text-muted-foreground/60 mt-1">
-                    {formatDistanceToNow(n.timestamp, { addSuffix: true })}
+                    {formatRelativeDate(n.timestamp)}
                   </p>
                 </div>
                 {!n.read && (

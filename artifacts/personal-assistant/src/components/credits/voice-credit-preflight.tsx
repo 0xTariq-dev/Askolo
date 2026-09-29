@@ -4,8 +4,10 @@ import { Coins, RefreshCw } from 'lucide-react';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
 import { creditApi, creditErrorMessage, type CreditEstimate } from '@/lib/credit-api';
+import { useLocale } from '@/contexts/locale-context';
 
 export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink?: boolean }) {
+  const { formatNumber } = useLocale();
   const [estimate, setEstimate] = useState<CreditEstimate | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -62,15 +64,15 @@ export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink
           <div className="flex flex-col gap-1 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
             <p>
               <span className="text-muted-foreground">Estimated:</span>{' '}
-              <strong>{estimate.estimatedCredits.toLocaleString()} credits</strong>
+              <strong><bdi>{formatNumber(estimate.estimatedCredits)} credits</bdi></strong>
             </p>
             <p>
               <span className="text-muted-foreground">Maximum reserved:</span>{' '}
-              <strong>{estimate.hardCapCredits.toLocaleString()} credits</strong>
+              <strong><bdi>{formatNumber(estimate.hardCapCredits)} credits</bdi></strong>
             </p>
             <p>
               <span className="text-muted-foreground">Available:</span>{' '}
-              <strong>{estimate.availableCredits.toLocaleString()} credits</strong>
+              <strong><bdi>{formatNumber(estimate.availableCredits)} credits</bdi></strong>
             </p>
             {!estimate.canReserve && (
               <p role="alert" className="basis-full font-medium text-destructive">

@@ -1948,7 +1948,7 @@ components:
     # ── Auth ─────────────────────────────────────────────────────────────
     AuthUser:
       type: object
-      required: [id, email, firstName, lastName, profileImageUrl, status, emailVerified, accountCreatedVia, authProvider]
+      required: [id, email, firstName, lastName, profileImageUrl, preferredLocale, status, emailVerified, accountCreatedVia, authProvider]
       properties:
         id:
           type: string
@@ -1960,6 +1960,10 @@ components:
           type: string
         profileImageUrl:
           type: string
+        preferredLocale:
+          type: string
+          enum: [en, ar]
+          nullable: true
         status:
           type: string
         emailVerified:
@@ -2127,15 +2131,22 @@ components:
       properties:
         firstName: { type: string }
         lastName: { type: string }
+        preferredLocale:
+          type: string
+          enum: [en, ar]
     ProfileUser:
       type: object
-      required: [id, email, firstName, lastName, profileImageUrl, status, authProvider]
+      required: [id, email, firstName, lastName, profileImageUrl, preferredLocale, status, authProvider]
       properties:
         id: { type: string }
         email: { type: string }
         firstName: { type: string }
         lastName: { type: string }
         profileImageUrl: { type: string }
+        preferredLocale:
+          type: string
+          enum: [en, ar]
+          nullable: true
         status: { type: string }
         authProvider: { type: string }
     CoachingInput:

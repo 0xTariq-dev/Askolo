@@ -12,7 +12,6 @@ import {
   subWeeks,
   addDays,
   subDays,
-  formatDistanceToNow,
 } from 'date-fns';
 import { z } from 'zod';
 import { useForm as useHookForm } from 'react-hook-form';
@@ -55,6 +54,7 @@ import { MonthGrid } from '@/components/calendar/month-grid';
 import { WeekGrid } from '@/components/calendar/week-grid';
 import { DayGrid } from '@/components/calendar/day-grid';
 import type { CalendarView } from '@/components/calendar/types';
+import { useLocale } from '@/contexts/locale-context';
 
 // ─── Form schema ────────────────────────────────────────────────────────────
 const eventSchema = z.object({
@@ -110,21 +110,23 @@ function navigateNext(date: Date, view: CalendarView): Date {
   return addDays(date, 1);
 }
 
-function headerLabel(date: Date, view: CalendarView): string {
-  if (view === 'month') return format(date, 'MMMM yyyy');
+function headerLabel(
+  date: Date,
+  view: CalendarView,
+  formatLocaleDate: (value: Date | number, options?: Intl.DateTimeFormatOptions) => string,
+): string {
+  if (view === 'month') return formatLocaleDate(date, { month: 'long', year: 'numeric' });
   if (view === 'week') {
     const ws = startOfWeek(date, { weekStartsOn: 1 });
     const we = endOfWeek(date, { weekStartsOn: 1 });
-    if (format(ws, 'MMM yyyy') === format(we, 'MMM yyyy')) {
-      return `${format(ws, 'MMM d')} – ${format(we, 'd, yyyy')}`;
-    }
-    return `${format(ws, 'MMM d')} – ${format(we, 'MMM d, yyyy')}`;
+    return `${formatLocaleDate(ws, { month: 'short', day: 'numeric' })} – ${formatLocaleDate(we, { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
-  return format(date, 'EEEE, MMMM d, yyyy');
+  return formatLocaleDate(date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 export function CalendarPage() {
+  const { formatDate, formatRelativeDate, t } = useLocale();
   const { preferences } = useAskoloTheme();
   const defaultEventColor =
     THEME_PRESETS[preferences.accountThemeId][preferences.mode].chart1;
@@ -389,7 +391,7 @@ export function CalendarPage() {
               {calendarConnected ? 'Sync Google' : 'Google not connected'}
             </Button>
             <Button onClick={() => openAdd()} className="shrink-0" data-testid="button-add-event">
-              <Plus className="h-4 w-4 mr-2" /> Add Event
+              <Plus className="h-4 w-4 me-2" /> Add Event
             </Button>
           </div>
           {calendarConnected && (
@@ -397,8 +399,8 @@ export function CalendarPage() {
               {syncGoogleCalendar.isPending
                 ? 'Syncing…'
                 : lastSyncedAt
-                  ? `Last synced ${formatDistanceToNow(lastSyncedAt, { addSuffix: true })}`
-                  : 'Not yet synced this session'}
+                  ? t('calendar.lastSynced', { time: formatRelativeDate(lastSyncedAt) })
+                  : t('calendar.notSynced')}
             </p>
           )}
         </div>
@@ -408,22 +410,22 @@ export function CalendarPage() {
       <div className="flex items-center justify-between mb-3 shrink-0 gap-3 flex-wrap">
         {/* Prev / label / Next */}
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setCurrentDate((d) => navigatePrev(d, view))}>
-            <ChevronLeft className="h-4 w-4" />
+          <Button variant="outline" size="icon" aria-label={t('calendar.previous')} onClick={() => setCurrentDate((d) => navigatePrev(d, view))}>
+            <ChevronLeft className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
           </Button>
           <h2 className="text-lg font-display font-semibold min-w-[200px] text-center">
-            {headerLabel(currentDate, view)}
+            {headerLabel(currentDate, view, formatDate)}
           </h2>
-          <Button variant="outline" size="icon" onClick={() => setCurrentDate((d) => navigateNext(d, view))}>
-            <ChevronRight className="h-4 w-4" />
+          <Button variant="outline" size="icon" aria-label={t('calendar.next')} onClick={() => setCurrentDate((d) => navigateNext(d, view))}>
+            <ChevronRight className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setCurrentDate(new Date())}
-            className="text-xs text-muted-foreground ml-1"
+            className="text-xs text-muted-foreground ms-1"
           >
-            Today
+            {t('calendar.today')}
           </Button>
         </div>
 
@@ -433,6 +435,7 @@ export function CalendarPage() {
             <button
               key={v}
               onClick={() => setView(v)}
+              aria-pressed={view === v}
               className={cn(
                 'px-3 py-1.5 text-sm font-medium capitalize transition-colors',
                 view === v
@@ -440,7 +443,7 @@ export function CalendarPage() {
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )}
             >
-              {v}
+              {t(`calendar.view${v[0].toUpperCase()}${v.slice(1)}`)}
             </button>
           ))}
         </div>

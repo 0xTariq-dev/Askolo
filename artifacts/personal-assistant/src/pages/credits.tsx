@@ -10,27 +10,24 @@ import { Skeleton } from '@workspace/askolo-design-system/components/ui/skeleton
 import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { creditApi, creditErrorMessage, type CreditAccountResponse, type CreditReceipt, type CreditUsageResponse } from '@/lib/credit-api';
-
-function formatDate(value?: string | null) {
-  if (!value) return '—';
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
-}
+import { useLocale } from '@/contexts/locale-context';
 
 function ReceiptRow({ receipt, onOpen }: { receipt: CreditReceipt; onOpen: () => void }) {
+  const { formatDate, formatNumber } = useLocale();
   const isEvent = Boolean(receipt.eventType);
   const amount = isEvent ? receipt.credits ?? 0 : receipt.settledCredits ?? receipt.reservedCredits ?? 0;
   const positive = isEvent && receipt.eventType === 'refunded';
   return (
-    <button type="button" onClick={onOpen} data-testid={`button-open-receipt-${receipt.id}`} className="group flex w-full items-center gap-3 rounded-xl border border-border/70 bg-background/35 p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5">
+    <button type="button" onClick={onOpen} data-testid={`button-open-receipt-${receipt.id}`} className="group flex w-full items-center gap-3 rounded-xl border border-border/70 bg-background/35 p-3 text-start transition-colors hover:border-primary/40 hover:bg-primary/5">
       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${positive ? 'border-success/30 bg-success/10 text-success' : 'border-primary/25 bg-primary/10 text-primary'}`}>
         {positive ? <ArrowDownLeft className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{isEvent ? receipt.eventType : `${receipt.operationType ?? 'AI'} operation`}</span>
-        <span className="block truncate text-xs text-muted-foreground">{formatDate(receipt.createdAt)} · {isEvent ? receipt.reservationId : receipt.id}</span>
+        <span className="block truncate text-xs text-muted-foreground">{receipt.createdAt ? formatDate(new Date(receipt.createdAt), { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} · <bdi dir="ltr">{isEvent ? receipt.reservationId : receipt.id}</bdi></span>
       </span>
-      <span className="shrink-0 text-right">
-        <span className={`block font-mono text-sm font-semibold ${positive ? 'text-success' : 'text-foreground'}`}>{positive ? '+' : ''}{amount} cr</span>
+      <span className="shrink-0 text-end">
+        <span className={`block font-mono text-sm font-semibold ${positive ? 'text-success' : 'text-foreground'}`}><bdi>{positive ? '+' : ''}{formatNumber(amount)} cr</bdi></span>
         {!isEvent && <span className="text-[11px] capitalize text-muted-foreground">{receipt.status}</span>}
       </span>
     </button>
@@ -38,6 +35,7 @@ function ReceiptRow({ receipt, onOpen }: { receipt: CreditReceipt; onOpen: () =>
 }
 
 export function CreditsPage() {
+  const { formatDate, formatNumber } = useLocale();
   const { toast } = useToast();
   const [account, setAccount] = useState<CreditAccountResponse | null>(null);
   const [usage, setUsage] = useState<CreditUsageResponse | null>(null);
@@ -129,7 +127,7 @@ export function CreditsPage() {
         <Card className="relative overflow-hidden border-primary/30 bg-primary/[0.07]">
           <div className="pointer-events-none absolute -right-10 -top-14 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
           <CardHeader className="pb-2"><CardDescription className="flex items-center gap-2"><Coins className="h-4 w-4 text-primary" /> Available now</CardDescription></CardHeader>
-          <CardContent><p className="font-mono text-5xl font-semibold tracking-tight" data-testid="text-credit-balance">{balance.toLocaleString()}<span className="ml-2 text-base font-sans font-medium text-muted-foreground">credits</span></p><p className="mt-3 text-xs text-muted-foreground">Enforcement is strict. A voice request needs at least one available credit.</p></CardContent>
+          <CardContent><p className="font-mono text-5xl font-semibold tracking-tight" data-testid="text-credit-balance">{formatNumber(balance)}<span className="ms-2 text-base font-sans font-medium text-muted-foreground">credits</span></p><p className="mt-3 text-xs text-muted-foreground">Enforcement is strict. A voice request needs at least one available credit.</p></CardContent>
         </Card>
         <Card><CardHeader className="pb-2"><CardDescription>Policy version</CardDescription></CardHeader><CardContent><p className="font-mono text-3xl font-semibold">v{account?.policyVersion ?? '—'}</p><Badge className="mt-3 border-success/20 bg-success/10 text-success"><ShieldCheck className="mr-1 h-3 w-3" /> Strict ledger</Badge></CardContent></Card>
       </section>
@@ -138,7 +136,7 @@ export function CreditsPage() {
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><History className="h-4 w-4 text-primary" /> Ledger summary</CardTitle><CardDescription>Every number is an immutable ledger counter, not an estimate.</CardDescription></CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-5">{usageItems.map((item) => <div key={item.label} className="rounded-xl border border-border/70 bg-background/30 p-3"><p className="text-xs text-muted-foreground">{item.label}</p><p className={`mt-1 font-mono text-xl font-semibold ${item.tone}`}>{item.value.toLocaleString()}</p></div>)}</CardContent>
+        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-5">{usageItems.map((item) => <div key={item.label} className="rounded-xl border border-border/70 bg-background/30 p-3"><p className="text-xs text-muted-foreground">{item.label}</p><p className={`mt-1 font-mono text-xl font-semibold ${item.tone}`}>{formatNumber(item.value)}</p></div>)}</CardContent>
       </Card>
 
       <Card>
@@ -150,11 +148,11 @@ export function CreditsPage() {
             return (
               <div key={`${grant.id}-${index}`} className="flex flex-col gap-2 rounded-xl border border-border/70 bg-background/30 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <p className="font-mono text-sm font-semibold">{(grant.amountCredits ?? grant.credits ?? 0).toLocaleString()} credits · {grant.reason || 'Credit grant'}</p>
-                  <p className="text-xs text-muted-foreground">Granted {formatDate(grant.createdAt)}</p>
+                  <p className="font-mono text-sm font-semibold"><bdi>{formatNumber(grant.amountCredits ?? grant.credits ?? 0)} credits</bdi> · <bdi dir="auto">{grant.reason || 'Credit grant'}</bdi></p>
+                  <p className="text-xs text-muted-foreground">Granted {grant.createdAt ? formatDate(new Date(grant.createdAt), { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}</p>
                 </div>
                 <Badge className={expired ? 'w-fit border-border bg-muted text-muted-foreground' : expiresAt ? 'w-fit border-warning/30 bg-warning/10 text-warning' : 'w-fit border-success/30 bg-success/10 text-success'}>
-                  {expiresAt ? `${expired ? 'Expired' : 'Expires'} ${formatDate(grant.expiresAt)}` : 'No expiry recorded'}
+                  {expiresAt ? `${expired ? 'Expired' : 'Expires'} ${formatDate(new Date(grant.expiresAt!), { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'No expiry recorded'}
                 </Badge>
               </div>
             );
