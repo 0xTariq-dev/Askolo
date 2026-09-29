@@ -171,7 +171,7 @@ export function LandingPage() {
             <Button
               size="default"
               asChild
-              className="group min-h-11"
+              className="group min-h-11 rounded-full"
             >
               <a href={ctaHref}>
                 Get Started Free
@@ -182,7 +182,7 @@ export function LandingPage() {
               size="default"
               variant="outline"
               asChild
-              className="min-h-11"
+              className="min-h-11 rounded-full"
             >
               <a href={secondaryHref}>Sign In</a>
             </Button>
@@ -211,7 +211,7 @@ export function LandingPage() {
       <section
         id="features"
         aria-labelledby="features-heading"
-        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 border-y border-border/40"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6"
       >
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
@@ -289,7 +289,7 @@ export function LandingPage() {
       <section
         id="integrations"
         aria-labelledby="integrations-heading"
-        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6 border-y border-border/40"
+        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6"
       >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 sm:mb-14">

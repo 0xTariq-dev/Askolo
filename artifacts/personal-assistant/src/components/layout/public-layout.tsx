@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { useAskoloTheme } from '@workspace/askolo-design-system/theme';
 import { Moon, Sun } from 'lucide-react';
+import { AnimatedBrandName } from '@/components/animated-brand-name';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
@@ -39,10 +40,8 @@ export function PublicLayout({
       <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/95 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 group">
-            <img src={logoUrl} alt="Askolo" width={64} height={64} className="h-8 w-auto object-contain" />
-            <span className="font-display font-bold text-xl tracking-tight group-hover:text-primary transition-colors">
-              Askolo
-            </span>
+            <img src={logoUrl} alt="" width={64} height={64} className="h-8 w-auto object-contain" />
+            <AnimatedBrandName />
           </Link>
           <nav aria-label="Primary" className="flex items-center gap-2 sm:gap-4">
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden md:inline">
@@ -51,17 +50,11 @@ export function PublicLayout({
             <a href="#integrations" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden md:inline">
               Integrations
             </a>
-            <Link href="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
-              Privacy
-            </Link>
-            <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:inline">
-              Terms
-            </Link>
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="min-h-11 min-w-11 shrink-0"
+              className="min-h-11 min-w-11 shrink-0 rounded-full"
               aria-label={`Switch to ${mode === 'dark' ? 'light' : 'dark'} appearance`}
               aria-pressed={mode === 'dark'}
               title={`Switch to ${mode === 'dark' ? 'light' : 'dark'} appearance`}
@@ -71,10 +64,10 @@ export function PublicLayout({
                 ? <Sun aria-hidden="true" className="size-4" />
                 : <Moon aria-hidden="true" className="size-4" />}
             </Button>
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" asChild className="rounded-full">
               <a href={toAppUrl('/sign-in')}>Sign In</a>
             </Button>
-            <Button size="sm" asChild>
+            <Button size="sm" asChild className="rounded-full">
               <a href={toAppUrl('/sign-up')}>Get Started</a>
             </Button>
           </nav>
@@ -87,7 +80,7 @@ export function PublicLayout({
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-border/60 bg-background/80 backdrop-blur-sm py-8">
+      <footer className="relative z-10 mt-auto border-t border-border/60 bg-background/80 backdrop-blur-sm py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row gap-4 sm:gap-6 justify-between items-center text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <img src={logoUrl} alt="Askolo" width={64} height={64} className="h-5 w-auto object-contain opacity-80" />
