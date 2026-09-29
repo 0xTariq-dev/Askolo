@@ -75,6 +75,39 @@ func openCreditPolicyIntegrationFixture(t *testing.T) *creditPolicyIntegrationFi
 	return &creditPolicyIntegrationFixture{ctx: ctx, pool: pool, store: store}
 }
 
+func TestTranscriptionPreferenceRoutesRejectAnonymousRequests(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+
+	for _, test := range []struct {
+		name   string
+		method string
+		body   string
+	}{
+		{name: "read", method: http.MethodGet},
+		{name: "update", method: http.MethodPatch, body: `{"consent":true}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(
+				test.method,
+				"/api/ai/transcription-preferences",
+				strings.NewReader(test.body),
+			)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("anonymous %s status = %d, want %d: %s",
+					test.name, response.Code, http.StatusUnauthorized, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), `"UNAUTHORIZED"`) {
+				t.Fatalf("anonymous %s response lacks UNAUTHORIZED code: %s",
+					test.name, response.Body.String())
+			}
+		})
+	}
+}
+
 func creditPolicySchemaURL(t *testing.T, databaseURL, schema string) string {
 	t.Helper()
 	parsed, err := url.Parse(databaseURL)

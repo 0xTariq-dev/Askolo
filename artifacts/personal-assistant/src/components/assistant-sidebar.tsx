@@ -39,6 +39,7 @@ import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, newCreditIdempotencyKey } from '@/lib/credit-api';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
+import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { useLocale } from '@/contexts/locale-context';
 
 const messageSchema = z.object({ text: z.string().min(1) });
@@ -209,7 +210,7 @@ export function AssistantSidebar() {
   };
 
   const startAssistantVoice = async () => {
-    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== 'voice-v3') {
+    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION) {
       setVoiceConsentError('');
       setVoiceConsentOpen(true);
       return;

@@ -1079,7 +1079,11 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) transcriptionPreferences(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
 	consent, version, err := h.store.VoiceConsent(r.Context(), userID)
@@ -1092,7 +1096,11 @@ func (h *Handler) transcriptionPreferences(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) updateTranscriptionPreferences(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
-	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
+	if status != http.StatusOK {
+		writeCreditSessionError(w, status)
+		return
+	}
+	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
 	var input struct {
@@ -1316,14 +1324,14 @@ func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 type profileUserResponse struct {
-	ID              string `json:"id"`
-	Email           string `json:"email"`
-	FirstName       string `json:"firstName"`
-	LastName        string `json:"lastName"`
-	ProfileImageURL string `json:"profileImageUrl"`
+	ID              string  `json:"id"`
+	Email           string  `json:"email"`
+	FirstName       string  `json:"firstName"`
+	LastName        string  `json:"lastName"`
+	ProfileImageURL string  `json:"profileImageUrl"`
 	PreferredLocale *string `json:"preferredLocale"`
-	Status          string `json:"status"`
-	AuthProvider    string `json:"authProvider"`
+	Status          string  `json:"status"`
+	AuthProvider    string  `json:"authProvider"`
 }
 
 func toProfileUserResponse(user postgres.User) profileUserResponse {

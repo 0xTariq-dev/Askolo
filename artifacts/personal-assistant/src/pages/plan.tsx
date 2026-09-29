@@ -48,10 +48,9 @@ import { Label } from '@workspace/askolo-design-system/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
 import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
+import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { useAssistantState } from '@/contexts/assistant-context';
-
-const CURRENT_VOICE_CONSENT_VERSION = 'voice-v3';
 
 const priorityColors = {
   high: 'border-destructive bg-destructive/10 text-destructive',

@@ -44,6 +44,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@workspace/askolo-desi
 import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
+import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 
 const noteSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -170,7 +171,7 @@ export function NotesPage() {
   };
 
   const startVoice = async () => {
-    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== 'voice-v3') {
+    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION) {
       setConsentError('');
       setConsentOpen(true);
       return;
@@ -179,7 +180,7 @@ export function NotesPage() {
   };
 
   const startNoteVoice = async () => {
-    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== 'voice-v3') {
+    if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION) {
       setConsentError('');
       setConsentOpen(true);
       return;
@@ -187,7 +188,10 @@ export function NotesPage() {
     await noteVoice.start();
   };
 
-  const canUseVoice = Boolean(voicePreferences?.consentGiven && voicePreferences.consentVersion === 'voice-v3');
+  const canUseVoice = Boolean(
+    voicePreferences?.consentGiven &&
+      voicePreferences.consentVersion === CURRENT_VOICE_CONSENT_VERSION,
+  );
 
   const saveConsent = async () => {
     setConsentSaving(true);
