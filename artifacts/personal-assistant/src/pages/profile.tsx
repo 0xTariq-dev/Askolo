@@ -47,6 +47,11 @@ import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import { useAppAuth } from '@/contexts/auth-context';
 import { ThemePresetSelector } from '@/components/settings/theme-preset-selector';
 import { LanguageSelector } from '@/components/settings/language-selector';
+import { useKeyboardShortcutPreferences } from '@/contexts/keyboard-shortcut-context';
+import {
+  COMMAND_MENU_SHORTCUT_OPTIONS,
+  getCommandMenuShortcutLabel,
+} from '@/lib/keyboard-shortcuts';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -63,6 +68,8 @@ export function ProfilePage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { commandMenuShortcut, setCommandMenuShortcut } =
+    useKeyboardShortcutPreferences();
 
   const { data: googleStatus, refetch: refetchGoogle, isFetching: checkingGoogle } =
     useGetGoogleStatus();
@@ -386,6 +393,48 @@ export function ProfilePage() {
 
       <ThemePresetSelector />
       <LanguageSelector />
+
+      <Card aria-labelledby="keyboard-shortcuts-title">
+        <CardHeader>
+          <CardTitle id="keyboard-shortcuts-title" className="text-base">
+            Keyboard shortcuts
+          </CardTitle>
+          <CardDescription id="keyboard-shortcuts-description">
+            Set the command-menu shortcut for this browser. Ctrl/Cmd+K may open
+            browser search on some browsers; use the recommended Alt/Option+Shift+K
+            binding there.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label htmlFor="command-menu-shortcut">Command menu shortcut</Label>
+          <select
+            id="command-menu-shortcut"
+            value={commandMenuShortcut}
+            onChange={(event) =>
+              setCommandMenuShortcut(
+                event.target.value as (typeof COMMAND_MENU_SHORTCUT_OPTIONS)[number]['value'],
+              )
+            }
+            aria-describedby="keyboard-shortcuts-description command-menu-shortcut-status"
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            {COMMAND_MENU_SHORTCUT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p
+            id="command-menu-shortcut-status"
+            role="status"
+            aria-live="polite"
+            className="text-sm text-muted-foreground"
+          >
+            Current binding: {getCommandMenuShortcutLabel(commandMenuShortcut)}.
+            The Commands button remains available when the shortcut is disabled.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* ── Identity ───────────────────────────────────────────────────────── */}
       <Card>

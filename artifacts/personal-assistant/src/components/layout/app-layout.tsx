@@ -15,6 +15,7 @@ import {
   UserCircle,
   WalletCards,
 } from 'lucide-react';
+import { CommandMenu } from '@/components/layout/command-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@workspace/askolo-design-system/components/ui/avatar';
 import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
@@ -25,6 +26,7 @@ import {
   SheetTitle,
 } from '@workspace/askolo-design-system/components/ui/sheet';
 import { AssistantProvider } from '@/contexts/assistant-context';
+import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { AssistantSidebar } from '@/components/assistant-sidebar';
 import { NotificationBell } from '@/components/notification-bell';
@@ -176,6 +178,8 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
+  const previousLocationRef = useRef(location);
   const isMobile = useIsMobile();
   const { direction, formatDate, t } = useLocale();
 
@@ -204,15 +208,42 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   }, [isMobile]);
 
   useEffect(() => {
-    if (!isMobileNavOpen) return;
+    if (previousLocationRef.current === location) return;
+    previousLocationRef.current = location;
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMobileNav();
+    let observer: MutationObserver | undefined;
+    let fallbackTimer: number | undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const main = mainContentRef.current;
+      if (!main) return;
+
+      const focusRouteHeading = () => {
+        const heading = main.querySelector<HTMLElement>('h1');
+        if (!heading) return false;
+        heading.tabIndex = -1;
+        heading.dataset.routeFocusTarget = 'true';
+        heading.focus();
+        return true;
+      };
+
+      if (focusRouteHeading()) return;
+
+      observer = new MutationObserver(() => {
+        if (focusRouteHeading()) observer?.disconnect();
+      });
+      observer.observe(main, { childList: true, subtree: true });
+      fallbackTimer = window.setTimeout(() => {
+        observer?.disconnect();
+        main.focus();
+      }, 3000);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
     };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isMobileNavOpen]);
+  }, [location]);
 
   const handleTouchStart = (event: React.TouchEvent) => {
     if (!isMobile) return;
@@ -265,7 +296,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
     >
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg"
+        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         {t('nav.skipToMain')}
       </a>
@@ -309,7 +340,12 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
       </Sheet>
 
       {/* Main content */}
-          <main id="main-content" tabIndex={-1} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <main
+        ref={mainContentRef}
+        id="main-content"
+        tabIndex={-1}
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
         {/* Mobile header */}
         <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 md:hidden">
           <div className="flex items-center gap-2">
@@ -347,10 +383,22 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
                    })()}
                 </p>
               </div>
-              <div className="hidden items-center gap-2 text-end text-xs text-muted-foreground sm:flex">
-                <span className="rounded-full border border-border bg-card px-3 py-1.5">
-                  <bdi>{formatDate(new Date(), { weekday: 'short', month: 'short', day: 'numeric' })}</bdi>
-                </span>
+              <div className="flex items-center gap-2">
+                <CommandMenu
+                  commands={[
+                    ...navItems.map((item) => ({
+                      href: item.href,
+                      label: t(item.labelKey),
+                      icon: item.icon,
+                    })),
+                    { href: '/profile', label: 'Profile', icon: UserCircle },
+                  ]}
+                />
+                <div className="hidden items-center gap-2 text-end text-xs text-muted-foreground sm:flex">
+                  <span className="rounded-full border border-border bg-card px-3 py-1.5">
+                    <bdi>{formatDate(new Date(), { weekday: 'short', month: 'short', day: 'numeric' })}</bdi>
+                  </span>
+                </div>
               </div>
             </header>
             <div className="relative flex-1 p-4 md:p-8">
@@ -379,7 +427,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <NotificationProvider>
       <AssistantProvider>
-        <AppLayoutInner>{children}</AppLayoutInner>
+        <KeyboardShortcutProvider>
+          <AppLayoutInner>{children}</AppLayoutInner>
+        </KeyboardShortcutProvider>
       </AssistantProvider>
     </NotificationProvider>
   );
