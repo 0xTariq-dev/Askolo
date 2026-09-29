@@ -38,8 +38,8 @@ export function PublicLayout({
 
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/70 shadow-sm backdrop-blur-md">
-        <div className="mx-auto grid h-16 w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-4 sm:px-6">
-          <Link href="/" className="group flex min-w-0 items-center gap-2 justify-self-start">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <Link href="/" className="group flex shrink-0 items-center gap-2 justify-self-start">
             <img src={logoUrl} alt="" width={64} height={64} className="h-8 w-auto object-contain" />
             <AnimatedBrandName />
           </Link>
@@ -57,7 +57,7 @@ export function PublicLayout({
               Integrations
             </a>
           </nav>
-          <div className="flex items-center justify-self-end gap-1 sm:gap-2">
+          <div className="flex shrink-0 items-center justify-self-end gap-1 sm:gap-2">
             <Button variant="ghost" size="sm" asChild className="rounded-full">
               <a href={toAppUrl('/sign-in')}>Sign In</a>
             </Button>
