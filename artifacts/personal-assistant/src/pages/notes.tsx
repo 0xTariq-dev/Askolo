@@ -103,6 +103,7 @@ export function NotesPage() {
   };
 
   const onSubmit = (data: NoteForm) => {
+    if (noteVoice.isBusy) return;
     const payload = {
       title: data.title,
       content: data.content,
@@ -211,6 +212,12 @@ export function NotesPage() {
   useEffect(() => {
     if (noteVoice.state === 'review') setNoteReviewText(noteVoice.transcript);
   }, [noteVoice.state, noteVoice.transcript]);
+  useEffect(() => {
+    if (activeTab !== 'meetings' && voice.state !== 'idle') voice.reset();
+  }, [activeTab, voice.state]);
+  useEffect(() => {
+    if (!dialogOpen && noteVoice.state !== 'idle') noteVoice.reset();
+  }, [dialogOpen, noteVoice.state]);
 
   const applyNoteTranscript = () => {
     if (noteReviewText.trim()) form.setValue('content', noteReviewText.trim(), { shouldValidate: true });
@@ -334,19 +341,38 @@ export function NotesPage() {
                 <div className="text-xs text-muted-foreground" aria-live="polite">
                   {voice.state === 'listening' ? `Recording ${voice.recordingSeconds}s…` : voice.state === 'review' ? 'Transcript ready for review.' : 'Add audio only when it helps.'}
                 </div>
+                {voice.state === 'listening' && liveVoice && voice.liveText && (
+                  <p aria-live="off" className="w-full whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2 text-sm text-muted-foreground">
+                    <span className="sr-only">Live transcript preview: </span>{voice.liveText}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setLiveVoice((value) => !value)} disabled={voice.isBusy} aria-pressed={liveVoice} data-testid="button-toggle-notes-live-voice">{liveVoice ? 'Recorded mode' : 'Live mode'}</Button>
-                  <Button type="button" variant="outline" size="sm" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startVoice(); }} onPointerUp={voice.stop} onPointerCancel={voice.cancel} onBlur={voice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); voice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={voice.isBusy && voice.state !== 'listening'} aria-label={voice.isListening ? 'Release to stop recording' : 'Press and hold to record meeting notes'} data-testid="button-notes-voice">
+                  <Button type="button" variant="outline" size="sm" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startVoice(); }} onPointerUp={voice.stop} onPointerCancel={voice.cancel} onBlur={voice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); voice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={voice.state === 'processing'} aria-label={voice.isListening ? 'Release to stop recording' : 'Press and hold to record meeting notes'} data-testid="button-notes-voice">
                     {voice.isListening ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />} {voice.isListening ? 'Release to stop' : 'Record'}
                   </Button>
-                  <input id="meeting-audio-file" type="file" accept="audio/webm,audio/mp4,audio/m4a,audio/wav,audio/ogg,audio/mpeg" className="sr-only" onClick={(event) => { if (!canUseVoice) { event.preventDefault(); setConsentOpen(true); } }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void voice.transcribeFile(file); event.currentTarget.value = ''; }} />
-                  <Button type="button" variant="outline" size="sm" asChild data-testid="button-upload-meeting-audio">
-                    <label htmlFor="meeting-audio-file" className="cursor-pointer"><Upload className="mr-2 h-4 w-4" /> Upload audio</label>
+                  <input id="meeting-audio-file" type="file" accept="audio/webm,audio/mp4,audio/m4a,audio/wav,audio/ogg,audio/mpeg" className="sr-only" tabIndex={-1} aria-hidden="true" disabled={voice.isBusy} onClick={(event) => { if (!canUseVoice) { event.preventDefault(); setConsentOpen(true); } }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void voice.transcribeFile(file); event.currentTarget.value = ''; }} />
+                  <Button type="button" variant="outline" size="sm" disabled={voice.isBusy} onClick={() => document.getElementById('meeting-audio-file')?.click()} data-testid="button-upload-meeting-audio">
+                    <Upload className="mr-2 h-4 w-4" /> Upload audio
                   </Button>
                 </div>
                 {voice.error && <p className="w-full text-xs text-destructive" role="alert">{voice.error}</p>}
                 {(voice.isBusy || voice.state === 'error') && <div className="flex w-full gap-2"><Button type="button" size="sm" variant="ghost" onClick={voice.cancel}>{voice.isBusy ? 'Cancel voice input' : 'Discard'}</Button>{voice.state === 'error' && <Button type="button" size="sm" variant="outline" onClick={() => void voice.retry()} disabled={!voice.recording}>Retry</Button>}</div>}
-                {voice.reviewSignals.length > 0 && <p className="w-full text-xs text-warning">Review low-confidence names, numbers, and times before using this transcript.</p>}
+                {voice.reviewSignals.length > 0 && (
+                  <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-2 text-xs text-warning">
+                    <p className="font-medium">Please verify these low-confidence details:</p>
+                    <ul className="mt-1 list-disc pl-4">
+                      {voice.reviewSignals.map((signal) => <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>{signal.text} ({Math.round(signal.confidence * 100)}% confidence)</li>)}
+                    </ul>
+                  </div>
+                )}
+                {voice.deletionStatus && (
+                  <p className="w-full text-xs text-muted-foreground" role={voice.deletionStatus.providerTranscript === 'deletion_failed' ? 'alert' : 'status'}>
+                    {voice.deletionStatus.providerTranscript === 'deleted'
+                      ? 'Provider transcript deletion was confirmed; this does not confirm provider audio deletion.'
+                      : 'Provider transcript deletion could not be confirmed; provider retention may apply.'}
+                  </p>
+                )}
                 {voice.state === 'review' && voice.transcript && (
                   <div className="w-full space-y-2 rounded-md border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-medium">Review transcript</p>
@@ -469,14 +495,30 @@ export function NotesPage() {
                 className="min-h-[160px] bg-background border-border resize-none"
               />
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startNoteVoice(); }} onPointerUp={noteVoice.stop} onPointerCancel={noteVoice.cancel} onBlur={noteVoice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startNoteVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); noteVoice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={noteVoice.isBusy} aria-label={noteVoice.isListening ? 'Release to stop note recording' : 'Press and hold to record note audio'} data-testid="button-note-voice">{noteVoice.isListening ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />} {noteVoice.isListening ? 'Release to stop' : 'Record audio'}</Button>
-                <input id="note-audio-file" type="file" accept="audio/webm,audio/mp4,audio/m4a,audio/wav,audio/ogg,audio/mpeg" className="sr-only" onClick={(event) => { if (!canUseVoice) { event.preventDefault(); setConsentOpen(true); } }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void noteVoice.transcribeFile(file); event.currentTarget.value = ''; }} />
-                <Button type="button" variant="outline" size="sm" asChild><label htmlFor="note-audio-file" className="cursor-pointer"><Upload className="mr-2 h-4 w-4" /> Upload audio</label></Button>
+                <Button type="button" variant="outline" size="sm" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startNoteVoice(); }} onPointerUp={noteVoice.stop} onPointerCancel={noteVoice.cancel} onBlur={noteVoice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startNoteVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); noteVoice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={noteVoice.state === 'processing'} aria-label={noteVoice.isListening ? 'Release to stop note recording' : 'Press and hold to record note audio'} data-testid="button-note-voice">{noteVoice.isListening ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />} {noteVoice.isListening ? 'Release to stop' : 'Record audio'}</Button>
+                <input id="note-audio-file" type="file" accept="audio/webm,audio/mp4,audio/m4a,audio/wav,audio/ogg,audio/mpeg" className="sr-only" tabIndex={-1} aria-hidden="true" disabled={noteVoice.isBusy} onClick={(event) => { if (!canUseVoice) { event.preventDefault(); setConsentOpen(true); } }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void noteVoice.transcribeFile(file); event.currentTarget.value = ''; }} />
+                <Button type="button" variant="outline" size="sm" disabled={noteVoice.isBusy} onClick={() => document.getElementById('note-audio-file')?.click()}>
+                  <Upload className="mr-2 h-4 w-4" /> Upload audio
+                </Button>
                 <span className="text-xs text-muted-foreground" aria-live="polite">{noteVoice.isListening ? `Recording ${noteVoice.recordingSeconds}s…` : noteVoice.status || 'Review before inserting; saving the note remains explicit.'}</span>
               </div>
               {noteVoice.error && <p role="alert" className="text-xs text-destructive">{noteVoice.error}</p>}
-              {noteVoice.reviewSignals.length > 0 && <p className="text-xs text-warning">Review low-confidence names, numbers, and times.</p>}
+              {noteVoice.isBusy && <Button type="button" variant="ghost" size="sm" onClick={noteVoice.cancel}>Cancel voice input</Button>}
+              {noteVoice.reviewSignals.length > 0 && (
+                <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-xs text-warning">
+                  <p className="font-medium">Please verify these low-confidence details:</p>
+                  <ul className="mt-1 list-disc pl-4">
+                    {noteVoice.reviewSignals.map((signal) => <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>{signal.text} ({Math.round(signal.confidence * 100)}% confidence)</li>)}
+                  </ul>
+                </div>
+              )}
               {noteVoice.deletionStatus && <p className="text-xs text-muted-foreground">{noteVoice.deletionStatus.providerTranscript === 'deleted' ? 'Provider transcript deletion confirmed; this does not confirm provider audio deletion.' : 'Provider transcript deletion could not be confirmed; provider retention may apply.'}</p>}
+              {noteVoice.state === 'error' && (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => void noteVoice.retry()} disabled={!noteVoice.recording}>Retry transcription</Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={noteVoice.reset}>Discard</Button>
+                </div>
+              )}
               {noteVoice.state === 'review' && noteVoice.transcript && <div className="space-y-2 rounded-md border border-primary/20 bg-primary/5 p-3"><Label htmlFor="note-transcript-review">Editable transcript</Label><Textarea id="note-transcript-review" value={noteReviewText} onChange={(event) => setNoteReviewText(event.target.value)} className="min-h-24 bg-background" /><div className="flex gap-2"><Button type="button" size="sm" onClick={applyNoteTranscript}>Insert into note</Button><Button type="button" size="sm" variant="outline" onClick={noteVoice.reset}>Discard</Button><Button type="button" size="sm" variant="outline" onClick={() => void noteVoice.retry()} disabled={!noteVoice.recording}>Retry</Button></div></div>}
               {form.formState.errors.content && (
                 <p className="text-xs text-destructive">{form.formState.errors.content.message}</p>

@@ -90,6 +90,10 @@ export function AssistantSidebar() {
   useEffect(() => () => planningRequestRef.current?.abort(), []);
 
   useEffect(() => {
+    if (!isOpen && voice.state !== 'idle') voice.reset();
+  }, [isOpen, voice.state]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close();
@@ -155,7 +159,7 @@ export function AssistantSidebar() {
 
   const onSubmit = async (data: MessageForm) => {
     const text = data.text.trim();
-    if (!text || isThinking) return;
+    if (!text || isThinking || voice.isBusy) return;
 
     setMessages((previous) => [
       ...previous,
@@ -514,7 +518,19 @@ export function AssistantSidebar() {
                 <div className="mt-2 space-y-1 px-1 text-xs" aria-live="polite">
                   {voice.status && <p className="text-muted-foreground">{voice.status}</p>}
                   {voice.error && <p role="alert" className="text-destructive">{voice.error}</p>}
-                  {voice.reviewSignals.length > 0 && <p className="text-warning">Review low-confidence details before pressing Send.</p>}
+                  {voice.state === 'listening' && liveVoice && voice.liveText && (
+                    <p aria-live="off" className="whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2 text-sm text-muted-foreground">
+                      <span className="sr-only">Live transcript preview: </span>{voice.liveText}
+                    </p>
+                  )}
+                  {voice.reviewSignals.length > 0 && (
+                    <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-warning">
+                      <p className="font-medium">Please verify these low-confidence details before sending:</p>
+                      <ul className="mt-1 list-disc pl-4">
+                        {voice.reviewSignals.map((signal) => <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>{signal.text} ({Math.round(signal.confidence * 100)}% confidence)</li>)}
+                      </ul>
+                    </div>
+                  )}
                   {voice.deletionStatus && <p className="text-muted-foreground">{voice.deletionStatus.providerTranscript === 'deleted' ? 'Provider transcript deletion confirmed; this does not confirm provider audio deletion.' : 'Provider transcript deletion could not be confirmed; provider retention may apply.'}</p>}
                   {voice.state === 'review' && <p className="text-success">Transcript placed in the editable message field. Press Send only when ready.</p>}
                   {(voice.state === 'error' || voice.state === 'review' || voice.isBusy) && (

@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { useAskoloTheme } from '@workspace/askolo-design-system/theme';
+import { cn } from '@workspace/askolo-design-system/lib/utils';
 import { Moon, Sun } from 'lucide-react';
 import { AnimatedBrandName } from '@/components/animated-brand-name';
 import logoUrl from '/logo.png';
@@ -74,9 +75,25 @@ export function PublicLayout({
               title={`Switch to ${mode === 'dark' ? 'light' : 'dark'} appearance`}
               onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
             >
-              {mode === 'dark'
-                ? <Sun aria-hidden="true" className="size-4" />
-                : <Moon aria-hidden="true" className="size-4" />}
+              <span aria-hidden="true" className="relative size-4">
+                <Sun
+                  className={cn(
+                    'absolute inset-0 m-auto size-4 transition-all duration-300 ease-out motion-reduce:transition-none',
+                    mode === 'dark'
+                      ? 'scale-0 -rotate-90 opacity-0'
+                      : 'scale-100 rotate-0 opacity-100',
+                  )}
+                />
+                <Moon
+                  className={cn(
+                    'absolute inset-0 m-auto size-4 transition-all duration-300 ease-out motion-reduce:transition-none',
+                    mode === 'dark'
+                      ? 'scale-100 rotate-0 opacity-100'
+                      : 'scale-0 rotate-90 opacity-0',
+                  )}
+                />
+              </span>
+              <span className="sr-only">Toggle theme</span>
             </Button>
           </div>
         </div>

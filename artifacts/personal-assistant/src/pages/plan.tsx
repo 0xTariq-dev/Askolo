@@ -169,13 +169,10 @@ export function PlanPage() {
   }, []);
 
   useEffect(() => {
-    if (voiceState === 'listening' && liveText) {
-      setNotes(appendVoiceText(voiceBaseNotesRef.current, liveText));
-    }
     if (voiceState === 'review' && transcript) {
       setNotes(appendVoiceText(voiceBaseNotesRef.current, transcript));
     }
-  }, [liveText, transcript, voiceState]);
+  }, [transcript, voiceState]);
 
   const generateWithAI = async () => {
     if (!notes.trim()) return;
@@ -468,9 +465,14 @@ export function PlanPage() {
                 {voiceState === 'listening' && (
                   <div className="flex flex-wrap items-center gap-2 text-destructive">
                     <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" aria-hidden="true" />
-                    <span>{voiceMode === 'recorded' ? 'Recording voice note' : 'Live US transcription'} · {formatRecordingTime(recordingSeconds)}</span>
+                    <span>{voiceMode === 'recorded' ? 'Recording voice note' : 'Live transcription'} · {formatRecordingTime(recordingSeconds)}</span>
                     <VoiceWaveform active level={audioLevel} />
                   </div>
+                )}
+                {voiceState === 'listening' && voiceMode === 'live' && liveText && (
+                  <p aria-live="off" className="whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-2 text-muted-foreground">
+                    <span className="sr-only">Live transcript preview: </span>{liveText}
+                  </p>
                 )}
                 {voiceStatus && <p className="text-muted-foreground">{voiceStatus}</p>}
                 {voiceState === 'review' && transcript && (
@@ -496,8 +498,8 @@ export function PlanPage() {
                       : 'text-muted-foreground'}
                   >
                     {voiceDeletionStatus.providerTranscript === 'deleted'
-                      ? 'Askolo did not store this recording, and AssemblyAI confirmed deletion of the transcript.'
-                      : 'Askolo did not store this recording, but AssemblyAI transcript deletion could not be confirmed. The provider may retain a copy.'}
+                      ? 'Askolo did not store this recording. AssemblyAI confirmed deletion of the transcript; this does not confirm deletion of provider audio.'
+                      : 'Askolo did not store this recording, but AssemblyAI transcript deletion could not be confirmed. The provider may retain transcript data under its settings.'}
                   </p>
                 )}
                 {voiceError && <p role="alert" className="text-destructive">{voiceError}</p>}
@@ -508,7 +510,7 @@ export function PlanPage() {
             <div className="pt-4 flex flex-col gap-3">
               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                 <span>Voice is optional. Review the transcript before generating your plan.</span>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setLiveMode((value) => !value)} disabled={voiceIsBusy} aria-pressed={liveMode} data-testid="button-toggle-live-voice">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setLiveMode((value) => !value)} disabled={voiceIsBusy || isGenerating} aria-pressed={liveMode} data-testid="button-toggle-live-voice">
                   {liveMode ? 'Use recorded mode' : 'Use live mode'}
                 </Button>
               </div>
@@ -536,7 +538,7 @@ export function PlanPage() {
                     }
                   }}
                   onClick={(event) => event.preventDefault()}
-                  disabled={voiceState === 'processing' || consentSaving}
+                  disabled={voiceState === 'processing' || consentSaving || isGenerating}
                   aria-label={isListening ? 'Release to stop voice recording' : 'Press and hold to record voice note'}
                   aria-pressed={isListening}
                   title="Press and hold to record"

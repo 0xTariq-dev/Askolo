@@ -284,6 +284,7 @@ export function useVoiceTranscription({
   const cancelRequestedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const durationStopRequestedRef = useRef(false);
+  const transcriptionAbortRef = useRef<AbortController | null>(null);
   const voiceCreditPostflightRef = useRef('');
   const recordingStartedAtRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -471,7 +472,7 @@ export function useVoiceTranscription({
         }
         if (blob.size > maxAudioBytes) {
           updateState('error');
-          setError('This recording is too large. Keep voice notes under 2 minutes.');
+          setError(`This recording is too large. Keep it under ${Number((maxAudioBytes / (1024 * 1024)).toFixed(1))} MiB.`);
           setStatus('');
           return;
         }
@@ -481,14 +482,25 @@ export function useVoiceTranscription({
           setStatus('');
           return;
         }
+        if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        setRecording({
+          blob,
+          mimeType: blob.type || mimeType,
+          durationMs: recordedDurationMs,
+          transcript: '',
+        });
 
         updateState('processing');
         setStatus('Checking the voice credit estimate…');
+        let transcriptionController: AbortController | null = null;
         try {
           const audioBase64 = await blobToBase64(blob);
           if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
           const creditRequest = await prepareVoiceCreditRequest();
+          if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
           setStatus(`Estimate: ${creditRequest.estimate.estimatedCredits} credits; maximum ${creditRequest.estimate.hardCapCredits}. Transcribing…`);
+          transcriptionController = new AbortController();
+          transcriptionAbortRef.current = transcriptionController;
           const data = await transcribeAudioRequest({
             audioBase64,
             mimeType: (blob.type || mimeType).split(';')[0] as
@@ -498,6 +510,7 @@ export function useVoiceTranscription({
           }, {
             credentials: 'include',
             headers: creditRequest.headers,
+            signal: transcriptionController.signal,
           });
           if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
           const receipt = (data as typeof data & { creditReceipt?: CreditReceiptDetails }).creditReceipt;
@@ -522,9 +535,14 @@ export function useVoiceTranscription({
           updateState('review');
           setStatus(`${postflight} Review the transcript before submitting it.`);
         } catch (transcriptionError) {
+          if (transcriptionController?.signal.aborted || sessionRef.current !== sessionId || cancelRequestedRef.current) return;
           updateState('error');
           setError(transcriptionError instanceof Error ? transcriptionError.message : 'Voice transcription failed. Try again or type instead.');
           setStatus('');
+        } finally {
+          if (transcriptionAbortRef.current === transcriptionController) {
+            transcriptionAbortRef.current = null;
+          }
         }
       };
       recordingStartedAtRef.current = Date.now();
@@ -678,7 +696,10 @@ export function useVoiceTranscription({
           try {
             postflight = creditPostflightMessage(envelope.payload?.creditReceipt, creditRequest.estimate);
             if (typeof envelope.payload?.maxSessionDurationSeconds === 'number' && envelope.payload.maxSessionDurationSeconds > 0) {
-              realtimeMaxSessionSecondsRef.current = envelope.payload.maxSessionDurationSeconds;
+              realtimeMaxSessionSecondsRef.current = Math.min(
+                DEFAULT_REALTIME_MAX_SESSION_SECONDS,
+                Math.max(1, Math.floor(envelope.payload.maxSessionDurationSeconds)),
+              );
             }
             voiceCreditPostflightRef.current = postflight;
             setStatus(`${postflight} Connecting live transcription…`);
@@ -699,7 +720,7 @@ export function useVoiceTranscription({
           stopRequestedRef.current = true;
           cleanupMediaStream();
           updateState('processing');
-          setStatus('The 180-second live session limit was reached. Finishing the transcript…');
+          setStatus(`The ${realtimeMaxSessionSecondsRef.current}-second live session limit was reached. Finishing the transcript…`);
           return;
         }
         if (envelope.type === 'voice.provider' && envelope.payload?.type === 'Termination') {
@@ -817,6 +838,8 @@ export function useVoiceTranscription({
     if (stateRef.current === 'starting' || stateRef.current === 'listening' || stateRef.current === 'processing') return;
     const sessionId = sessionRef.current + 1;
     sessionRef.current = sessionId;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
     cancelRequestedRef.current = false;
     stopRequestedRef.current = false;
     durationStopRequestedRef.current = false;
@@ -860,6 +883,8 @@ export function useVoiceTranscription({
   const cancel = () => {
     cancelRequestedRef.current = true;
     sessionRef.current += 1;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
     if (realtimeRef.current) void closeRealtime(true);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -869,6 +894,7 @@ export function useVoiceTranscription({
     setLiveText('');
     setReviewSignals([]);
     setDeletionStatus(null);
+    setRecording(null);
     updateState('idle');
     updateMode(null);
     setStatus(`${voiceCreditPostflightRef.current ? `${voiceCreditPostflightRef.current} ` : ''}Voice input canceled.`);
@@ -880,6 +906,8 @@ export function useVoiceTranscription({
   const reset = () => {
     cancelRequestedRef.current = true;
     sessionRef.current += 1;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
     if (realtimeRef.current) void closeRealtime(true);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -901,14 +929,27 @@ export function useVoiceTranscription({
 
   const retry = async () => {
     if (!recording) return;
+    const sessionId = sessionRef.current + 1;
+    sessionRef.current = sessionId;
+    cancelRequestedRef.current = false;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
     updateState('processing');
     setError('');
     setStatus('Checking the voice credit estimate…');
     setDeletionStatus(null);
+    setTranscript('');
+    setLiveText('');
+    setReviewSignals([]);
+    let transcriptionController: AbortController | null = null;
     try {
       const audioBase64 = await blobToBase64(recording.blob);
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
       const creditRequest = await prepareVoiceCreditRequest();
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
       setStatus(`Estimate: ${creditRequest.estimate.estimatedCredits} credits; maximum ${creditRequest.estimate.hardCapCredits}. Transcribing…`);
+      transcriptionController = new AbortController();
+      transcriptionAbortRef.current = transcriptionController;
       const data = await transcribeAudioRequest({
         audioBase64,
         mimeType: recording.mimeType.split(';')[0] as
@@ -918,7 +959,9 @@ export function useVoiceTranscription({
       }, {
         credentials: 'include',
         headers: creditRequest.headers,
+        signal: transcriptionController.signal,
       });
+      if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
       const receipt = (data as typeof data & { creditReceipt?: CreditReceiptDetails }).creditReceipt;
       const postflight = creditPostflightMessage(receipt, creditRequest.estimate);
       const spokenText = removeRepeatedTail(data.transcript);
@@ -930,9 +973,14 @@ export function useVoiceTranscription({
       updateState('review');
       setStatus(`${postflight} Review the transcript before submitting it.`);
     } catch (retryError) {
+      if (transcriptionController?.signal.aborted || sessionRef.current !== sessionId || cancelRequestedRef.current) return;
       updateState('error');
       setError(retryError instanceof Error ? retryError.message : 'Voice transcription failed. Try again.');
       setStatus('');
+    } finally {
+      if (transcriptionAbortRef.current === transcriptionController) {
+        transcriptionAbortRef.current = null;
+      }
     }
   };
 
@@ -942,13 +990,23 @@ export function useVoiceTranscription({
     const sessionId = sessionRef.current + 1;
     sessionRef.current = sessionId;
     cancelRequestedRef.current = false;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
     updateMode('recorded');
     updateState('processing');
+    setTranscript('');
+    setLiveText('');
+    setReviewSignals([]);
+    setDeletionStatus(null);
+    setRecording(null);
+    setRecordingSeconds(0);
     setError('');
     setStatus('Checking the audio before transcription…');
+    const mimeType = file.type.split(';')[0].trim().toLowerCase();
+    let transcriptionController: AbortController | null = null;
     try {
-      if (!SUPPORTED_FILE_TYPES.has(file.type)) throw new Error('Choose an audio file in WebM, MP4, M4A, WAV, OGG, or MPEG format.');
-      if (file.size > maxAudioBytes) throw new Error('This audio file is too large. Keep it under 8 MiB.');
+      if (!SUPPORTED_FILE_TYPES.has(mimeType)) throw new Error('Choose an audio file in WebM, MP4, M4A, WAV, OGG, or MPEG format.');
+      if (file.size > maxAudioBytes) throw new Error(`This audio file is too large. Keep it under ${Number((maxAudioBytes / (1024 * 1024)).toFixed(1))} MiB.`);
       const audio = document.createElement('audio');
       audio.preload = 'metadata';
       const objectUrl = URL.createObjectURL(file);
@@ -958,21 +1016,28 @@ export function useVoiceTranscription({
           audio.onerror = () => reject(new Error('The audio duration could not be read.'));
           audio.src = objectUrl;
         });
-        if (!Number.isFinite(durationMs) || durationMs < 700 || durationMs > maxRecordingMs) {
-        throw new Error('Audio must be between 1 second and 2 minutes.');
+        if (!Number.isFinite(durationMs) || durationMs < MIN_RECORDED_SPEECH_MS || durationMs > maxRecordingMs) {
+          throw new Error(`Audio must be between 1 second and ${Math.round(maxRecordingMs / 1000)} seconds.`);
         }
         if (!(await validateRecordedSpeech(file, durationMs))) throw new Error('This audio is too short or contains no clear speech.');
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        setRecording({ blob: file, mimeType, durationMs, transcript: '' });
         const audioBase64 = await blobToBase64(file);
         const creditRequest = await prepareVoiceCreditRequest();
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
         setStatus(`Estimate: ${creditRequest.estimate.estimatedCredits} credits; transcribing audio…`);
+        transcriptionController = new AbortController();
+        transcriptionAbortRef.current = transcriptionController;
         const data = await transcribeAudioRequest({
-        audioBase64,
-        mimeType: file.type as 'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
-        durationMs,
-        language,
-        }, { credentials: 'include', headers: creditRequest.headers });
+          audioBase64,
+          mimeType: mimeType as 'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
+          durationMs,
+          language,
+        }, {
+          credentials: 'include',
+          headers: creditRequest.headers,
+          signal: transcriptionController.signal,
+        });
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
         const spokenText = removeRepeatedTail(data.transcript);
         setTranscript(spokenText);
@@ -987,9 +1052,14 @@ export function useVoiceTranscription({
         URL.revokeObjectURL(objectUrl);
       }
     } catch (fileError) {
+      if (transcriptionController?.signal.aborted || sessionRef.current !== sessionId || cancelRequestedRef.current) return;
       updateState('error');
       setError(fileError instanceof Error ? fileError.message : 'Audio transcription failed. Try again.');
       setStatus('');
+    } finally {
+      if (transcriptionAbortRef.current === transcriptionController) {
+        transcriptionAbortRef.current = null;
+      }
     }
   };
 
@@ -1015,6 +1085,12 @@ export function useVoiceTranscription({
 
   useEffect(() => () => {
     cancelRequestedRef.current = true;
+    sessionRef.current += 1;
+    transcriptionAbortRef.current?.abort();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    cleanupMediaStream();
     void closeRealtime(false);
   }, []);
 
