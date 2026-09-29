@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { LayoutGroup, motion, useReducedMotion } from 'framer-motion';
 import {
   CheckCircle2,
   Target,
@@ -20,7 +20,8 @@ import { Card, CardContent } from '@workspace/askolo-design-system/components/ui
 import { AskoloTunnelConcept } from '@workspace/askolo-design-system/components/hero-animation/AskoloTunnelConcept';
 import { useAskoloTheme } from '@workspace/askolo-design-system/theme';
 import { PublicLayout } from '@/components/layout/public-layout';
-import { BrandSlogan } from '@/components/landing/brand-slogan';
+import { AnimatedBrandName } from '@/components/animated-brand-name';
+import { BrandSlogan, BrandSloganFormation } from '@/components/landing/brand-slogan';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { setPageMetadata } from '@/lib/seo';
@@ -88,11 +89,12 @@ const howItWorks = [
 
 export function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
+  const [brandFormed, setBrandFormed] = useState(Boolean(prefersReducedMotion));
   const {
     preferences: { mode },
   } = useAskoloTheme();
-  const ctaHref = toAppUrl('/sign-up');
-  const secondaryHref = toAppUrl('/sign-in');
+  const ctaHref = toAppUrl('/sign-up', { theme: mode });
+  const secondaryHref = toAppUrl('/sign-in', { theme: mode });
   const pageBackground = (
     <div
       aria-hidden="true"
@@ -113,6 +115,17 @@ export function LandingPage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      setBrandFormed(true);
+      return;
+    }
+
+    setBrandFormed(false);
+    const timeout = window.setTimeout(() => setBrandFormed(true), 1250);
+    return () => window.clearTimeout(timeout);
+  }, [prefersReducedMotion]);
+
   return (
     <PublicLayout background={pageBackground}>
       {/* Hero */}
@@ -121,41 +134,59 @@ export function LandingPage() {
         aria-labelledby="landing-heading"
         className="relative"
       >
-        <div className="relative z-20 max-w-6xl mx-auto px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-24 text-center">
-          <motion.div
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
-          >
-            <div className="h-28 sm:h-32 w-auto mb-8 mx-auto relative">
-              <img
-                src={logoUrl}
-                alt="Askolo"
-                width={64}
-                height={64}
-                className="h-full w-auto object-contain drop-shadow-2xl mx-auto"
-              />
+        <div className="relative z-20 mx-auto max-w-6xl px-4 pb-16 pt-16 text-center sm:px-6 sm:pb-24 sm:pt-24">
+          <LayoutGroup id="askolo-landing-brand">
+            <div className="sticky top-20 z-30 mx-auto mb-8 flex w-fit max-w-full flex-col items-center">
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
+                className="mb-5 h-40 w-auto sm:h-44"
+              >
+                <img
+                  src={logoUrl}
+                  alt=""
+                  width={64}
+                  height={64}
+                  className="h-full w-auto object-contain drop-shadow-2xl"
+                />
+              </motion.div>
+
+              <h1
+                id="landing-heading"
+                aria-label="Askolo"
+                className="min-h-[1.1em] max-w-full text-4xl font-display font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl"
+              >
+                {brandFormed ? (
+                  <AnimatedBrandName layoutIdPrefix="askolo-landing" />
+                ) : (
+                  <span aria-hidden="true" className="invisible inline-block">
+                    Askolo
+                  </span>
+                )}
+              </h1>
             </div>
-          </motion.div>
 
-          <motion.h1
-            id="landing-heading"
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.2, ease: 'easeOut' }}
-            className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold tracking-tight mb-6"
-          >
-            Askolo
-          </motion.h1>
+            <div className="mx-auto mb-10 max-w-5xl px-2">
+              {brandFormed ? (
+                <BrandSlogan />
+              ) : (
+                <BrandSloganFormation
+                  layoutIdPrefix="askolo-landing"
+                  reduceMotion={Boolean(prefersReducedMotion)}
+                />
+              )}
+            </div>
+          </LayoutGroup>
 
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.3, ease: 'easeOut' }}
+            animate={{ opacity: brandFormed ? 1 : 0, y: brandFormed ? 0 : 12 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.55, ease: 'easeOut' }}
+            aria-hidden={!brandFormed}
             className="mx-auto mb-10 max-w-3xl"
           >
-            <BrandSlogan />
-            <p className="mt-4 text-sm leading-relaxed text-muted-foreground sm:text-base">
+            <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
               Askolo brings habits, goals, daily plans, calendar, chores, notes,
               and action items into one calm workspace — with an AI coach that
               helps individuals and families stay on track.

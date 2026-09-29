@@ -1,11 +1,25 @@
 import { Button } from '@workspace/askolo-design-system/components/ui/button';
 import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import {
+  Field,
+  FieldGroup,
+  FieldLabel,
+  FieldSeparator,
+} from '@workspace/askolo-design-system/components/ui/field';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@workspace/askolo-design-system/components/ui/input-group';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Github, KeyRound, Sparkles, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ApiError } from '@workspace/api-client-react';
 import { useAppAuth } from '@/contexts/auth-context';
 import { getApiErrorMessage, getRetryAfterSeconds, goApi } from '@/lib/go-api';
+import { CCard12AuthCard } from '@/components/examples/c-card-12';
+import { CButton60SocialAuthButtons } from '@/components/examples/c-button-60';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 import logoUrl from '/logo.png';
@@ -77,6 +91,7 @@ export function LoginPage() {
   const [mode, setMode] = useState<PasswordMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [code, setCode] = useState('');
@@ -117,6 +132,7 @@ export function LoginPage() {
 
   const changeMode = (nextMode: PasswordMode) => {
     setMode(nextMode);
+    setPasswordVisible(false);
     setError(null);
     setNotice(null);
     if (nextMode === 'signin' || nextMode === 'signup' || nextMode === 'recovery-request') {
@@ -290,6 +306,16 @@ export function LoginPage() {
     'mfa-support-verify': 'Verify your recovery request',
     'mfa-support-complete': 'Recovery request submitted',
   }[mode];
+  const cardTitle = isPasswordMode
+    ? mode === 'signin'
+      ? 'Welcome back.'
+      : 'Create your account.'
+    : heading;
+  const cardDescription = isPasswordMode
+    ? mode === 'signin'
+      ? 'Sign in to pick up where you left off.'
+      : 'We will ask you to verify your email before signing in.'
+    : undefined;
 
   const cooldownLabel = `${Math.floor(resendSeconds / 60)}:${String(resendSeconds % 60).padStart(2, '0')}`;
 
@@ -298,11 +324,9 @@ export function LoginPage() {
       <h1 className="sr-only lg:hidden">Askolo account access</h1>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-br from-primary/15 via-primary/5 to-transparent" />
       <section className="relative hidden flex-col justify-between border-r border-border/60 p-10 lg:flex xl:p-16" aria-label="Askolo overview">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10">
-            <img src={logoUrl} alt="" className="h-7 w-7 object-contain" />
-          </div>
-          <span className="font-display text-xl font-semibold tracking-tight">Askolo</span>
+        <div className="flex items-center gap-4">
+          <img src={logoUrl} alt="" width={64} height={64} className="h-16 w-16 object-contain" />
+          <span className="font-display text-2xl font-semibold tracking-tight">Askolo</span>
         </div>
         <div className="max-w-xl">
           <p className="mb-5 text-sm font-medium uppercase tracking-wider text-primary">A calmer way to move through the day</p>
@@ -332,89 +356,98 @@ export function LoginPage() {
         transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.8, ease: 'easeOut' }}
         className="relative z-10 flex w-full flex-col items-center justify-center px-4 py-10 text-center sm:px-8 lg:min-h-dvh"
       >
-        <div className="mb-8 flex items-center gap-3 lg:hidden">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-primary/10">
-            <img src={logoUrl} alt="" className="h-7 w-7 object-contain" />
-          </div>
-          <span className="font-display text-xl font-semibold tracking-tight">Askolo</span>
+        <div className="mb-10 flex items-center gap-4 lg:hidden">
+          <img src={logoUrl} alt="" width={64} height={64} className="h-14 w-14 object-contain" />
+          <span className="font-display text-2xl font-semibold tracking-tight">Askolo</span>
         </div>
 
-        <div className="w-full max-w-md rounded-2xl border border-border bg-card/80 p-6 text-left shadow-xl shadow-black/10 backdrop-blur-sm sm:p-8">
-        <p className="text-xs font-medium uppercase tracking-wider text-primary">Your workspace awaits</p>
-        <h2 className="mt-3 text-3xl font-display font-semibold tracking-tight text-foreground">
-          Welcome back.
-        </h2>
-        <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          Sign in to pick up where you left off, or create an account to start building a calmer routine.
-        </p>
+        <CCard12AuthCard
+          eyebrow={isPasswordMode ? 'Your workspace awaits' : 'Secure account access'}
+          title={cardTitle}
+          description={cardDescription}
+          footer="Private by default · Google integrations are optional"
+        >
 
         {isPasswordMode ? (
-          <div className="mt-7 flex w-full flex-col gap-3">
-            <Button
-              size="lg"
-              onClick={() => beginProviderLogin('google', providerIntent)}
-               className="w-full rounded-full px-8 py-6 text-lg font-medium shadow-lg"
-              data-testid="button-google-login"
-            >
-              <Sparkles className="mr-2 h-5 w-5 text-primary-foreground/70" />
-              Continue with Google
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => beginProviderLogin('github', providerIntent)}
-               className="w-full rounded-full px-8 py-6 text-lg font-medium border-border hover:bg-accent"
-              data-testid="button-github-login"
-            >
-              <Github className="mr-2 h-5 w-5" />
-              Continue with GitHub
-            </Button>
-            <form onSubmit={submitPasswordFlow} className="space-y-3 rounded-xl border border-border bg-card p-4 text-left">
-              <h2 className="text-lg font-semibold text-foreground">{heading}</h2>
-              <p className="text-sm text-muted-foreground">
-                {mode === 'signin'
-                  ? 'Use your Askolo email and password.'
-                  : 'We will ask you to verify your email before signing in.'}
-              </p>
-              <label htmlFor="auth-email" className="sr-only">Email address</label>
-              <Input
-                id="auth-email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-              <label htmlFor="auth-password" className="sr-only">Password</label>
-              <Input
-                id="auth-password"
-                type="password"
-                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                placeholder="Password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-              />
-              {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+          <div className="flex w-full flex-col gap-5">
+            <form onSubmit={submitPasswordFlow} className="space-y-4 text-left">
+              <FieldGroup className="gap-4">
+                <Field>
+                  <FieldLabel htmlFor="auth-email">Email address</FieldLabel>
+                  <Input
+                    id="auth-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? 'auth-form-error' : undefined}
+                    required
+                  />
+                </Field>
+                <Field>
+                  <div className="flex items-center justify-between gap-3">
+                    <FieldLabel htmlFor="auth-password">Password</FieldLabel>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto px-0 py-0 text-xs"
+                      onClick={() => changeMode('recovery-request')}
+                    >
+                      Forgot password?
+                    </Button>
+                  </div>
+                  <InputGroup>
+                    <InputGroupInput
+                      id="auth-password"
+                      type={passwordVisible ? 'text' : 'password'}
+                      autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                      placeholder="Password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      aria-invalid={Boolean(error)}
+                      aria-describedby={error ? 'auth-form-error' : undefined}
+                      required
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupButton
+                        type="button"
+                        size="icon-sm"
+                        aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                        aria-pressed={passwordVisible}
+                        onClick={() => setPasswordVisible((visible) => !visible)}
+                      >
+                        {passwordVisible
+                          ? <EyeOff aria-hidden="true" />
+                          : <Eye aria-hidden="true" />}
+                      </InputGroupButton>
+                    </InputGroupAddon>
+                  </InputGroup>
+                </Field>
+              </FieldGroup>
+              {error && <p id="auth-form-error" className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
-              <Button type="submit" className="w-full" disabled={submitting}>
+              <Button type="submit" className="w-full rounded-full" disabled={submitting}>
                 {submitting ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
               </Button>
             </form>
+            <FieldSeparator className="text-xs">Or continue with</FieldSeparator>
+            <CButton60SocialAuthButtons
+              intent={providerIntent}
+              onGoogleClick={() => beginProviderLogin('google', providerIntent)}
+              onGithubClick={() => beginProviderLogin('github', providerIntent)}
+            />
             <div className="flex flex-col items-center gap-1">
               <Button type="button" variant="link" onClick={() => changeMode(mode === 'signin' ? 'signup' : 'signin')}>
                 <UserPlus className="mr-2 h-4 w-4" />
                 {mode === 'signin' ? 'Create an account with email' : 'I already have an account'}
               </Button>
-              <Button type="button" variant="link" onClick={() => changeMode('recovery-request')}>
-                Forgot your password?
-              </Button>
             </div>
           </div>
         ) : mode === 'mfa-support-complete' ? (
            <div className="mt-7 flex w-full flex-col gap-4">
-            <h2 className="text-lg font-semibold text-foreground">{heading}</h2>
             <p className="text-sm text-muted-foreground">
               We verified control of your primary email and signed out all active sessions.
               Askolo has not disabled MFA or created a new session.
@@ -428,9 +461,8 @@ export function LoginPage() {
             </Button>
           </div>
         ) : (
-           <div className="mt-7 flex w-full flex-col gap-3">
-            <form onSubmit={submitPasswordFlow} className="space-y-3 rounded-xl border border-border bg-card p-4 text-left">
-              <h2 className="text-lg font-semibold text-foreground">{heading}</h2>
+           <div className="flex w-full flex-col gap-3">
+            <form onSubmit={submitPasswordFlow} className="space-y-3 text-left">
               <p className="text-sm text-muted-foreground">
                 {mode === 'verify'
                   ? 'Enter the six-digit code sent to your email.'
@@ -643,7 +675,7 @@ export function LoginPage() {
             </Button>
           </div>
         )}
-        </div>
+        </CCard12AuthCard>
       </motion.div>
     </main>
   );

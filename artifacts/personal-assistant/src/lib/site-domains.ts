@@ -13,8 +13,12 @@ export function toPublicUrl(path = '/'): string {
   return withPath(PUBLIC_ORIGIN, path);
 }
 
-export function toAppUrl(path = '/'): string {
-  return withPath(APP_ORIGIN, path);
+export function toAppUrl(path = '/', query?: Record<string, string>): string {
+  const url = new URL(withPath(APP_ORIGIN, path));
+  for (const [key, value] of Object.entries(query ?? {})) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
 }
 
 export function isPublicProductionHost(hostname = window.location.hostname): boolean {
