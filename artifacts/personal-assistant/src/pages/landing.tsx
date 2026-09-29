@@ -125,20 +125,9 @@ export function LandingPage() {
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, ease: 'easeOut' }}
-          >
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-8">
-              <Sparkles className="h-3.5 w-3.5" />
-              Your personal and family assistant
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
             transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
           >
-            <div className="h-24 sm:h-28 w-auto mb-8 mx-auto relative">
+            <div className="h-28 sm:h-32 w-auto mb-8 mx-auto relative">
               <img
                 src={logoUrl}
                 alt="Askolo"
