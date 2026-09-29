@@ -44,6 +44,10 @@ const (
 	passwordRecoveryPrimaryEmail                 = "primary_email"
 	passwordRecoveryEmail                        = "recovery_email"
 	mfaRecoverySupportPurpose                    = "mfa_recovery_support"
+	mfaRecoveryEmailPurpose                      = "mfa_email_recovery"
+	trustedDeviceTTL                             = 30 * 24 * time.Hour
+	trustedDeviceCookieBaseName                  = "askolo.trusted_device"
+	deviceFingerprintCookieName                  = "askolo_device_fingerprint"
 	mfaSecurityWindow                            = 15 * time.Minute
 	mfaFailureAlertThreshold                     = 20
 	mfaReplayAlertThreshold                      = 5
@@ -320,7 +324,11 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/password/recovery/reset", h.resetPassword)
 	mux.HandleFunc("POST /api/auth/mfa/recovery-support/request", h.requestMFARecoverySupport)
 	mux.HandleFunc("POST /api/auth/mfa/recovery-support/verify", h.verifyMFARecoverySupport)
+	mux.HandleFunc("POST /api/auth/mfa/recovery/request", h.requestMFARecovery)
+	mux.HandleFunc("POST /api/auth/mfa/recovery/verify", h.verifyMFARecovery)
 	mux.HandleFunc("GET /api/auth/mfa/status", h.mfaStatus)
+	mux.HandleFunc("GET /api/auth/mfa/trusted-devices", h.listTrustedDevices)
+	mux.HandleFunc("POST /api/auth/mfa/trusted-devices/{deviceId}/revoke", h.revokeTrustedDevice)
 	mux.HandleFunc("POST /api/auth/mfa/enroll", h.enrollMFA)
 	mux.HandleFunc("POST /api/auth/mfa/confirm", h.confirmMFA)
 	mux.HandleFunc("POST /api/auth/mfa/verify", h.verifyMFA)
@@ -442,6 +450,22 @@ func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if mfaEnabled {
+		device, deviceErr := TrustedDeviceForRequest(r.Context(), h.store, h.cfg, r, user.ID)
+		if deviceErr == nil {
+			sessionID, err := h.store.CreateTrustedDeviceSession(r.Context(), user.ID, "password", sessionTTL, device.ID)
+			if err != nil {
+				h.writeStoreError(w, "trusted-device session creation failed", err)
+				return
+			}
+			h.setSessionCookie(w, r, sessionID, sessionTTL)
+			h.recordSecurityEvent(r, user.ID, "trusted_device_login", map[string]any{"provider": "password"})
+			writeJSON(w, http.StatusOK, map[string]any{"status": "authenticated"})
+			return
+		}
+		if !errors.Is(deviceErr, postgres.ErrTrustedDeviceNotFound) {
+			h.writeStoreError(w, "trusted-device validation failed", deviceErr)
+			return
+		}
 		h.createMFAPendingSession(w, r, user.ID)
 		return
 	}
@@ -629,7 +653,7 @@ func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) enrollRecoveryEmail(w http.ResponseWriter, r *http.Request) {
-	userID, status := h.sessionUserID(r)
+	userID, status := h.fullSessionUserID(r)
 	if status != http.StatusOK {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before adding a recovery email.")
 		return
@@ -642,6 +666,7 @@ func (h *Handler) enrollRecoveryEmail(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Email           string `json:"email"`
 		CurrentPassword string `json:"currentPassword"`
+		TOTPCode        string `json:"totpCode"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) {
 		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY_EMAIL", "A valid recovery email is required.")
@@ -670,6 +695,17 @@ func (h *Handler) enrollRecoveryEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "REAUTHENTICATION_REQUIRED", "Recent reauthentication is required.")
 		return
 	}
+	mfaEnabled, err := h.store.TOTPEnabled(r.Context(), userID)
+	if err != nil {
+		h.writeStoreError(w, "recovery email MFA status lookup failed", err)
+		return
+	}
+	if mfaEnabled {
+		if err := h.verifyFreshTOTP(r, userID, input.TOTPCode); err != nil {
+			h.writeFreshTOTPFailure(w, r, userID, "recovery_email_enrollment", err)
+			return
+		}
+	}
 	if recent, err := h.store.HasRecentEmailChallenge(r.Context(), email, "recovery_email_enrollment", time.Now().Add(-emailChallengeResendWindow)); err != nil {
 		h.writeStoreError(w, "recovery email rate check failed", err)
 		return
@@ -696,18 +732,30 @@ func (h *Handler) enrollRecoveryEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) verifyRecoveryEmail(w http.ResponseWriter, r *http.Request) {
-	userID, status := h.sessionUserID(r)
+	userID, status := h.fullSessionUserID(r)
 	if status != http.StatusOK {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before confirming a recovery email.")
 		return
 	}
 	var input struct {
-		Email string `json:"email"`
-		Code  string `json:"code"`
+		Email    string `json:"email"`
+		Code     string `json:"code"`
+		TOTPCode string `json:"totpCode"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) || !validChallengeCode(input.Code) {
 		writeError(w, http.StatusBadRequest, "INVALID_RECOVERY_EMAIL", "The recovery email request is invalid or expired.")
 		return
+	}
+	mfaEnabled, err := h.store.TOTPEnabled(r.Context(), userID)
+	if err != nil {
+		h.writeStoreError(w, "recovery email MFA status lookup failed", err)
+		return
+	}
+	if mfaEnabled {
+		if err := h.verifyFreshTOTP(r, userID, input.TOTPCode); err != nil {
+			h.writeFreshTOTPFailure(w, r, userID, "recovery_email_verification", err)
+			return
+		}
 	}
 	challengeUserID, err := h.consumeChallenge(r, input.Email, "recovery_email_enrollment", input.Code)
 	if errors.Is(err, postgres.ErrChallengeLocked) {
@@ -1310,10 +1358,15 @@ func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Code string `json:"code"`
+		Code        string `json:"code"`
+		TrustDevice bool   `json:"trustDevice"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_MFA", "Enter your authenticator or recovery code.")
+		return
+	}
+	if input.TrustDevice && deviceFingerprint(r) == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_DEVICE", "This browser cannot be remembered securely.")
 		return
 	}
 	code := strings.TrimSpace(input.Code)
@@ -1354,7 +1407,16 @@ func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.recordSecurityEvent(r, state.UserID, "mfa_challenge_succeeded", map[string]any{"method": "totp"})
-		writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
+		trusted := false
+		if input.TrustDevice {
+			if err := h.issueTrustedDevice(w, r, state.UserID); err != nil {
+				h.logger.Error("trusted device creation failed", "operation", "mfa_challenge", "request_id", requestID(r), "user_id", state.UserID, "error", err)
+				h.recordSecurityEvent(r, state.UserID, "trusted_device_add_failed", map[string]any{"reason": "persistence"})
+			} else {
+				trusted = true
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "authenticated", "trustedDevice": trusted})
 		return
 	}
 	if !validRecoveryCode(code) {
@@ -1380,7 +1442,16 @@ func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.recordSecurityEvent(r, state.UserID, "mfa_recovery_code_used", nil)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
+	trusted := false
+	if input.TrustDevice {
+		if err := h.issueTrustedDevice(w, r, state.UserID); err != nil {
+			h.logger.Error("trusted device creation failed", "operation", "mfa_challenge", "request_id", requestID(r), "user_id", state.UserID, "error", err)
+			h.recordSecurityEvent(r, state.UserID, "trusted_device_add_failed", map[string]any{"reason": "persistence"})
+		} else {
+			trusted = true
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "authenticated", "trustedDevice": trusted})
 }
 
 func (h *Handler) disableMFA(w http.ResponseWriter, r *http.Request) {
@@ -1397,6 +1468,7 @@ func (h *Handler) disableMFA(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		CurrentPassword string `json:"currentPassword"`
 		RecoveryCode    string `json:"recoveryCode"`
+		TOTPCode        string `json:"totpCode"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || len(input.CurrentPassword) > 256 || !validRecoveryCode(input.RecoveryCode) {
 		writeError(w, http.StatusBadRequest, "REAUTHENTICATION_REQUIRED", "Recent reauthentication and a recovery code are required.")
@@ -1407,6 +1479,10 @@ func (h *Handler) disableMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.hasIndependentRecoveryMethod(w, r, userID) {
+		return
+	}
+	if err := h.verifyFreshTOTP(r, userID, input.TOTPCode); err != nil {
+		h.writeFreshTOTPFailure(w, r, userID, "mfa_disable", err)
 		return
 	}
 	if err := h.store.DisableTOTPWithRecoveryCode(r.Context(), userID, h.hashRecoveryCode(input.RecoveryCode)); errors.Is(err, postgres.ErrRecoveryCodeInvalid) {
@@ -1421,6 +1497,8 @@ func (h *Handler) disableMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.recordSecurityEvent(r, userID, "mfa_disabled", nil)
+	h.clearSessionCookie(w, r)
+	h.clearTrustedDeviceCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
 }
 
@@ -1438,6 +1516,7 @@ func (h *Handler) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request
 	var input struct {
 		CurrentPassword string `json:"currentPassword"`
 		RecoveryCode    string `json:"recoveryCode"`
+		TOTPCode        string `json:"totpCode"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || len(input.CurrentPassword) > 256 || !validRecoveryCode(input.RecoveryCode) {
 		writeError(w, http.StatusBadRequest, "REAUTHENTICATION_REQUIRED", "Recent reauthentication and a recovery code are required.")
@@ -1448,6 +1527,10 @@ func (h *Handler) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !h.hasIndependentRecoveryMethod(w, r, userID) {
+		return
+	}
+	if err := h.verifyFreshTOTP(r, userID, input.TOTPCode); err != nil {
+		h.writeFreshTOTPFailure(w, r, userID, "recovery_code_regeneration", err)
 		return
 	}
 	displayCodes, rawCodes, err := newRecoveryCodes()

@@ -118,6 +118,16 @@ CREATE TABLE %sauth_totp (
 	created_at timestamptz DEFAULT now() NOT NULL,
 	updated_at timestamptz DEFAULT now() NOT NULL
 );
+CREATE TABLE %sauth_trusted_devices (
+	id text PRIMARY KEY,
+	user_id text NOT NULL,
+	credential_hash text NOT NULL,
+	fingerprint_hash text NOT NULL,
+	created_at timestamptz DEFAULT now() NOT NULL,
+	last_used_at timestamptz,
+	expires_at timestamptz NOT NULL,
+	revoked_at timestamptz
+);
 CREATE TABLE %sgoogle_oauth_states (
 	nonce_hash text PRIMARY KEY,
 	flow text NOT NULL,
@@ -141,7 +151,7 @@ CREATE TABLE %sprovider_accounts (
 	updated_at timestamptz DEFAULT now() NOT NULL,
 	UNIQUE (provider, external_subject)
 );
-`, prefix, prefix, prefix, prefix, prefix)
+`, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
 func quoteGoogleIdentifier(value string) string {

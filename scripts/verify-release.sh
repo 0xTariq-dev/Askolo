@@ -14,6 +14,14 @@ environment="${ASKOLO_ENVIRONMENT:-}"
 [[ "$environment" == "staging" || "$environment" == "production" ]] ||
   die "ASKOLO_ENVIRONMENT must be staging or production"
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "$script_dir/.." && pwd)"
+policy_validator="$repo_root/monitoring/askolo-backend/verify-mfa-recovery-alert-policy.sh"
+[[ -x "$policy_validator" ]] ||
+  die "MFA alert-policy validator is missing at monitoring/askolo-backend/verify-mfa-recovery-alert-policy.sh"
+"$policy_validator" "$repo_root/monitoring/askolo-backend/mfa-recovery-alerts.yaml" ||
+  die "MFA alert-policy validation failed; inspect the file path and reason above"
+
 for name in ASKOLO_CANONICAL_ORIGIN ASKOLO_DATABASE_ID ASKOLO_COOKIE_NAMESPACE \
   ASKOLO_COMMIT_SHA ASKOLO_RELEASE_TAG ASKOLO_INTERNAL_TOKEN; do
   [[ -n "${!name:-}" ]] || die "$name is required"

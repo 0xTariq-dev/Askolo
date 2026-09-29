@@ -79,9 +79,12 @@ import type {
   LogoutSuccess,
   MFACodeInput,
   MFAEnrollmentResponse,
+  MFAFreshCodeInput,
   MFAReauthenticationInput,
   MFARecoveryCodeManagementInput,
   MFARecoveryCodesResponse,
+  MFARecoveryRequestInput,
+  MFARecoveryVerificationInput,
   MFAStatus,
   MeetingExtractBody,
   MeetingExtractResponse,
@@ -98,11 +101,13 @@ import type {
   PasswordSetInput,
   ProfileUser,
   RecoveryEmailEnrollmentInput,
+  RecoveryEmailVerificationInput,
   StaticAIResponse,
   StatusResponse,
   TranscriptionPreferences,
   TranscriptionPreferencesUpdate,
   TranscriptionPreferencesUpdateResponse,
+  TrustedDevicesResponse,
   UserProfileUpdate,
   VoiceToPlanBody,
   VoiceToPlanResponse
@@ -761,7 +766,7 @@ export const getVerifyEmailUrl = () => {
   return `/api/auth/email/verify`
 }
 
-export const verifyEmail = async (emailVerificationInput: EmailVerificationInput, options?: Parameters<typeof customFetch>[1]): Promise<StatusResponse> => {
+export const verifyEmail = async (recoveryEmailVerificationInput: RecoveryEmailVerificationInput, options?: Parameters<typeof customFetch>[1]): Promise<StatusResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -774,7 +779,7 @@ return customFetch<StatusResponse>(getVerifyEmailUrl(),
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(emailVerificationInput)
+    body: JSON.stringify(recoveryEmailVerificationInput)
   }
 );}
 
@@ -812,9 +817,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type VerifyEmailMutationResult = NonNullable<Awaited<ReturnType<typeof verifyEmail>>>
-    export type VerifyEmailMutationBody = BodyType<EmailVerificationInput>
+    export type VerifyEmailMutationBody = BodyType<RecoveryEmailVerificationInput>
     export type VerifyEmailMutationError = ErrorType<ErrorEnvelope>
-    export type VerifyEmailMutationVariables = {data: BodyType<EmailVerificationInput>}
+    export type VerifyEmailMutationVariables = {data: BodyType<RecoveryEmailVerificationInput>}
 
     export const useVerifyEmail = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyEmail>>, TError,VerifyEmailMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -1489,6 +1494,300 @@ export function useGetMFAStatus<TData = Awaited<ReturnType<typeof getMFAStatus>>
 
 
 
+
+export const getRequestMFARecoveryUrl = () => {
+
+
+
+
+  return `/api/auth/mfa/recovery/request`
+}
+
+export const requestMFARecovery = async (mFARecoveryRequestInput: MFARecoveryRequestInput, options?: Parameters<typeof customFetch>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<StatusResponse>(getRequestMFARecoveryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(mFARecoveryRequestInput)
+  }
+);}
+
+
+
+
+
+export const getRequestMFARecoveryMutationKey = () => ['requestMFARecovery'] as const;
+
+export const getRequestMFARecoveryMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestMFARecovery>>, TError,RequestMFARecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestMFARecovery>>, TError,RequestMFARecoveryMutationVariables, TContext> => {
+
+const mutationKey = getRequestMFARecoveryMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestMFARecovery>>, RequestMFARecoveryMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestMFARecovery(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestMFARecoveryMutationResult = NonNullable<Awaited<ReturnType<typeof requestMFARecovery>>>
+    export type RequestMFARecoveryMutationBody = BodyType<MFARecoveryRequestInput>
+    export type RequestMFARecoveryMutationError = ErrorType<ErrorEnvelope>
+    export type RequestMFARecoveryMutationVariables = {data: BodyType<MFARecoveryRequestInput>}
+
+    export const useRequestMFARecovery = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestMFARecovery>>, TError,RequestMFARecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestMFARecovery>>,
+        TError,
+        RequestMFARecoveryMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRequestMFARecoveryMutationOptions(options));
+    }
+
+export const getVerifyMFARecoveryUrl = () => {
+
+
+
+
+  return `/api/auth/mfa/recovery/verify`
+}
+
+export const verifyMFARecovery = async (mFARecoveryVerificationInput: MFARecoveryVerificationInput, options?: Parameters<typeof customFetch>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<StatusResponse>(getVerifyMFARecoveryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(mFARecoveryVerificationInput)
+  }
+);}
+
+
+
+
+
+export const getVerifyMFARecoveryMutationKey = () => ['verifyMFARecovery'] as const;
+
+export const getVerifyMFARecoveryMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyMFARecovery>>, TError,VerifyMFARecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof verifyMFARecovery>>, TError,VerifyMFARecoveryMutationVariables, TContext> => {
+
+const mutationKey = getVerifyMFARecoveryMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof verifyMFARecovery>>, VerifyMFARecoveryMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  verifyMFARecovery(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VerifyMFARecoveryMutationResult = NonNullable<Awaited<ReturnType<typeof verifyMFARecovery>>>
+    export type VerifyMFARecoveryMutationBody = BodyType<MFARecoveryVerificationInput>
+    export type VerifyMFARecoveryMutationError = ErrorType<ErrorEnvelope>
+    export type VerifyMFARecoveryMutationVariables = {data: BodyType<MFARecoveryVerificationInput>}
+
+    export const useVerifyMFARecovery = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyMFARecovery>>, TError,VerifyMFARecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof verifyMFARecovery>>,
+        TError,
+        VerifyMFARecoveryMutationVariables,
+        TContext
+      > => {
+      return useMutation(getVerifyMFARecoveryMutationOptions(options));
+    }
+
+export const getListTrustedDevicesUrl = () => {
+
+
+
+
+  return `/api/auth/mfa/trusted-devices`
+}
+
+export const listTrustedDevices = async ( options?: Parameters<typeof customFetch>[1]): Promise<TrustedDevicesResponse> => {
+
+  return customFetch<TrustedDevicesResponse>(getListTrustedDevicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListTrustedDevicesQueryKey = () => {
+    return [
+    `/api/auth/mfa/trusted-devices`
+    ] as const;
+    }
+
+
+export const getListTrustedDevicesQueryOptions = <TData = Awaited<ReturnType<typeof listTrustedDevices>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTrustedDevices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTrustedDevicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTrustedDevices>>> = ({ signal }) => listTrustedDevices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTrustedDevices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListTrustedDevicesQueryResult = NonNullable<Awaited<ReturnType<typeof listTrustedDevices>>>
+export type ListTrustedDevicesQueryError = ErrorType<ErrorEnvelope>
+
+
+
+export function useListTrustedDevices<TData = Awaited<ReturnType<typeof listTrustedDevices>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTrustedDevices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListTrustedDevicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRevokeTrustedDeviceUrl = (deviceId: string,) => {
+
+
+
+
+  return `/api/auth/mfa/trusted-devices/${deviceId}/revoke`
+}
+
+export const revokeTrustedDevice = async (deviceId: string,
+    mFAFreshCodeInput: MFAFreshCodeInput, options?: Parameters<typeof customFetch>[1]): Promise<StatusResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<StatusResponse>(getRevokeTrustedDeviceUrl(deviceId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(mFAFreshCodeInput)
+  }
+);}
+
+
+
+
+
+export const getRevokeTrustedDeviceMutationKey = () => ['revokeTrustedDevice'] as const;
+
+export const getRevokeTrustedDeviceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeTrustedDevice>>, TError,RevokeTrustedDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeTrustedDevice>>, TError,RevokeTrustedDeviceMutationVariables, TContext> => {
+
+const mutationKey = getRevokeTrustedDeviceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeTrustedDevice>>, RevokeTrustedDeviceMutationVariables> = (props) => {
+          const {deviceId,data} = props ?? {};
+
+          return  revokeTrustedDevice(deviceId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeTrustedDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof revokeTrustedDevice>>>
+    export type RevokeTrustedDeviceMutationBody = BodyType<MFAFreshCodeInput>
+    export type RevokeTrustedDeviceMutationError = ErrorType<ErrorEnvelope>
+    export type RevokeTrustedDeviceMutationVariables = {deviceId: string;data: BodyType<MFAFreshCodeInput>}
+
+    export const useRevokeTrustedDevice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeTrustedDevice>>, TError,RevokeTrustedDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeTrustedDevice>>,
+        TError,
+        RevokeTrustedDeviceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRevokeTrustedDeviceMutationOptions(options));
+    }
 
 export const getEnrollMFAUrl = () => {
 

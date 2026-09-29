@@ -11,19 +11,21 @@ import {
   generatePlan as generatePlanRequest,
   getCurrentAuthUser as getCurrentAuthUserRequest,
   getMFAStatus as getMFAStatusRequest,
+  listTrustedDevices as listTrustedDevicesRequest,
   logoutPasswordSession as logoutPasswordSessionRequest,
   passwordLogin as passwordLoginRequest,
   passwordSignup as passwordSignupRequest,
   regenerateMFARecoveryCodes as regenerateMFARecoveryCodesRequest,
-  requestMFARecoverySupport as requestMFARecoverySupportRequest,
+  requestMFARecovery as requestMFARecoveryRequest,
   requestPasswordRecovery as requestPasswordRecoveryRequest,
   resendEmailVerification as resendEmailVerificationRequest,
+  revokeTrustedDevice as revokeTrustedDeviceRequest,
   resetPassword as resetPasswordRequest,
   setPassword as setPasswordRequest,
   updateUserProfile as updateUserProfileRequest,
   verifyEmail as verifyEmailRequest,
   verifyMFA as verifyMFARequest,
-  verifyMFARecoverySupport as verifyMFARecoverySupportRequest,
+  verifyMFARecovery as verifyMFARecoveryRequest,
   verifyPasswordRecovery as verifyPasswordRecoveryRequest,
   verifyRecoveryEmail as verifyRecoveryEmailRequest,
 } from '@workspace/api-client-react';
@@ -33,6 +35,9 @@ import type {
   EmailInput,
   EmailVerificationInput,
   GeneratePlanInput,
+  MFAFreshCodeInput,
+  MFARecoveryRequestInput,
+  MFARecoveryVerificationInput,
   MFARecoveryCodeManagementInput,
   MFACodeInput,
   MFAReauthenticationInput,
@@ -43,12 +48,51 @@ import type {
   PasswordSetInput,
   PasswordSignupInput,
   RecoveryEmailEnrollmentInput,
+  RecoveryEmailVerificationInput,
   UserProfileUpdate,
 } from '@workspace/api-client-react';
 
+const fingerprintCookieName = 'askolo_device_fingerprint';
+
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split('; ')
+    .find((value) => value.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+}
+
+function createDeviceFingerprint(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Keep the browser identifier in the browser only. It is deliberately sent
+ * through the request header and cookie, never in an API body or a log.
+ */
+function getDeviceFingerprint(): string | null {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+  const existing = getCookie(fingerprintCookieName);
+  if (existing) return existing;
+
+  const fingerprint = createDeviceFingerprint();
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${fingerprintCookieName}=${encodeURIComponent(fingerprint)}; Max-Age=31536000; Path=/; SameSite=Lax${secure}`;
+  return fingerprint;
+}
+
+export function ensureDeviceFingerprint(): void {
+  getDeviceFingerprint();
+}
+
 function sessionRequestOptions(signal?: AbortSignal) {
+  const fingerprint = getDeviceFingerprint();
   return {
     credentials: 'include' as const,
+    ...(fingerprint ? { headers: { 'X-Askolo-Device-Fingerprint': fingerprint } } : {}),
     ...(signal ? { signal } : {}),
   };
 }
@@ -75,13 +119,13 @@ export const goApi = {
     verifyPasswordRecoveryRequest(input, sessionRequestOptions()),
   resetPassword: (input: PasswordRecoveryResetInput) =>
     resetPasswordRequest(input, sessionRequestOptions()),
-  requestMFARecoverySupport: (input: EmailInput) =>
-    requestMFARecoverySupportRequest(input, sessionRequestOptions()),
-  verifyMFARecoverySupport: (input: EmailVerificationInput) =>
-    verifyMFARecoverySupportRequest(input, sessionRequestOptions()),
-  enrollRecoveryEmail: (input: RecoveryEmailEnrollmentInput) =>
+  requestMFARecovery: (input: MFARecoveryRequestInput) =>
+    requestMFARecoveryRequest(input, sessionRequestOptions()),
+  verifyMFARecovery: (input: MFARecoveryVerificationInput) =>
+    verifyMFARecoveryRequest(input, sessionRequestOptions()),
+  enrollRecoveryEmail: (input: RecoveryEmailEnrollmentInput & { totpCode?: string }) =>
     enrollRecoveryEmailRequest(input, sessionRequestOptions()),
-  verifyRecoveryEmail: (input: EmailVerificationInput) =>
+  verifyRecoveryEmail: (input: RecoveryEmailVerificationInput) =>
     verifyRecoveryEmailRequest(input, sessionRequestOptions()),
   mfaStatus: (signal?: AbortSignal) =>
     getMFAStatusRequest(sessionRequestOptions(signal)),
@@ -95,6 +139,10 @@ export const goApi = {
     regenerateMFARecoveryCodesRequest(input, sessionRequestOptions()),
   disableMFA: (input: MFARecoveryCodeManagementInput) =>
     disableMFARequest(input, sessionRequestOptions()),
+  listTrustedDevices: (signal?: AbortSignal) =>
+    listTrustedDevicesRequest(sessionRequestOptions(signal)),
+  revokeTrustedDevice: (deviceId: string, input: MFAFreshCodeInput) =>
+    revokeTrustedDeviceRequest(deviceId, input, sessionRequestOptions()),
   disconnectGoogle: (scope: DisconnectGoogleScope) =>
     disconnectGoogleRequest({ scope }, sessionRequestOptions()),
   deleteUserData: () => deleteUserDataRequest(sessionRequestOptions()),

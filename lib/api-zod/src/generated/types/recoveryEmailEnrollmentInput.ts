@@ -9,4 +9,5 @@
 export interface RecoveryEmailEnrollmentInput {
   email: string;
   currentPassword: string;
+  totpCode?: string;
 }

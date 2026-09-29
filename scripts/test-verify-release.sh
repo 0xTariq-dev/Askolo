@@ -12,9 +12,14 @@ trap cleanup EXIT INT TERM
 
 fixture_scripts="$fixture_root/scripts"
 fixture_bin="$fixture_root/bin"
+fixture_monitoring="$fixture_root/monitoring/askolo-backend"
 curl_log="$fixture_root/curl.log"
-mkdir -p "$fixture_scripts" "$fixture_bin"
+mkdir -p "$fixture_scripts" "$fixture_bin" "$fixture_monitoring"
 cp "$repo_root/scripts/verify-release.sh" "$fixture_scripts/verify-release.sh"
+cp "$repo_root/monitoring/askolo-backend/verify-mfa-recovery-alert-policy.sh" \
+  "$fixture_monitoring/verify-mfa-recovery-alert-policy.sh"
+cp "$repo_root/monitoring/askolo-backend/mfa-recovery-alerts.yaml" \
+  "$fixture_monitoring/mfa-recovery-alerts.yaml"
 
 cat >"$fixture_bin/curl" <<'STUB'
 #!/usr/bin/env bash
@@ -83,6 +88,35 @@ grep -Fq "published path verified: /dashboard" <<<"$output" ||
   { echo "release verification did not check the client-side route" >&2; exit 1; }
 grep -Fq "published path verified: /api/healthz" <<<"$output" ||
   { echo "release verification did not check the API health endpoint" >&2; exit 1; }
+
+mv "$fixture_monitoring/mfa-recovery-alerts.yaml" \
+  "$fixture_monitoring/mfa-recovery-alerts.yaml.missing"
+set +e
+missing_output="$(run_release_verification 2>&1)"
+missing_status=$?
+set -e
+mv "$fixture_monitoring/mfa-recovery-alerts.yaml.missing" \
+  "$fixture_monitoring/mfa-recovery-alerts.yaml"
+[[ "$missing_status" -ne 0 ]] ||
+  { echo "expected a missing MFA alert policy to fail validation" >&2; exit 1; }
+grep -Fq \
+  "MFA alert-policy validation failed: $fixture_monitoring/mfa-recovery-alerts.yaml is missing" \
+  <<<"$missing_output" ||
+  { echo "missing policy failure did not identify the file and reason:" >&2; echo "$missing_output" >&2; exit 1; }
+
+printf '\n' >>"$fixture_monitoring/mfa-recovery-alerts.yaml"
+set +e
+altered_output="$(run_release_verification 2>&1)"
+altered_status=$?
+set -e
+cp "$repo_root/monitoring/askolo-backend/mfa-recovery-alerts.yaml" \
+  "$fixture_monitoring/mfa-recovery-alerts.yaml"
+[[ "$altered_status" -ne 0 ]] ||
+  { echo "expected an altered MFA alert policy to fail validation" >&2; exit 1; }
+grep -Fq \
+  "MFA alert-policy validation failed: $fixture_monitoring/mfa-recovery-alerts.yaml differs from the reviewed baseline" \
+  <<<"$altered_output" ||
+  { echo "altered policy failure did not identify the file and reason:" >&2; echo "$altered_output" >&2; exit 1; }
 
 expected_urls=$'https://staging.example/\nhttps://staging.example/dashboard\nhttps://staging.example/api/healthz'
 [[ "$(cat "$curl_log")" == "$expected_urls" ]] ||

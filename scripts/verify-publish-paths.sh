@@ -29,6 +29,7 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 artifact_config="$repo_root/artifacts/personal-assistant/.replit-artifact/artifact.toml"
 api_build_script="$repo_root/services/askolo-backend/scripts/build.sh"
 api_root="$repo_root/services/askolo-backend"
+policy_validator="$repo_root/monitoring/askolo-backend/verify-mfa-recovery-alert-policy.sh"
 
 if [[ "${GOSUMDB:-}" == "off" ]]; then
   export GOSUMDB=sum.golang.org
@@ -38,6 +39,10 @@ fi
   die "artifact config not found at artifacts/personal-assistant/.replit-artifact/artifact.toml"
 [[ -f "$api_build_script" ]] ||
   die "API build script not found at services/askolo-backend/scripts/build.sh"
+[[ -x "$policy_validator" ]] ||
+  die "MFA alert-policy validator is missing at monitoring/askolo-backend/verify-mfa-recovery-alert-policy.sh"
+"$policy_validator" "$repo_root/monitoring/askolo-backend/mfa-recovery-alerts.yaml" ||
+  die "MFA alert-policy validation failed; inspect the file path and reason above"
 
 require_artifact_line() {
   local expected="$1"

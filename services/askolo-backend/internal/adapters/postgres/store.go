@@ -29,6 +29,7 @@ const EmailChallengeCleanupBatchSize = 100
 // AuthRateLimitBucketRetention bounds how long pseudonymous source/account
 // buckets remain in the shared rate-limit table.
 const AuthRateLimitBucketRetention = 24 * time.Hour
+const MFARecoveryCodeCount = 4
 
 const authRateLimitBucketCleanupInterval = time.Minute
 
@@ -47,6 +48,7 @@ var ErrMFAChallengeExpired = errors.New("multi-factor challenge is expired")
 var ErrMFAChallengeLocked = errors.New("multi-factor challenge is locked")
 var ErrMFAChallengeInvalid = errors.New("multi-factor challenge is invalid")
 var ErrMFAReplay = errors.New("multi-factor challenge was already used")
+var ErrTrustedDeviceNotFound = errors.New("trusted device is unavailable")
 var ErrRecoveryCodeInvalid = errors.New("recovery code is invalid")
 
 type Store struct {
@@ -61,6 +63,13 @@ type SessionMFAState struct {
 	Verified  bool
 	Attempts  int
 	ExpiresAt time.Time
+}
+
+type TrustedDevice struct {
+	ID         string     `json:"id"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
 }
 
 // MFAEventSummary contains bounded, aggregate MFA security-event counts for
@@ -214,11 +223,18 @@ func (s *Store) UpsertUser(ctx context.Context, email, firstName, lastName, imag
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID, provider string, ttl time.Duration) (string, error) {
-	return s.createSession(ctx, userID, provider, ttl, true, time.Time{})
+	return s.createSession(ctx, userID, provider, ttl, true, time.Time{}, "")
 }
 
 func (s *Store) CreateMFAPendingSession(ctx context.Context, userID, provider string, ttl, challengeTTL time.Duration) (string, error) {
-	return s.createSession(ctx, userID, provider, ttl, false, time.Now().UTC().Add(challengeTTL))
+	return s.createSession(ctx, userID, provider, ttl, false, time.Now().UTC().Add(challengeTTL), "")
+}
+
+func (s *Store) CreateTrustedDeviceSession(ctx context.Context, userID, provider string, ttl time.Duration, deviceID string) (string, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return "", ErrTrustedDeviceNotFound
+	}
+	return s.createSession(ctx, userID, provider, ttl, true, time.Time{}, deviceID)
 }
 
 func (s *Store) createSession(
@@ -227,6 +243,7 @@ func (s *Store) createSession(
 	ttl time.Duration,
 	mfaVerified bool,
 	mfaExpiresAt time.Time,
+	trustedDeviceID string,
 ) (string, error) {
 	if s == nil {
 		return "", errors.New("database is not configured")
@@ -245,6 +262,9 @@ func (s *Store) createSession(
 		payloadMap["mfaRequired"] = true
 		payloadMap["mfaChallengeExpiresAt"] = mfaExpiresAt.Format(time.RFC3339)
 		payloadMap["mfaAttempts"] = 0
+	}
+	if trustedDeviceID != "" {
+		payloadMap["trustedDeviceId"] = trustedDeviceID
 	}
 	payload, err := json.Marshal(payloadMap)
 	if err != nil {
@@ -300,14 +320,24 @@ func (s *Store) SessionUserID(ctx context.Context, sessionID string) (string, er
 	}
 	var payload []byte
 	var expiresAt time.Time
+	var trustedDeviceValid bool
 	storageKey := sessionStorageKey(sessionID)
 	err := s.pool.QueryRow(ctx, `
-		SELECT sess, expire
+		SELECT sess, expire,
+		       COALESCE(
+		         NOT (sess ? 'trustedDeviceId') OR EXISTS (
+		           SELECT 1 FROM auth_trusted_devices d
+		           WHERE d.id = sess->>'trustedDeviceId'
+		             AND d.user_id = sess->>'userId'
+		             AND d.revoked_at IS NULL
+		             AND d.expires_at > NOW()
+		         ), TRUE
+		       )
 		FROM sessions
 		WHERE sid = $1 OR sid = $2
 		LIMIT 1
 	`, storageKey, sessionID).
-		Scan(&payload, &expiresAt)
+		Scan(&payload, &expiresAt, &trustedDeviceValid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -316,6 +346,9 @@ func (s *Store) SessionUserID(ctx context.Context, sessionID string) (string, er
 	}
 	if expiresAt.Before(time.Now()) {
 		_, _ = s.pool.Exec(ctx, `DELETE FROM sessions WHERE sid = $1 OR sid = $2`, storageKey, sessionID)
+		return "", ErrNotFound
+	}
+	if !trustedDeviceValid {
 		return "", ErrNotFound
 	}
 	var session struct {
@@ -484,7 +517,7 @@ func (s *Store) ConfirmTOTPEnrollment(
 	if s == nil {
 		return errors.New("database is not configured")
 	}
-	if len(recoveryCodeHashes) == 0 {
+	if len(recoveryCodeHashes) != MFARecoveryCodeCount {
 		return ErrMFAEnrollmentUnavailable
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -665,6 +698,38 @@ func (s *Store) CompleteTOTPChallenge(ctx context.Context, sessionID, userID str
 	return tx.Commit(ctx)
 }
 
+// RecordFreshTOTP consumes a TOTP step for a sensitive, already-authenticated
+// action. It is atomic across backend processes and rejects replayed steps.
+func (s *Store) RecordFreshTOTP(ctx context.Context, userID string, step int64) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE auth_totp
+		SET last_used_step = $2, updated_at = NOW()
+		WHERE user_id = $1 AND enabled_at IS NOT NULL
+		  AND (last_used_step IS NULL OR last_used_step < $2)
+	`, userID, step)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 1 {
+		return nil
+	}
+	var enabled bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM auth_totp WHERE user_id = $1 AND enabled_at IS NOT NULL
+		)
+	`, userID).Scan(&enabled); err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrMFANotEnrolled
+	}
+	return ErrMFAReplay
+}
+
 func (s *Store) ConsumeRecoveryCode(
 	ctx context.Context, sessionID, userID, codeHash string, maxAttempts int,
 ) error {
@@ -771,6 +836,15 @@ func (s *Store) DisableTOTPWithRecoveryCode(ctx context.Context, userID, codeHas
 	if _, err := tx.Exec(ctx, `DELETE FROM auth_totp WHERE user_id = $1`, userID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_trusted_devices SET revoked_at = NOW()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE sess->>'userId' = $1`, userID); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -780,7 +854,7 @@ func (s *Store) RegenerateRecoveryCodes(
 	if s == nil {
 		return errors.New("database is not configured")
 	}
-	if len(newCodeHashes) == 0 {
+	if len(newCodeHashes) != MFARecoveryCodeCount {
 		return ErrMFAEnrollmentUnavailable
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -831,6 +905,200 @@ func (s *Store) RegenerateRecoveryCodes(
 		`, newCodeID, userID, codeHash); err != nil {
 			return err
 		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) CreateTrustedDevice(
+	ctx context.Context, userID, credentialHash, fingerprintHash string, expiresAt time.Time,
+) (TrustedDevice, error) {
+	if s == nil {
+		return TrustedDevice{}, errors.New("database is not configured")
+	}
+	if userID == "" || credentialHash == "" || fingerprintHash == "" || !expiresAt.After(time.Now()) {
+		return TrustedDevice{}, ErrTrustedDeviceNotFound
+	}
+	deviceID, err := id.New()
+	if err != nil {
+		return TrustedDevice{}, err
+	}
+	var device TrustedDevice
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO auth_trusted_devices (id, user_id, credential_hash, fingerprint_hash, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, created_at, last_used_at, expires_at
+	`, deviceID, userID, credentialHash, fingerprintHash, expiresAt).Scan(
+		&device.ID, &device.CreatedAt, &device.LastUsedAt, &device.ExpiresAt,
+	)
+	return device, err
+}
+
+func (s *Store) AttachTrustedDeviceToSession(ctx context.Context, sessionID, userID, deviceID string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var payload []byte
+	err = tx.QueryRow(ctx, `
+		SELECT sess FROM sessions
+		WHERE sid = $1 OR sid = $2
+		FOR UPDATE
+	`, sessionStorageKey(sessionID), sessionID).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var values map[string]any
+	if err := json.Unmarshal(payload, &values); err != nil {
+		return err
+	}
+	if values["userId"] != userID || values["mfaVerified"] != true {
+		return ErrOwnership
+	}
+	var enabled bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM auth_trusted_devices
+			WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > NOW()
+		)
+	`, deviceID, userID).Scan(&enabled); err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrTrustedDeviceNotFound
+	}
+	values["trustedDeviceId"] = deviceID
+	updatedPayload, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE sessions SET sess = $3::jsonb
+		WHERE sid = $1 OR sid = $2
+	`, sessionStorageKey(sessionID), sessionID, updatedPayload); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) MatchTrustedDevice(
+	ctx context.Context, userID, credentialHash, fingerprintHash string,
+) (TrustedDevice, error) {
+	if s == nil {
+		return TrustedDevice{}, errors.New("database is not configured")
+	}
+	var device TrustedDevice
+	err := s.pool.QueryRow(ctx, `
+		UPDATE auth_trusted_devices
+		SET last_used_at = NOW()
+		WHERE user_id = $1 AND credential_hash = $2 AND fingerprint_hash = $3
+		  AND revoked_at IS NULL AND expires_at > NOW()
+		RETURNING id, created_at, last_used_at, expires_at
+	`, userID, credentialHash, fingerprintHash).Scan(
+		&device.ID, &device.CreatedAt, &device.LastUsedAt, &device.ExpiresAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TrustedDevice{}, ErrTrustedDeviceNotFound
+	}
+	return device, err
+}
+
+func (s *Store) ListTrustedDevices(ctx context.Context, userID string) ([]TrustedDevice, error) {
+	if s == nil {
+		return nil, errors.New("database is not configured")
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, created_at, last_used_at, expires_at
+		FROM auth_trusted_devices
+		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	devices := make([]TrustedDevice, 0)
+	for rows.Next() {
+		var device TrustedDevice
+		if err := rows.Scan(&device.ID, &device.CreatedAt, &device.LastUsedAt, &device.ExpiresAt); err != nil {
+			return nil, err
+		}
+		devices = append(devices, device)
+	}
+	return devices, rows.Err()
+}
+
+func (s *Store) RevokeTrustedDevice(ctx context.Context, userID, deviceID string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	result, err := tx.Exec(ctx, `
+		UPDATE auth_trusted_devices
+		SET revoked_at = NOW()
+		WHERE user_id = $1 AND id = $2 AND revoked_at IS NULL
+	`, userID, deviceID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrTrustedDeviceNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM sessions
+		WHERE sess->>'userId' = $1 AND sess->>'trustedDeviceId' = $2
+	`, userID, deviceID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// DisableMFAForEmailRecovery applies the verified-email recovery transition
+// atomically. It never creates a session and invalidates all device sessions.
+func (s *Store) DisableMFAForEmailRecovery(ctx context.Context, userID string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var enabled bool
+	if err := tx.QueryRow(ctx, `
+		SELECT enabled_at IS NOT NULL FROM auth_totp WHERE user_id = $1 FOR UPDATE
+	`, userID).Scan(&enabled); errors.Is(err, pgx.ErrNoRows) {
+		return ErrMFANotEnrolled
+	} else if err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrMFANotEnrolled
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_recovery_codes WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_trusted_devices SET revoked_at = NOW()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_totp WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE sess->>'userId' = $1`, userID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

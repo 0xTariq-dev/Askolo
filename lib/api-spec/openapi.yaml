@@ -166,7 +166,7 @@ paths:
       operationId: verifyEmail
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/EmailVerificationInput' } } }
+        content: { application/json: { schema: { $ref: '#/components/schemas/RecoveryEmailVerificationInput' } } }
       responses:
         '200': { description: Email verified, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
         '400': { description: Invalid or expired verification, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
@@ -286,6 +286,58 @@ paths:
       responses:
         '200': { description: MFA status, content: { application/json: { schema: { $ref: '#/components/schemas/MFAStatus' } } } }
         '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/recovery/request:
+    post:
+      tags: [Auth]
+      operationId: requestMFARecovery
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFARecoveryRequestInput' } } }
+      responses:
+        '202': { description: Accepted without revealing account eligibility, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/recovery/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyMFARecovery
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFARecoveryVerificationInput' } } }
+      responses:
+        '200': { description: MFA removed and sessions revoked; a new login is required, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '400': { description: Invalid or expired request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited or challenge locked, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/trusted-devices:
+    get:
+      tags: [Auth]
+      operationId: listTrustedDevices
+      responses:
+        '200': { description: Active trusted devices, content: { application/json: { schema: { $ref: '#/components/schemas/TrustedDevicesResponse' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /auth/mfa/trusted-devices/{deviceId}/revoke:
+    post:
+      tags: [Auth]
+      operationId: revokeTrustedDevice
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MFAFreshCodeInput' } } }
+      responses:
+        '200': { description: Trusted device revoked, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
+        '401': { description: Recent TOTP required, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '404': { description: Device unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 
   /auth/mfa/enroll:
     post:
@@ -2063,12 +2115,20 @@ components:
       properties:
         email: { type: string }
         code: { type: string }
+    RecoveryEmailVerificationInput:
+      type: object
+      required: [email, code]
+      properties:
+        email: { type: string }
+        code: { type: string }
+        totpCode: { type: string }
     RecoveryEmailEnrollmentInput:
       type: object
       required: [email, currentPassword]
       properties:
         email: { type: string }
         currentPassword: { type: string }
+        totpCode: { type: string }
     PasswordRecoveryRequestInput:
       type: object
       required: [email, method]
@@ -2095,6 +2155,19 @@ components:
       required: [enabled]
       properties:
         enabled: { type: boolean }
+    MFARecoveryRequestInput:
+      type: object
+      required: [email, currentPassword]
+      properties:
+        email: { type: string }
+        currentPassword: { type: string }
+    MFARecoveryVerificationInput:
+      type: object
+      required: [email, currentPassword, code]
+      properties:
+        email: { type: string }
+        currentPassword: { type: string }
+        code: { type: string }
     MFAReauthenticationInput:
       type: object
       required: [currentPassword]
@@ -2105,12 +2178,35 @@ components:
       required: [code]
       properties:
         code: { type: string }
+        trustDevice: { type: boolean }
+    MFAFreshCodeInput:
+      type: object
+      required: [totpCode]
+      properties:
+        totpCode: { type: string }
     MFARecoveryCodeManagementInput:
       type: object
-      required: [currentPassword, recoveryCode]
+      required: [currentPassword, recoveryCode, totpCode]
       properties:
         currentPassword: { type: string }
         recoveryCode: { type: string }
+        totpCode: { type: string }
+    TrustedDevice:
+      type: object
+      required: [id, createdAt, lastUsedAt, expiresAt, current]
+      properties:
+        id: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        expiresAt: { type: string, format: date-time }
+        current: { type: boolean }
+    TrustedDevicesResponse:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items: { $ref: '#/components/schemas/TrustedDevice' }
     MFAEnrollmentResponse:
       type: object
       required: [status, secret, account]

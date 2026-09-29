@@ -5,9 +5,8 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { TrustedDevice } from './trustedDevice';
 
-export interface MFARecoveryCodeManagementInput {
-  currentPassword: string;
-  recoveryCode: string;
-  totpCode: string;
+export interface TrustedDevicesResponse {
+  devices: TrustedDevice[];
 }

@@ -19,6 +19,7 @@ import (
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	authmodule "askolo/backend/internal/modules/auth"
 	policy "askolo/backend/internal/platform/authorization"
 )
 
@@ -399,8 +400,20 @@ func (h *Handler) createLoginSession(w http.ResponseWriter, r *http.Request, ret
 		return
 	}
 	var sessionID string
+	trustedDeviceLogin := false
 	if mfaEnabled {
-		sessionID, err = h.store.CreateMFAPendingSession(r.Context(), userID, "google", sessionTTL, mfaChallengeTTL)
+		device, deviceErr := authmodule.TrustedDeviceForRequest(r.Context(), h.store, h.cfg, r, userID)
+		if deviceErr == nil {
+			sessionID, err = h.store.CreateTrustedDeviceSession(r.Context(), userID, "google", sessionTTL, device.ID)
+			if err == nil {
+				trustedDeviceLogin = true
+				_ = h.store.CreateSecurityEvent(r.Context(), userID, "trusted_device_login", r.Header.Get("X-Request-ID"), map[string]any{"provider": "google"})
+			}
+		} else if errors.Is(deviceErr, postgres.ErrTrustedDeviceNotFound) {
+			sessionID, err = h.store.CreateMFAPendingSession(r.Context(), userID, "google", sessionTTL, mfaChallengeTTL)
+		} else {
+			err = deviceErr
+		}
 	} else {
 		sessionID, err = h.store.CreateSession(r.Context(), userID, "google", sessionTTL)
 	}
@@ -418,7 +431,7 @@ func (h *Handler) createLoginSession(w http.ResponseWriter, r *http.Request, ret
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
-	if mfaEnabled {
+	if mfaEnabled && !trustedDeviceLogin {
 		redirectStatus(w, r, returnTo, "mfa_required")
 		return
 	}

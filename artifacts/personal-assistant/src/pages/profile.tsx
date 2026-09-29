@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'wouter';
 import {
   Camera,
   Calendar,
+  Clock,
   Mail,
   CheckCircle2,
   XCircle,
@@ -16,6 +16,7 @@ import {
   PlugZap,
   Unplug,
   ShieldCheck,
+  Monitor,
 } from 'lucide-react';
 import {
   useGetGoogleStatus,
@@ -30,6 +31,7 @@ import { Input } from '@workspace/askolo-design-system/components/ui/input';
 import { Label } from '@workspace/askolo-design-system/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@workspace/askolo-design-system/components/ui/avatar';
 import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
+import { Skeleton } from '@workspace/askolo-design-system/components/ui/skeleton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +46,7 @@ import {
 import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
+import type { TrustedDevice } from '@workspace/api-client-react';
 import { useAppAuth } from '@/contexts/auth-context';
 import { ThemePresetSelector } from '@/components/settings/theme-preset-selector';
 import { LanguageSelector } from '@/components/settings/language-selector';
@@ -55,6 +58,14 @@ import {
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
+function formatDeviceDate(value: string | null): string {
+  if (!value) return 'Not used yet';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Date unavailable'
+    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
 export function ProfilePage() {
   const {
     user,
@@ -65,7 +76,6 @@ export function ProfilePage() {
     updateProfileImage,
     updatePassword,
   } = useAppAuth();
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { commandMenuShortcut, setCommandMenuShortcut } =
@@ -94,6 +104,7 @@ export function ProfilePage() {
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [recoveryReauthPassword, setRecoveryReauthPassword] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
+  const [recoveryTotpCode, setRecoveryTotpCode] = useState('');
   const [recoveryStep, setRecoveryStep] = useState<'idle' | 'verify'>('idle');
   const [savingRecoveryEmail, setSavingRecoveryEmail] = useState(false);
 
@@ -104,8 +115,18 @@ export function ProfilePage() {
   const [mfaCode, setMfaCode] = useState('');
   const [mfaPassword, setMfaPassword] = useState('');
   const [mfaRecoveryCode, setMfaRecoveryCode] = useState('');
+  const [mfaFreshTotpCode, setMfaFreshTotpCode] = useState('');
   const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
   const [mfaBusy, setMfaBusy] = useState(false);
+
+  // Trusted-device state. Device identifiers are opaque and are never
+  // displayed; only the current marker and lifecycle dates are shown.
+  const [trustedDevices, setTrustedDevices] = useState<TrustedDevice[]>([]);
+  const [trustedDevicesLoading, setTrustedDevicesLoading] = useState(true);
+  const [trustedDevicesError, setTrustedDevicesError] = useState<string | null>(null);
+  const [trustedTotpCode, setTrustedTotpCode] = useState('');
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+  const [trustedDevicesNotice, setTrustedDevicesNotice] = useState<string | null>(null);
 
   // Action states
   const [disconnecting, setDisconnecting] = useState<'calendar' | 'gmail' | null>(null);
@@ -187,12 +208,13 @@ export function ProfilePage() {
   };
 
   const enrollRecoveryEmail = async () => {
-    if (!recoveryEmail || !recoveryReauthPassword) return;
+    if (!recoveryEmail || !recoveryReauthPassword || (mfaEnabled && recoveryTotpCode.length !== 6)) return;
     setSavingRecoveryEmail(true);
     try {
       await goApi.enrollRecoveryEmail({
         email: recoveryEmail,
         currentPassword: recoveryReauthPassword,
+        ...(mfaEnabled ? { totpCode: recoveryTotpCode } : {}),
       });
       setRecoveryStep('verify');
       toast({ title: 'Check your recovery email', description: 'Enter the verification code to finish setup.' });
@@ -208,16 +230,19 @@ export function ProfilePage() {
 
   const verifyRecoveryEmail = async () => {
     if (!recoveryEmail || recoveryCode.length !== 6) return;
+    if (mfaEnabled && recoveryTotpCode.length !== 6) return;
     setSavingRecoveryEmail(true);
     try {
       await goApi.verifyRecoveryEmail({
         email: recoveryEmail,
         code: recoveryCode,
+        ...(mfaEnabled ? { totpCode: recoveryTotpCode } : {}),
       });
       setRecoveryStep('idle');
       setRecoveryEmail('');
       setRecoveryReauthPassword('');
       setRecoveryCode('');
+      setRecoveryTotpCode('');
       toast({ title: 'Recovery email verified' });
     } catch (err) {
       toast({
@@ -243,6 +268,37 @@ export function ProfilePage() {
       controller.abort();
     };
   }, [isLoaded, user]);
+
+  useEffect(() => {
+    if (!isLoaded || !user || !mfaEnabled) {
+      setTrustedDevices([]);
+      setTrustedDevicesLoading(false);
+      setTrustedDevicesError(null);
+      return;
+    }
+
+    let active = true;
+    const controller = new AbortController();
+    setTrustedDevicesLoading(true);
+    setTrustedDevicesError(null);
+    goApi.listTrustedDevices(controller.signal)
+      .then((payload) => {
+        if (active) setTrustedDevices(payload.devices);
+      })
+      .catch((error) => {
+        if (active) {
+          setTrustedDevicesError(getApiErrorMessage(error, 'Trusted devices could not be loaded.'));
+        }
+      })
+      .finally(() => {
+        if (active) setTrustedDevicesLoading(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [isLoaded, user, mfaEnabled]);
 
   const startMFAEnrollment = async () => {
     if (!mfaPassword) return;
@@ -285,15 +341,17 @@ export function ProfilePage() {
   };
 
   const regenerateMFARecoveryCodes = async () => {
-    if (!mfaPassword || !mfaRecoveryCode) return;
+    if (!mfaPassword || !mfaRecoveryCode || !mfaFreshTotpCode) return;
     setMfaBusy(true);
     try {
       const payload = await goApi.regenerateMFARecoveryCodes({
         currentPassword: mfaPassword,
         recoveryCode: mfaRecoveryCode,
+        totpCode: mfaFreshTotpCode,
       });
       setMfaPassword('');
       setMfaRecoveryCode('');
+      setMfaFreshTotpCode('');
       setMfaRecoveryCodes(payload.recoveryCodes);
       setMfaStep('codes');
       toast({ title: 'Recovery codes regenerated', description: 'Your previous recovery codes no longer work.' });
@@ -308,16 +366,18 @@ export function ProfilePage() {
   };
 
   const disableMFA = async () => {
-    if (!mfaPassword || !mfaRecoveryCode) return;
+    if (!mfaPassword || !mfaRecoveryCode || !mfaFreshTotpCode) return;
     setMfaBusy(true);
     try {
       await goApi.disableMFA({
         currentPassword: mfaPassword,
         recoveryCode: mfaRecoveryCode,
+        totpCode: mfaFreshTotpCode,
       });
       setMfaEnabled(false);
       setMfaPassword('');
       setMfaRecoveryCode('');
+      setMfaFreshTotpCode('');
       toast({ title: 'MFA disabled' });
     } catch (err) {
       toast({
@@ -326,6 +386,22 @@ export function ProfilePage() {
       });
     } finally {
       setMfaBusy(false);
+    }
+  };
+
+  const revokeTrustedDevice = async (deviceId: string) => {
+    if (!trustedTotpCode) return;
+    setRevokingDeviceId(deviceId);
+    setTrustedDevicesNotice(null);
+    try {
+      await goApi.revokeTrustedDevice(deviceId, { totpCode: trustedTotpCode });
+      setTrustedDevices((devices) => devices.filter((device) => device.id !== deviceId));
+      setTrustedTotpCode('');
+      setTrustedDevicesNotice('Trusted device revoked.');
+    } catch (error) {
+      setTrustedDevicesError(getApiErrorMessage(error, 'Trusted device could not be revoked.'));
+    } finally {
+      setRevokingDeviceId(null);
     }
   };
 
@@ -562,7 +638,8 @@ export function ProfilePage() {
             <ShieldCheck className="h-4 w-4 text-primary" /> Independent recovery
           </CardTitle>
           <CardDescription>
-            Add a separate verified email for password recovery. Recent reauthentication is required.
+            Add a separate verified email for password recovery. Password reauthentication is required,
+            and MFA accounts must provide a fresh authenticator code for both steps.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -583,8 +660,26 @@ export function ProfilePage() {
                   placeholder="123456"
                 />
               </div>
+              {mfaEnabled && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="recovery-verify-totp">Fresh authenticator code</Label>
+                  <Input
+                    id="recovery-verify-totp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={recoveryTotpCode}
+                    onChange={(event) => setRecoveryTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    maxLength={6}
+                    placeholder="123456"
+                  />
+                </div>
+              )}
               <div className="flex gap-2">
-                <Button size="sm" onClick={verifyRecoveryEmail} disabled={savingRecoveryEmail || recoveryCode.length !== 6}>
+                <Button
+                  size="sm"
+                  onClick={verifyRecoveryEmail}
+                  disabled={savingRecoveryEmail || recoveryCode.length !== 6 || (mfaEnabled && recoveryTotpCode.length !== 6)}
+                >
                   {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                   Verify recovery email
                 </Button>
@@ -617,10 +712,29 @@ export function ProfilePage() {
                   placeholder="Confirm your current password"
                 />
               </div>
+              {mfaEnabled && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="recovery-enroll-totp">Fresh authenticator code</Label>
+                  <Input
+                    id="recovery-enroll-totp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={recoveryTotpCode}
+                    onChange={(event) => setRecoveryTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    maxLength={6}
+                    placeholder="123456"
+                  />
+                </div>
+              )}
               <Button
                 size="sm"
                 onClick={enrollRecoveryEmail}
-                disabled={savingRecoveryEmail || !recoveryEmail || !recoveryReauthPassword}
+                disabled={
+                  savingRecoveryEmail ||
+                  !recoveryEmail ||
+                  !recoveryReauthPassword ||
+                  (mfaEnabled && recoveryTotpCode.length !== 6)
+                }
               >
                     {savingRecoveryEmail && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
                 Send verification code
@@ -638,7 +752,7 @@ export function ProfilePage() {
           </CardTitle>
           <CardDescription>
             Protect sign-in with an authenticator app. Recovery codes are shown once and cannot be restored.
-            If you lose both your authenticator and every recovery code, sign out and use the safe support review path on the sign-in screen.
+            If you lose both your authenticator and every recovery code, use the self-service recovery path on the sign-in screen.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -727,11 +841,34 @@ export function ProfilePage() {
                   placeholder="ABCD-1234-5678-9ABC"
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mfa-fresh-totp-code">Fresh authenticator code</Label>
+                <Input
+                  id="mfa-fresh-totp-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={mfaFreshTotpCode}
+                  onChange={(event) => setMfaFreshTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength={6}
+                  placeholder="123456"
+                />
+              </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={regenerateMFARecoveryCodes} disabled={mfaBusy || !mfaPassword || !mfaRecoveryCode}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={regenerateMFARecoveryCodes}
+                  disabled={mfaBusy || !mfaPassword || !mfaRecoveryCode || !mfaFreshTotpCode}
+                >
                   Regenerate recovery codes
                 </Button>
-                <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={disableMFA} disabled={mfaBusy || !mfaPassword || !mfaRecoveryCode}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                  onClick={disableMFA}
+                  disabled={mfaBusy || !mfaPassword || !mfaRecoveryCode || !mfaFreshTotpCode}
+                >
                   Disable MFA
                 </Button>
               </div>
@@ -739,6 +876,108 @@ export function ProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Trusted devices ────────────────────────────────────────────────── */}
+      {mfaEnabled && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Monitor className="h-4 w-4 text-primary" /> Trusted devices
+            </CardTitle>
+            <CardDescription>
+              Browsers you chose to trust during MFA sign-in. Revoking a device requires a fresh authenticator code.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="trusted-device-totp">Fresh authenticator code</Label>
+              <Input
+                id="trusted-device-totp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={trustedTotpCode}
+                onChange={(event) => setTrustedTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength={6}
+                placeholder="123456"
+                aria-describedby="trusted-device-totp-help"
+              />
+              <p id="trusted-device-totp-help" className="text-xs text-muted-foreground">
+                The code is used only for the revocation request and is not saved.
+              </p>
+            </div>
+
+            {trustedDevicesLoading ? (
+              <div className="space-y-3" aria-label="Loading trusted devices">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            ) : trustedDevicesError ? (
+              <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-3" role="alert">
+                <p className="text-sm text-destructive">{trustedDevicesError}</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setTrustedDevicesError(null);
+                    setTrustedDevicesLoading(true);
+                    goApi.listTrustedDevices()
+                      .then((payload) => setTrustedDevices(payload.devices))
+                      .catch((error) => setTrustedDevicesError(getApiErrorMessage(error, 'Trusted devices could not be loaded.')))
+                      .finally(() => setTrustedDevicesLoading(false));
+                  }}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : trustedDevices.length === 0 ? (
+              <p className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground" role="status">
+                No trusted devices are active.
+              </p>
+            ) : (
+              <div className="space-y-3" aria-label="Trusted device list">
+                {trustedDevices.map((device) => (
+                  <div
+                    key={device.id}
+                    className="flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:items-start sm:justify-between"
+                    data-testid={`trusted-device-${device.id}`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium">
+                          {device.current ? 'This browser' : 'Trusted browser'}
+                        </p>
+                        {device.current && <Badge variant="secondary">Current</Badge>}
+                      </div>
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                        Expires {formatDeviceDate(device.expiresAt)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Last used: {formatDeviceDate(device.lastUsedAt)}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => revokeTrustedDevice(device.id)}
+                      disabled={revokingDeviceId === device.id || trustedTotpCode.length !== 6}
+                      aria-label={`Revoke ${device.current ? 'this browser' : 'trusted browser'}`}
+                    >
+                      {revokingDeviceId === device.id && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
+                      Revoke
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {trustedDevicesNotice && (
+              <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+                {trustedDevicesNotice}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Google Connections ─────────────────────────────────────────────── */}
       <Card>

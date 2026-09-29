@@ -112,9 +112,16 @@ export interface EmailVerificationInput {
   code: string;
 }
 
+export interface RecoveryEmailVerificationInput {
+  email: string;
+  code: string;
+  totpCode?: string;
+}
+
 export interface RecoveryEmailEnrollmentInput {
   email: string;
   currentPassword: string;
+  totpCode?: string;
 }
 
 export type PasswordRecoveryRequestInputMethod = typeof PasswordRecoveryRequestInputMethod[keyof typeof PasswordRecoveryRequestInputMethod];
@@ -163,17 +170,46 @@ export interface MFAStatus {
   enabled: boolean;
 }
 
+export interface MFARecoveryRequestInput {
+  email: string;
+  currentPassword: string;
+}
+
+export interface MFARecoveryVerificationInput {
+  email: string;
+  currentPassword: string;
+  code: string;
+}
+
 export interface MFAReauthenticationInput {
   currentPassword: string;
 }
 
 export interface MFACodeInput {
   code: string;
+  trustDevice?: boolean;
+}
+
+export interface MFAFreshCodeInput {
+  totpCode: string;
 }
 
 export interface MFARecoveryCodeManagementInput {
   currentPassword: string;
   recoveryCode: string;
+  totpCode: string;
+}
+
+export interface TrustedDevice {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  current: boolean;
+}
+
+export interface TrustedDevicesResponse {
+  devices: TrustedDevice[];
 }
 
 export interface MFAEnrollmentResponse {

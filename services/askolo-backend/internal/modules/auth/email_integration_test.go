@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -263,7 +264,17 @@ bucket_hash text PRIMARY KEY,
 window_started_at timestamptz NOT NULL,
 request_count integer NOT NULL
 );
-`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+CREATE TABLE %sauth_trusted_devices (
+ id text PRIMARY KEY,
+ user_id text NOT NULL,
+ credential_hash text UNIQUE NOT NULL,
+ fingerprint_hash text NOT NULL,
+ created_at timestamptz DEFAULT now() NOT NULL,
+ last_used_at timestamptz,
+ expires_at timestamptz NOT NULL,
+ revoked_at timestamptz
+);
+`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
 func testAuthHandler(fixture *emailAuthFixture, sender EmailSender, logger *slog.Logger) http.Handler {
@@ -874,6 +885,90 @@ WHERE table_schema = current_schema()
 	}
 	if storedColumns != "bucket_hash,window_started_at,request_count" {
 		t.Fatalf("MFA recovery rate-limit state exposed unexpected columns: %q", storedColumns)
+	}
+}
+
+func TestMFARecoveryRateLimitsAcrossProcesses(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	handler := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	const address = "mfa-process-limits@example.com"
+	const remote = "192.0.2.250:1000"
+
+	for attempt := 0; attempt < mfaRecoveryRequestRateLimit; attempt++ {
+		response := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/recovery/request", map[string]string{
+			"email": address, "currentPassword": "invalid-password",
+		}, nil, remote)
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("request limit setup attempt %d status=%d", attempt+1, response.Code)
+		}
+	}
+	runMFARecoveryRateLimitProcess(t, fixture.baseURL, "request", address, remote)
+
+	for attempt := 0; attempt < mfaRecoveryVerificationRateLimit; attempt++ {
+		response := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/recovery/verify", map[string]string{
+			"email": address, "currentPassword": "invalid-password", "code": "000001",
+		}, nil, remote)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("verification limit setup attempt %d status=%d", attempt+1, response.Code)
+		}
+	}
+	runMFARecoveryRateLimitProcess(t, fixture.baseURL, "verification", address, remote)
+}
+
+func TestMFARecoveryRateLimitProcessHelper(t *testing.T) {
+	if os.Getenv("ASKOLO_MFA_RECOVERY_PROCESS_HELPER") != "1" {
+		t.Skip("subprocess helper")
+	}
+	databaseURL := os.Getenv("ASKOLO_MFA_RECOVERY_DATABASE_URL")
+	mode := os.Getenv("ASKOLO_MFA_RECOVERY_PROCESS_MODE")
+	address := os.Getenv("ASKOLO_MFA_RECOVERY_PROCESS_EMAIL")
+	remote := os.Getenv("ASKOLO_MFA_RECOVERY_PROCESS_REMOTE")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	store, err := postgres.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("subprocess could not open shared test database")
+	}
+	defer store.Close()
+	fixture := &emailAuthFixture{
+		store: store,
+		authConfig: config.Config{
+			Environment:             "test",
+			SessionCookieName:       "askolo.sid",
+			AuthRateLimitHMACSecret: "integration-only-auth-rate-limit-hmac-secret-at-least-32-bytes",
+			Email: config.EmailConfig{
+				ChallengeSecret: "integration-only-challenge-secret",
+			},
+		},
+	}
+	handler := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	var response *httptest.ResponseRecorder
+	if mode == "request" {
+		response = jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/recovery/request", map[string]string{
+			"email": address, "currentPassword": "invalid-password",
+		}, nil, remote)
+	} else {
+		response = jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/recovery/verify", map[string]string{
+			"email": address, "currentPassword": "invalid-password", "code": "000001",
+		}, nil, remote)
+	}
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("shared recovery throttle did not apply in subprocess: status=%d", response.Code)
+	}
+}
+
+func runMFARecoveryRateLimitProcess(t *testing.T, databaseURL, mode, address, remote string) {
+	t.Helper()
+	command := exec.Command(os.Args[0], "-test.run=^TestMFARecoveryRateLimitProcessHelper$")
+	command.Env = append(os.Environ(),
+		"ASKOLO_MFA_RECOVERY_PROCESS_HELPER=1",
+		"ASKOLO_MFA_RECOVERY_DATABASE_URL="+databaseURL,
+		"ASKOLO_MFA_RECOVERY_PROCESS_MODE="+mode,
+		"ASKOLO_MFA_RECOVERY_PROCESS_EMAIL="+address,
+		"ASKOLO_MFA_RECOVERY_PROCESS_REMOTE="+remote,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("separate-process MFA %s throttle check failed: %s", mode, strings.TrimSpace(string(output)))
 	}
 }
 

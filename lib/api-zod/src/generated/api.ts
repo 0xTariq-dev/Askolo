@@ -106,7 +106,8 @@ export const SetPasswordResponse = zod.void()
 
 export const VerifyEmailBody = zod.object({
   "email": zod.string(),
-  "code": zod.string()
+  "code": zod.string(),
+  "totpCode": zod.string().optional()
 })
 
 export const VerifyEmailResponse = zod.object({
@@ -125,7 +126,8 @@ export const ResendEmailVerificationResponse = zod.object({
 
 export const EnrollRecoveryEmailBody = zod.object({
   "email": zod.string(),
-  "currentPassword": zod.string()
+  "currentPassword": zod.string(),
+  "totpCode": zod.string().optional()
 })
 
 export const EnrollRecoveryEmailResponse = zod.object({
@@ -200,6 +202,51 @@ export const GetMFAStatusResponse = zod.object({
 })
 
 
+export const RequestMFARecoveryBody = zod.object({
+  "email": zod.string(),
+  "currentPassword": zod.string()
+})
+
+export const RequestMFARecoveryResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const VerifyMFARecoveryBody = zod.object({
+  "email": zod.string(),
+  "currentPassword": zod.string(),
+  "code": zod.string()
+})
+
+export const VerifyMFARecoveryResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const ListTrustedDevicesResponse = zod.object({
+  "devices": zod.array(zod.object({
+  "id": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "lastUsedAt": zod.coerce.date().nullable(),
+  "expiresAt": zod.coerce.date(),
+  "current": zod.boolean()
+}))
+})
+
+
+export const RevokeTrustedDeviceParams = zod.object({
+  "deviceId": zod.coerce.string()
+})
+
+export const RevokeTrustedDeviceBody = zod.object({
+  "totpCode": zod.string()
+})
+
+export const RevokeTrustedDeviceResponse = zod.object({
+  "status": zod.string()
+})
+
+
 export const EnrollMFABody = zod.object({
   "currentPassword": zod.string()
 })
@@ -212,7 +259,8 @@ export const EnrollMFAResponse = zod.object({
 
 
 export const ConfirmMFABody = zod.object({
-  "code": zod.string()
+  "code": zod.string(),
+  "trustDevice": zod.boolean().optional()
 })
 
 export const ConfirmMFAResponse = zod.object({
@@ -222,7 +270,8 @@ export const ConfirmMFAResponse = zod.object({
 
 
 export const VerifyMFABody = zod.object({
-  "code": zod.string()
+  "code": zod.string(),
+  "trustDevice": zod.boolean().optional()
 })
 
 export const VerifyMFAResponse = zod.object({
@@ -232,7 +281,8 @@ export const VerifyMFAResponse = zod.object({
 
 export const RegenerateMFARecoveryCodesBody = zod.object({
   "currentPassword": zod.string(),
-  "recoveryCode": zod.string()
+  "recoveryCode": zod.string(),
+  "totpCode": zod.string()
 })
 
 export const RegenerateMFARecoveryCodesResponse = zod.object({
@@ -243,7 +293,8 @@ export const RegenerateMFARecoveryCodesResponse = zod.object({
 
 export const DisableMFABody = zod.object({
   "currentPassword": zod.string(),
-  "recoveryCode": zod.string()
+  "recoveryCode": zod.string(),
+  "totpCode": zod.string()
 })
 
 export const DisableMFAResponse = zod.object({

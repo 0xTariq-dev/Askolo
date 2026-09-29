@@ -6,8 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface MFARecoveryCodeManagementInput {
-  currentPassword: string;
-  recoveryCode: string;
-  totpCode: string;
+export interface RecoveryEmailVerificationInput {
+  email: string;
+  code: string;
+  totpCode?: string;
 }

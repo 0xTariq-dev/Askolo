@@ -15,14 +15,19 @@ before_status="$(git -C "$repo_root" status --porcelain=v1)"
 fixture_scripts="$fixture_root/scripts"
 fixture_artifact="$fixture_root/artifacts/personal-assistant/.replit-artifact"
 fixture_api="$fixture_root/services/askolo-backend/scripts"
+fixture_monitoring="$fixture_root/monitoring/askolo-backend"
 fixture_bin="$fixture_root/bin"
 sentinel="$fixture_root/build-started"
 
-mkdir -p "$fixture_scripts" "$fixture_artifact" "$fixture_api" "$fixture_bin"
+mkdir -p "$fixture_scripts" "$fixture_artifact" "$fixture_api" "$fixture_monitoring" "$fixture_bin"
 cp "$repo_root/scripts/verify-publish-paths.sh" "$fixture_scripts/verify-publish-paths.sh"
 cp "$repo_root/artifacts/personal-assistant/.replit-artifact/artifact.toml" \
   "$fixture_artifact/artifact.toml"
 cp "$repo_root/services/askolo-backend/scripts/build.sh" "$fixture_api/build.sh"
+cp "$repo_root/monitoring/askolo-backend/verify-mfa-recovery-alert-policy.sh" \
+  "$fixture_monitoring/verify-mfa-recovery-alert-policy.sh"
+cp "$repo_root/monitoring/askolo-backend/mfa-recovery-alerts.yaml" \
+  "$fixture_monitoring/mfa-recovery-alerts.yaml"
 
 # If either production build starts, leave a marker that the test can detect.
 cat >"$fixture_bin/pnpm" <<'STUB'

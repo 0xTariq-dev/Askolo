@@ -285,7 +285,10 @@ func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string
 		return voiceCreditReceipt{}, false
 	}
 	payload, _ := json.Marshal(map[string]string{"meterSource": source})
-	evidence := postgres.USDEvidence{UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS, Payload: payload}
+	evidence := postgres.USDEvidence{
+		UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS,
+		ProviderRequestId: source, Payload: payload,
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := h.store.RecordUSDEvidence(ctx, reservation.ID, userID, "assemblyai", reservation.Mode, reservation.Model, reservation.ID+":usage", evidence); err != nil {

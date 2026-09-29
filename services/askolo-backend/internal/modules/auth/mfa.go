@@ -19,7 +19,7 @@ const (
 	totpClockSkewSteps   = int64(1)
 	mfaChallengeTTL      = 5 * time.Minute
 	mfaChallengeAttempts = 5
-	recoveryCodeCount    = 10
+	recoveryCodeCount    = 4
 )
 
 func newTOTPSecret() (string, error) {

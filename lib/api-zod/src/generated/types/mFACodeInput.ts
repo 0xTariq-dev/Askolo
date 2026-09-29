@@ -8,4 +8,5 @@
 
 export interface MFACodeInput {
   code: string;
+  trustDevice?: boolean;
 }
