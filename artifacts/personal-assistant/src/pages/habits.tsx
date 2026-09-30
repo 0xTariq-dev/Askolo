@@ -186,7 +186,7 @@ export function HabitsPage() {
   const activeHabitForHeatmap = habits?.find(h => h.id === selectedHabitId) || habits?.[0] || null;
 
   return (
-    <PageTransition className="space-y-8 max-w-5xl mx-auto pb-10">
+    <PageTransition surface={false} className="space-y-8 max-w-5xl mx-auto pb-10">
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Habits Tracker</h1>

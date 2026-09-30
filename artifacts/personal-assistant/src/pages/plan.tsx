@@ -33,7 +33,6 @@ import { ApiError } from '@workspace/api-client-react';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -41,7 +40,6 @@ import { Calendar as DatePicker } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
-import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import {
   VoiceCaptureButton,
@@ -242,7 +240,7 @@ export function PlanPage() {
   const canGenerate = Boolean(notes.trim()) && !isGenerating && !voiceIsBusy;
 
   return (
-    <PageTransition className="h-full flex flex-col max-w-7xl mx-auto">
+    <PageTransition surface={false} className="h-full flex flex-col max-w-7xl mx-auto">
       <header className="shrink-0 mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight flex items-center gap-3">
@@ -254,19 +252,12 @@ export function PlanPage() {
       </header>
 
       <div className="flex-1 min-h-0 pb-6">
-        <Card className="flex flex-col border-border bg-card/30 backdrop-blur-sm overflow-hidden shadow-sm">
-          <CardHeader className="pb-3 border-b border-border/50 shrink-0 flex flex-row items-center justify-between bg-card/50">
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <ListTodo className="h-5 w-5 text-foreground" />
-              Structured Plan
-                <span className="ms-2 text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-md border border-border">
-                {formatDate(selectedDate, { month: 'short', day: 'numeric' })}
-              </span>
-            </CardTitle>
+        <section className="flex flex-col overflow-hidden">
+          <div className="flex shrink-0 justify-end pb-3">
             <Button variant="ghost" size="icon" onClick={openAdd} className="h-8 w-8 text-muted-foreground hover:text-foreground" aria-label="Add plan item">
               <Plus className="h-4 w-4" />
             </Button>
-          </CardHeader>
+          </div>
           <div className="max-h-[min(42vh,34rem)] overflow-y-auto p-4 space-y-3">
             {isLoading ? (
               <div className="space-y-3">
@@ -345,12 +336,12 @@ export function PlanPage() {
             )}
           </div>
           <div className="border-t border-border/50" />
-          <CardContent className="p-4 sm:p-6">
+          <div className="p-4 sm:p-6">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="text-lg font-display flex items-center gap-2">
+              <h2 className="text-lg font-display flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
                 What&apos;s on your mind?
-              </CardTitle>
+              </h2>
               <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                 <PopoverTrigger asChild>
                   <Button type="button" variant="outline" size="sm" className="w-full justify-start sm:w-auto">
@@ -373,8 +364,6 @@ export function PlanPage() {
                 </PopoverContent>
               </Popover>
             </div>
-            <VoiceCreditPreflight />
-
             <Textarea
               aria-label="Daily plan notes"
               className="min-h-[180px] resize-y bg-muted/40 border-border focus-visible:ring-1 focus-visible:ring-primary/50 text-lg leading-relaxed placeholder:text-muted-foreground/40 p-4"
@@ -444,8 +433,8 @@ export function PlanPage() {
                 Press and hold to record. Audio is sent to AssemblyAI only after the browser validates the recording.
               </p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
 
       <Dialog open={consentOpen} onOpenChange={setConsentOpen}>

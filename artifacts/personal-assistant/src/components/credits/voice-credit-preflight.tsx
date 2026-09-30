@@ -5,7 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { creditApi, creditErrorMessage, formatUsdMicros, type CreditEstimate } from '@/lib/credit-api';
 
-export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink?: boolean }) {
+export function VoiceCreditPreflight({
+  showWalletLink = true,
+  showPolicyVersion = true,
+}: {
+  showWalletLink?: boolean;
+  showPolicyVersion?: boolean;
+}) {
   const [estimate, setEstimate] = useState<CreditEstimate | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -45,7 +51,7 @@ export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink
           </Button>
           {showWalletLink && (
             <Link href="/credits" className="inline-flex min-h-9 items-center rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              View credits
+              View Balance
             </Link>
           )}
         </div>
@@ -72,13 +78,10 @@ export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink
               <span className="text-muted-foreground">Available:</span>{' '}
                <strong><bdi>{formatUsdMicros(estimate.availableUsdMicros)}</bdi></strong>
             </p>
-            {!estimate.canReserve && (
-              <p role="alert" className="basis-full font-medium text-destructive">
-                 Your USD balance is below the amount needed to start voice input.
-              </p>
-            )}
             <p className="basis-full text-xs text-muted-foreground">
-              Policy v{estimate.policyVersion}. The estimate is checked again when the request starts.
+              {showPolicyVersion
+                ? `Policy v${estimate.policyVersion}. The estimate is checked again when the request starts.`
+                : 'The estimate is checked again when the request starts.'}
             </p>
           </div>
         )}

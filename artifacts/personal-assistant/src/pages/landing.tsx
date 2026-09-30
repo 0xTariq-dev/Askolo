@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { LayoutGroup, motion, useReducedMotion } from 'framer-motion';
+import { useEffect } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   CheckCircle2,
   Target,
@@ -19,8 +19,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { AskoloTunnelConcept } from '@/components/hero-animation/AskoloTunnelConcept';
 import { useAskoloTheme } from '@/lib/theme';
 import { PublicLayout } from '@/components/layout/public-layout';
-import { AnimatedBrandName } from '@/components/animated-brand-name';
-import { BrandSlogan, BrandSloganFormation } from '@/components/landing/brand-slogan';
+import { BrandSloganReveal } from '@/components/landing/brand-slogan';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { setPageMetadata } from '@/lib/seo';
@@ -88,7 +87,6 @@ const howItWorks = [
 
 export function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
-  const [brandFormed, setBrandFormed] = useState(Boolean(prefersReducedMotion));
   const {
     preferences: { mode },
   } = useAskoloTheme();
@@ -114,17 +112,6 @@ export function LandingPage() {
     });
   }, []);
 
-  useEffect(() => {
-    if (prefersReducedMotion) {
-      setBrandFormed(true);
-      return;
-    }
-
-    setBrandFormed(false);
-    const timeout = window.setTimeout(() => setBrandFormed(true), 1250);
-    return () => window.clearTimeout(timeout);
-  }, [prefersReducedMotion]);
-
   return (
     <PublicLayout background={pageBackground}>
       {/* Hero */}
@@ -134,55 +121,29 @@ export function LandingPage() {
         className="relative"
       >
         <div className="relative z-20 mx-auto max-w-6xl px-4 pb-16 pt-16 text-center sm:px-6 sm:pb-24 sm:pt-24">
-          <LayoutGroup id="askolo-landing-brand">
-            <div className="sticky top-20 z-30 mx-auto mb-8 flex w-fit max-w-full flex-col items-center">
-              <motion.div
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
-                className="mb-5 h-40 w-auto sm:h-44"
-              >
-                <img
-                  src={logoUrl}
-                  alt=""
-                  width={64}
-                  height={64}
-                  className="h-full w-auto object-contain drop-shadow-2xl"
-                />
-              </motion.div>
+          <div className="mx-auto mb-8 flex w-fit max-w-full flex-col items-center">
+            <motion.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
+              className="mb-5 h-40 w-auto sm:h-44"
+            >
+              <img
+                src={logoUrl}
+                alt=""
+                width={64}
+                height={64}
+                className="h-full w-auto object-contain drop-shadow-2xl"
+              />
+            </motion.div>
 
-              <h1
-                id="landing-heading"
-                aria-label="Askolo"
-                className="min-h-[1.1em] max-w-full text-4xl font-display font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl"
-              >
-                {brandFormed ? (
-                  <AnimatedBrandName layoutIdPrefix="askolo-landing" />
-                ) : (
-                  <span aria-hidden="true" className="invisible inline-block">
-                    Askolo
-                  </span>
-                )}
-              </h1>
-            </div>
-
-            <div className="mx-auto mb-10 max-w-5xl px-2">
-              {brandFormed ? (
-                <BrandSlogan />
-              ) : (
-                <BrandSloganFormation
-                  layoutIdPrefix="askolo-landing"
-                  reduceMotion={Boolean(prefersReducedMotion)}
-                />
-              )}
-            </div>
-          </LayoutGroup>
+            <BrandSloganReveal />
+          </div>
 
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-            animate={{ opacity: brandFormed ? 1 : 0, y: brandFormed ? 0 : 12 }}
-            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.55, ease: 'easeOut' }}
-            aria-hidden={!brandFormed}
+            animate={{ opacity: 1, y: 0 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.55, delay: 0.6, ease: 'easeOut' }}
             className="mx-auto mb-10 max-w-3xl"
           >
             <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">

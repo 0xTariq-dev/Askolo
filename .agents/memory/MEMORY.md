@@ -32,6 +32,7 @@
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Replit artifact and canvas separation](replit-artifact-cleanup.md) — artifact files, Library registrations, and canvas frames are separate; inspect frame provenance before changing active service configuration.
+- [Manual artifact builds](artifact-shell-build-env.md) — shell builds do not inherit the artifact workflow's manifest environment; pass required values from the current manifest.
 - [Same-origin auth routing](same-origin-auth-routing.md) — render app routes locally when public and app origins share a host; otherwise redirects can loop forever.
 - [Production autoscale configuration](production-autoscale-config.md) — verify required Go production env vars and internal-auth secret before Autoscale promotion.
 - [Static Go binaries for Autoscale](go-autoscale-static-binary.md) — avoid Nix-loader “not found” crashes by producing and verifying a static production executable.

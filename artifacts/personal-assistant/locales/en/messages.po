@@ -29,7 +29,7 @@ msgstr "Actions"
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:30
 msgid "nav.aiCredits"
-msgstr "AI Credits"
+msgstr "Balance"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:52

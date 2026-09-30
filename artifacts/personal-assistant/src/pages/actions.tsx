@@ -149,7 +149,7 @@ export function ActionsPage() {
   const manualCount = (items || []).filter((i) => i.sourceType !== 'meeting' && !i.completed).length;
 
   return (
-    <PageTransition className="max-w-5xl mx-auto space-y-6 pb-10">
+    <PageTransition surface={false} className="max-w-5xl mx-auto space-y-6 pb-10">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold tracking-tight">My Actions</h1>
