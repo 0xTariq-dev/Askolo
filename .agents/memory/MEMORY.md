@@ -7,6 +7,7 @@
 - [Lingui macros in Vite](lingui-vite-macros.md) — the PO catalog plugin does not replace the Babel transform required by `@lingui/core/macro`.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
+- [Signup welcome-credit atomicity](signup-welcome-credit-atomicity.md) — grant only at verified signup and commit the ledger entry with its balance change under one stable per-user key.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
 - [Opt-in AssemblyAI provider tests](assemblyai-live-tests.md) — keep billable real-provider checks separate from deterministic mock tests and gate them explicitly.

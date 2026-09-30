@@ -15,6 +15,12 @@ import (
 
 const USDMicroUnitsPerDollar int64 = 1_000_000
 
+const (
+	signupWelcomeUSDGrantAmount int64 = 5 * USDMicroUnitsPerDollar
+	signupWelcomeUSDGrantKey          = "welcome-credit-usd-v1"
+	signupWelcomeUSDGrantReason       = "Signup welcome credit"
+)
+
 type USDRateCard struct {
 	Provider                  string `json:"provider"`
 	Mode                      string `json:"mode"`
@@ -162,6 +168,55 @@ func (s *Store) USDUsage(ctx context.Context, userID string) (USDUsage, error) {
 		return u, nil
 	}
 	return u, err
+}
+
+func grantSignupWelcomeUSDTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	if strings.TrimSpace(userID) == "" {
+		return errors.New("welcome grant user is required")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id) VALUES($1) ON CONFLICT DO NOTHING`, userID); err != nil {
+		return err
+	}
+	var lockedUserID string
+	if err := tx.QueryRow(ctx, `SELECT user_id FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		return err
+	}
+
+	var sourceType, currency, reason string
+	var amount int64
+	err := tx.QueryRow(ctx, `
+		SELECT source_type, currency, amount_usd_micros, COALESCE(reason, '')
+		FROM ai_credit_grants
+		WHERE user_id=$1 AND idempotency_key=$2
+	`, userID, signupWelcomeUSDGrantKey).Scan(&sourceType, &currency, &amount, &reason)
+	if err == nil {
+		if sourceType == "signup" && currency == "USD" &&
+			amount == signupWelcomeUSDGrantAmount && reason == signupWelcomeUSDGrantReason {
+			return nil
+		}
+		return ErrUSDReservationConflict
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	metadata := json.RawMessage(`{"grantType":"signup_welcome","version":1}`)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_credit_grants
+			(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,
+			 actor_user_id,reason,currency,amount_usd_micros)
+		VALUES ($1,'signup',1,$2,$2,$3,NULL,$4,'USD',$5)
+	`, userID, signupWelcomeUSDGrantKey, metadata, signupWelcomeUSDGrantReason, signupWelcomeUSDGrantAmount); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE ai_credit_accounts
+		SET granted_usd_micros=granted_usd_micros+$2,updated_at=NOW()
+		WHERE user_id=$1
+	`, userID, signupWelcomeUSDGrantAmount); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) ReserveUSD(ctx context.Context, id, userID, operation, provider, mode, model, key string, amount, ttl int64, policyVersion int, snapshot json.RawMessage) (USDReservation, bool, error) {
