@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pause, Play, Square, Volume2 } from 'lucide-react';
+import { Loader2, Pause, Play, Square, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AssistantSpeechStatus } from '@/hooks/use-assistant-speech';
 
@@ -22,8 +22,11 @@ export function AssistantSpeechControl({
 }: AssistantSpeechControlProps) {
   const isSpeaking = status === 'speaking';
   const isPaused = status === 'paused';
-  const isActive = isSpeaking || isPaused;
-  const label = isSpeaking
+  const isLoading = status === 'loading';
+  const isActive = isLoading || isSpeaking || isPaused;
+  const label = isLoading
+    ? 'Preparing response playback'
+    : isSpeaking
     ? 'Pause response playback'
     : isPaused
       ? 'Resume response playback'
@@ -38,12 +41,14 @@ export function AssistantSpeechControl({
         className="min-h-9"
         aria-label={label}
         aria-pressed={isActive}
+        disabled={isLoading}
         onClick={isSpeaking ? onPause : isPaused ? onResume : onSpeak}
       >
-        {isSpeaking ? <Pause className="mr-1.5 h-4 w-4" aria-hidden="true" /> :
+        {isLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" /> :
+          isSpeaking ? <Pause className="mr-1.5 h-4 w-4" aria-hidden="true" /> :
           isPaused ? <Play className="mr-1.5 h-4 w-4" aria-hidden="true" /> :
             <Volume2 className="mr-1.5 h-4 w-4" aria-hidden="true" />}
-        {isSpeaking ? 'Pause' : isPaused ? 'Resume' : status === 'unsupported' ? 'Try again' : 'Listen'}
+        {isLoading ? 'Preparing…' : isSpeaking ? 'Pause' : isPaused ? 'Resume' : status === 'error' || status === 'unsupported' ? 'Try again' : 'Listen'}
       </Button>
       {isActive && (
         <Button
@@ -57,6 +62,11 @@ export function AssistantSpeechControl({
           <Square className="mr-1.5 h-4 w-4" aria-hidden="true" />
           Stop
         </Button>
+      )}
+      {isLoading && (
+        <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
+          Preparing speech…
+        </span>
       )}
       {error && (
         <span className="text-xs text-destructive" role="status" aria-live="polite">

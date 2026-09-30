@@ -12,6 +12,7 @@ import (
 )
 
 const VoiceConsentVersion = "voice-v5"
+const VoiceOutputConsentVersion = "azure-tts-v1"
 
 type AICreditPolicy struct {
 	Version              int            `json:"version"`
@@ -926,6 +927,50 @@ func (s *Store) SetVoiceConsent(ctx context.Context, userID string, enabled bool
 	return err
 }
 
+func (s *Store) VoiceOutputConsent(ctx context.Context, userID string) (bool, string, error) {
+	if s == nil || s.pool == nil {
+		return false, "", errors.New("database is not configured")
+	}
+	var consentAt *time.Time
+	var version *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT consent_at, consent_version FROM voice_output_preferences WHERE user_id = $1
+	`, userID).Scan(&consentAt, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
+	if consentAt == nil || version == nil || *version != VoiceOutputConsentVersion {
+		if version == nil {
+			return false, "", nil
+		}
+		return false, *version, nil
+	}
+	return true, *version, nil
+}
+
+func (s *Store) SetVoiceOutputConsent(ctx context.Context, userID string, enabled bool) error {
+	if s == nil || s.pool == nil {
+		return errors.New("database is not configured")
+	}
+	var consentAt any
+	var consentVersion any
+	if enabled {
+		consentAt, consentVersion = time.Now().UTC(), VoiceOutputConsentVersion
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO voice_output_preferences (user_id, consent_at, consent_version)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id) DO UPDATE SET
+			consent_at = EXCLUDED.consent_at,
+			consent_version = EXCLUDED.consent_version,
+			updated_at = NOW()
+	`, userID, consentAt, consentVersion)
+	return err
+}
+
 func (s *Store) UpdateUserProfile(
 	ctx context.Context,
 	userID string,
@@ -975,6 +1020,7 @@ func (s *Store) DeleteUserData(ctx context.Context, userID string) error {
 		`DELETE FROM assistant_conversations WHERE user_id = $1`,
 		`DELETE FROM action_items WHERE user_id = $1`,
 		`DELETE FROM voice_preferences WHERE user_id = $1`,
+		`DELETE FROM voice_output_preferences WHERE user_id = $1`,
 		`DELETE FROM ai_credit_accounts WHERE user_id = $1`,
 		`UPDATE users SET preferred_locale = NULL, updated_at = NOW() WHERE id = $1`,
 	} {

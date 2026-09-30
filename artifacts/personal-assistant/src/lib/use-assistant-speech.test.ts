@@ -49,6 +49,9 @@ class FakeSpeechSynthesis {
 async function mountSpeechControl(options: {
   supported?: boolean;
   language?: string;
+  azureStatus?: number;
+  azurePlaybackFails?: boolean;
+  holdAzureResponse?: boolean;
 } = {}) {
   const browser = new HappyWindow({ url: 'http://localhost/' });
   const previousGlobals = new Map<string, PropertyDescriptor | undefined>();
@@ -79,6 +82,59 @@ async function mountSpeechControl(options: {
   setGlobal('MouseEvent', browser.MouseEvent);
   setGlobal('SpeechSynthesisUtterance', FakeUtterance);
   setGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const audioInstances: Array<{
+    src: string;
+    onended: (() => void) | null;
+    onerror: (() => void) | null;
+    playCalls: number;
+    pauseCalls: number;
+    play: () => Promise<void>;
+    pause: () => void;
+    removeAttribute: (name: string) => void;
+    load: () => void;
+  }> = [];
+  class FakeAudio {
+    onended: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    playCalls = 0;
+    pauseCalls = 0;
+    constructor(public src: string) { audioInstances.push(this); }
+    play() {
+      this.playCalls += 1;
+      return options.azurePlaybackFails
+        ? Promise.reject(new Error('playback failed'))
+        : Promise.resolve();
+    }
+    pause() { this.pauseCalls += 1; }
+    removeAttribute(name: string) { if (name === 'src') this.src = ''; }
+    load() {}
+  }
+  setGlobal('Audio', FakeAudio);
+  const NativeURL = URL;
+  class TestURL extends NativeURL {}
+  Object.defineProperty(TestURL, 'createObjectURL', { value: () => 'blob:test-audio', configurable: true });
+  Object.defineProperty(TestURL, 'revokeObjectURL', { value: () => undefined, configurable: true });
+  setGlobal('URL', TestURL);
+  let lastRequest: { input: RequestInfo | URL; init?: RequestInit } | null = null;
+  setGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    lastRequest = { input, init };
+    if (options.holdAzureResponse) {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+    }
+    const status = options.azureStatus ?? 502;
+    const response = status === 200
+      ? new Response(new Blob(['mp3'], { type: 'audio/mpeg' }), {
+          status,
+          headers: { 'Content-Type': 'audio/mpeg' },
+        })
+      : new Response(JSON.stringify({ code: 'VOICE_SYNTHESIS_FAILED', message: 'Speech unavailable' }), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+    return Promise.resolve(response);
+  });
 
   let output: ReturnType<typeof useAssistantSpeech> | undefined;
   const container = browser.document.createElement('div');
@@ -92,7 +148,7 @@ async function mountSpeechControl(options: {
     return React.createElement(AssistantSpeechControl, {
       status: active ? current.status : 'idle',
       error: active ? current.error : '',
-      onSpeak: () => current.speak('assistant-test', 'Your team review is scheduled for Friday.'),
+      onSpeak: () => current.speak('assistant-test', 'Your team review is scheduled for Friday.', { runId: 'run-test' }),
       onPause: () => current.pause('assistant-test'),
       onResume: () => current.resume('assistant-test'),
       onStop: current.stop,
@@ -107,6 +163,8 @@ async function mountSpeechControl(options: {
     browser,
     container,
     synthesis,
+    audioInstances,
+    get lastRequest() { return lastRequest; },
     get output() {
       assert.ok(output, 'speech hook has not rendered');
       return output;
@@ -120,6 +178,7 @@ async function mountSpeechControl(options: {
           cancelable: true,
           detail: 0,
         }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
       });
     },
     async cleanup() {
@@ -164,7 +223,7 @@ test('Arabic assistant responses select an Arabic browser voice when available',
   const harness = await mountSpeechControl({ language: 'ar-EG' });
   try {
     await act(async () => {
-      harness.output.speak('assistant-test', 'تم تحديد موعد الاجتماع يوم الجمعة.');
+      await harness.output.speak('assistant-test', 'تم تحديد موعد الاجتماع يوم الجمعة.', { runId: 'run-test' });
     });
 
     assert.equal(harness.output.status, 'speaking');
@@ -180,7 +239,7 @@ test('missing browser speech support and oversized text produce accessible feedb
   try {
     await unsupported.click('Listen to response');
     assert.equal(unsupported.output.status, 'unsupported');
-    assert.equal(unsupported.container.querySelector('[role="status"]')?.textContent, 'Speech playback is unavailable in this browser.');
+    assert.equal(unsupported.container.querySelector('[role="status"]')?.textContent, 'Azure speech failed and device speech is unavailable.');
     assert.equal(unsupported.synthesis.spoken.length, 0);
   } finally {
     await unsupported.cleanup();
@@ -189,13 +248,70 @@ test('missing browser speech support and oversized text produce accessible feedb
   const longResponse = await mountSpeechControl();
   try {
     await act(async () => {
-      longResponse.output.speak('assistant-test', 'x'.repeat(12_001));
+      await longResponse.output.speak('assistant-test', 'x'.repeat(12_001), { runId: 'run-test' });
     });
     assert.equal(longResponse.output.status, 'error');
     assert.equal(longResponse.container.querySelector('[role="status"]')?.textContent, 'This response is too long to read aloud.');
     assert.equal(longResponse.synthesis.spoken.length, 0);
   } finally {
     await longResponse.cleanup();
+  }
+});
+
+test('Azure audio is primary and does not use browser speech on success', async () => {
+  const harness = await mountSpeechControl({ azureStatus: 200 });
+  try {
+    await harness.click('Listen to response');
+    assert.equal(harness.output.status, 'speaking');
+    assert.equal(harness.audioInstances.length, 1);
+    assert.equal(harness.audioInstances[0].playCalls, 1);
+    assert.equal(harness.synthesis.spoken.length, 0);
+    assert.equal(String(harness.lastRequest?.input), '/api/ai/assistant/runs/run-test/speech');
+    assert.equal(harness.lastRequest?.init?.body, undefined);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('Azure synthesis or playback failure falls back to device speech once', async () => {
+  const synthesisFailure = await mountSpeechControl({ azureStatus: 502 });
+  try {
+    await synthesisFailure.click('Listen to response');
+    assert.equal(synthesisFailure.output.status, 'speaking');
+    assert.equal(synthesisFailure.synthesis.spoken.length, 1);
+  } finally {
+    await synthesisFailure.cleanup();
+  }
+
+  const playbackFailure = await mountSpeechControl({ azureStatus: 200, azurePlaybackFails: true });
+  try {
+    await playbackFailure.click('Listen to response');
+    assert.equal(playbackFailure.output.status, 'speaking');
+    assert.equal(playbackFailure.synthesis.spoken.length, 1);
+  } finally {
+    await playbackFailure.cleanup();
+  }
+});
+
+test('authorization failures do not trigger device speech, and Stop cancels pending Azure requests', async () => {
+  const denied = await mountSpeechControl({ azureStatus: 403 });
+  try {
+    await denied.click('Listen to response');
+    assert.equal(denied.output.status, 'error');
+    assert.equal(denied.synthesis.spoken.length, 0);
+  } finally {
+    await denied.cleanup();
+  }
+
+  const pending = await mountSpeechControl({ holdAzureResponse: true });
+  try {
+    await pending.click('Listen to response');
+    assert.equal(pending.output.status, 'loading');
+    await pending.click('Stop response playback');
+    assert.equal(pending.output.status, 'idle');
+    assert.equal(pending.synthesis.spoken.length, 0);
+  } finally {
+    await pending.cleanup();
   }
 });
 

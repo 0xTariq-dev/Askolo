@@ -42,6 +42,9 @@ type Config struct {
 	AssemblyAIKey                 string
 	OpenAIAPIKey                  string
 	OpenAIBaseURL                 string
+	AzureTTSKey                   string
+	AzureTTSRegion                string
+	AzureTTSURL                   string
 	AllowedOAuthHosts             map[string]struct{}
 	AdminEmails                   map[string]struct{}
 }
@@ -245,6 +248,9 @@ func Load() (Config, error) {
 		AssemblyAIKey:     strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
 		OpenAIAPIKey:      strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_API_KEY")),
 		OpenAIBaseURL:     strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_BASE_URL")),
+		AzureTTSKey:       strings.TrimSpace(os.Getenv("AZURE_TTS_KEY")),
+		AzureTTSRegion:    strings.TrimSpace(os.Getenv("AZURE_TTS_REGION")),
+		AzureTTSURL:       strings.TrimSpace(os.Getenv("AZURE_TTS_URL")),
 		AllowedOAuthHosts: oauthHosts(environment, canonicalOrigin),
 		AdminEmails:       adminEmails,
 	}, nil
