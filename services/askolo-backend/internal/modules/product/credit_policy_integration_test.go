@@ -109,7 +109,7 @@ func TestTranscriptionPreferenceRoutesRejectAnonymousRequests(t *testing.T) {
 	}
 }
 
-	func TestTranscriptionPreferencesAuthenticatedConsentPersists(t *testing.T) {
+func TestTranscriptionPreferencesAuthenticatedConsentPersists(t *testing.T) {
 	fixture := openCreditPolicyIntegrationFixture(t)
 	sessionID := fixture.createUserAndSession(
 		t,
@@ -167,7 +167,7 @@ func TestTranscriptionPreferenceRoutesRejectAnonymousRequests(t *testing.T) {
 		t.Fatalf("consent update status = %d, want %d (code %q)", patchResponse.Code, http.StatusOK, failure.Code)
 	}
 	var updated struct {
-ConsentGiven   bool   `json:"consentGiven"`
+		ConsentGiven   bool   `json:"consentGiven"`
 		ConsentVersion string `json:"consentVersion"`
 	}
 	if err := json.NewDecoder(patchResponse.Body).Decode(&updated); err != nil {
@@ -190,7 +190,7 @@ ConsentGiven   bool   `json:"consentGiven"`
 		t.Fatalf("consent read status = %d, want %d", getResponse.Code, http.StatusOK)
 	}
 	var persisted struct {
-ConsentGiven   bool   `json:"consentGiven"`
+		ConsentGiven   bool   `json:"consentGiven"`
 		ConsentVersion string `json:"consentVersion"`
 	}
 	if err := json.NewDecoder(getResponse.Body).Decode(&persisted); err != nil {
@@ -205,7 +205,7 @@ ConsentGiven   bool   `json:"consentGiven"`
 	}
 }
 
-	func creditPolicySchemaURL(t *testing.T, databaseURL, schema string) string {
+func creditPolicySchemaURL(t *testing.T, databaseURL, schema string) string {
 	t.Helper()
 	parsed, err := url.Parse(databaseURL)
 	if err != nil {
@@ -414,6 +414,133 @@ func TestCreditAdminAllowlistedVerifiedUserCanUpdatePolicy(t *testing.T) {
 	}
 	if updated.Version != current.Version+1 {
 		t.Fatalf("updated policy version = %d, want %d", updated.Version, current.Version+1)
+	}
+}
+
+func TestAICreditEstimateResolvesPublicPricingKeysAndUnits(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	userID := "credit-estimate-user"
+	sessionID := fixture.createUserAndSession(t, userID, "estimate@example.test", true)
+	if err := fixture.store.EnsurePersonalWorkspace(fixture.ctx, userID); err != nil {
+		t.Fatalf("ensure test personal workspace: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx,
+		postgres.DefaultWorkspaceID(userID),
+		userID,
+		"active",
+		"owner",
+		policy.PersonalWorkspaceCapabilities,
+	); err != nil {
+		t.Fatalf("set test workspace membership: %v", err)
+	}
+
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+	estimate := func(key, units string) *httptest.ResponseRecorder {
+		query := url.Values{}
+		query.Set("pricingKey", key)
+		query.Set("units", units)
+		request := httptest.NewRequest(http.MethodGet, "/api/ai/credits/estimate?"+query.Encode(), nil)
+		request.Header.Set("Authorization", "Bearer "+sessionID)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	current, err := fixture.store.USDPolicy(fixture.ctx)
+	if err != nil {
+		t.Fatalf("read initial USD policy: %v", err)
+	}
+	if current.RateCards == nil {
+		current.RateCards = make(map[string]postgres.USDRateCard)
+	}
+	delete(current.RateCards, "openai:assistant:"+assistantPlannerModel)
+	savePolicy := func(next postgres.USDPolicy, reason string) postgres.USDPolicy {
+		t.Helper()
+		expectedVersion := next.Version
+		next.Version++
+		next.ChangeReason = reason
+		updated, updateErr := fixture.store.UpdateUSDPolicy(fixture.ctx, expectedVersion, next, userID)
+		if updateErr != nil {
+			t.Fatalf("save test USD policy: %v", updateErr)
+		}
+		return updated
+	}
+	current = savePolicy(current, "verify missing assistant rate card handling")
+
+	missingAssistantCard := estimate("assistant", "1")
+	if missingAssistantCard.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(missingAssistantCard.Body.String(), `"code":"AI_POLICY_INVALID"`) {
+		t.Fatalf("missing assistant card status/body = %d %q, want AI_POLICY_INVALID", missingAssistantCard.Code, missingAssistantCard.Body.String())
+	}
+
+	current.RateCards["openai:assistant:"+assistantPlannerModel] = postgres.USDRateCard{
+		Provider: "openai", Mode: "assistant", Model: assistantPlannerModel, Meter: "tokens",
+		InputUsdMicrosPerMillion:  1_000_000,
+		OutputUsdMicrosPerMillion: 2_000_000,
+	}
+	current.RateCards["assemblyai:recorded:"+assemblyAIRealtimeSpeechModel] = postgres.USDRateCard{
+		Provider: "assemblyai", Mode: "recorded", Model: assemblyAIRealtimeSpeechModel,
+		Meter: "hour", UsdMicrosPerHour: 210_000,
+	}
+	current.RateCards["assemblyai:realtime:"+assemblyAIRealtimeSpeechModel] = postgres.USDRateCard{
+		Provider: "assemblyai", Mode: "realtime", Model: assemblyAIRealtimeSpeechModel,
+		Meter: "hour", UsdMicrosPerHour: 450_000,
+	}
+	current = savePolicy(current, "verify public estimate key resolution")
+
+	for _, test := range []struct {
+		name         string
+		key          string
+		units        string
+		wantUnits    int
+		wantUnit     string
+		wantEstimate int64
+	}{
+		{name: "one assistant request uses reservation token caps", key: "assistant", units: "1", wantUnits: 1, wantUnit: "request", wantEstimate: 4_608},
+		{name: "recorded voice units are seconds", key: "voice.recorded", units: "60", wantUnits: 60, wantUnit: "seconds", wantEstimate: 3_500},
+		{name: "realtime voice units are seconds", key: "voice.realtime", units: "60", wantUnits: 60, wantUnit: "seconds", wantEstimate: 7_500},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := estimate(test.key, test.units)
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d; body=%q", response.Code, http.StatusOK, response.Body.String())
+			}
+			var result struct {
+				PricingKey         string `json:"pricingKey"`
+				Units              int    `json:"units"`
+				Unit               string `json:"unit"`
+				EstimatedUsdMicros int64  `json:"estimatedUsdMicros"`
+			}
+			if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+				t.Fatalf("decode estimate response: %v", err)
+			}
+			if result.PricingKey != test.key || result.Units != test.wantUnits ||
+				result.Unit != test.wantUnit || result.EstimatedUsdMicros != test.wantEstimate {
+				t.Fatalf("estimate = %#v, want key %q, units %d %s, amount %d",
+					result, test.key, test.wantUnits, test.wantUnit, test.wantEstimate)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name  string
+		key   string
+		units string
+	}{
+		{name: "unknown key", key: "unknown", units: "1"},
+		{name: "zero units", key: "voice.recorded", units: "0"},
+		{name: "non-numeric units", key: "voice.recorded", units: "not-a-number"},
+		{name: "units over limit", key: "assistant", units: "10000001"},
+		{name: "assistant estimate must cover one request", key: "assistant", units: "2"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := estimate(test.key, test.units)
+			if response.Code != http.StatusBadRequest ||
+				!strings.Contains(response.Body.String(), `"code":"INVALID_ESTIMATE"`) {
+				t.Fatalf("status/body = %d %q, want INVALID_ESTIMATE", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 
