@@ -71,7 +71,8 @@ type assemblyAITranscriptResponse struct {
 }
 
 type assemblyAIHTTPStatusError struct {
-	statusCode int
+	statusCode            int
+	providerErrorCategory string
 }
 
 type assemblyAIDeletionDiagnostics struct {
@@ -82,13 +83,14 @@ type assemblyAIDeletionDiagnostics struct {
 }
 
 type assemblyAIDiagnosticError struct {
-	stage               string
-	failureKind         string
-	httpStatus          int
-	lastPollFailureKind string
-	lastPollHTTPStatus  int
-	deletion            assemblyAIDeletionDiagnostics
-	cause               error
+	stage                 string
+	failureKind           string
+	httpStatus            int
+	providerErrorCategory string
+	lastPollFailureKind   string
+	lastPollHTTPStatus    int
+	deletion              assemblyAIDeletionDiagnostics
+	cause                 error
 }
 
 func (e assemblyAIDiagnosticError) Error() string {
@@ -132,6 +134,37 @@ func assemblyAIRequestFailure(err error) (string, int) {
 	return "network_error", 0
 }
 
+func withAssemblyAIProviderErrorCategory(diagnosticErr, requestErr error) error {
+	var diagnostic assemblyAIDiagnosticError
+	var statusError assemblyAIHTTPStatusError
+	if errors.As(diagnosticErr, &diagnostic) && errors.As(requestErr, &statusError) {
+		diagnostic.providerErrorCategory = statusError.providerErrorCategory
+		return diagnostic
+	}
+	return diagnosticErr
+}
+
+func classifyAssemblyAIProviderError(body []byte) string {
+	message := strings.ToLower(string(body))
+	switch {
+	case strings.Contains(message, "speech_models"), strings.Contains(message, "speech model"):
+		return "model_configuration"
+	case strings.Contains(message, "language_code"), strings.Contains(message, "language code"):
+		return "language_configuration"
+	case strings.Contains(message, "redact_pii"), strings.Contains(message, "pii redaction"):
+		return "privacy_configuration"
+	case strings.Contains(message, "audio_url"),
+		strings.Contains(message, "audio file"),
+		strings.Contains(message, "audio format"),
+		strings.Contains(message, "unsupported media"):
+		return "audio_input"
+	case len(body) > 0:
+		return "unclassified"
+	default:
+		return ""
+	}
+}
+
 func assemblyAIDiagnosticLogAttrs(err error) []any {
 	var diagnostic assemblyAIDiagnosticError
 	if !errors.As(err, &diagnostic) {
@@ -150,6 +183,9 @@ func assemblyAIDiagnosticLogAttrs(err error) []any {
 	}
 	if diagnostic.httpStatus > 0 {
 		attrs = append(attrs, "http_status", diagnostic.httpStatus)
+	}
+	if diagnostic.providerErrorCategory != "" {
+		attrs = append(attrs, "provider_error_category", diagnostic.providerErrorCategory)
 	}
 	if diagnostic.lastPollFailureKind != "" {
 		attrs = append(attrs, "last_poll_failure_kind", diagnostic.lastPollFailureKind)
@@ -320,7 +356,7 @@ func transcribeAssemblyAI(
 
 	submitPayload := map[string]any{
 		"audio_url":      uploaded.URL,
-		"speech_models":  []string{"universal-3-5-pro"},
+		"speech_models":  []string{"universal-3-5-pro", "universal-2"},
 		"speaker_labels": false,
 		"redact_pii":     true,
 		"redact_pii_sub": "hash",
@@ -339,11 +375,11 @@ func transcribeAssemblyAI(
 	if err != nil {
 		failureKind, statusCode := assemblyAIRequestFailure(err)
 		if ctx.Err() != nil {
-			return empty, notAttempted.handlerStatus(),
-				newAssemblyAIDiagnosticError("transcript_submission", failureKind, statusCode, notAttempted, ctx.Err())
+			diagnostic := newAssemblyAIDiagnosticError("transcript_submission", failureKind, statusCode, notAttempted, ctx.Err())
+			return empty, notAttempted.handlerStatus(), withAssemblyAIProviderErrorCategory(diagnostic, err)
 		}
-		return empty, notAttempted.handlerStatus(),
-			newAssemblyAIDiagnosticError("transcript_submission", failureKind, statusCode, notAttempted, errAssemblyAIProviderFailure)
+		diagnostic := newAssemblyAIDiagnosticError("transcript_submission", failureKind, statusCode, notAttempted, errAssemblyAIProviderFailure)
+		return empty, notAttempted.handlerStatus(), withAssemblyAIProviderErrorCategory(diagnostic, err)
 	}
 	var submitted struct {
 		ID string `json:"id"`
@@ -464,9 +500,13 @@ func assemblyAIRequest(
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		statusCode := response.StatusCode
+		errorBody, _ := io.ReadAll(io.LimitReader(response.Body, 8*1024))
 		response.Body.Close()
 		cancel()
-		return nil, nil, assemblyAIHTTPStatusError{statusCode: statusCode}
+		return nil, nil, assemblyAIHTTPStatusError{
+			statusCode:            statusCode,
+			providerErrorCategory: classifyAssemblyAIProviderError(errorBody),
+		}
 	}
 	return response, cancel, nil
 }
