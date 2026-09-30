@@ -1137,6 +1137,43 @@ func (h *Handler) adminRefundReservation(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "refunded", "reason": input.Reason})
 }
 
+func usdEstimateRateCardKey(pricingKey string) (string, bool) {
+	switch pricingKey {
+	case "assistant":
+		return "openai:assistant:" + assistantPlannerModel, true
+	case "voice.recorded":
+		return "assemblyai:recorded:" + assemblyAIRealtimeSpeechModel, true
+	case "voice.realtime":
+		return "assemblyai:realtime:" + assemblyAIRealtimeSpeechModel, true
+	default:
+		return pricingKey, false
+	}
+}
+
+func estimateAssistantRequestUsdMicros(card postgres.USDRateCard) (int64, bool) {
+	if card.Meter != "tokens" || card.InputUsdMicrosPerMillion <= 0 ||
+		card.OutputUsdMicrosPerMillion <= 0 {
+		return 0, false
+	}
+	inputMicros, ok := ceilMulDiv(
+		card.InputUsdMicrosPerMillion,
+		assistantPlannerInputTokenReservationCap,
+		postgres.USDMicroUnitsPerDollar,
+	)
+	if !ok {
+		return 0, false
+	}
+	outputMicros, ok := ceilMulDiv(
+		card.OutputUsdMicrosPerMillion,
+		assistantPlannerOutputTokenReservationCap,
+		postgres.USDMicroUnitsPerDollar,
+	)
+	if !ok || inputMicros > math.MaxInt64-outputMicros {
+		return 0, false
+	}
+	return inputMicros + outputMicros, true
+}
+
 func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
 	if status != http.StatusOK {
@@ -1147,26 +1184,44 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := r.URL.Query().Get("pricingKey")
-	units, err := strconv.Atoi(r.URL.Query().Get("units"))
+	units, unitsErr := strconv.Atoi(r.URL.Query().Get("units"))
+	if key == "" || unitsErr != nil || units < 1 || units > 10000000 ||
+		(key == "assistant" && units != 1) {
+		writeError(w, http.StatusBadRequest, "INVALID_ESTIMATE", "A valid pricing key and units are required.")
+		return
+	}
 	p, policyErr := h.store.USDPolicy(r.Context())
 	if policyErr != nil {
 		h.storeError(w, "AI policy lookup failed", policyErr)
 		return
 	}
-	card, known := p.RateCards[key]
-	if key == "" || !known || units < 1 || units > 10000000 {
+	rateCardKey, publicPricingKey := usdEstimateRateCardKey(key)
+	card, known := p.RateCards[rateCardKey]
+	if !known && publicPricingKey {
+		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
+		return
+	}
+	if !known {
 		writeError(w, http.StatusBadRequest, "INVALID_ESTIMATE", "A valid pricing key and units are required.")
 		return
 	}
 	var estimated int64
 	var ok bool
-	switch card.Meter {
-	case "hour":
+	unit := card.Meter
+	switch {
+	case key == "assistant":
+		estimated, ok = estimateAssistantRequestUsdMicros(card)
+		unit = "request"
+	case card.Meter == "hour":
 		estimated, ok = ceilMulDiv(card.UsdMicrosPerHour, int64(units), 3600)
-	case "input_tokens", "output_tokens", "tokens":
+		unit = "seconds"
+	case card.Meter == "input_tokens":
+		estimated, ok = ceilMulDiv(card.InputUsdMicrosPerMillion, int64(units), postgres.USDMicroUnitsPerDollar)
+	case card.Meter == "output_tokens":
+		estimated, ok = ceilMulDiv(card.OutputUsdMicrosPerMillion, int64(units), postgres.USDMicroUnitsPerDollar)
+	case card.Meter == "tokens":
 		estimated, ok = ceilMulDiv(card.InputUsdMicrosPerMillion+card.OutputUsdMicrosPerMillion, int64(units), 1000000)
-	default:
-		ok = false
+		unit = "tokens"
 	}
 	if !ok || estimated < 1 {
 		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
@@ -1182,7 +1237,6 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, "USD usage lookup failed", err)
 		return
 	}
-	unit := card.Meter
 	writeJSON(w, http.StatusOK, map[string]any{"currency": "USD", "pricingKey": key, "units": units, "estimatedUsdMicros": estimated, "hardCapUsdMicros": hardCap, "availableUsdMicros": usage.BalanceUsdMicros, "policyVersion": p.Version, "canReserve": usage.BalanceUsdMicros >= hardCap, "overrunMarginPercent": p.OverrunMarginPercent, "unit": unit})
 }
 

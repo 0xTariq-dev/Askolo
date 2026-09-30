@@ -72,7 +72,7 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 	run, _, created, err := h.store.StartAssistantRun(
 		r.Context(), userID, postgres.DefaultWorkspaceID(userID),
 		strings.TrimSpace(input.ConversationID), idempotencyKey, transcript, policyVersion,
-		assistantPlannerModel, int64(4096), int64(256),
+		assistantPlannerModel, assistantPlannerInputTokenReservationCap, assistantPlannerOutputTokenReservationCap,
 	)
 	if err != nil {
 		if h.handleAssistantStoreError(w, err) {
