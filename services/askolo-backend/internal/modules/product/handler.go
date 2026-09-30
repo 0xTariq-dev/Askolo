@@ -92,6 +92,7 @@ type Handler struct {
 	authRateLimitSecret string
 	realtimeIdleTimeout time.Duration
 	assistantPlanner    assistantPlanner
+	assistantTools      *assistantToolRegistry
 	realtimeMeters      sync.Map
 }
 
@@ -133,7 +134,8 @@ func newHandler(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	assistantPlanner := newOpenAIAssistantPlanner(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL)
+	assistantTools := newAssistantToolRegistry()
+	assistantPlanner := newOpenAIAssistantPlanner(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, assistantTools)
 	if reason := assistantPlannerUnavailableReason(assistantPlanner); reason != "" {
 		logger.Warn("assistant planner configuration is unavailable", "reason", reason)
 	}
@@ -148,6 +150,7 @@ func newHandler(
 		authRateLimitSecret: cfg.AuthRateLimitHMACSecret,
 		realtimeIdleTimeout: realtimeClientIdleTimeout,
 		assistantPlanner:    assistantPlanner,
+		assistantTools:      assistantTools,
 	}
 }
 
