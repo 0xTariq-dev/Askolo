@@ -73,6 +73,36 @@ func TestTranscribeAssemblyAIRedactsReturnsReviewSignalsAndDeletes(t *testing.T)
 	if transcriptRequest["redact_pii"] != true || transcriptRequest["redact_pii_sub"] != "hash" {
 		t.Fatalf("provider request did not enable PII redaction: %#v", transcriptRequest)
 	}
+	policies, ok := transcriptRequest["redact_pii_policies"].([]any)
+	if !ok || len(policies) != 51 {
+		t.Fatalf("redact_pii_policies = %#v, want all 51 documented PII policies", transcriptRequest["redact_pii_policies"])
+	}
+	policySet := make(map[string]struct{}, len(policies))
+	for _, policy := range policies {
+		name, ok := policy.(string)
+		if !ok {
+			t.Fatalf("redact_pii_policies contains a non-string item: %#v", policy)
+		}
+		if _, duplicate := policySet[name]; duplicate {
+			t.Fatalf("redact_pii_policies contains duplicate %q", name)
+		}
+		policySet[name] = struct{}{}
+	}
+	for _, required := range []string{
+		"account_number",
+		"credit_card_number",
+		"email_address",
+		"location",
+		"medical_condition",
+		"password",
+		"person_name",
+		"phone_number",
+		"us_social_security_number",
+	} {
+		if _, exists := policySet[required]; !exists {
+			t.Errorf("redact_pii_policies is missing %q", required)
+		}
+	}
 	models, ok := transcriptRequest["speech_models"].([]any)
 	if !ok || len(models) != 2 || models[0] != "universal-3-5-pro" || models[1] != "universal-2" {
 		t.Fatalf("speech_models = %#v, want the documented Universal-3.5 Pro/Universal-2 fallback", transcriptRequest["speech_models"])
@@ -240,6 +270,37 @@ func TestTranscribeAssemblyAISubmissionClassifiesProviderErrorWithoutLoggingBody
 	}
 	if !strings.Contains(attrs, "audio_input") {
 		t.Fatalf("diagnostic log attrs = %q, want only the safe audio-input category", attrs)
+	}
+}
+
+func TestClassifyAssemblyAIProviderErrorIdentifiesRedactionFieldSafely(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "missing policy list",
+			body: `{"error":"You must explicitly define 'redact_pii_policies'"}`,
+			want: "privacy_policy_configuration",
+		},
+		{
+			name: "invalid substitution",
+			body: `{"error":"redact_pii_sub must be a supported value"}`,
+			want: "privacy_substitution_configuration",
+		},
+		{
+			name: "other redaction error",
+			body: `{"error":"redact_pii could not be enabled"}`,
+			want: "privacy_configuration",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := classifyAssemblyAIProviderError([]byte(test.body)); got != test.want {
+				t.Fatalf("category = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

@@ -31,6 +31,60 @@ var (
 	errAssemblyAIAudioTooLong         = errors.New("recording exceeds the allowed duration")
 )
 
+var assemblyAIPiiRedactionPolicies = []string{
+	"account_number",
+	"banking_information",
+	"blood_type",
+	"credit_card_cvv",
+	"credit_card_expiration",
+	"credit_card_number",
+	"date",
+	"date_interval",
+	"date_of_birth",
+	"drivers_license",
+	"drug",
+	"duration",
+	"email_address",
+	"event",
+	"filename",
+	"gender_sexuality",
+	"healthcare_number",
+	"injury",
+	"ip_address",
+	"language",
+	"location",
+	"location_address",
+	"location_address_street",
+	"location_city",
+	"location_coordinate",
+	"location_country",
+	"location_state",
+	"location_zip",
+	"marital_status",
+	"medical_condition",
+	"medical_process",
+	"money_amount",
+	"nationality",
+	"number_sequence",
+	"occupation",
+	"organization",
+	"passport_number",
+	"password",
+	"person_age",
+	"person_name",
+	"phone_number",
+	"physical_attribute",
+	"political_affiliation",
+	"religion",
+	"statistics",
+	"time",
+	"url",
+	"us_social_security_number",
+	"username",
+	"vehicle_id",
+	"zodiac_sign",
+}
+
 type assemblyAITranscriptionResult struct {
 	Transcript        string
 	Confidence        *float64
@@ -151,6 +205,10 @@ func classifyAssemblyAIProviderError(body []byte) string {
 		return "model_configuration"
 	case strings.Contains(message, "language_code"), strings.Contains(message, "language code"):
 		return "language_configuration"
+	case strings.Contains(message, "redact_pii_policies"):
+		return "privacy_policy_configuration"
+	case strings.Contains(message, "redact_pii_sub"):
+		return "privacy_substitution_configuration"
 	case strings.Contains(message, "redact_pii"), strings.Contains(message, "pii redaction"):
 		return "privacy_configuration"
 	case strings.Contains(message, "audio_url"),
@@ -355,11 +413,12 @@ func transcribeAssemblyAI(
 	}
 
 	submitPayload := map[string]any{
-		"audio_url":      uploaded.URL,
-		"speech_models":  []string{"universal-3-5-pro", "universal-2"},
-		"speaker_labels": false,
-		"redact_pii":     true,
-		"redact_pii_sub": "hash",
+		"audio_url":           uploaded.URL,
+		"speech_models":       []string{"universal-3-5-pro", "universal-2"},
+		"speaker_labels":      false,
+		"redact_pii":          true,
+		"redact_pii_policies": assemblyAIPiiRedactionPolicies,
+		"redact_pii_sub":      "hash",
 	}
 	if normalizedLanguage != "" {
 		submitPayload["language_code"] = normalizedLanguage
