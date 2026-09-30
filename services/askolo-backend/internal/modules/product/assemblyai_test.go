@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -123,6 +124,12 @@ func TestTranscribeAssemblyAIDeleteFailureIsVisibleAndRetried(t *testing.T) {
 	if deletionStatus != "deletion_failed" || deleteCalls != assemblyAITranscriptDeleteAttempts {
 		t.Fatalf("deletion status/calls = %q/%d, want deletion_failed/%d", deletionStatus, deleteCalls, assemblyAITranscriptDeleteAttempts)
 	}
+	if result.deletion.status != "unconfirmed" ||
+		result.deletion.failureKind != "http_status" ||
+		result.deletion.httpStatus != http.StatusServiceUnavailable ||
+		result.deletion.attempts != assemblyAITranscriptDeleteAttempts {
+		t.Fatalf("deletion diagnostics = %#v, want the last 503 after all retries", result.deletion)
+	}
 }
 
 func TestTranscribeAssemblyAIDeletesProviderTranscriptAfterProviderError(t *testing.T) {
@@ -153,6 +160,99 @@ func TestTranscribeAssemblyAIDeletesProviderTranscriptAfterProviderError(t *test
 	}
 	if deletionStatus != "deleted" || deleteCalls != 1 {
 		t.Fatalf("deletion status/calls = %q/%d, want deleted/1", deletionStatus, deleteCalls)
+	}
+	var diagnostic assemblyAIDiagnosticError
+	if !errors.As(err, &diagnostic) ||
+		diagnostic.stage != "poll" ||
+		diagnostic.failureKind != "provider_transcription_error" ||
+		diagnostic.deletion.status != "deleted" {
+		t.Fatalf("diagnostic = %#v, want a sanitized provider transcription failure", diagnostic)
+	}
+}
+
+func TestTranscribeAssemblyAIUploadFailureReportsSafeStageAndStatus(t *testing.T) {
+	const privateProviderDetail = "synthetic private provider detail"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"`+privateProviderDetail+`"}`)
+	}))
+	defer server.Close()
+
+	_, deletionStatus, err := transcribeAssemblyAI(
+		context.Background(), server.Client(), server.URL, "synthetic-test-key", []byte{1}, "",
+	)
+	if err == nil || deletionStatus != "deletion_failed" {
+		t.Fatalf("transcription result = deletion %q, error %v; want upload failure", deletionStatus, err)
+	}
+	var diagnostic assemblyAIDiagnosticError
+	if !errors.As(err, &diagnostic) ||
+		diagnostic.stage != "upload" ||
+		diagnostic.failureKind != "http_status" ||
+		diagnostic.httpStatus != http.StatusUnauthorized ||
+		diagnostic.deletion.status != "not_attempted" {
+		t.Fatalf("diagnostic = %#v, want sanitized upload 401 with cleanup not attempted", diagnostic)
+	}
+	attrs := fmt.Sprint(assemblyAIDiagnosticLogAttrs(err))
+	if strings.Contains(err.Error(), privateProviderDetail) ||
+		strings.Contains(attrs, privateProviderDetail) ||
+		strings.Contains(attrs, "synthetic-test-key") {
+		t.Fatalf("provider details or credentials leaked into diagnostics: %q", attrs)
+	}
+	if !strings.Contains(attrs, "401") || !strings.Contains(attrs, "upload") {
+		t.Fatalf("diagnostic log attributes = %q, want upload stage and HTTP 401", attrs)
+	}
+}
+
+func TestTranscribeAssemblyAIProviderFailureReportsCleanupStatusSafely(t *testing.T) {
+	const privateProviderDetail = "synthetic private transcript detail"
+	const privateDeleteDetail = "synthetic private deletion detail"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/upload":
+			_, _ = io.WriteString(w, `{"upload_url":"https://cdn.assemblyai.com/upload/synthetic"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/transcript":
+			_, _ = io.WriteString(w, `{"id":"synthetic-transcript-id"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/transcript/synthetic-transcript-id":
+			_, _ = io.WriteString(w, `{"status":"error","error":"`+privateProviderDetail+`"}`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/transcript/synthetic-transcript-id":
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"`+privateDeleteDetail+`"}`)
+		default:
+			t.Errorf("unexpected provider request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	_, deletionStatus, err := transcribeAssemblyAI(
+		context.Background(), server.Client(), server.URL, "synthetic-test-key", []byte{1}, "",
+	)
+	if err == nil || deletionStatus != "deletion_failed" {
+		t.Fatalf("transcription result = deletion %q, error %v; want provider and cleanup failure", deletionStatus, err)
+	}
+	var diagnostic assemblyAIDiagnosticError
+	if !errors.As(err, &diagnostic) ||
+		diagnostic.stage != "poll" ||
+		diagnostic.failureKind != "provider_transcription_error" ||
+		diagnostic.deletion.status != "unconfirmed" ||
+		diagnostic.deletion.failureKind != "http_status" ||
+		diagnostic.deletion.httpStatus != http.StatusServiceUnavailable ||
+		diagnostic.deletion.attempts != assemblyAITranscriptDeleteAttempts {
+		t.Fatalf("diagnostic = %#v, want provider failure and final cleanup 503", diagnostic)
+	}
+	attrs := fmt.Sprint(assemblyAIDiagnosticLogAttrs(err))
+	for _, privateValue := range []string{
+		privateProviderDetail,
+		privateDeleteDetail,
+		"synthetic-test-key",
+		"synthetic-transcript-id",
+	} {
+		if strings.Contains(attrs, privateValue) {
+			t.Fatalf("sensitive provider value leaked into diagnostic attributes: %q", attrs)
+		}
+	}
+	if !strings.Contains(attrs, "503") || !strings.Contains(attrs, "cleanup_attempts 3") {
+		t.Fatalf("diagnostic log attributes = %q, want final HTTP 503 and retry count", attrs)
 	}
 }
 

@@ -1380,12 +1380,16 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 	}()
 	result, deletionStatus, err := h.assemblyAI.Transcribe(r.Context(), audio, input.Language)
 	if err != nil {
-		if deletionStatus != "deleted" {
-			h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
-		}
 		if r.Context().Err() != nil {
 			return
 		}
+		diagnosticAttrs := []any{
+			"request_id", r.Header.Get("X-Request-ID"),
+			"provider", "assemblyai",
+			"operation", "transcribe",
+		}
+		diagnosticAttrs = append(diagnosticAttrs, assemblyAIDiagnosticLogAttrs(err)...)
+		h.logger.Error("voice transcription provider failed", diagnosticAttrs...)
 		if errors.Is(err, errAssemblyAITranscriptionTimeout) {
 			if deletionStatus != "deleted" {
 				writeError(w, http.StatusGatewayTimeout, "VOICE_PROVIDER_TIMEOUT_CLEANUP_FAILED", "Transcription timed out and provider data deletion could not be confirmed.")
@@ -1415,7 +1419,18 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 	if deletionStatus != "deleted" {
 		providerTranscriptStatus = "deletion_failed"
 		deletionMarker = "provider_transcript_deletion_failed"
-		h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
+		diagnosticAttrs := []any{
+			"request_id", r.Header.Get("X-Request-ID"),
+			"provider", "assemblyai",
+			"operation", "transcribe",
+			"stage", "delete_transcript",
+			"failure_kind", result.deletion.failureKind,
+			"cleanup_attempts", result.deletion.attempts,
+		}
+		if result.deletion.httpStatus > 0 {
+			diagnosticAttrs = append(diagnosticAttrs, "cleanup_http_status", result.deletion.httpStatus)
+		}
+		h.logger.Error("voice provider deletion could not be confirmed", diagnosticAttrs...)
 	}
 	writeJSON(w, http.StatusOK, audioTranscriptionResponse{
 		Transcript:    result.Transcript,
