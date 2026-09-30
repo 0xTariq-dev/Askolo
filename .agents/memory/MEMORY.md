@@ -12,6 +12,7 @@
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
 - [Opt-in AssemblyAI provider tests](assemblyai-live-tests.md) — keep billable real-provider checks separate from deterministic mock tests and gate them explicitly.
 - [AssemblyAI deletion claims](assemblyai-retention-claims.md) — report transcript-delete confirmation without promising the uploaded audio copy was removed.
+- [AssemblyAI safe diagnostics](assemblyai-safe-diagnostics.md) — log controlled request stages, HTTP statuses, and cleanup retries; never provider bodies, audio, transcripts, keys, or transcript IDs.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
 - [Managed backup refs](managed-backup-refs.md) — the gitsafe backup remote rejects non-main pushes, including deletion of recovery branches.
 - [GitHub CLI Git transport](github-cli-git-transport.md) — `gh auth status` does not configure Git HTTPS; run `gh auth setup-git` before fetch/push.
