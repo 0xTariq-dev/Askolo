@@ -15,6 +15,8 @@ const (
 	assemblyAIRealtimeTokenBaseURL              = "https://streaming.assemblyai.com"
 	assemblyAIRealtimeWebsocketURL              = "wss://streaming.assemblyai.com/v3/ws"
 	assemblyAIRealtimeTokenExpiresInSeconds     = 60
+	assemblyAIRealtimeMinProviderSessionSeconds = 60
+	assemblyAIRealtimeMaxProviderSessionSeconds = 10_800
 	assemblyAIRealtimeMaxSessionDurationSeconds = 180
 	assemblyAIRealtimeSpeechModel               = "universal-3-5-pro"
 	maxAssemblyAIRealtimeTokenResponseBytes     = 64 * 1024
@@ -62,7 +64,23 @@ func requestAssemblyAIRealtimeToken(
 	baseURL string,
 	apiKey string,
 ) (string, error) {
+	return requestAssemblyAIRealtimeTokenWithSessionDuration(
+		ctx, client, baseURL, apiKey, assemblyAIRealtimeMaxSessionDurationSeconds,
+	)
+}
+
+func requestAssemblyAIRealtimeTokenWithSessionDuration(
+	ctx context.Context,
+	client *http.Client,
+	baseURL string,
+	apiKey string,
+	maxSessionDurationSeconds int,
+) (string, error) {
 	if strings.TrimSpace(apiKey) == "" {
+		return "", errAssemblyAIProviderFailure
+	}
+	if maxSessionDurationSeconds < assemblyAIRealtimeMinProviderSessionSeconds ||
+		maxSessionDurationSeconds > assemblyAIRealtimeMaxProviderSessionSeconds {
 		return "", errAssemblyAIProviderFailure
 	}
 	if client == nil {
@@ -73,7 +91,7 @@ func requestAssemblyAIRealtimeToken(
 	}
 	query := url.Values{}
 	query.Set("expires_in_seconds", strconv.Itoa(assemblyAIRealtimeTokenExpiresInSeconds))
-	query.Set("max_session_duration_seconds", strconv.Itoa(assemblyAIRealtimeMaxSessionDurationSeconds))
+	query.Set("max_session_duration_seconds", strconv.Itoa(maxSessionDurationSeconds))
 	endpoint := strings.TrimRight(baseURL, "/") + "/v3/token?" + query.Encode()
 	response, cancel, err := assemblyAIRequest(
 		ctx,
