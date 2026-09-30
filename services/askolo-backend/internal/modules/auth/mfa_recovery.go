@@ -320,7 +320,7 @@ func (h *Handler) revokeTrustedDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before revoking a trusted device.")
 		return
 	}
-	if !h.allow(r, 5, 15*time.Minute) {
+	if !h.allowScoped(r, "trusted-device-revocation", 5, 15*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA changes. Try again later.")
 		return

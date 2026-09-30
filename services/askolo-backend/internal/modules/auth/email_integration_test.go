@@ -1019,6 +1019,33 @@ func TestPasswordLoginAccountLimitIsSharedAcrossInstances(t *testing.T) {
 	}
 }
 
+func TestPasswordRecoveryIsNotBlockedByLoginAttempts(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	handler := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	email := "mixed-flow-unknown@example.com"
+	remoteAddress := "198.51.100.84:1000"
+
+	for attempt := 1; attempt <= 5; attempt++ {
+		response := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login", map[string]string{
+			"email":    email,
+			"password": "incorrect-password",
+		}, nil, remoteAddress)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("login attempt %d returned %d, want %d", attempt, response.Code, http.StatusUnauthorized)
+		}
+	}
+
+	recovery := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+		"email":  email,
+		"method": passwordRecoveryPrimaryEmail,
+	}, nil, remoteAddress)
+	if recovery.Code != http.StatusAccepted ||
+		recovery.Body.String() != `{"status":"recovery_if_available"}`+"\n" {
+		t.Fatalf("recovery after login attempts returned status=%d body=%q",
+			recovery.Code, recovery.Body.String())
+	}
+}
+
 func TestPasswordRecoveryAccountLimitKeepsGenericResponse(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	first := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())

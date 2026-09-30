@@ -380,7 +380,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 10, 10*time.Minute) {
+	if !h.allowScoped(r, "password-login", 10, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many authentication attempts.")
 		return
@@ -473,7 +473,7 @@ func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) passwordSignup(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 5, 10*time.Minute) {
+	if !h.allowScoped(r, "password-signup", 5, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again later.")
 		return
@@ -599,7 +599,7 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 5, 15*time.Minute) {
+	if !h.allowScoped(r, "email-verification-resend", 5, 15*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again later.")
 		return
@@ -658,7 +658,7 @@ func (h *Handler) enrollRecoveryEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before adding a recovery email.")
 		return
 	}
-	if !h.allow(r, 5, 15*time.Minute) {
+	if !h.allowScoped(r, "recovery-email-enrollment", 5, 15*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again later.")
 		return
@@ -782,7 +782,7 @@ func (h *Handler) verifyRecoveryEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 5, 15*time.Minute) {
+	if !h.allowScoped(r, "password-recovery-request", 5, 15*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again later.")
 		return
@@ -863,7 +863,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) verifyPasswordRecovery(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 10, 10*time.Minute) {
+	if !h.allowScoped(r, "password-recovery-verify", 10, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many verification attempts. Try again later.")
 		return
@@ -909,7 +909,7 @@ func (h *Handler) verifyPasswordRecovery(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
-	if !h.allow(r, 10, 10*time.Minute) {
+	if !h.allowScoped(r, "password-recovery-reset", 10, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many password reset attempts. Try again later.")
 		return
@@ -1206,7 +1206,7 @@ func (h *Handler) enrollMFA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before enrolling MFA.")
 		return
 	}
-	if !h.allow(r, 5, 15*time.Minute) {
+	if !h.allowScoped(r, "mfa-enrollment", 5, 15*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA changes. Try again later.")
 		return
@@ -1271,7 +1271,7 @@ func (h *Handler) confirmMFA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before confirming MFA.")
 		return
 	}
-	if !h.allow(r, 10, 10*time.Minute) {
+	if !h.allowScoped(r, "mfa-confirmation", 10, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA attempts. Try again later.")
 		return
@@ -1352,7 +1352,7 @@ func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MFA_NOT_REQUIRED", "This session does not require MFA.")
 		return
 	}
-	if !h.allow(r, 10, 10*time.Minute) {
+	if !h.allowScoped(r, "mfa-verification", 10, 10*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA attempts. Try again later.")
 		return
@@ -1460,7 +1460,7 @@ func (h *Handler) disableMFA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before disabling MFA.")
 		return
 	}
-	if !h.allow(r, 5, 15*time.Minute) {
+	if !h.allowScoped(r, "mfa-disable", 5, 15*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many MFA changes. Try again later.")
 		return
@@ -1508,7 +1508,7 @@ func (h *Handler) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request
 		writeError(w, status, "UNAUTHORIZED", "Sign in before regenerating recovery codes.")
 		return
 	}
-	if !h.allow(r, 3, 15*time.Minute) {
+	if !h.allowScoped(r, "mfa-recovery-code-regeneration", 3, 15*time.Minute) {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many recovery-code changes. Try again later.")
 		return
@@ -1840,8 +1840,13 @@ func (h *Handler) sessionUserID(r *http.Request) (string, int) {
 	return userID, http.StatusOK
 }
 
-func (h *Handler) allow(r *http.Request, max int, window time.Duration) bool {
-	key, err := h.authRateLimitBucketHash("ip:process-local", requestClientIP(r))
+// allowScoped isolates the in-process IP limit for each authentication action.
+// The shared database-backed limits continue to enforce per-IP and per-account quotas.
+func (h *Handler) allowScoped(r *http.Request, scope string, max int, window time.Duration) bool {
+	if strings.TrimSpace(scope) == "" {
+		return false
+	}
+	key, err := h.authRateLimitBucketHash("ip:process-local:"+scope, requestClientIP(r))
 	if err != nil {
 		return false
 	}
