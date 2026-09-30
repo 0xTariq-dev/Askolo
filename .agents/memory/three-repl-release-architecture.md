@@ -15,9 +15,9 @@ Before changing configuration, data, integrations, releases, callbacks, or infra
 
 Each Repl serves the full landing page and application from one environment-specific host. The root domain is not used for app routing. Never copy secrets, database connections, OAuth clients, cookie namespaces, callback URLs, webhook destinations, or external API targets between environments.
 
-**Why:** Separate projects prevent development and staging activity from affecting public users, while explicit environment identity prevents a Repl from silently using another environment's resources.
+**Why:** Separate projects prevent development and staging activity from affecting public users, while explicit environment identity prevents a Repl from silently using another environment's resources. A shell can report `REPLIT_ENVIRONMENT=production` while its `DATABASE_URL` actually matches Development; the Go migration CLI trusts its target flag, so relying on the label could direct DDL to the wrong database.
 
-**How to apply:** Treat missing or contradictory environment identity, host, tag provenance, secret set, database target, or integration target as a blocking error. Do not infer an environment only from the branch currently checked out.
+**How to apply:** Treat missing or contradictory environment identity, host, tag provenance, secret set, database target, or integration target as a blocking error. Do not infer an environment only from the branch currently checked out or `REPLIT_ENVIRONMENT`. Before a database write, compare a read-only identity fingerprint from the active connection with the named Development and Production database connections; never print the connection string.
 
 ## Standard feature release
 
