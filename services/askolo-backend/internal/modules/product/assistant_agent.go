@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -59,11 +60,25 @@ func (p *openAIAssistantPlanner) availabilityReason() string {
 		return "provider_key_missing"
 	}
 	parsed, err := url.Parse(strings.TrimSpace(p.baseURL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
+	if err != nil || parsed.Host == "" ||
 		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "provider_base_url_invalid"
 	}
-	return ""
+	if parsed.Scheme == "https" {
+		return ""
+	}
+	if parsed.Scheme == "http" && parsed.Port() == "1106" && isLoopbackHost(parsed.Hostname()) {
+		return ""
+	}
+	return "provider_base_url_invalid"
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func assistantPlannerUnavailableReason(planner assistantPlanner) string {

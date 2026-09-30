@@ -104,7 +104,7 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 	}
 }
 
-func TestOpenAIAssistantPlannerRequiresSecureProviderURL(t *testing.T) {
+func TestOpenAIAssistantPlannerAllowsSecureAndManagedLoopbackURLs(t *testing.T) {
 	tests := []struct {
 		name       string
 		key        string
@@ -113,7 +113,13 @@ func TestOpenAIAssistantPlannerRequiresSecureProviderURL(t *testing.T) {
 		wantReason string
 	}{
 		{name: "secure provider URL", key: "test-key", baseURL: "https://api.example.test/v1", wantOK: true},
+		{name: "managed Replit localhost proxy", key: "test-key", baseURL: "http://localhost:1106/v1", wantOK: true},
+		{name: "managed Replit IPv4 loopback proxy", key: "test-key", baseURL: "http://127.0.0.1:1106/v1", wantOK: true},
+		{name: "managed Replit IPv6 loopback proxy", key: "test-key", baseURL: "http://[::1]:1106/v1", wantOK: true},
 		{name: "HTTP rejected", key: "test-key", baseURL: "http://api.example.test/v1", wantReason: "provider_base_url_invalid"},
+		{name: "non-loopback host on proxy port rejected", key: "test-key", baseURL: "http://api.example.test:1106/v1", wantReason: "provider_base_url_invalid"},
+		{name: "loopback host on another port rejected", key: "test-key", baseURL: "http://localhost:1107/v1", wantReason: "provider_base_url_invalid"},
+		{name: "loopback host without managed port rejected", key: "test-key", baseURL: "http://localhost/v1", wantReason: "provider_base_url_invalid"},
 		{name: "userinfo rejected", key: "test-key", baseURL: "https://user:pass@api.example.test/v1", wantReason: "provider_base_url_invalid"},
 		{name: "query rejected", key: "test-key", baseURL: "https://api.example.test/v1?redirect=other", wantReason: "provider_base_url_invalid"},
 		{name: "fragment rejected", key: "test-key", baseURL: "https://api.example.test/v1#fragment", wantReason: "provider_base_url_invalid"},
