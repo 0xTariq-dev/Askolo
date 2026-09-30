@@ -476,8 +476,8 @@ func TestAICreditEstimateResolvesPublicPricingKeysAndUnits(t *testing.T) {
 
 	current.RateCards["openai:assistant:"+assistantPlannerModel] = postgres.USDRateCard{
 		Provider: "openai", Mode: "assistant", Model: assistantPlannerModel, Meter: "tokens",
-		InputUsdMicrosPerMillion:  1_000_000,
-		OutputUsdMicrosPerMillion: 2_000_000,
+		InputUsdMicrosPerMillion:  3_000_000,
+		OutputUsdMicrosPerMillion: 5_000_000,
 	}
 	current.RateCards["assemblyai:recorded:"+assemblyAIRealtimeSpeechModel] = postgres.USDRateCard{
 		Provider: "assemblyai", Mode: "recorded", Model: assemblyAIRealtimeSpeechModel,
@@ -497,7 +497,7 @@ func TestAICreditEstimateResolvesPublicPricingKeysAndUnits(t *testing.T) {
 		wantUnit     string
 		wantEstimate int64
 	}{
-		{name: "one assistant request uses reservation token caps", key: "assistant", units: "1", wantUnits: 1, wantUnit: "request", wantEstimate: 4_608},
+		{name: "one assistant request uses reservation token caps", key: "assistant", units: "1", wantUnits: 1, wantUnit: "request", wantEstimate: 13_568},
 		{name: "recorded voice units are seconds", key: "voice.recorded", units: "60", wantUnits: 60, wantUnit: "seconds", wantEstimate: 3_500},
 		{name: "realtime voice units are seconds", key: "voice.realtime", units: "60", wantUnits: 60, wantUnit: "seconds", wantEstimate: 7_500},
 	} {
