@@ -1,0 +1,280 @@
+format: "replit.sdm"
+version: 1
+size:
+  width: 1920
+  height: 1080
+background:
+  kind: "solid"
+  color:
+    kind: "token"
+    token: "background"
+theme:
+  colors:
+    background: "#0C141D"
+    surface: "#162332"
+    foreground: "#E8F2F0"
+    muted: "#B2C4C1"
+    accent: "#9CC4F3"
+    border: "#41546A"
+    secondary: "#2A405B"
+  fonts:
+    display: "Cairo"
+    body: "Cairo"
+elements:
+  - id: "rightField"
+    type: "shape"
+    frame:
+      x: 1040
+      y: 0
+      width: 880
+      height: 1080
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "voiceRail"
+    type: "shape"
+    frame:
+      x: 1120
+      y: 570
+      width: 620
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "border"
+  - id: "voiceBar0"
+    type: "shape"
+    frame:
+      x: 1190
+      y: 485
+      width: 22
+      height: 180
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 11
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+      opacity: 0.55
+  - id: "voiceBar1"
+    type: "shape"
+    frame:
+      x: 1273
+      y: 455
+      width: 22
+      height: 240
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 11
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+      opacity: 0.55
+  - id: "voiceBar2"
+    type: "shape"
+    frame:
+      x: 1356
+      y: 420
+      width: 22
+      height: 310
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 11
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+      opacity: 0.55
+  - id: "voiceBar3"
+    type: "shape"
+    frame:
+      x: 1439
+      y: 382.5
+      width: 22
+      height: 385
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 11
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+      opacity: 1
+  - id: "voiceBar4"
+    type: "shape"
+    frame:
+      x: 1522
+      y: 435
+      width: 22
+      height: 280
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 11
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+      opacity: 0.55
+  - id: "voiceBar5"
+    type: "shape"
+    frame:
+      x: 1605
+      y: 467.5
+      width: 22
+      height: 215
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 11
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+      opacity: 0.55
+  - id: "voiceBar6"
+    type: "shape"
+    frame:
+      x: 1688
+      y: 497.5
+      width: 22
+      height: 155
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 11
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+      opacity: 0.55
+  - id: "pulseLead"
+    type: "shape"
+    frame:
+      x: 1040
+      y: 570
+      width: 80
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "askoloMark"
+    type: "image"
+    frame:
+      x: 120
+      y: 94
+      width: 116
+      height: 116
+    assetId: "logo"
+    fit: "contain"
+  - id: "headline"
+    type: "text"
+    frame:
+      x: 120
+      y: 325
+      width: 900
+      height: 320
+    body:
+      paragraphs:
+        - runs:
+            - text: "Your whole life, one place"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 50
+            weight: 700
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "subtitle"
+    type: "text"
+    frame:
+      x: 120
+      y: 660
+      width: 900
+      height: 155
+    body:
+      paragraphs:
+        - runs:
+            - text: "Plan by voice. Stay in control."
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 24
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "coverRule"
+    type: "shape"
+    frame:
+      x: 120
+      y: 828
+      width: 110
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "event"
+    type: "text"
+    frame:
+      x: 120
+      y: 870
+      width: 820
+      height: 90
+    body:
+      paragraphs:
+        - runs:
+            - text: "AssemblyAI Voice Agent Hackathon"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 19
+            weight: 400
+            color:
+              kind: "token"
+              token: "muted"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+assets:
+  logo:
+    src: "images/askolo-logo.png"

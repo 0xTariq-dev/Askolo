@@ -1,0 +1,28 @@
+kind = "slides"
+previewPath = "/askolo-voice-hackathon/"
+title = "Askolo — Your whole life, one place"
+description = "Editable nine-slide Askolo presentation for the AssemblyAI Voice Agent Hackathon, showing the confirmed voice-to-action flow and product interface."
+version = "1.0.0"
+id = "artifacts/askolo-voice-hackathon"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/askolo-voice-hackathon/" ]
+localPort = 20065
+
+[services.development]
+run = "pnpm --filter @workspace/askolo-voice-hackathon run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/askolo-voice-hackathon", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/askolo-voice-hackathon/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20065"
+BASE_PATH = "/askolo-voice-hackathon/"

@@ -1,0 +1,272 @@
+format: "replit.sdm"
+version: 1
+size:
+  width: 1920
+  height: 1080
+background:
+  kind: "solid"
+  color:
+    kind: "token"
+    token: "background"
+theme:
+  colors:
+    background: "#0C141D"
+    surface: "#162332"
+    foreground: "#E8F2F0"
+    muted: "#B2C4C1"
+    accent: "#9CC4F3"
+    border: "#41546A"
+    secondary: "#2A405B"
+  fonts:
+    display: "Cairo"
+    body: "Cairo"
+elements:
+  - id: "headerRule"
+    type: "shape"
+    frame:
+      x: 120
+      y: 94
+      width: 94
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "headline"
+    type: "text"
+    frame:
+      x: 120
+      y: 130
+      width: 1680
+      height: 200
+    body:
+      paragraphs:
+        - runs:
+            - text: "Voice turns a quick thought into an action"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 36
+            weight: 700
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "stepPanel0"
+    type: "shape"
+    frame:
+      x: 120
+      y: 390
+      width: 390
+      height: 345
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 16
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "stepAccent0"
+    type: "shape"
+    frame:
+      x: 144
+      y: 420
+      width: 70
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "stepText0"
+    type: "text"
+    frame:
+      x: 144
+      y: 455
+      width: 342
+      height: 270
+    body:
+      paragraphs:
+        - runs:
+            - text: "Say: ‘Add renew passport to my actions.’"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 21
+            weight: 700
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "stepPanel1"
+    type: "shape"
+    frame:
+      x: 550
+      y: 390
+      width: 390
+      height: 345
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 16
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "stepAccent1"
+    type: "shape"
+    frame:
+      x: 574
+      y: 420
+      width: 70
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "stepText1"
+    type: "text"
+    frame:
+      x: 574
+      y: 475
+      width: 342
+      height: 225
+    body:
+      paragraphs:
+        - runs:
+            - text: "AssemblyAI transcribes the request"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "stepPanel2"
+    type: "shape"
+    frame:
+      x: 980
+      y: 390
+      width: 390
+      height: 345
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 16
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "stepAccent2"
+    type: "shape"
+    frame:
+      x: 1004
+      y: 420
+      width: 70
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "stepText2"
+    type: "text"
+    frame:
+      x: 1004
+      y: 475
+      width: 342
+      height: 225
+    body:
+      paragraphs:
+        - runs:
+            - text: "Askolo proposes one action item"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "stepPanel3"
+    type: "shape"
+    frame:
+      x: 1410
+      y: 390
+      width: 390
+      height: 345
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 16
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "stepAccent3"
+    type: "shape"
+    frame:
+      x: 1434
+      y: 420
+      width: 70
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "stepText3"
+    type: "text"
+    frame:
+      x: 1434
+      y: 475
+      width: 342
+      height: 225
+    body:
+      paragraphs:
+        - runs:
+            - text: "You confirm before it is saved"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12

@@ -1,0 +1,160 @@
+format: "replit.sdm"
+version: 1
+size:
+  width: 1920
+  height: 1080
+background:
+  kind: "solid"
+  color:
+    kind: "token"
+    token: "background"
+theme:
+  colors:
+    background: "#0C141D"
+    surface: "#162332"
+    foreground: "#E8F2F0"
+    muted: "#B2C4C1"
+    accent: "#9CC4F3"
+    border: "#41546A"
+    secondary: "#2A405B"
+  fonts:
+    display: "Cairo"
+    body: "Cairo"
+elements:
+  - id: "endingField"
+    type: "shape"
+    frame:
+      x: 1210
+      y: 0
+      width: 710
+      height: 1080
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "askoloMark"
+    type: "image"
+    frame:
+      x: 120
+      y: 86
+      width: 112
+      height: 112
+    assetId: "logo"
+    fit: "contain"
+  - id: "headline"
+    type: "text"
+    frame:
+      x: 120
+      y: 205
+      width: 1580
+      height: 245
+    body:
+      paragraphs:
+        - runs:
+            - text: "Try the voice-to-action demo"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 44
+            weight: 700
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "closingRule"
+    type: "shape"
+    frame:
+      x: 120
+      y: 440
+      width: 104
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "demoPoints"
+    type: "text"
+    frame:
+      x: 120
+      y: 505
+      width: 1490
+      height: 470
+    body:
+      paragraphs:
+        - runs:
+            - text: "Open https://dev.askolo.app"
+          bullet:
+            kind: "character"
+            character: "•"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 18
+        - runs:
+            - text: "Try: ‘Add renew passport to my actions.’"
+          bullet:
+            kind: "character"
+            character: "•"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 18
+        - runs:
+            - text: "Review the transcript, then confirm the action"
+          bullet:
+            kind: "character"
+            character: "•"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 18
+        - runs:
+            - text: "Next: extend confirmed voice actions to more of the daily plan"
+          bullet:
+            kind: "character"
+            character: "•"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 18
+assets:
+  logo:
+    src: "images/askolo-logo.png"
