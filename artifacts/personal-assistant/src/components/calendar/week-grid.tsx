@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { format, eachDayOfInterval, startOfWeek, endOfWeek } from 'date-fns';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { cn } from '@/lib/utils';
 import { EventChip } from './event-chip';
 import { layoutEvents } from './types';
 import { snapTimeFromY } from './snap-time';

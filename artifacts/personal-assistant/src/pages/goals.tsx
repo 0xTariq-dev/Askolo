@@ -26,14 +26,14 @@ import {
   Goal
 } from '@workspace/api-client-react';
 
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
-import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@workspace/askolo-design-system/components/ui/dropdown-menu';
-import { Slider } from '@workspace/askolo-design-system/components/ui/slider';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Slider } from '@/components/ui/slider';
 import { PageTransition } from '@/components/ui/page-transition';
 
 const CATEGORY_COLORS: Record<string, string> = {

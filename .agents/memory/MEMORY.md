@@ -1,4 +1,5 @@
 - [Orval codegen dedup](orval-codegen-dedup.md) — after codegen, trim `lib/api-zod/src/index.ts` to a single `generated/api` export to avoid duplicate-name TS2308 errors.
+- [API client declaration freshness](api-client-declaration-freshness.md) — when generated source has exports but app typechecks do not, inspect and rebuild stale project-reference declarations before regenerating.
 - [Google OAuth scope preservation](google-oauth-scope-preservation.md) — current storage overwrites scopes; preserve prior grants during refresh and incremental authorization.
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
@@ -42,6 +43,7 @@
 - [Authentication proxy client IP](auth-proxy-client-ip.md) — the development artifact proxy removes caller-supplied XFF and reaches Go through a trusted peer; production Autoscale remains unverified.
 - [PostgreSQL test process control](pgctl-test-process-control.md) — redirect restarted server logs when invoking `pg_ctl` through Go command output capture.
 - [Planning scope boundaries](planning-scope-boundaries.md) — preserve ownership distinctions; read Linear for current task status and dependencies.
+- [Workspace-scoped authorization](workspace-scoped-authorization.md) — collection actions without a concrete resource ID use workspace permissions; keep one-sided object scopes denied.
 - [Linear project management](linear-task-migration.md) — Linear is canonical; archiving can clear blockers and related links, so verify affected issues afterward.
 - [Shell timing without GNU time](nix-shell-timing.md) — `/usr/bin/time` is unavailable; use `date +%s%N` for simple elapsed-time measurements.
 - [Outbound cancellation test harness](outbound-cancellation-tests.md) — prefer controlled RoundTrippers for request-cancellation tests; a blocked test-server handler can stall cleanup.

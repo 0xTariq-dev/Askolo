@@ -1,6 +1,6 @@
 import { ShieldCheck } from 'lucide-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@workspace/askolo-design-system/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function VoiceConsentDialog({ open, onOpenChange, onConfirm, saving, error }: {
   open: boolean;

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { Coins, RefreshCw } from 'lucide-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { creditApi, creditErrorMessage, formatUsdMicros, type CreditEstimate } from '@/lib/credit-api';
 
 export function VoiceCreditPreflight({ showWalletLink = true }: { showWalletLink?: boolean }) {

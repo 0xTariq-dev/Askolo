@@ -1,0 +1,10 @@
+import * as React from 'react';
+import { FormProvider, Controller, useFormContext, type ControllerProps, type FieldPath, type FieldValues } from 'react-hook-form';
+import { cn } from '@/lib/utils';
+const Form = FormProvider;
+const FormField = <TFieldValues extends FieldValues, TName extends FieldPath<TFieldValues>>(props: ControllerProps<TFieldValues, TName>) => <Controller {...props} />;
+const FormItem = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => <div ref={ref} className={cn('space-y-2', className)} {...props} />);
+const FormControl = ({ children }: { children: React.ReactElement }) => children;
+const FormLabel = ({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) => <label className={cn('text-sm font-medium', className)} {...props} />;
+const FormMessage = ({ className, children }: React.HTMLAttributes<HTMLParagraphElement>) => { const { formState } = useFormContext(); return <p className={cn('text-sm font-medium text-destructive', className)}>{children || (formState.errors && 'Invalid value')}</p>; };
+export { Form, FormField, FormItem, FormControl, FormLabel, FormMessage };

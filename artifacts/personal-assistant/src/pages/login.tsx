@@ -1,18 +1,18 @@
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Field,
   FieldGroup,
   FieldLabel,
   FieldSeparator,
-} from '@workspace/askolo-design-system/components/ui/field';
+} from '@/components/ui/field';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from '@workspace/askolo-design-system/components/ui/input-group';
-import { Checkbox } from '@workspace/askolo-design-system/components/ui/checkbox';
+} from '@/components/ui/input-group';
+import { Checkbox } from '@/components/ui/checkbox';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';

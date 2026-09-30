@@ -25,13 +25,13 @@ import {
   getGetTranscriptionPreferencesQueryKey,
 } from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@workspace/askolo-design-system/components/ui/card';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
-import { Avatar, AvatarFallback, AvatarImage } from '@workspace/askolo-design-system/components/ui/avatar';
-import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
-import { Skeleton } from '@workspace/askolo-design-system/components/ui/skeleton';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,8 +42,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@workspace/askolo-design-system/components/ui/alert-dialog';
-import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
+} from '@/components/ui/alert-dialog';
+import { useToast } from '@/hooks/use-toast';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import type { TrustedDevice } from '@workspace/api-client-react';

@@ -32,14 +32,14 @@ import {
 import { ApiError } from '@workspace/api-client-react';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@workspace/askolo-design-system/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@workspace/askolo-design-system/components/ui/popover';
-import { Calendar as DatePicker } from '@workspace/askolo-design-system/components/ui/calendar';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as DatePicker } from '@/components/ui/calendar';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
 import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
@@ -49,8 +49,9 @@ import {
   VoiceTranscriptReview,
 } from '@/components/voice/voice-session-ui';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
+import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { getReviewedVoiceValue } from '@/lib/voice-flow';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { cn } from '@/lib/utils';
 import { useAssistantState } from '@/contexts/assistant-context';
 
 const priorityColors = {
@@ -177,8 +178,8 @@ export function PlanPage() {
       const updated = await updateTranscriptionPreferences.mutateAsync({ data: { consent: true } });
       qc.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
       setConsentOpen(false);
-    } catch {
-      setConsentError('Consent could not be saved. Please try again.');
+    } catch (error) {
+      setConsentError(getVoiceConsentErrorMessage(error));
     } finally {
       setConsentSaving(false);
     }

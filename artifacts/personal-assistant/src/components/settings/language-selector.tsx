@@ -1,15 +1,15 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@workspace/askolo-design-system/components/ui/select';
+} from '@/components/ui/select';
 import { useLocale } from '@/contexts/locale-context';
 import { isLocale } from '@/lib/locale';
-import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
 
 export function LanguageSelector() {
   const { locale, setLocale, t } = useLocale();

@@ -3,9 +3,9 @@ import { Bell, Info, AlertTriangle, Zap, X, CheckCheck, VolumeX } from 'lucide-r
 import { useLocation } from 'wouter';
 import { useLocale } from '@/contexts/locale-context';
 import { useNotifications, type AppNotification } from '@/contexts/notification-context';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@workspace/askolo-design-system/components/ui/popover';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 
 function typeIcon(type: AppNotification['type']) {
   if (type === 'warning') return <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />;

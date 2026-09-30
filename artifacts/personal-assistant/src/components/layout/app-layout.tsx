@@ -16,15 +16,15 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { CommandMenu } from '@/components/layout/command-menu';
-import { Avatar, AvatarFallback, AvatarImage } from '@workspace/askolo-design-system/components/ui/avatar';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
-} from '@workspace/askolo-design-system/components/ui/sheet';
+} from '@/components/ui/sheet';
 import { AssistantProvider } from '@/contexts/assistant-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { PublicLayout } from '@/components/layout/public-layout';
 import { setPageMetadata } from '@/lib/seo';
 

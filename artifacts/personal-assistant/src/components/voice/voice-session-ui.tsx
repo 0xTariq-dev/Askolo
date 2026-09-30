@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Mic, MicOff } from 'lucide-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
-import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import type { VoiceTranscriptionResult } from '@/hooks/use-voice-transcription';
 import {
   formatVoiceDuration,

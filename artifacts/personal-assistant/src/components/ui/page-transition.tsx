@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import { ReactNode } from 'react';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { cn } from '@/lib/utils';
 
 export function PageTransition({ children, className }: { children: ReactNode, className?: string }) {
   const reducedMotion = useReducedMotion();
