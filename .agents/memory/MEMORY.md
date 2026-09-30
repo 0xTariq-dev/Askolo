@@ -51,4 +51,6 @@
 - [Askolo app UI migration](askolo-ui-migration.md) — verify shared primitives, route-level token styling, and behavior-sensitive component API changes independently.
 - [Theme prepaint bootstrap](theme-prepaint-bootstrap.md) — use a classic head script for saved mode; Vite’s merged module bootstrap cannot guarantee pre-paint execution.
 - [Resend MCP output handling](resend-mcp-output.md) — Resend list/get tools may return formatted text blocks; parse only the needed recipient metadata and never log message bodies or codes.
+- [Node tests and Vite env](node-vite-test-environment.md) — `tsx --test` does not provide `import.meta.env`; guard Vite-only reads or use a Vite-aware test runner.
+- [Workspace-scoped package installs](workspace-package-installs.md) — the package callback may target the pnpm root; use a package-filtered install for artifact dependencies.
 
