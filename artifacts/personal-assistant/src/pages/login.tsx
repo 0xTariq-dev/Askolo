@@ -177,7 +177,7 @@ export function LoginPage() {
         await postAuth(() => goApi.passwordSignup({ email, password }));
         setMode('verify');
         startResendCooldown();
-        setNotice('If an account can be created for this address, a verification code is on its way.');
+        setNotice('If an account can be created for this address, a verification email may arrive shortly. Check spam if you don’t see it.');
       } else if (mode === 'verify') {
         await postAuth(() => goApi.verifyEmail({ email, code }));
         setMode('signin');
@@ -264,7 +264,7 @@ export function LoginPage() {
     try {
       await postAuth(() => goApi.resendEmailVerification({ email }));
       startResendCooldown();
-      setNotice('If this account is waiting for verification, a new code is on its way.');
+      setNotice('If this account is eligible for verification, a new code should arrive. Delivery may be delayed; check spam or try again after the timer.');
     } catch (err) {
       applyRetryAfter(err);
       setError(err instanceof Error ? err.message : 'Unable to resend the verification code.');
@@ -508,7 +508,7 @@ export function LoginPage() {
             <form onSubmit={submitPasswordFlow} className="space-y-3 text-left">
               <p className="text-sm text-muted-foreground">
                 {mode === 'verify'
-                  ? 'Enter the six-digit code sent to your email.'
+                  ? 'If a new account can be created for this address, we’ll send a six-digit code. We can’t confirm inbox delivery here. If no code arrives, it may be delayed or this address may already be linked to an account. Check spam; this same guidance is shown for every address.'
                   : mode === 'recovery-request'
                     ? 'Enter the primary email address on your Askolo account.'
                     : mode === 'recovery-method'

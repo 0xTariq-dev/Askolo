@@ -52,7 +52,7 @@ sed -i "1i touch -- \"\${BUILD_SENTINEL:?}\"" "$fixture_api/build.sh"
 sed -i \
   -e 's#build = \[ "pnpm", "--filter", "@workspace/personal-assistant", "run", "build" \]#build = [ "pnpm", "--filter", "@workspace/personal-assistant", "run", "changed-build" ]#' \
   -e 's#publicDir = "artifacts/personal-assistant/dist/public"#publicDir = "artifacts/personal-assistant/dist/changed-public"#' \
-  -e 's#build = \["bash", "services/askolo-backend/scripts/build.sh"\]#build = ["bash", "services/askolo-backend/scripts/changed-build.sh"]#' \
+  -e 's#build = \["env", "-u", "DATABASE_URL", "-u", "ASKOLO_TEST_DATABASE_URL", "bash", "services/askolo-backend/scripts/build.sh"\]#build = ["bash", "services/askolo-backend/scripts/changed-build.sh"]#' \
   "$fixture_artifact/artifact.toml"
 
 set +e
@@ -74,7 +74,7 @@ grep -Fq \
   <<<"$output" ||
   { echo "validation failure did not identify the changed frontend public directory contract:" >&2; echo "$output" >&2; exit 1; }
 grep -Fq \
-  "API production build command changed in artifacts/personal-assistant/.replit-artifact/artifact.toml; expected: build = [\"bash\", \"services/askolo-backend/scripts/build.sh\"]" \
+  "API production build command changed in artifacts/personal-assistant/.replit-artifact/artifact.toml; expected: build = [\"env\", \"-u\", \"DATABASE_URL\", \"-u\", \"ASKOLO_TEST_DATABASE_URL\", \"bash\", \"services/askolo-backend/scripts/build.sh\"]" \
   <<<"$output" ||
   { echo "validation failure did not identify the changed API build contract:" >&2; echo "$output" >&2; exit 1; }
 grep -Fq \

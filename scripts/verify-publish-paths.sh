@@ -63,7 +63,7 @@ require_artifact_line \
   'publicDir = "artifacts/personal-assistant/dist/public"' \
   "frontend production public directory"
 require_artifact_line \
-  'build = ["bash", "services/askolo-backend/scripts/build.sh"]' \
+  'build = ["env", "-u", "DATABASE_URL", "-u", "ASKOLO_TEST_DATABASE_URL", "bash", "services/askolo-backend/scripts/build.sh"]' \
   "API production build command"
 extract_paths() {
   sed -E 's/^[^[]*\[//; s/\].*$//' |
@@ -215,7 +215,7 @@ if [[ -f "$api_pid_file" ]]; then
 fi
 
 echo "Verifying API production build from repository root"
-bash services/askolo-backend/scripts/build.sh
+env -u DATABASE_URL -u ASKOLO_TEST_DATABASE_URL bash services/askolo-backend/scripts/build.sh
 restore_api_pid_file
 trap - EXIT
 

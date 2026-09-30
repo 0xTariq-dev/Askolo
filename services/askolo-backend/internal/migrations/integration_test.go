@@ -51,6 +51,34 @@ func TestRunDisposableDatabase(t *testing.T) {
 	if err := ValidateReady(ctx, pool); err != nil {
 		t.Fatalf("ready after clean migration: %v", err)
 	}
+	var rateLimitColumns string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(string_agg(column_name, ',' ORDER BY ordinal_position), '')
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'auth_mfa_recovery_rate_limits'
+`).Scan(&rateLimitColumns); err != nil {
+		t.Fatalf("inspect shared auth rate-limit schema: %v", err)
+	}
+	if rateLimitColumns != "bucket_hash,window_started_at,request_count" {
+		t.Fatalf("shared auth rate-limit columns = %q, want bucket_hash,window_started_at,request_count", rateLimitColumns)
+	}
+	firstRateLimitInsert, err := pool.Exec(ctx, `
+INSERT INTO auth_mfa_recovery_rate_limits (bucket_hash, window_started_at, request_count)
+VALUES ('migration-sentinel', NOW(), 1)
+ON CONFLICT (bucket_hash) DO NOTHING
+`)
+	if err != nil || firstRateLimitInsert.RowsAffected() != 1 {
+		t.Fatalf("insert shared auth rate-limit bucket: rows=%d err=%v", firstRateLimitInsert.RowsAffected(), err)
+	}
+	secondRateLimitInsert, err := pool.Exec(ctx, `
+INSERT INTO auth_mfa_recovery_rate_limits (bucket_hash, window_started_at, request_count)
+VALUES ('migration-sentinel', NOW(), 1)
+ON CONFLICT (bucket_hash) DO NOTHING
+`)
+	if err != nil || secondRateLimitInsert.RowsAffected() != 0 {
+		t.Fatalf("shared auth rate-limit bucket is not unique: rows=%d err=%v", secondRateLimitInsert.RowsAffected(), err)
+	}
 	assertCurrentMigrationVersions(t, ctx, pool)
 	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('sentinel', 'sentinel@example.test')`); err != nil {
 		t.Fatalf("insert sentinel user: %v", err)

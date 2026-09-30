@@ -47,4 +47,5 @@
 - [Outbound cancellation test harness](outbound-cancellation-tests.md) — prefer controlled RoundTrippers for request-cancellation tests; a blocked test-server handler can stall cleanup.
 - [Askolo app UI migration](askolo-ui-migration.md) — verify shared primitives, route-level token styling, and behavior-sensitive component API changes independently.
 - [Theme prepaint bootstrap](theme-prepaint-bootstrap.md) — use a classic head script for saved mode; Vite’s merged module bootstrap cannot guarantee pre-paint execution.
+- [Resend MCP output handling](resend-mcp-output.md) — Resend list/get tools may return formatted text blocks; parse only the needed recipient metadata and never log message bodies or codes.
 

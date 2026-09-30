@@ -319,7 +319,7 @@ func sessionCookie(t *testing.T, response *httptest.ResponseRecorder) *http.Cook
 			return cookie
 		}
 	}
-	t.Fatalf("response did not set a session cookie: %s", response.Body.String())
+	t.Fatalf("response with status %d did not set a session cookie", response.Code)
 	return nil
 }
 
@@ -328,7 +328,7 @@ func assertResponseDoesNotContain(t *testing.T, response *httptest.ResponseRecor
 	body := response.Body.String()
 	for _, secret := range secrets {
 		if secret != "" && strings.Contains(body, secret) {
-			t.Fatalf("response exposed sensitive value %q: %s", secret, body)
+			t.Fatal("response contained a value that must remain private")
 		}
 	}
 }
@@ -386,7 +386,10 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"password": integrationPassword,
 	}, nil, "192.0.2.10:1000")
 	if signup.Code != http.StatusAccepted {
-		t.Fatalf("signup status = %d, body = %s", signup.Code, signup.Body.String())
+		t.Fatalf("signup status = %d, want accepted", signup.Code)
+	}
+	if sender.count() != 1 {
+		t.Fatalf("fresh signup sent %d messages, want exactly one", sender.count())
 	}
 	signupCode := sender.codeForSubject(t, "Verify your Askolo email")
 	assertResponseDoesNotContain(t, signup, integrationEmail, signupCode, integrationPassword)
@@ -396,7 +399,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"code":  signupCode,
 	}, nil, "192.0.2.11:1000")
 	if verify.Code != http.StatusOK {
-		t.Fatalf("email verification status = %d, body = %s", verify.Code, verify.Body.String())
+		t.Fatalf("email verification status = %d, want success", verify.Code)
 	}
 	assertResponseDoesNotContain(t, verify, integrationEmail, signupCode, integrationPassword)
 
@@ -404,7 +407,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": integrationEmail,
 	}, nil, "192.0.2.121:1000")
 	if primaryRecoveryRequest.Code != http.StatusAccepted {
-		t.Fatalf("primary email recovery request status = %d, body = %s", primaryRecoveryRequest.Code, primaryRecoveryRequest.Body.String())
+		t.Fatalf("primary email recovery request status = %d, want accepted", primaryRecoveryRequest.Code)
 	}
 	primaryRecoveryCode := sender.codeForSubject(t, "Reset your Askolo password")
 	assertResponseDoesNotContain(t, primaryRecoveryRequest, integrationEmail, primaryRecoveryCode, integrationPassword)
@@ -427,7 +430,9 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": integrationEmail, "password": "a different password",
 	}, nil, "192.0.2.111:1000")
 	if duplicateSignup.Code != http.StatusAccepted || duplicateSignup.Body.String() != `{"status":"verification_required"}`+"\n" {
-		t.Fatalf("duplicate signup response = %d %q", duplicateSignup.Code, duplicateSignup.Body.String())
+		t.Fatalf("duplicate signup status=%d generic-response-matches=%t",
+			duplicateSignup.Code,
+			duplicateSignup.Body.String() == `{"status":"verification_required"}`+"\n")
 	}
 	if sender.count() != messagesBeforeDuplicateSignup {
 		t.Fatalf("duplicate signup sent a new message (total messages: %d, before request: %d)", sender.count(), messagesBeforeDuplicateSignup)
@@ -438,7 +443,11 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": integrationEmail, "password": integrationPassword,
 	}, nil, "192.0.2.12:1000")
 	if login.Code != http.StatusOK {
-		t.Fatalf("login status = %d, body = %s", login.Code, login.Body.String())
+		t.Fatalf("login status = %d, want success", login.Code)
+	}
+	if sender.count() != messagesBeforeDuplicateSignup {
+		t.Fatalf("ordinary password sign-in sent an email (messages before=%d, after=%d)",
+			messagesBeforeDuplicateSignup, sender.count())
 	}
 	sessionOne := sessionCookie(t, login)
 	loginTwo := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/login", map[string]string{
@@ -451,7 +460,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": recoveryEmail, "currentPassword": integrationPassword,
 	}, sessionOne, "192.0.2.14:1000")
 	if enroll.Code != http.StatusAccepted {
-		t.Fatalf("recovery enrollment status = %d, body = %s", enroll.Code, enroll.Body.String())
+		t.Fatalf("recovery enrollment status = %d, want accepted", enroll.Code)
 	}
 	recoveryEmailCode := sender.codeForSubject(t, "Confirm your Askolo recovery email")
 	assertResponseDoesNotContain(t, enroll, recoveryEmail, recoveryEmailCode, integrationPassword)
@@ -460,14 +469,16 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": recoveryEmail, "code": recoveryEmailCode,
 	}, sessionOne, "192.0.2.15:1000")
 	if verifyRecovery.Code != http.StatusOK {
-		t.Fatalf("recovery verification status = %d, body = %s", verifyRecovery.Code, verifyRecovery.Body.String())
+		t.Fatalf("recovery verification status = %d, want success", verifyRecovery.Code)
 	}
 
 	unknownRecovery := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
 		"email": "unknown@example.com",
 	}, nil, "192.0.2.16:1000")
 	if unknownRecovery.Code != http.StatusAccepted || unknownRecovery.Body.String() != `{"status":"recovery_if_available"}`+"\n" {
-		t.Fatalf("unknown recovery response = %d %q", unknownRecovery.Code, unknownRecovery.Body.String())
+		t.Fatalf("unknown recovery status=%d generic-response-matches=%t",
+			unknownRecovery.Code,
+			unknownRecovery.Body.String() == `{"status":"recovery_if_available"}`+"\n")
 	}
 	assertResponseDoesNotContain(t, unknownRecovery, "unknown@example.com")
 	unknownRecoveryRepeat := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
@@ -484,7 +495,9 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": recoveryEmail,
 	}, nil, "192.0.2.161:1000")
 	if directRecoveryAddress.Code != http.StatusAccepted || directRecoveryAddress.Body.String() != unknownRecovery.Body.String() {
-		t.Fatalf("direct recovery address response = %d %q, want generic accepted response", directRecoveryAddress.Code, directRecoveryAddress.Body.String())
+		t.Fatalf("direct recovery address status=%d generic-response-matches=%t",
+			directRecoveryAddress.Code,
+			directRecoveryAddress.Body.String() == unknownRecovery.Body.String())
 	}
 	if sender.count() != deliveryCountBeforeDirectRecovery {
 		t.Fatalf("direct recovery address unexpectedly sent a message")
@@ -495,10 +508,10 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"method": "recovery_email",
 	}, nil, "192.0.2.17:1000")
 	if recoveryRequest.Code != http.StatusAccepted {
-		t.Fatalf("recovery request status = %d, body = %s", recoveryRequest.Code, recoveryRequest.Body.String())
+		t.Fatalf("recovery request status = %d, want accepted", recoveryRequest.Code)
 	}
 	if recoveryRequest.Body.String() != unknownRecovery.Body.String() {
-		t.Fatalf("known and unknown recovery responses differ: known=%q unknown=%q", recoveryRequest.Body.String(), unknownRecovery.Body.String())
+		t.Fatal("known and unknown recovery response bodies differ")
 	}
 	recoveryCode := sender.codeForSubject(t, "Reset your Askolo password")
 	assertResponseDoesNotContain(t, recoveryRequest, recoveryEmail, recoveryCode, integrationPassword)
@@ -507,7 +520,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": integrationEmail, "method": "recovery_email", "code": recoveryCode,
 	}, nil, "192.0.2.171:1000")
 	if recoveryVerify.Code != http.StatusOK {
-		t.Fatalf("recovery code verification status = %d, body = %s", recoveryVerify.Code, recoveryVerify.Body.String())
+		t.Fatalf("recovery code verification status = %d, want success", recoveryVerify.Code)
 	}
 	assertResponseDoesNotContain(t, recoveryVerify, recoveryEmail, recoveryCode, integrationPassword)
 
@@ -516,14 +529,15 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		"email": integrationEmail, "method": "recovery_email", "code": recoveryCode, "password": resetPassword,
 	}, nil, "192.0.2.18:1000")
 	if reset.Code != http.StatusOK {
-		t.Fatalf("password reset status = %d, body = %s", reset.Code, reset.Body.String())
+		t.Fatalf("password reset status = %d, want success", reset.Code)
 	}
 	assertResponseDoesNotContain(t, reset, recoveryEmail, recoveryCode, resetPassword)
 
 	for name, cookie := range map[string]*http.Cookie{"first": sessionOne, "second": sessionTwo} {
 		session := plainRequest(authHandler, http.MethodGet, "/api/auth/session", cookie)
 		if session.Code != http.StatusOK || session.Body.String() != `{"user":null}`+"\n" {
-			t.Fatalf("%s session after reset = %d %q", name, session.Code, session.Body.String())
+			t.Fatalf("%s session after reset status=%d is-null=%t",
+				name, session.Code, session.Body.String() == `{"user":null}`+"\n")
 		}
 	}
 
@@ -537,7 +551,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	}
 	afterLogout := plainRequest(authHandler, http.MethodGet, "/api/auth/session", deleteSession)
 	if afterLogout.Body.String() != `{"user":null}`+"\n" {
-		t.Fatalf("session remained active after logout: %s", afterLogout.Body.String())
+		t.Fatalf("session after logout is unauthenticated=%t", afterLogout.Body.String() == `{"user":null}`+"\n")
 	}
 
 	deleteLogin := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/login", map[string]string{
@@ -545,7 +559,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	}, nil, "192.0.2.21:1000")
 	deleteResponse := plainRequest(testProductHandler(fixture), http.MethodDelete, "/api/user/account", sessionCookie(t, deleteLogin))
 	if deleteResponse.Code != http.StatusNoContent {
-		t.Fatalf("account deletion status = %d, body = %s", deleteResponse.Code, deleteResponse.Body.String())
+		t.Fatalf("account deletion status = %d, want no content", deleteResponse.Code)
 	}
 	if _, err := fixture.store.FindUserByEmail(context.Background(), integrationEmail); !errors.Is(err, postgres.ErrNotFound) {
 		t.Fatalf("deleted user lookup error = %v, want not found", err)
@@ -560,7 +574,7 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		}
 	}
 	if strings.Contains(logs.String(), integrationEmail) || strings.Contains(logs.String(), integrationPassword) {
-		t.Fatalf("auth logs exposed signup credentials or email: %s", logs.String())
+		t.Fatal("auth logs contained a value that must remain private")
 	}
 }
 
@@ -581,7 +595,7 @@ func TestMFARecoverySupportVerifiesPrimaryEmailAndRevokesSessions(t *testing.T) 
 		"email": email,
 	}, nil, "192.0.2.80:1000")
 	if request.Code != http.StatusAccepted {
-		t.Fatalf("MFA recovery support request status = %d, body = %s", request.Code, request.Body.String())
+		t.Fatalf("MFA recovery support request status = %d, want accepted", request.Code)
 	}
 	code := sender.codeForSubject(t, "Verify your Askolo MFA recovery request")
 	assertResponseDoesNotContain(t, request, email, code)
@@ -603,7 +617,8 @@ func TestMFARecoverySupportVerifiesPrimaryEmailAndRevokesSessions(t *testing.T) 
 		"code":  invalidCode,
 	}, sessionCookie, "192.0.2.82:1000")
 	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), `"code":"INVALID_RECOVERY"`) {
-		t.Fatalf("invalid MFA recovery support verification = %d, body = %s", invalid.Code, invalid.Body.String())
+		t.Fatalf("invalid MFA recovery support verification status=%d has-safe-error-code=%t",
+			invalid.Code, strings.Contains(invalid.Body.String(), `"code":"INVALID_RECOVERY"`))
 	}
 	if got := securityEventCount(t, fixture, userID, "mfa_recovery_support_verification_failed"); got != 1 {
 		t.Fatalf("invalid MFA recovery support events = %d, want one", got)
@@ -614,7 +629,8 @@ func TestMFARecoverySupportVerifiesPrimaryEmailAndRevokesSessions(t *testing.T) 
 		"code":  code,
 	}, sessionCookie, "192.0.2.81:1000")
 	if verify.Code != http.StatusOK || !strings.Contains(verify.Body.String(), "mfa_recovery_support_review_required") {
-		t.Fatalf("MFA recovery support verification = %d, body = %s", verify.Code, verify.Body.String())
+		t.Fatalf("MFA recovery support verification status=%d has-expected-state=%t",
+			verify.Code, strings.Contains(verify.Body.String(), "mfa_recovery_support_review_required"))
 	}
 	if _, err := fixture.store.SessionUserID(context.Background(), sessionID); !errors.Is(err, postgres.ErrNotFound) {
 		t.Fatalf("session after MFA recovery support verification error = %v, want session revoked", err)
@@ -668,7 +684,8 @@ UPDATE users SET status = $2 WHERE id = $1
 				"email": email,
 			}, nil, "192.0.2.120:1000")
 			if request.Code != http.StatusAccepted || request.Body.String() != `{"status":"mfa_recovery_if_available"}`+"\n" {
-				t.Fatalf("inactive MFA recovery support request = %d, body = %s", request.Code, request.Body.String())
+				t.Fatalf("inactive MFA recovery support request status=%d generic-response-matches=%t",
+					request.Code, request.Body.String() == `{"status":"mfa_recovery_if_available"}`+"\n")
 			}
 			if sender.count() != 0 {
 				t.Fatalf("inactive MFA recovery support request sent %d messages", sender.count())
@@ -681,7 +698,8 @@ UPDATE users SET status = $2 WHERE id = $1
 				"code":  code,
 			}, &http.Cookie{Name: fixture.authConfig.SessionCookieName, Value: sessionID}, "192.0.2.121:1000")
 			if verify.Code != http.StatusBadRequest || verify.Body.String() != expectedVerification {
-				t.Fatalf("inactive MFA recovery support verification = %d, body = %s", verify.Code, verify.Body.String())
+				t.Fatalf("inactive MFA recovery support verification status=%d generic-response-matches=%t",
+					verify.Code, verify.Body.String() == expectedVerification)
 			}
 			if got := securityEventCount(t, fixture, userID, "mfa_recovery_support_verified"); got != 0 {
 				t.Fatalf("inactive MFA recovery support verified events = %d, want zero", got)
@@ -716,8 +734,8 @@ func TestMFARecoverySupportRejectsEnumerationAndPasswordOnlyPayloads(t *testing.
 	if unknownRequest.Code != http.StatusAccepted || unverifiedRequest.Code != http.StatusAccepted ||
 		unknownRequest.Body.String() != `{"status":"mfa_recovery_if_available"}`+"\n" ||
 		unverifiedRequest.Body.String() != unknownRequest.Body.String() {
-		t.Fatalf("unknown/unverified MFA recovery responses differ: unknown=%d %q unverified=%d %q",
-			unknownRequest.Code, unknownRequest.Body.String(), unverifiedRequest.Code, unverifiedRequest.Body.String())
+		t.Fatalf("unknown/unverified MFA recovery response mismatch: unknown=%d unverified=%d bodies-match=%t",
+			unknownRequest.Code, unverifiedRequest.Code, unknownRequest.Body.String() == unverifiedRequest.Body.String())
 	}
 	if sender.count() != 0 {
 		t.Fatalf("unknown or unverified MFA recovery request sent %d messages", sender.count())
@@ -727,7 +745,8 @@ func TestMFARecoverySupportRejectsEnumerationAndPasswordOnlyPayloads(t *testing.
 		"password": integrationPassword,
 	}, nil, "192.0.2.92:1000")
 	if passwordOnly.Code != http.StatusBadRequest || !strings.Contains(passwordOnly.Body.String(), `"code":"INVALID_REQUEST"`) {
-		t.Fatalf("password-only MFA recovery request = %d, body = %s", passwordOnly.Code, passwordOnly.Body.String())
+		t.Fatalf("password-only MFA recovery request status=%d has-safe-error-code=%t",
+			passwordOnly.Code, strings.Contains(passwordOnly.Body.String(), `"code":"INVALID_REQUEST"`))
 	}
 	if sender.count() != 0 {
 		t.Fatalf("password-only MFA recovery request sent a message")
@@ -744,9 +763,9 @@ func TestMFARecoverySupportRejectsEnumerationAndPasswordOnlyPayloads(t *testing.
 	if unknownVerification.Code != http.StatusBadRequest ||
 		unverifiedVerification.Code != unknownVerification.Code ||
 		unverifiedVerification.Body.String() != unknownVerification.Body.String() {
-		t.Fatalf("unknown/unverified MFA verification responses differ: unknown=%d %q unverified=%d %q",
-			unknownVerification.Code, unknownVerification.Body.String(),
-			unverifiedVerification.Code, unverifiedVerification.Body.String())
+		t.Fatalf("unknown/unverified MFA verification response mismatch: unknown=%d unverified=%d bodies-match=%t",
+			unknownVerification.Code, unverifiedVerification.Code,
+			unknownVerification.Body.String() == unverifiedVerification.Body.String())
 	}
 	if sender.count() != 0 {
 		t.Fatalf("unknown or unverified MFA verification sent %d messages", sender.count())
@@ -762,7 +781,7 @@ func TestMFARecoverySupportRateLimitsRequestAndVerification(t *testing.T) {
 			"email": "rate-limit-unknown@example.com",
 		}, nil, "192.0.2.100:1000")
 		if response.Code != http.StatusAccepted {
-			t.Fatalf("MFA recovery request attempt %d status = %d, body = %s", attempt, response.Code, response.Body.String())
+			t.Fatalf("MFA recovery request attempt %d status = %d, want accepted", attempt, response.Code)
 		}
 	}
 	requestLimited := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/request", map[string]string{
@@ -771,8 +790,9 @@ func TestMFARecoverySupportRateLimitsRequestAndVerification(t *testing.T) {
 	if requestLimited.Code != http.StatusTooManyRequests ||
 		requestLimited.Header().Get("Retry-After") != "60" ||
 		!strings.Contains(requestLimited.Body.String(), `"code":"RATE_LIMITED"`) {
-		t.Fatalf("MFA recovery request rate limit = %d, retry-after=%q, body=%s",
-			requestLimited.Code, requestLimited.Header().Get("Retry-After"), requestLimited.Body.String())
+		t.Fatalf("MFA recovery request rate limit=%d retry-after=%q has-safe-error-code=%t",
+			requestLimited.Code, requestLimited.Header().Get("Retry-After"),
+			strings.Contains(requestLimited.Body.String(), `"code":"RATE_LIMITED"`))
 	}
 
 	for attempt := 1; attempt <= 10; attempt++ {
@@ -781,7 +801,7 @@ func TestMFARecoverySupportRateLimitsRequestAndVerification(t *testing.T) {
 			"code":  "000001",
 		}, nil, "192.0.2.101:1000")
 		if response.Code != http.StatusBadRequest {
-			t.Fatalf("MFA recovery verification attempt %d status = %d, body = %s", attempt, response.Code, response.Body.String())
+			t.Fatalf("MFA recovery verification attempt %d status = %d, want bad request", attempt, response.Code)
 		}
 	}
 	verificationLimited := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/mfa/recovery-support/verify", map[string]string{
@@ -791,8 +811,9 @@ func TestMFARecoverySupportRateLimitsRequestAndVerification(t *testing.T) {
 	if verificationLimited.Code != http.StatusTooManyRequests ||
 		verificationLimited.Header().Get("Retry-After") != "60" ||
 		!strings.Contains(verificationLimited.Body.String(), `"code":"RATE_LIMITED"`) {
-		t.Fatalf("MFA recovery verification rate limit = %d, retry-after=%q, body=%s",
-			verificationLimited.Code, verificationLimited.Header().Get("Retry-After"), verificationLimited.Body.String())
+		t.Fatalf("MFA recovery verification rate limit=%d retry-after=%q has-safe-error-code=%t",
+			verificationLimited.Code, verificationLimited.Header().Get("Retry-After"),
+			strings.Contains(verificationLimited.Body.String(), `"code":"RATE_LIMITED"`))
 	}
 }
 
@@ -993,7 +1014,7 @@ func TestPasswordLoginAccountLimitIsSharedAcrossInstances(t *testing.T) {
 			want = http.StatusTooManyRequests
 		}
 		if response.Code != want {
-			t.Fatalf("login attempt %d returned %d, want %d: %s", attempt, response.Code, want, response.Body.String())
+			t.Fatalf("login attempt %d returned %d, want %d", attempt, response.Code, want)
 		}
 	}
 }
@@ -1064,14 +1085,15 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 			"email": integrationEmail, "code": wrongCode,
 		}, nil, fmt.Sprintf("192.0.2.%d:2000", 30+attempt))
 		if response.Code != http.StatusBadRequest {
-			t.Fatalf("invalid attempt %d status = %d, body = %s", attempt+1, response.Code, response.Body.String())
+			t.Fatalf("invalid attempt %d status = %d, want bad request", attempt+1, response.Code)
 		}
 	}
 	locked := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/email/verify", map[string]string{
 		"email": integrationEmail, "code": wrongCode,
 	}, nil, "192.0.2.40:2000")
 	if locked.Code != http.StatusTooManyRequests || !strings.Contains(locked.Body.String(), `"code":"CHALLENGE_LOCKED"`) {
-		t.Fatalf("locked challenge response = %d %s", locked.Code, locked.Body.String())
+		t.Fatalf("locked challenge response status=%d has-safe-error-code=%t",
+			locked.Code, strings.Contains(locked.Body.String(), `"code":"CHALLENGE_LOCKED"`))
 	}
 
 	expiredEmail := "expired@example.com"
@@ -1081,7 +1103,7 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 		"email": expiredEmail, "code": "123456",
 	}, nil, "192.0.2.41:2000")
 	if expired.Code != http.StatusBadRequest {
-		t.Fatalf("expired challenge status = %d, body = %s", expired.Code, expired.Body.String())
+		t.Fatalf("expired challenge status = %d, want bad request", expired.Code)
 	}
 	assertResponseDoesNotContain(t, expired, expiredEmail, "123456", integrationPassword)
 
@@ -1163,7 +1185,8 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 		"email": failureEmail, "password": integrationPassword,
 	}, nil, "192.0.2.50:5000")
 	if failure.Code != http.StatusServiceUnavailable || !strings.Contains(failure.Body.String(), `"code":"AUTH_UNAVAILABLE"`) {
-		t.Fatalf("delivery failure response = %d %s", failure.Code, failure.Body.String())
+		t.Fatalf("delivery failure status=%d has-safe-error-code=%t",
+			failure.Code, strings.Contains(failure.Body.String(), `"code":"AUTH_UNAVAILABLE"`))
 	}
 	assertResponseDoesNotContain(t, failure, failureEmail, integrationPassword)
 	var persisted int
@@ -1179,10 +1202,10 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 	if strings.Contains(failureLogs.String(), failureEmail) ||
 		strings.Contains(failureLogs.String(), integrationPassword) ||
 		strings.Contains(failureLogs.String(), failureCode) {
-		t.Fatalf("delivery failure logs exposed sensitive values: %s", failureLogs.String())
+		t.Fatal("delivery failure logs contained a value that must remain private")
 	}
 	if !strings.Contains(failureLogs.String(), "failure_category=provider_rejection") {
-		t.Fatalf("delivery failure logs omitted safe failure category: %s", failureLogs.String())
+		t.Fatal("delivery failure logs omitted the safe failure category")
 	}
 
 	retrySender := &captureEmailSender{}
@@ -1191,11 +1214,97 @@ func TestNativeEmailAuthAbuseFailureAndConcurrencyGuarantees(t *testing.T) {
 		"email": failureEmail,
 	}, nil, "192.0.2.51:5000")
 	if retry.Code != http.StatusAccepted {
-		t.Fatalf("delivery retry status = %d, body = %s", retry.Code, retry.Body.String())
+		t.Fatalf("delivery retry status = %d, want accepted", retry.Code)
 	}
 	if retrySender.count() != 1 {
 		t.Fatalf("delivery retry sent %d messages, want one", retrySender.count())
 	}
+}
+
+func TestNativeEmailSignupAndExplicitVerificationResendInvokeSenderOnce(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	sender := &captureEmailSender{}
+	monitor := NewEmailDeliveryMonitor()
+	handler := NewHandlerWithEmailSenderAndMonitor(
+		fixture.authConfig,
+		fixture.store,
+		slog.Default(),
+		sender,
+		monitor,
+	).Routes()
+
+	signup := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/signup", map[string]string{
+		"email":    integrationEmail,
+		"password": integrationPassword,
+	}, nil, "192.0.2.60:6000")
+	if signup.Code != http.StatusAccepted || sender.count() != 1 {
+		t.Fatalf("fresh signup status=%d sender calls=%d; want accepted and exactly one send",
+			signup.Code, sender.count())
+	}
+
+	afterSignup := monitor.Snapshot()
+	if afterSignup.Attempts != 1 || afterSignup.Handoffs != 1 {
+		t.Fatalf("fresh signup delivery snapshot attempts=%d handoffs=%d; want 1 and 1",
+			afterSignup.Attempts, afterSignup.Handoffs)
+	}
+	signupCode := sender.codeForSubject(t, "Verify your Askolo email")
+	assertResponseDoesNotContain(t, signup, integrationEmail, signupCode, integrationPassword)
+
+	duplicate := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/signup", map[string]string{
+		"email": integrationEmail, "password": "a different password",
+	}, nil, "192.0.2.61:6000")
+	if duplicate.Code != http.StatusAccepted ||
+		duplicate.Body.String() != `{"status":"verification_required"}`+"\n" ||
+		sender.count() != 1 {
+		t.Fatalf("duplicate signup status=%d sender calls=%d; want generic accepted response and no additional send",
+			duplicate.Code, sender.count())
+	}
+	afterDuplicate := monitor.Snapshot()
+	if afterDuplicate.Attempts != 1 || afterDuplicate.Handoffs != 1 {
+		t.Fatalf("duplicate signup changed delivery attempts to %d handoffs to %d; want both unchanged at 1",
+			afterDuplicate.Attempts, afterDuplicate.Handoffs)
+	}
+	assertResponseDoesNotContain(t, duplicate, integrationEmail, "a different password")
+
+	var userID string
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT id FROM users WHERE email = $1
+	`, integrationEmail).Scan(&userID); err != nil {
+		t.Fatalf("lookup fresh signup user: %v", err)
+	}
+	if result, err := fixture.pool.Exec(context.Background(), `
+		UPDATE auth_email_challenges
+		SET created_at = NOW() - INTERVAL '3 minutes'
+		WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL
+	`, userID); err != nil {
+		t.Fatalf("age verification challenge for resend test: %v", err)
+	} else if result.RowsAffected() != 1 {
+		t.Fatalf("aged %d active verification challenges, want exactly one", result.RowsAffected())
+	}
+
+	resend := jsonRequest(t, handler, http.MethodPost, "/api/auth/email/resend", map[string]string{
+		"email": integrationEmail,
+	}, nil, "192.0.2.62:6000")
+	if resend.Code != http.StatusAccepted || sender.count() != 2 {
+		t.Fatalf("explicit resend status=%d sender calls=%d; want accepted and exactly one additional send",
+			resend.Code, sender.count())
+	}
+	afterResend := monitor.Snapshot()
+	if afterResend.Attempts != 2 || afterResend.Handoffs != 2 {
+		t.Fatalf("explicit resend delivery snapshot attempts=%d handoffs=%d; want 2 and 2",
+			afterResend.Attempts, afterResend.Handoffs)
+	}
+	resendCode := sender.codeForSubject(t, "Verify your Askolo email")
+	assertResponseDoesNotContain(t, resend, integrationEmail, resendCode, integrationPassword)
+
+	verify := jsonRequest(t, handler, http.MethodPost, "/api/auth/email/verify", map[string]string{
+		"email": integrationEmail,
+		"code":  resendCode,
+	}, nil, "192.0.2.63:6000")
+	if verify.Code != http.StatusOK {
+		t.Fatalf("verification after resend status=%d, want success", verify.Code)
+	}
+	assertResponseDoesNotContain(t, verify, integrationEmail, resendCode, integrationPassword)
 }
 
 func TestEmailChallengeCleanupRetainsRecentAndActiveRecords(t *testing.T) {
