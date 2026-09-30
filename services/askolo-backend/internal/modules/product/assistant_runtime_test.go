@@ -1,14 +1,19 @@
 package product
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"askolo/backend/internal/platform/publicws"
 )
 
 func TestPreflightAssistantTranscript(t *testing.T) {
@@ -101,29 +106,65 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 
 func TestOpenAIAssistantPlannerRequiresSecureProviderURL(t *testing.T) {
 	tests := []struct {
-		name    string
-		baseURL string
-		wantOK  bool
+		name       string
+		key        string
+		baseURL    string
+		wantOK     bool
+		wantReason string
 	}{
-		{name: "secure provider URL", baseURL: "https://api.example.test/v1", wantOK: true},
-		{name: "HTTP rejected", baseURL: "http://api.example.test/v1"},
-		{name: "userinfo rejected", baseURL: "https://user:pass@api.example.test/v1"},
-		{name: "query rejected", baseURL: "https://api.example.test/v1?redirect=other"},
-		{name: "fragment rejected", baseURL: "https://api.example.test/v1#fragment"},
-		{name: "missing key rejected", baseURL: "https://api.example.test/v1"},
+		{name: "secure provider URL", key: "test-key", baseURL: "https://api.example.test/v1", wantOK: true},
+		{name: "HTTP rejected", key: "test-key", baseURL: "http://api.example.test/v1", wantReason: "provider_base_url_invalid"},
+		{name: "userinfo rejected", key: "test-key", baseURL: "https://user:pass@api.example.test/v1", wantReason: "provider_base_url_invalid"},
+		{name: "query rejected", key: "test-key", baseURL: "https://api.example.test/v1?redirect=other", wantReason: "provider_base_url_invalid"},
+		{name: "fragment rejected", key: "test-key", baseURL: "https://api.example.test/v1#fragment", wantReason: "provider_base_url_invalid"},
+		{name: "missing key rejected", baseURL: "https://api.example.test/v1", wantReason: "provider_key_missing"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			key := "configured-test-key"
-			if test.name == "missing key rejected" {
-				key = ""
-			}
-			planner := newOpenAIAssistantPlanner(key, test.baseURL)
+			planner := newOpenAIAssistantPlanner(test.key, test.baseURL)
 			if got := planner.Available(); got != test.wantOK {
 				t.Fatalf("Available() = %v, want %v", got, test.wantOK)
 			}
+			if got := assistantPlannerUnavailableReason(planner); got != test.wantReason {
+				t.Fatalf("assistantPlannerUnavailableReason() = %q, want %q", got, test.wantReason)
+			}
 		})
+	}
+}
+
+func TestRunAssistantUnavailableGateLogsOnlySanitizedMetadata(t *testing.T) {
+	var logOutput bytes.Buffer
+	handler := &Handler{logger: slog.New(slog.NewTextHandler(&logOutput, nil))}
+	transcript := "private assistant text must not be logged"
+	idempotencyKey := "private-idempotency-key"
+
+	_, err := handler.RunAssistant(
+		context.Background(),
+		"user-id",
+		"workspace-id",
+		publicws.AssistantRequest{
+			Transcript:     transcript,
+			IdempotencyKey: idempotencyKey,
+			PolicyVersion:  1,
+		},
+		nil,
+	)
+	var operationError *publicws.Error
+	if !errors.As(err, &operationError) {
+		t.Fatalf("RunAssistant() error = %v, want public WebSocket error", err)
+	}
+	if operationError.Code != "ASSISTANT_UNAVAILABLE" ||
+		operationError.Message != "The assistant is temporarily unavailable." {
+		t.Fatalf("public error = %#v, want generic assistant-unavailable response", operationError)
+	}
+
+	logged := logOutput.String()
+	if !strings.Contains(logged, "reason=store_unavailable") {
+		t.Fatalf("diagnostic log = %q, want store_unavailable reason", logged)
+	}
+	if strings.Contains(logged, transcript) || strings.Contains(logged, idempotencyKey) {
+		t.Fatalf("diagnostic log contains private request data: %q", logged)
 	}
 }
 

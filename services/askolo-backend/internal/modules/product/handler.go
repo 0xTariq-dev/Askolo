@@ -133,6 +133,10 @@ func newHandler(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	assistantPlanner := newOpenAIAssistantPlanner(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL)
+	if reason := assistantPlannerUnavailableReason(assistantPlanner); reason != "" {
+		logger.Warn("assistant planner configuration is unavailable", "reason", reason)
+	}
 	return &Handler{
 		store:               store,
 		logger:              logger,
@@ -143,7 +147,7 @@ func newHandler(
 		realtimeLimiter:     newRealtimeSessionLimiter(),
 		authRateLimitSecret: cfg.AuthRateLimitHMACSecret,
 		realtimeIdleTimeout: realtimeClientIdleTimeout,
-		assistantPlanner:    newOpenAIAssistantPlanner(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL),
+		assistantPlanner:    assistantPlanner,
 	}
 }
 
