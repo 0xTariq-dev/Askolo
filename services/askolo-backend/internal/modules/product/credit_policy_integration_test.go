@@ -544,6 +544,106 @@ func TestAICreditEstimateResolvesPublicPricingKeysAndUnits(t *testing.T) {
 	}
 }
 
+func TestAICreditBalanceAndUsageRoutesExposeUSDLedger(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	const userID = "usd-ledger-viewer"
+	sessionID := fixture.createUserAndSession(t, userID, "usd-ledger-viewer@example.test", true)
+	if err := fixture.store.EnsurePersonalWorkspace(fixture.ctx, userID); err != nil {
+		t.Fatalf("ensure personal workspace: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx,
+		postgres.DefaultWorkspaceID(userID),
+		userID,
+		"active",
+		"owner",
+		policy.PersonalWorkspaceCapabilities,
+	); err != nil {
+		t.Fatalf("grant test workspace capabilities: %v", err)
+	}
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO ai_credit_accounts (user_id, granted_usd_micros) VALUES ($1, $2)`,
+		userID,
+		int64(2_500_000),
+	); err != nil {
+		t.Fatalf("seed isolated USD test balance: %v", err)
+	}
+
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+	request := func(path string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+sessionID)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want %d: %s", path, response.Code, http.StatusOK, response.Body.String())
+		}
+		return response
+	}
+
+	t.Run("balance route", func(t *testing.T) {
+		var got struct {
+			Currency       string `json:"currency"`
+			BalanceUSD     int64  `json:"balanceUsdMicros"`
+			GrantedUSD     int64  `json:"grantedUsdMicros"`
+			AdjustmentsUSD int64  `json:"adjustmentsUsdMicros"`
+			ReservedUSD    int64  `json:"reservedUsdMicros"`
+			SpentUSD       int64  `json:"spentUsdMicros"`
+			RefundedUSD    int64  `json:"refundedUsdMicros"`
+			PolicyVersion  int    `json:"policyVersion"`
+			CanManage      bool   `json:"canManage"`
+			Enforcement    string `json:"enforcement"`
+		}
+		if err := json.NewDecoder(request("/api/ai/credits").Body).Decode(&got); err != nil {
+			t.Fatalf("decode balance response: %v", err)
+		}
+		if got.Currency != "USD" || got.BalanceUSD != 2_500_000 || got.GrantedUSD != 2_500_000 {
+			t.Fatalf("balance fields = %#v, want USD balance and grant of 2500000 micro-USD", got)
+		}
+		if got.AdjustmentsUSD != 0 || got.ReservedUSD != 0 || got.SpentUSD != 0 || got.RefundedUSD != 0 {
+			t.Fatalf("unexpected nonzero ledger totals: %#v", got)
+		}
+		if got.PolicyVersion < 1 || got.CanManage || got.Enforcement != "strict" {
+			t.Fatalf("unexpected policy/access fields: %#v", got)
+		}
+	})
+
+	t.Run("usage route", func(t *testing.T) {
+		var got struct {
+			Currency string `json:"currency"`
+			Usage    struct {
+				BalanceUSD     int64 `json:"balanceUsdMicros"`
+				GrantedUSD     int64 `json:"grantedUsdMicros"`
+				AdjustmentsUSD int64 `json:"adjustmentsUsdMicros"`
+				ReservedUSD    int64 `json:"reservedUsdMicros"`
+				SpentUSD       int64 `json:"spentUsdMicros"`
+				RefundedUSD    int64 `json:"refundedUsdMicros"`
+			} `json:"usage"`
+			Reservations []json.RawMessage `json:"reservations"`
+			Events       []json.RawMessage `json:"events"`
+			Adjustments  []json.RawMessage `json:"adjustments"`
+			Grants       []json.RawMessage `json:"grants"`
+		}
+		if err := json.NewDecoder(request("/api/ai/credits/usage").Body).Decode(&got); err != nil {
+			t.Fatalf("decode usage response: %v", err)
+		}
+		if got.Currency != "USD" || got.Usage.BalanceUSD != 2_500_000 || got.Usage.GrantedUSD != 2_500_000 {
+			t.Fatalf("usage totals = %#v, want USD balance and grant of 2500000 micro-USD", got)
+		}
+		if got.Usage.AdjustmentsUSD != 0 || got.Usage.ReservedUSD != 0 || got.Usage.SpentUSD != 0 || got.Usage.RefundedUSD != 0 {
+			t.Fatalf("unexpected nonzero usage totals: %#v", got.Usage)
+		}
+		if got.Reservations == nil || got.Events == nil || got.Adjustments == nil || got.Grants == nil {
+			t.Fatalf("empty history collections must be arrays, got %#v", got)
+		}
+		if len(got.Reservations)+len(got.Events)+len(got.Adjustments)+len(got.Grants) != 0 {
+			t.Fatalf("unexpected history for a newly seeded balance: %#v", got)
+		}
+	})
+}
+
 func TestVoiceCreditReservationRejectsStalePolicyBeforeReserving(t *testing.T) {
 	fixture := openCreditPolicyIntegrationFixture(t)
 	userID := "stale-policy-user"
