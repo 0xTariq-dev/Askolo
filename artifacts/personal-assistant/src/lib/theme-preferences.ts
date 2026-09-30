@@ -5,7 +5,7 @@ import {
   isThemeMode,
   type ResolvedThemePreferences,
   type ThemeId,
-} from '@workspace/askolo-design-system/theme';
+} from '@/lib/theme';
 
 export const THEME_STORAGE_KEY = 'askolo-theme-preferences';
 export const THEME_QUERY_PARAMETER = 'theme';

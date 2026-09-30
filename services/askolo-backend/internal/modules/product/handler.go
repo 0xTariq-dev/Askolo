@@ -606,8 +606,12 @@ func (h *Handler) authorize(r *http.Request, userID, resourceType, resourceID st
 			return false
 		}
 	}
+	scopeType := resourceType
+	if resourceID == "" {
+		scopeType = ""
+	}
 	decision, err := h.store.Authorize(r.Context(), policy.Input{
-		ActorUserID: userID, WorkspaceID: postgres.DefaultWorkspaceID(userID), ResourceType: resourceType, ResourceID: resourceID, Action: action,
+		ActorUserID: userID, WorkspaceID: postgres.DefaultWorkspaceID(userID), ResourceType: scopeType, ResourceID: resourceID, Action: action,
 	})
 	if err != nil {
 		h.storeError(w, "authorization failed", err)

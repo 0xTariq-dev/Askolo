@@ -14,10 +14,10 @@ import {
   ArrowRight,
   Star,
 } from 'lucide-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Card, CardContent } from '@workspace/askolo-design-system/components/ui/card';
-import { AskoloTunnelConcept } from '@workspace/askolo-design-system/components/hero-animation/AskoloTunnelConcept';
-import { useAskoloTheme } from '@workspace/askolo-design-system/theme';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { AskoloTunnelConcept } from '@/components/hero-animation/AskoloTunnelConcept';
+import { useAskoloTheme } from '@/lib/theme';
 import { PublicLayout } from '@/components/layout/public-layout';
 import { AnimatedBrandName } from '@/components/animated-brand-name';
 import { BrandSlogan, BrandSloganFormation } from '@/components/landing/brand-slogan';

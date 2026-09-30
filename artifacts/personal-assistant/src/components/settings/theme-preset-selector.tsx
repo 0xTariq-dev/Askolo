@@ -1,19 +1,19 @@
 import { Check } from 'lucide-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '@workspace/askolo-design-system/components/ui/card';
+} from '@/components/ui/card';
 import {
   getThemeVariables,
   THEME_PRESETS,
   useAskoloTheme,
   type ThemeId,
   type ThemeMode,
-} from '@workspace/askolo-design-system/theme';
+} from '@/lib/theme';
 
 const THEME_OPTIONS = ['blueHorizon', 'warmPaper'] as const satisfies readonly ThemeId[];
 const MODES: readonly { id: ThemeMode; label: string }[] = [

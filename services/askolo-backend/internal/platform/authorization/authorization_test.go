@@ -17,6 +17,43 @@ func TestEvaluateDeniesByDefault(t *testing.T) {
 	}
 }
 
+func TestEvaluateAllowsWorkspaceActionScope(t *testing.T) {
+	decision := Evaluate(
+		Input{ActorUserID: "user-1", WorkspaceID: "workspace-1", Action: ActionAIExecute},
+		"active",
+		"active",
+		&Membership{Status: "active", Permissions: []string{string(ActionAIExecute)}},
+		nil,
+	)
+	if !decision.Allowed {
+		t.Fatalf("workspace/action scope denied: %s", decision.Reason)
+	}
+}
+
+func TestEvaluateDeniesOneSidedResourceScope(t *testing.T) {
+	for _, input := range []Input{
+		{
+			ActorUserID: "user-1", WorkspaceID: "workspace-1",
+			ResourceType: "ai", Action: ActionAIExecute,
+		},
+		{
+			ActorUserID: "user-1", WorkspaceID: "workspace-1",
+			ResourceID: "resource-1", Action: ActionAIExecute,
+		},
+	} {
+		decision := Evaluate(
+			input,
+			"active",
+			"active",
+			&Membership{Status: "active", Permissions: []string{string(ActionAIExecute)}},
+			nil,
+		)
+		if decision.Allowed || decision.Reason != "incomplete_resource_scope" {
+			t.Fatalf("one-sided scope decision = %+v, want incomplete_resource_scope denial", decision)
+		}
+	}
+}
+
 func TestEvaluateRejectsRevokedAndInactiveActors(t *testing.T) {
 	input := Input{ActorUserID: "user-1", WorkspaceID: "workspace-1", Action: ActionWorkspaceRead}
 	membership := &Membership{Status: "active", Permissions: []string{string(ActionWorkspaceRead)}}

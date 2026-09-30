@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { Search, type LucideIcon } from 'lucide-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   CommandDialog,
   CommandInput,
@@ -10,7 +10,7 @@ import {
   CommandGroup,
   CommandItem,
   CommandShortcut,
-} from '@workspace/askolo-design-system/components/ui/command';
+} from '@/components/ui/command';
 import { useKeyboardShortcutPreferences } from '@/contexts/keyboard-shortcut-context';
 import {
   getCommandMenuAriaKeyshortcuts,

@@ -2,7 +2,7 @@ import {
   RiGithubFill,
   RiGoogleFill,
 } from '@remixicon/react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Button } from '@/components/ui/button';
 
 export function CButton60SocialAuthButtons({
   intent,

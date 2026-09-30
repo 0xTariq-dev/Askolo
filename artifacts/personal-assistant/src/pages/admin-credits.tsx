@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { Loader2, RefreshCw, ShieldCheck, WalletCards } from 'lucide-react';
-import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
-import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, parseUsdMicros, type CreditPolicy, type CreditUsageResponse } from '@/lib/credit-api';
 
 export function AdminCreditsPage() {

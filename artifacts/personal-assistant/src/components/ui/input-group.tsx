@@ -1,0 +1,7 @@
+import * as React from 'react';
+import { cn } from '@/lib/utils';
+const InputGroup = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div className={cn('flex w-full items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring', className)} {...props} />;
+const InputGroupInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(({ className, ...props }, ref) => <input ref={ref} className={cn('flex h-10 min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground', className)} {...props} />);
+const InputGroupAddon = ({ className, align = 'inline-start', ...props }: React.HTMLAttributes<HTMLDivElement> & { align?: 'inline-start'|'inline-end' }) => <div className={cn('flex items-center px-2', align === 'inline-end' && 'order-last', className)} {...props} />;
+const InputGroupButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: 'icon-sm'|'default' }>(({ className, size = 'default', ...props }, ref) => <button ref={ref} className={cn('inline-flex items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', size === 'icon-sm' ? 'h-8 w-8' : 'h-9 px-3', className)} {...props} />);
+export { InputGroup, InputGroupInput, InputGroupAddon, InputGroupButton };

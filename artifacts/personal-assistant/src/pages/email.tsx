@@ -22,14 +22,14 @@ import {
   type GmailMessage,
 } from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@workspace/askolo-design-system/components/ui/tabs';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
-import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
-import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import logoUrl from '/logo.png';
 import { useLocale } from '@/contexts/locale-context';
 

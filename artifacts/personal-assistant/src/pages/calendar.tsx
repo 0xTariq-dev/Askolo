@@ -40,16 +40,16 @@ import {
   getGetDashboardSummaryQueryKey,
   type Event,
 } from '@workspace/api-client-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
-import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { PageTransition } from '@/components/ui/page-transition';
-import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
-import { THEME_PRESETS, useAskoloTheme } from '@workspace/askolo-design-system/theme';
+import { cn } from '@/lib/utils';
+import { THEME_PRESETS, useAskoloTheme } from '@/lib/theme';
 import { MonthGrid } from '@/components/calendar/month-grid';
 import { WeekGrid } from '@/components/calendar/week-grid';
 import { DayGrid } from '@/components/calendar/day-grid';

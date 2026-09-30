@@ -32,14 +32,14 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PageTransition } from '@/components/ui/page-transition';
-import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
-import { Textarea } from '@workspace/askolo-design-system/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@workspace/askolo-design-system/components/ui/dialog';
-import { Label } from '@workspace/askolo-design-system/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@workspace/askolo-design-system/components/ui/tabs';
-import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import {
   VoiceCaptureButton,
@@ -49,6 +49,7 @@ import {
 import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
+import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 
 const noteSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -203,8 +204,8 @@ export function NotesPage() {
       const updated = await updateVoicePreferences.mutateAsync({ data: { consent: true } });
       qc.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
       setConsentOpen(false);
-    } catch {
-      setConsentError('Consent could not be saved. Please try again.');
+    } catch (error) {
+      setConsentError(getVoiceConsentErrorMessage(error));
     } finally {
       setConsentSaving(false);
     }
