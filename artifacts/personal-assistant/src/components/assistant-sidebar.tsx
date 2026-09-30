@@ -15,8 +15,6 @@ import {
   MessageSquare,
   Check,
   Loader2,
-  Mic,
-  MicOff,
 } from 'lucide-react';
 import {
   confirmAssistantRun,
@@ -38,6 +36,12 @@ import { useAssistantState, type ChatMessage } from '@/contexts/assistant-contex
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
+import {
+  VoiceCaptureButton,
+  VoiceCaptureFeedback,
+  VoiceTranscriptReview,
+} from '@/components/voice/voice-session-ui';
+import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { useLocale } from '@/contexts/locale-context';
@@ -70,6 +74,8 @@ export function AssistantSidebar() {
   const [voiceConsentOpen, setVoiceConsentOpen] = useState(false);
   const [voiceConsentSaving, setVoiceConsentSaving] = useState(false);
   const [voiceConsentError, setVoiceConsentError] = useState('');
+  const [voiceReviewText, setVoiceReviewText] = useState('');
+  const [voiceApplied, setVoiceApplied] = useState(false);
   const [liveVoice, setLiveVoice] = useState(false);
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
@@ -217,12 +223,25 @@ export function AssistantSidebar() {
       setVoiceConsentOpen(true);
       return;
     }
+    setVoiceReviewText('');
+    setVoiceApplied(false);
     await voice.start();
   };
 
   useEffect(() => {
-    if (voice.state === 'review' && voice.transcript) form.setValue('text', voice.transcript, { shouldValidate: true });
-  }, [voice.state, voice.transcript, form]);
+    if (voice.state === 'review' && voice.transcript) {
+      setVoiceReviewText(voice.transcript);
+      setVoiceApplied(false);
+    }
+  }, [voice.state, voice.transcript]);
+
+  const applyAssistantTranscript = () => {
+    if (!voiceReviewText.trim() || voiceApplied) return;
+    const nextValue = getReviewedVoiceValue(form.getValues('text'), voiceReviewText, 'append');
+    if (nextValue === null) return;
+    form.setValue('text', nextValue, { shouldValidate: true });
+    setVoiceApplied(true);
+  };
 
   const saveVoiceConsent = async () => {
     setVoiceConsentSaving(true);
@@ -507,9 +526,18 @@ export function AssistantSidebar() {
                     )}
                   />
                   <Button type="button" variant="ghost" size="sm" onClick={() => setLiveVoice((value) => !value)} disabled={voice.isBusy || isThinking} aria-pressed={liveVoice} data-testid="button-toggle-assistant-live-voice">{liveVoice ? 'Recorded mode' : 'Live mode'}</Button>
-                  <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); void startAssistantVoice(); }} onPointerUp={voice.stop} onPointerCancel={voice.cancel} onBlur={voice.cancel} onKeyDown={(event) => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startAssistantVoice(); } }} onKeyUp={(event) => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); voice.stop(); } }} onClick={(event) => event.preventDefault()} disabled={voice.state === 'processing' || isThinking} aria-label={voice.isListening ? 'Release to stop voice input' : 'Press and hold to record voice input'} data-testid="button-assistant-voice">
-                    {voice.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                  </Button>
+                  <VoiceCaptureButton
+                    voice={voice}
+                    onStart={startAssistantVoice}
+                    startText="Press and hold or activate to record voice input"
+                    stopText="Recording voice input; release or activate to stop"
+                    variant="outline"
+                    size="icon"
+                    iconOnly
+                    className="h-10 w-10 shrink-0"
+                    disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking}
+                    data-testid="button-assistant-voice"
+                  />
                   <Button
                     type="submit"
                     size="icon"
@@ -521,31 +549,24 @@ export function AssistantSidebar() {
                   </Button>
                 </form>
               </Form>
-              {(voice.status || voice.error || voice.reviewSignals.length > 0) && (
-                <div className="mt-2 space-y-1 px-1 text-xs" aria-live="polite">
-                  {voice.status && <p className="text-muted-foreground">{voice.status}</p>}
-                  {voice.error && <p role="alert" className="text-destructive">{voice.error}</p>}
-                  {voice.state === 'listening' && liveVoice && voice.liveText && (
-                    <p aria-live="off" className="whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2 text-sm text-muted-foreground">
-                      <span className="sr-only">Live transcript preview: </span>{voice.liveText}
-                    </p>
-                  )}
-                  {voice.reviewSignals.length > 0 && (
-                    <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-warning">
-                      <p className="font-medium">Please verify these low-confidence details before sending:</p>
-                      <ul className="mt-1 list-disc pl-4">
-                        {voice.reviewSignals.map((signal) => <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>{signal.text} ({Math.round(signal.confidence * 100)}% confidence)</li>)}
-                      </ul>
-                    </div>
-                  )}
-                  {voice.deletionStatus && <p className="text-muted-foreground">{voice.deletionStatus.providerTranscript === 'deleted' ? 'Provider transcript deletion confirmed; this does not confirm provider audio deletion.' : 'Provider transcript deletion could not be confirmed; provider retention may apply.'}</p>}
-                  {voice.state === 'review' && <p className="text-success">Transcript placed in the editable message field. Press Send only when ready.</p>}
-                  {(voice.state === 'error' || voice.state === 'review' || voice.isBusy) && (
-                    <div className="flex flex-wrap gap-2">
-                      {(voice.state === 'error' || voice.state === 'review') && <Button type="button" size="sm" variant="outline" onClick={() => void voice.retry()} disabled={!voice.recording}>Retry transcription</Button>}
-                      <Button type="button" size="sm" variant="ghost" onClick={voice.cancel}>Discard voice input</Button>
-                    </div>
-                  )}
+              {(voice.state !== 'idle' || voice.status || voice.error || voice.recording) && (
+                <div className="mt-2 space-y-2 px-1">
+                  <VoiceCaptureFeedback voice={voice} />
+                  <VoiceTranscriptReview
+                    id="assistant-voice-transcript"
+                    state={voice.state}
+                    transcript={voice.transcript}
+                    value={voiceReviewText}
+                    onChange={setVoiceReviewText}
+                    label="Editable message transcript"
+                  >
+                    <Button type="button" size="sm" onClick={applyAssistantTranscript} disabled={!voiceReviewText.trim() || voiceApplied}>
+                      {voiceApplied ? 'Added to message' : 'Use transcript in message'}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={voice.reset}>
+                      Discard transcript
+                    </Button>
+                  </VoiceTranscriptReview>
                 </div>
               )}
               {assistantError && (
