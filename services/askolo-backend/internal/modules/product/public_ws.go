@@ -2,8 +2,6 @@ package product
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -337,48 +335,7 @@ func (h *Handler) RunAssistant(
 		return nil, publicws.Failure(http.StatusBadGateway, "ASSISTANT_PROVIDER_FAILED", "The assistant could not complete this request. Please try again.", planErr)
 	}
 
-	outcome := postgres.AssistantPlanOutcome{
-		State: "completed", Message: "I can prepare one action item at a time. Tell me the single item you want me to add.",
-		AuditEvent: "plan_ready", Settle: plan.UsageValid,
-		ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
-		InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
-	}
-	switch plan.Intent {
-	case "none":
-		outcome.Message = "I can help prepare one action item for your list. Tell me the specific item you want to add."
-	case "clarify":
-		outcome.Message = "What single action item would you like me to prepare?"
-	case "create_action_item":
-		title := strings.TrimSpace(plan.Title)
-		if !validAssistantActionTitle(title) {
-			outcome.State = "rejected"
-			outcome.Message = "I couldn't safely prepare that item. Please rephrase it as one specific action."
-			outcome.AuditEvent = "intent_rejected"
-			break
-		}
-		intentJSON, marshalErr := json.Marshal(assistantIntent{Tool: "create_action_item", Title: title})
-		if marshalErr != nil {
-			outcome.State = "rejected"
-			outcome.Message = "I couldn't safely prepare that item. Please try again."
-			outcome.AuditEvent = "intent_rejected"
-			break
-		}
-		digest := sha256.Sum256(intentJSON)
-		outcome.State = "needs_confirmation"
-		outcome.Intent = intentJSON
-		outcome.IntentSHA256 = hex.EncodeToString(digest[:])
-		outcome.RiskLevel = "write"
-		outcome.RequiresConfirmation = true
-		expires := time.Now().UTC().Add(assistantConfirmationTTL)
-		outcome.ConfirmationExpires = &expires
-		outcome.ToolName = "create_action_item"
-		outcome.ToolArgsSHA256 = outcome.IntentSHA256
-		outcome.Message = fmt.Sprintf("I can add “%s” to your action items. Confirm to save it.", title)
-	default:
-		outcome.State = "rejected"
-		outcome.Message = "I couldn't safely prepare an action from that request. Please try rephrasing it."
-		outcome.AuditEvent = "intent_rejected"
-	}
+	outcome := prepareAssistantPlanOutcome(plan, h.toolRegistry())
 	finished, err := h.store.FinishAssistantPlanning(ctx, userID, run.ID, outcome)
 	if err != nil {
 		return nil, h.assistantPublicErrorAt("finish_run", err)
