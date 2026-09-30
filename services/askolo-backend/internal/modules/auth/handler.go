@@ -590,10 +590,6 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		h.writeStoreError(w, "email verification failed", err)
 		return
 	}
-	if err := h.store.MarkEmailVerified(r.Context(), userID); err != nil {
-		h.writeStoreError(w, "email verification state update failed", err)
-		return
-	}
 	h.recordSecurityEvent(r, userID, "email_verified", map[string]any{"purpose": "email_verification"})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "verified"})
 }

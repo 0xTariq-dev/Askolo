@@ -151,7 +151,37 @@ CREATE TABLE %sprovider_accounts (
 	updated_at timestamptz DEFAULT now() NOT NULL,
 	UNIQUE (provider, external_subject)
 );
-`, prefix, prefix, prefix, prefix, prefix, prefix)
+CREATE TABLE %sai_credit_accounts (
+ user_id text PRIMARY KEY REFERENCES %susers(id) ON DELETE CASCADE,
+ granted_credits integer DEFAULT 0 NOT NULL,
+ adjustment_credits integer DEFAULT 0 NOT NULL,
+ reserved_credits integer DEFAULT 0 NOT NULL,
+ spent_credits integer DEFAULT 0 NOT NULL,
+ refunded_credits integer DEFAULT 0 NOT NULL,
+ granted_usd_micros bigint DEFAULT 0 NOT NULL,
+ adjustment_usd_micros bigint DEFAULT 0 NOT NULL,
+ reserved_usd_micros bigint DEFAULT 0 NOT NULL,
+ spent_usd_micros bigint DEFAULT 0 NOT NULL,
+ refunded_usd_micros bigint DEFAULT 0 NOT NULL,
+ updated_at timestamptz DEFAULT now() NOT NULL
+);
+CREATE TABLE %sai_credit_grants (
+ id bigserial PRIMARY KEY,
+ user_id text NOT NULL REFERENCES %susers(id) ON DELETE CASCADE,
+ source_type varchar(40) NOT NULL,
+ amount_credits integer NOT NULL,
+ entitlement_key varchar(160),
+ idempotency_key varchar(200) NOT NULL,
+ metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+ created_at timestamptz DEFAULT now() NOT NULL,
+ actor_user_id text REFERENCES %susers(id) ON DELETE RESTRICT,
+ reason varchar(160),
+ currency varchar(8) DEFAULT 'CREDITS' NOT NULL,
+ amount_usd_micros bigint DEFAULT 0 NOT NULL,
+ UNIQUE (user_id, idempotency_key)
+);
+`, prefix, prefix, prefix, prefix, prefix, prefix,
+		prefix, prefix, prefix, prefix, prefix)
 }
 
 func quoteGoogleIdentifier(value string) string {
@@ -441,6 +471,19 @@ func TestGoogleCallbackSignupRequiresVerifiedEmailAndCreatesNativeSession(t *tes
 		}
 		if identityCount != 1 {
 			t.Fatalf("signup provider identity count = %d, want 1", identityCount)
+		}
+		var grantCount int
+		var grantAmount int64
+		if err := fixture.pool.QueryRow(context.Background(), `
+			SELECT count(*), COALESCE(sum(amount_usd_micros), 0)
+			FROM ai_credit_grants
+			WHERE user_id=$1 AND idempotency_key='welcome-credit-usd-v1' AND currency='USD'
+		`, userID).Scan(&grantCount, &grantAmount); err != nil {
+			t.Fatalf("read provider signup welcome grant: %v", err)
+		}
+		if grantCount != 1 || grantAmount != 5_000_000 {
+			t.Fatalf("provider signup welcome grant rows=%d amount=%d; want one grant of 5000000 USD micros",
+				grantCount, grantAmount)
 		}
 	})
 

@@ -274,7 +274,37 @@ CREATE TABLE %sauth_trusted_devices (
  expires_at timestamptz NOT NULL,
  revoked_at timestamptz
 );
-`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+CREATE TABLE %sai_credit_accounts (
+ user_id text PRIMARY KEY REFERENCES %susers(id) ON DELETE CASCADE,
+ granted_credits integer DEFAULT 0 NOT NULL,
+ adjustment_credits integer DEFAULT 0 NOT NULL,
+ reserved_credits integer DEFAULT 0 NOT NULL,
+ spent_credits integer DEFAULT 0 NOT NULL,
+ refunded_credits integer DEFAULT 0 NOT NULL,
+ granted_usd_micros bigint DEFAULT 0 NOT NULL,
+ adjustment_usd_micros bigint DEFAULT 0 NOT NULL,
+ reserved_usd_micros bigint DEFAULT 0 NOT NULL,
+ spent_usd_micros bigint DEFAULT 0 NOT NULL,
+ refunded_usd_micros bigint DEFAULT 0 NOT NULL,
+ updated_at timestamptz DEFAULT now() NOT NULL
+);
+CREATE TABLE %sai_credit_grants (
+ id bigserial PRIMARY KEY,
+ user_id text NOT NULL REFERENCES %susers(id) ON DELETE CASCADE,
+ source_type varchar(40) NOT NULL,
+ amount_credits integer NOT NULL,
+ entitlement_key varchar(160),
+ idempotency_key varchar(200) NOT NULL,
+ metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+ created_at timestamptz DEFAULT now() NOT NULL,
+ actor_user_id text REFERENCES %susers(id) ON DELETE RESTRICT,
+ reason varchar(160),
+ currency varchar(8) DEFAULT 'CREDITS' NOT NULL,
+ amount_usd_micros bigint DEFAULT 0 NOT NULL,
+ UNIQUE (user_id, idempotency_key)
+);
+`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix,
+		prefix, prefix, prefix, prefix, prefix)
 }
 
 func testAuthHandler(fixture *emailAuthFixture, sender EmailSender, logger *slog.Logger) http.Handler {
@@ -393,6 +423,21 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	}
 	signupCode := sender.codeForSubject(t, "Verify your Askolo email")
 	assertResponseDoesNotContain(t, signup, integrationEmail, signupCode, integrationPassword)
+	var signupUserID string
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT id FROM users WHERE lower(email) = lower($1)
+	`, integrationEmail).Scan(&signupUserID); err != nil {
+		t.Fatalf("read pending signup user: %v", err)
+	}
+	var welcomeGrantCount int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM ai_credit_grants WHERE user_id=$1 AND idempotency_key='welcome-credit-usd-v1'
+	`, signupUserID).Scan(&welcomeGrantCount); err != nil {
+		t.Fatalf("count pending signup welcome grants: %v", err)
+	}
+	if welcomeGrantCount != 0 {
+		t.Fatalf("pending password signup has %d welcome grants, want none", welcomeGrantCount)
+	}
 
 	verify := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/email/verify", map[string]string{
 		"email": integrationEmail,
@@ -402,6 +447,16 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 		t.Fatalf("email verification status = %d, want success", verify.Code)
 	}
 	assertResponseDoesNotContain(t, verify, integrationEmail, signupCode, integrationPassword)
+	var welcomeGrantAmount int64
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT amount_usd_micros FROM ai_credit_grants
+		WHERE user_id=$1 AND idempotency_key='welcome-credit-usd-v1' AND currency='USD'
+	`, signupUserID).Scan(&welcomeGrantAmount); err != nil {
+		t.Fatalf("read verified signup welcome grant: %v", err)
+	}
+	if welcomeGrantAmount != 5_000_000 {
+		t.Fatalf("password signup welcome grant = %d USD micros, want 5000000", welcomeGrantAmount)
+	}
 
 	primaryRecoveryRequest := jsonRequest(t, authHandler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
 		"email": integrationEmail,
