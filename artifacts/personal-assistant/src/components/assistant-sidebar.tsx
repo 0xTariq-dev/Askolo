@@ -46,6 +46,8 @@ import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { useLocale } from '@/contexts/locale-context';
+import { useAssistantSpeech } from '@/hooks/use-assistant-speech';
+import { AssistantSpeechControl } from '@/components/assistant-speech-control';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -78,6 +80,7 @@ export function AssistantSidebar() {
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
   const [liveVoice, setLiveVoice] = useState(false);
+  const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
   const voice = useVoiceTranscription({ realtime: liveVoice });
@@ -100,6 +103,10 @@ export function AssistantSidebar() {
   }, [messages, isThinking, isOpen, reducedMotion]);
 
   useEffect(() => () => planningRequestRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (!isOpen) speechOutput.stop();
+  }, [isOpen, speechOutput.stop]);
 
   useEffect(() => {
     if (!isOpen && voice.state !== 'idle') voice.reset();
@@ -420,6 +427,16 @@ export function AssistantSidebar() {
                     )}
                   >
                     <p dir="auto">{msg.content}</p>
+                    {msg.role === 'assistant' && (
+                      <AssistantSpeechControl
+                        status={speechOutput.activeMessageId === msg.id ? speechOutput.status : 'idle'}
+                        error={speechOutput.activeMessageId === msg.id ? speechOutput.error : ''}
+                        onSpeak={() => speechOutput.speak(msg.id, msg.content)}
+                        onPause={() => speechOutput.pause(msg.id)}
+                        onResume={() => speechOutput.resume(msg.id)}
+                        onStop={speechOutput.stop}
+                      />
+                    )}
                     {msg.role === 'assistant' &&
                       msg.state === 'needs_confirmation' &&
                       msg.intent?.tool === 'create_action_item' &&
