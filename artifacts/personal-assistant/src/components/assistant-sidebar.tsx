@@ -45,7 +45,7 @@ import {
   VoiceTranscriptReview,
 } from '@/components/voice/voice-session-ui';
 import {
-  canAutoSubmitAssistantVoiceTranscript,
+  getAssistantVoiceTranscriptHandoff,
   getReviewedVoiceValue,
 } from '@/lib/voice-flow';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
@@ -93,7 +93,6 @@ export function AssistantSidebar() {
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
   const [liveVoice, setLiveVoice] = useState(false);
-  const assistantVoiceAutoSendRef = useRef(false);
   const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
@@ -264,32 +263,15 @@ export function AssistantSidebar() {
     }
     setVoiceReviewText('');
     setVoiceApplied(false);
-    assistantVoiceAutoSendRef.current = true;
     await voice.start();
   };
 
   useEffect(() => {
-    if (voice.state === 'idle') {
-      assistantVoiceAutoSendRef.current = false;
-      return;
-    }
-    if (voice.state !== 'review' || !voice.transcript) return;
+    if (getAssistantVoiceTranscriptHandoff(voice.state, voice.transcript) !== 'review') return;
 
     setVoiceReviewText(voice.transcript);
     setVoiceApplied(false);
-    if (!assistantVoiceAutoSendRef.current) return;
-    assistantVoiceAutoSendRef.current = false;
-
-    if (!canAutoSubmitAssistantVoiceTranscript(
-      voice.state,
-      voice.transcript,
-      voice.reviewSignals.length,
-    )) return;
-
-    const transcript = voice.transcript;
-    resetVoiceRef.current();
-    void onSubmitRef.current({ text: transcript });
-  }, [voice.state, voice.transcript, voice.reviewSignals]);
+  }, [voice.state, voice.transcript]);
 
   const applyAssistantTranscript = () => {
     if (!voiceReviewText.trim() || voiceApplied) return;
@@ -672,16 +654,14 @@ export function AssistantSidebar() {
                         Transcription flagged possible uncertainty. Review and correct the text before sending.
                       </p>
                     )}
-                    {voice.reviewSignals.length > 0 && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={sendReviewedAssistantTranscript}
-                        disabled={!voiceReviewText.trim() || isThinking || pendingActionId !== null}
-                      >
-                        Send corrected transcript
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={sendReviewedAssistantTranscript}
+                      disabled={!voiceReviewText.trim() || isThinking || pendingActionId !== null}
+                    >
+                      Send reviewed transcript
+                    </Button>
                     <Button type="button" size="sm" onClick={applyAssistantTranscript} disabled={!voiceReviewText.trim() || voiceApplied}>
                       {voiceApplied ? 'Added to message' : 'Use transcript in message'}
                     </Button>
