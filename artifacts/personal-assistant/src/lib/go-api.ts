@@ -22,6 +22,7 @@ import {
   revokeTrustedDevice as revokeTrustedDeviceRequest,
   resetPassword as resetPasswordRequest,
   setPassword as setPasswordRequest,
+  synthesizeAssistantSpeech as synthesizeAssistantSpeechRequest,
   updateUserProfile as updateUserProfileRequest,
   verifyEmail as verifyEmailRequest,
   verifyMFA as verifyMFARequest,
@@ -151,6 +152,11 @@ export const goApi = {
     coachingRequest(input, sessionRequestOptions(signal)),
   generatePlan: (input: GeneratePlanInput, signal?: AbortSignal) =>
     generatePlanRequest(input, sessionRequestOptions(signal)),
+  synthesizeAssistantSpeech: (runId: string, signal?: AbortSignal) =>
+    synthesizeAssistantSpeechRequest(runId, {
+      ...sessionRequestOptions(signal),
+      responseType: 'blob',
+    }),
 };
 
 export function getApiErrorMessage(error: unknown, fallback: string): string {

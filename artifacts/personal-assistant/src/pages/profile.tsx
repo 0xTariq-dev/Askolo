@@ -23,6 +23,9 @@ import {
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
   getGetTranscriptionPreferencesQueryKey,
+  useGetVoiceOutputPreferences,
+  useUpdateVoiceOutputPreferences,
+  getGetVoiceOutputPreferencesQueryKey,
 } from '@workspace/api-client-react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -85,6 +88,8 @@ export function ProfilePage() {
     useGetGoogleStatus();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoiceConsent = useUpdateTranscriptionPreferences();
+  const { data: voiceOutputPreferences } = useGetVoiceOutputPreferences();
+  const updateVoiceOutputConsent = useUpdateVoiceOutputPreferences();
 
   // Identity edit state
   const [firstName, setFirstName] = useState('');
@@ -452,6 +457,18 @@ export function ProfilePage() {
         onSuccess: (updated) => {
           toast({ title: 'Voice consent revoked' });
           queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+        },
+      },
+    );
+  };
+
+  const revokeVoiceOutputConsent = () => {
+    updateVoiceOutputConsent.mutate(
+      { data: { consent: false } },
+      {
+        onSuccess: (updated) => {
+          toast({ title: 'Azure speech output consent revoked' });
+          queryClient.setQueryData(getGetVoiceOutputPreferencesQueryKey(), updated);
         },
       },
     );
@@ -1096,26 +1113,49 @@ export function ProfilePage() {
           </CardTitle>
           <CardDescription>Review or revoke permission for voice transcription.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">
-              {voicePreferences?.consentGiven ? 'Voice transcription is enabled' : 'Voice transcription is not enabled'}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Recordings are deleted after transcription, are not used to train models, and PII is redacted from AI interactions.
-            </p>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {voicePreferences?.consentGiven ? 'Voice transcription is enabled' : 'Voice transcription is not enabled'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Recordings are deleted after transcription, are not used to train models, and PII is redacted from AI interactions.
+              </p>
+            </div>
+            {voicePreferences?.consentGiven && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={revokeVoiceConsent}
+                disabled={updateVoiceConsent.isPending}
+                className="shrink-0"
+              >
+                {updateVoiceConsent.isPending ? 'Updating…' : 'Revoke consent'}
+              </Button>
+            )}
           </div>
-          {voicePreferences?.consentGiven && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={revokeVoiceConsent}
-              disabled={updateVoiceConsent.isPending}
-              className="shrink-0"
-            >
-              {updateVoiceConsent.isPending ? 'Updating…' : 'Revoke consent'}
-            </Button>
-          )}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {voiceOutputPreferences?.consentGiven ? 'Azure speech output is enabled' : 'Azure speech output is not enabled'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Assistant response text is sent to Microsoft Azure Speech when you choose Listen. Generated audio is not saved in Askolo. Browser speech is used only if Azure synthesis or playback fails.
+              </p>
+            </div>
+            {voiceOutputPreferences?.consentGiven && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={revokeVoiceOutputConsent}
+                disabled={updateVoiceOutputConsent.isPending}
+                className="shrink-0"
+              >
+                {updateVoiceOutputConsent.isPending ? 'Updating…' : 'Revoke consent'}
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 

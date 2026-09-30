@@ -27,6 +27,9 @@ import {
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
   getGetTranscriptionPreferencesQueryKey,
+  useGetVoiceOutputPreferences,
+  useUpdateVoiceOutputPreferences,
+  getGetVoiceOutputPreferencesQueryKey,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +54,9 @@ import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { useLocale } from '@/contexts/locale-context';
 import { useAssistantSpeech } from '@/hooks/use-assistant-speech';
 import { AssistantSpeechControl } from '@/components/assistant-speech-control';
+import { VoiceOutputConsentDialog } from '@/components/voice-output-consent-dialog';
+import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent';
+import { useToast } from '@/hooks/use-toast';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -68,10 +74,11 @@ export function AssistantSidebar() {
     clearDraft,
   } = useAssistantState();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const bottomRef = useRef<HTMLDivElement>(null);
   const planningRequestRef = useRef<AbortController | null>(null);
   const reducedMotion = useReducedMotion();
-  const { direction } = useLocale();
+  const { direction, locale } = useLocale();
   const hiddenOffset = direction === 'rtl' ? '-100%' : '100%';
   const [isThinking, setIsThinking] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
@@ -80,6 +87,9 @@ export function AssistantSidebar() {
   const [voiceConsentOpen, setVoiceConsentOpen] = useState(false);
   const [voiceConsentSaving, setVoiceConsentSaving] = useState(false);
   const [voiceConsentError, setVoiceConsentError] = useState('');
+  const [voiceOutputConsentOpen, setVoiceOutputConsentOpen] = useState(false);
+  const [voiceOutputConsentSaving, setVoiceOutputConsentSaving] = useState(false);
+  const [voiceOutputConsentError, setVoiceOutputConsentError] = useState('');
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
   const [liveVoice, setLiveVoice] = useState(false);
@@ -87,6 +97,8 @@ export function AssistantSidebar() {
   const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
+  const { data: voiceOutputPreferences } = useGetVoiceOutputPreferences();
+  const updateVoiceOutputPreferences = useUpdateVoiceOutputPreferences();
   const voice = useVoiceTranscription({ realtime: liveVoice });
   const conversationQuery = useGetAssistantConversation({
     query: {
@@ -105,6 +117,16 @@ export function AssistantSidebar() {
   useEffect(() => {
     if (isOpen) bottomRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' });
   }, [messages, isThinking, isOpen, reducedMotion]);
+
+  useEffect(() => {
+    if (
+      voiceOutputPreferences &&
+      (!voiceOutputPreferences.consentGiven ||
+        voiceOutputPreferences.consentVersion !== CURRENT_VOICE_OUTPUT_CONSENT_VERSION)
+    ) {
+      speechOutput.stop();
+    }
+  }, [speechOutput.stop, voiceOutputPreferences]);
 
   useEffect(() => () => planningRequestRef.current?.abort(), []);
 
@@ -297,6 +319,38 @@ export function AssistantSidebar() {
     }
   };
 
+  const handleSpeechRequest = (message: ChatMessage) => {
+    if (!message.runId) return;
+    if (
+      !voiceOutputPreferences?.consentGiven ||
+      voiceOutputPreferences.consentVersion !== CURRENT_VOICE_OUTPUT_CONSENT_VERSION
+    ) {
+      setVoiceOutputConsentError('');
+      setVoiceOutputConsentOpen(true);
+      return;
+    }
+    void speechOutput.speak(message.id, message.content, { runId: message.runId, locale });
+  };
+
+  const saveVoiceOutputConsent = async () => {
+    setVoiceOutputConsentSaving(true);
+    try {
+      const updated = await updateVoiceOutputPreferences.mutateAsync({ data: { consent: true } });
+      queryClient.setQueryData(getGetVoiceOutputPreferencesQueryKey(), updated);
+      setVoiceOutputConsentOpen(false);
+      toast({
+        title: locale === 'ar' ? 'تم حفظ موافقة الإخراج الصوتي' : 'Speech output permission saved',
+        description: locale === 'ar'
+          ? 'اختر «استمع» مرة أخرى لبدء التشغيل.'
+          : 'Choose Listen again to start playback.',
+      });
+    } catch (error) {
+      setVoiceOutputConsentError(getVoiceConsentErrorMessage(error));
+    } finally {
+      setVoiceOutputConsentSaving(false);
+    }
+  };
+
   const handleConfirm = async (message: ChatMessage) => {
     if (!message.runId || !message.intentSha256 || pendingActionId) return;
     setPendingActionId(message.runId);
@@ -460,11 +514,13 @@ export function AssistantSidebar() {
                     )}
                   >
                     <p dir="auto">{msg.content}</p>
-                    {msg.role === 'assistant' && (
+                    {msg.role === 'assistant' &&
+                      !!msg.runId &&
+                      (msg.state === 'completed' || msg.state === 'needs_confirmation') && (
                       <AssistantSpeechControl
                         status={speechOutput.activeMessageId === msg.id ? speechOutput.status : 'idle'}
                         error={speechOutput.activeMessageId === msg.id ? speechOutput.error : ''}
-                        onSpeak={() => speechOutput.speak(msg.id, msg.content)}
+                        onSpeak={() => handleSpeechRequest(msg)}
                         onPause={() => speechOutput.pause(msg.id)}
                         onResume={() => speechOutput.resume(msg.id)}
                         onStop={speechOutput.stop}
@@ -653,6 +709,13 @@ export function AssistantSidebar() {
         )}
       </AnimatePresence>
       <VoiceConsentDialog open={voiceConsentOpen} onOpenChange={setVoiceConsentOpen} onConfirm={() => void saveVoiceConsent()} saving={voiceConsentSaving} error={voiceConsentError} />
+      <VoiceOutputConsentDialog
+        open={voiceOutputConsentOpen}
+        onOpenChange={setVoiceOutputConsentOpen}
+        onConfirm={() => void saveVoiceOutputConsent()}
+        saving={voiceOutputConsentSaving}
+        error={voiceOutputConsentError}
+      />
     </>
   );
 }

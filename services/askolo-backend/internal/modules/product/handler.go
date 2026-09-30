@@ -87,6 +87,7 @@ type Handler struct {
 	sessionCookieName   string
 	canonicalOrigin     string
 	assemblyAI          assemblyAIProvider
+	speechOutput        azureSpeechProvider
 	adminEmails         map[string]struct{}
 	realtimeLimiter     *realtimeSessionLimiter
 	authRateLimitSecret string
@@ -140,12 +141,18 @@ func newHandler(
 		logger.Warn("assistant planner configuration is unavailable", "reason", reason)
 	}
 	return &Handler{
-		store:               store,
-		logger:              logger,
-		sessionCookieName:   sessionCookieName,
-		assemblyAI:          assemblyAI,
-		adminEmails:         cfg.AdminEmails,
-		canonicalOrigin:     canonicalOrigin,
+		store:             store,
+		logger:            logger,
+		sessionCookieName: sessionCookieName,
+		assemblyAI:        assemblyAI,
+		adminEmails:       cfg.AdminEmails,
+		canonicalOrigin:   canonicalOrigin,
+		speechOutput: newAzureSpeechProvider(
+			cfg.AzureTTSKey,
+			cfg.AzureTTSRegion,
+			cfg.AzureTTSURL,
+			&http.Client{Timeout: 25 * time.Second},
+		),
 		realtimeLimiter:     newRealtimeSessionLimiter(),
 		authRateLimitSecret: cfg.AuthRateLimitHMACSecret,
 		realtimeIdleTimeout: realtimeClientIdleTimeout,
@@ -400,11 +407,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/ai-credit-usage/{userId}", h.adminCreditUsage)
 	mux.HandleFunc("GET /api/ai/transcription-preferences", h.transcriptionPreferences)
 	mux.HandleFunc("PATCH /api/ai/transcription-preferences", h.updateTranscriptionPreferences)
+	mux.HandleFunc("GET /api/ai/voice-output-preferences", h.voiceOutputPreferences)
+	mux.HandleFunc("PATCH /api/ai/voice-output-preferences", h.updateVoiceOutputPreferences)
 	mux.HandleFunc("POST /api/ai/coaching", h.coaching)
 	mux.HandleFunc("POST /api/ai/assistant", h.assistant)
 	mux.HandleFunc("GET /api/ai/assistant/conversations/current", h.getAssistantConversation)
 	mux.HandleFunc("POST /api/ai/assistant/runs", h.createAssistantRun)
 	mux.HandleFunc("GET /api/ai/assistant/runs/{id}", h.getAssistantRun)
+	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/speech", h.assistantRunSpeech)
 	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/confirm", h.confirmAssistantRun)
 	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/cancel", h.cancelAssistantRun)
 	mux.HandleFunc("POST /api/ai/generate-plan", h.generatePlan)

@@ -153,5 +153,7 @@ export * from './voiceCreditReceiptMode';
 export * from './voiceCreditReceiptOperationType';
 export * from './voiceCreditReceiptProvider';
 export * from './voiceCreditReceiptStatus';
+export * from './voiceOutputPreferences';
+export * from './voiceOutputPreferencesUpdate';
 export * from './voiceToPlanBody';
 export * from './voiceToPlanResponse';

@@ -217,6 +217,163 @@ func creditPolicySchemaURL(t *testing.T, databaseURL, schema string) string {
 	return parsed.String()
 }
 
+func TestVoiceOutputPreferencesRequireAuthenticationAndConsent(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	userID := "speech-output-consent-user"
+	sessionID := fixture.createUserAndSession(
+		t,
+		userID,
+		"speech-output-consent@example.test",
+		true,
+	)
+	if err := fixture.store.EnsurePersonalWorkspace(fixture.ctx, userID); err != nil {
+		t.Fatalf("ensure test personal workspace: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx,
+		postgres.DefaultWorkspaceID(userID),
+		userID,
+		"active",
+		"owner",
+		policy.PersonalWorkspaceCapabilities,
+	); err != nil {
+		t.Fatalf("set test workspace membership: %v", err)
+	}
+
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+	anonymous := httptest.NewRequest(http.MethodGet, "/api/ai/voice-output-preferences", nil)
+	anonymousResponse := httptest.NewRecorder()
+	handler.ServeHTTP(anonymousResponse, anonymous)
+	if anonymousResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous preferences status = %d, want %d: %s",
+			anonymousResponse.Code, http.StatusUnauthorized, anonymousResponse.Body.String())
+	}
+	anonymousSpeech := httptest.NewRequest(
+		http.MethodPost,
+		"/api/ai/assistant/runs/not-owned-by-this-user/speech",
+		nil,
+	)
+	anonymousSpeechResponse := httptest.NewRecorder()
+	handler.ServeHTTP(anonymousSpeechResponse, anonymousSpeech)
+	if anonymousSpeechResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous speech status = %d, want %d: %s",
+			anonymousSpeechResponse.Code, http.StatusUnauthorized, anonymousSpeechResponse.Body.String())
+	}
+
+	authenticatedRequest := func(method, path, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+sessionID)
+		if body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	preferences := authenticatedRequest(http.MethodGet, "/api/ai/voice-output-preferences", "")
+	if preferences.Code != http.StatusOK {
+		t.Fatalf("initial preferences status = %d, want %d: %s",
+			preferences.Code, http.StatusOK, preferences.Body.String())
+	}
+	var initial struct {
+		ConsentGiven   bool    `json:"consentGiven"`
+		ConsentVersion *string `json:"consentVersion"`
+	}
+	if err := json.Unmarshal(preferences.Body.Bytes(), &initial); err != nil {
+		t.Fatalf("decode initial preferences: %v", err)
+	}
+	if initial.ConsentGiven || initial.ConsentVersion != nil {
+		t.Fatalf("initial preferences = %+v, want consent disabled", initial)
+	}
+
+	speechPath := "/api/ai/assistant/runs/not-owned-by-this-user/speech"
+	speech := authenticatedRequest(http.MethodPost, speechPath, "")
+	if speech.Code != http.StatusForbidden ||
+		!strings.Contains(speech.Body.String(), `"VOICE_OUTPUT_CONSENT_REQUIRED"`) {
+		t.Fatalf("speech without consent status/body = %d %s, want consent-required 403",
+			speech.Code, speech.Body.String())
+	}
+
+	enabled := authenticatedRequest(
+		http.MethodPatch,
+		"/api/ai/voice-output-preferences",
+		`{"consent":true}`,
+	)
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable consent status = %d, want %d: %s",
+			enabled.Code, http.StatusOK, enabled.Body.String())
+	}
+	var granted struct {
+		ConsentGiven   bool   `json:"consentGiven"`
+		ConsentVersion string `json:"consentVersion"`
+	}
+	if err := json.Unmarshal(enabled.Body.Bytes(), &granted); err != nil {
+		t.Fatalf("decode granted preferences: %v", err)
+	}
+	if !granted.ConsentGiven || granted.ConsentVersion != postgres.VoiceOutputConsentVersion {
+		t.Fatalf("granted preferences = %+v, want current consent version", granted)
+	}
+
+	ownerID := "speech-output-other-owner"
+	_ = fixture.createUserAndSession(t, ownerID, "speech-output-owner@example.test", true)
+	conversationID := "speech-output-other-conversation"
+	foreignRunID := "speech-output-private-run"
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO assistant_conversations(id,user_id,workspace_id,title)
+		 VALUES($1,$2,$3,'Assistant')`,
+		conversationID, ownerID, postgres.DefaultWorkspaceID(ownerID),
+	); err != nil {
+		t.Fatalf("insert other user's assistant conversation: %v", err)
+	}
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO assistant_runs(
+			id,conversation_id,user_id,idempotency_key_hash,transcript,transcript_sha256,
+			state,reservation_id,base_credits,reserved_credits,policy_version,assistant_message
+		) VALUES($1,$2,$3,$4,'test request',$5,'completed','test-reservation',1,1,1,'Private assistant reply')`,
+		foreignRunID, conversationID, ownerID, strings.Repeat("a", 64), strings.Repeat("b", 64),
+	); err != nil {
+		t.Fatalf("insert other user's assistant run: %v", err)
+	}
+	foreignRunPath := "/api/ai/assistant/runs/" + foreignRunID + "/speech"
+	foreignRun := authenticatedRequest(http.MethodPost, foreignRunPath, "")
+	if foreignRun.Code != http.StatusNotFound ||
+		!strings.Contains(foreignRun.Body.String(), `"NOT_FOUND"`) ||
+		strings.Contains(foreignRun.Body.String(), "Private assistant reply") {
+		t.Fatalf("speech for another user's run status/body = %d %s, want opaque 404",
+			foreignRun.Code, foreignRun.Body.String())
+	}
+
+	revoked := authenticatedRequest(
+		http.MethodPatch,
+		"/api/ai/voice-output-preferences",
+		`{"consent":false}`,
+	)
+	if revoked.Code != http.StatusOK {
+		t.Fatalf("revoke consent status = %d, want %d: %s",
+			revoked.Code, http.StatusOK, revoked.Body.String())
+	}
+	var revokedPreferences struct {
+		ConsentGiven   bool    `json:"consentGiven"`
+		ConsentVersion *string `json:"consentVersion"`
+	}
+	if err := json.Unmarshal(revoked.Body.Bytes(), &revokedPreferences); err != nil {
+		t.Fatalf("decode revoked preferences: %v", err)
+	}
+	if revokedPreferences.ConsentGiven || revokedPreferences.ConsentVersion != nil {
+		t.Fatalf("revoked preferences = %+v, want consent disabled", revokedPreferences)
+	}
+
+	speechAfterRevocation := authenticatedRequest(http.MethodPost, foreignRunPath, "")
+	if speechAfterRevocation.Code != http.StatusForbidden ||
+		!strings.Contains(speechAfterRevocation.Body.String(), `"VOICE_OUTPUT_CONSENT_REQUIRED"`) {
+		t.Fatalf("speech after revocation status/body = %d %s, want consent-required 403",
+			speechAfterRevocation.Code, speechAfterRevocation.Body.String())
+	}
+}
+
 func (f *creditPolicyIntegrationFixture) createUserAndSession(
 	t *testing.T,
 	userID, email string,
