@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Askolo — full dashboard cover</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      * { box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; margin: 0; overflow: hidden; }
+      body { font-family: Cairo, sans-serif; background: #0C141D; color: #E8F2F0; }
+      .cover { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+      .mark { position: absolute; top: 54px; left: 100px; width: 116px; height: 116px; object-fit: contain; }
+      h1 { position: absolute; top: 42px; left: 256px; width: 1420px; margin: 0; font-size: 77px; font-weight: 700; line-height: 1.25; letter-spacing: -1.5px; }
+      .subtitle { position: absolute; top: 144px; left: 260px; margin: 0; font-size: 36px; line-height: 1.35; }
+      .event { position: absolute; top: 181px; right: 130px; margin: 0; color: #B2C4C1; font-size: 26px; line-height: 1.35; }
+      .accent { position: absolute; left: 260px; top: 218px; width: 106px; height: 6px; background: #9CC4F3; }
+      .dashboard { position: absolute; left: 140px; top: 257px; width: 1640px; height: 815px; padding: 10px; border: 2px solid #41546A; border-radius: 17px; background: #162332; overflow: hidden; }
+      .dashboard img { display: block; width: 100%; height: 100%; object-fit: contain; }
+    </style>
+  </head>
+  <body>
+    <main class="cover">
+      <img class="mark" src="../artifacts/askolo-voice-hackathon/public/images/askolo-logo.png" alt="">
+      <h1>Your whole life, one place</h1>
+      <p class="subtitle">Plan by voice. Stay in control.</p>
+      <div class="accent"></div>
+      <p class="event">AssemblyAI Voice Agent Hackathon</p>
+      <div class="dashboard">
+        <img src="askolo-dashboard-full-redacted.png" alt="">
+      </div>
+    </main>
+  </body>
+</html>

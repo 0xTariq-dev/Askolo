@@ -63,3 +63,17 @@ mtime_ms = 1790778257716
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/ea65b882-fe0c-4d8d-8489-c96a906214ff/6ae07fac-890b-43c0-9501-414c4eefc7f0"
 storage_version_token = "1790778299907792"
 content_type = "image/png"
+
+[[outputs]]
+id = "5Mm9EorHZNdomNJ1h4nIl"
+uri = "file://exports/askolo-cover-full-dashboard.png"
+type = "image"
+title = "Askolo cover — full dashboard"
+description = "1920 × 1080 PNG using the full dashboard screenshot, with account details masked."
+logical_id = "a3a4dcdc-daa3-4bf7-bd39-bd91db759b2c"
+content_hash = "sha256:3b60a17b0909ba261cef12616667324fc5e1b97e8a5a51225e80ea65a0698d25"
+size = 155276
+mtime_ms = 1790779044552
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/a3a4dcdc-daa3-4bf7-bd39-bd91db759b2c/052af761-5345-4961-badb-be45a62b5ff3"
+storage_version_token = "1790779055049097"
+content_type = "image/png"
