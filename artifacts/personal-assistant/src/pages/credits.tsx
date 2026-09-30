@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import { ArrowDownLeft, ArrowUpRight, Check, Clipboard, History, RefreshCw, ShieldCheck, WalletCards } from 'lucide-react';
-import { Badge } from '@workspace/askolo-design-system/components/ui/badge';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@workspace/askolo-design-system/components/ui/dialog';
-import { Skeleton } from '@workspace/askolo-design-system/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { PageTransition } from '@/components/ui/page-transition';
 import { VoiceCreditPreflight } from '@/components/credits/voice-credit-preflight';
-import { useToast } from '@workspace/askolo-design-system/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { creditApi, creditErrorMessage, formatUsdMicros, type CreditAccountResponse, type CreditEvent, type CreditReservation, type CreditUsageResponse } from '@/lib/credit-api';
 
 type Activity = CreditEvent | CreditReservation;

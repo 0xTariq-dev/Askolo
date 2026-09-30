@@ -5,10 +5,10 @@ import {
   ThemeProvider,
   isThemeMode,
   type ResolvedThemePreferences,
-} from '@workspace/askolo-design-system/theme';
+} from '@/lib/theme';
 import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
 import { Loader2 } from 'lucide-react';
-import { Toaster } from '@workspace/askolo-design-system/components/ui/toaster';
+import { Toaster } from '@/components/ui/toaster';
 
 import {
   isAppProductionHost,

@@ -5,8 +5,7 @@ import {
   CardDescription,
   CardFooter,
   CardHeader,
-  CardTitle,
-} from '@workspace/askolo-design-system/components/ui/card';
+} from '@/components/ui/card';
 
 export function CCard12AuthCard({
   eyebrow,
@@ -28,11 +27,9 @@ export function CCard12AuthCard({
         <p className="text-xs font-medium uppercase tracking-wider text-primary">
           {eyebrow}
         </p>
-        <CardTitle>
-          <h2 className="font-display text-3xl font-semibold leading-tight tracking-tight text-foreground">
-            {title}
-          </h2>
-        </CardTitle>
+        <h2 className="font-display text-3xl font-semibold leading-tight tracking-tight text-foreground">
+          {title}
+        </h2>
         {description && (
           <CardDescription className="max-w-sm text-sm leading-relaxed">
             {description}

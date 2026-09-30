@@ -1,5 +1,5 @@
 import { format, isSameMonth, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays } from 'date-fns';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { cn } from '@/lib/utils';
 import { EventChip } from './event-chip';
 import type { Event } from '@workspace/api-client-react';
 import type { DailyPlan, Habit } from './types';

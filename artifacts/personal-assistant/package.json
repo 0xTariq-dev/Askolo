@@ -59,7 +59,6 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@workspace/api-client-react": "workspace:*",
-    "@workspace/askolo-design-system": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",

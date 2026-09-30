@@ -15,11 +15,11 @@ import {
   Unlink,
   Mail
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@workspace/askolo-design-system/components/ui/card';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import { isToday } from 'date-fns';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { cn } from '@/lib/utils';
 import { goApi } from '@/lib/go-api';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useLocale } from '@/contexts/locale-context';

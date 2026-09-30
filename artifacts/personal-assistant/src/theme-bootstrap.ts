@@ -1,4 +1,4 @@
-import { getThemeVariables } from '@workspace/askolo-design-system/theme';
+import { getThemeVariables } from '@/lib/theme';
 import { loadThemePreferences } from '@/lib/theme-preferences';
 
 const preferences = loadThemePreferences();

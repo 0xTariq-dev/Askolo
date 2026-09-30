@@ -28,10 +28,10 @@ import {
   useUpdateTranscriptionPreferences,
   getGetTranscriptionPreferencesQueryKey,
 } from '@workspace/api-client-react';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { Input } from '@workspace/askolo-design-system/components/ui/input';
-import { Form, FormControl, FormField, FormItem } from '@workspace/askolo-design-system/components/ui/form';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
+import { cn } from '@/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
@@ -44,6 +44,7 @@ import {
 import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
+import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { useLocale } from '@/contexts/locale-context';
 
 const messageSchema = z.object({ text: z.string().min(1) });
@@ -249,8 +250,8 @@ export function AssistantSidebar() {
       const updated = await updateVoicePreferences.mutateAsync({ data: { consent: true } });
       queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
       setVoiceConsentOpen(false);
-    } catch {
-      setVoiceConsentError('Consent could not be saved. Please try again.');
+    } catch (error) {
+      setVoiceConsentError(getVoiceConsentErrorMessage(error));
     } finally {
       setVoiceConsentSaving(false);
     }

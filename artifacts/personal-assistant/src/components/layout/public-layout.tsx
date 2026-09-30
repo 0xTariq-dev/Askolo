@@ -1,8 +1,8 @@
 import { ReactNode } from 'react';
 import { Link } from 'wouter';
-import { Button } from '@workspace/askolo-design-system/components/ui/button';
-import { useAskoloTheme } from '@workspace/askolo-design-system/theme';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { Button } from '@/components/ui/button';
+import { useAskoloTheme } from '@/lib/theme';
+import { cn } from '@/lib/utils';
 import { Moon, Sun } from 'lucide-react';
 import { AnimatedBrandName } from '@/components/animated-brand-name';
 import logoUrl from '/logo.png';

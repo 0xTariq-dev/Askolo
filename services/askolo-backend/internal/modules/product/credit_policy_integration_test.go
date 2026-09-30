@@ -16,6 +16,7 @@ import (
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
 	"askolo/backend/internal/migrations"
+	policy "askolo/backend/internal/platform/authorization"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -108,7 +109,103 @@ func TestTranscriptionPreferenceRoutesRejectAnonymousRequests(t *testing.T) {
 	}
 }
 
-func creditPolicySchemaURL(t *testing.T, databaseURL, schema string) string {
+	func TestTranscriptionPreferencesAuthenticatedConsentPersists(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	sessionID := fixture.createUserAndSession(
+		t,
+		"transcription-consent-user",
+		"transcription-consent@example.test",
+		true,
+	)
+	// Establish the same active personal-workspace capability set used by the
+	// handler's lazy provisioning path, so this test isolates consent
+	// persistence from authorization-fixture state.
+	userID := "transcription-consent-user"
+	if err := fixture.store.EnsurePersonalWorkspace(fixture.ctx, userID); err != nil {
+		t.Fatalf("ensure test personal workspace: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx,
+		postgres.DefaultWorkspaceID(userID),
+		userID,
+		"active",
+		"owner",
+		policy.PersonalWorkspaceCapabilities,
+	); err != nil {
+		t.Fatalf("set test workspace membership: %v", err)
+	}
+	decision, err := fixture.store.Authorize(fixture.ctx, policy.Input{
+		ActorUserID: userID, WorkspaceID: postgres.DefaultWorkspaceID(userID), Action: policy.ActionAIExecute,
+	})
+	if err != nil {
+		t.Fatalf("authorize test user: %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("test user authorization denied: %s", decision.Reason)
+	}
+	sessionUserID, sessionStatus := fixture.store.SessionUserID(fixture.ctx, sessionID)
+	if sessionStatus != nil || sessionUserID != userID {
+		t.Fatalf("test session user lookup did not resolve active fixture user")
+	}
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+
+	patch := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/ai/transcription-preferences",
+		strings.NewReader(`{"consent":true}`),
+	)
+	patch.Header.Set("Authorization", "Bearer "+sessionID)
+	patch.Header.Set("Content-Type", "application/json")
+	patchResponse := httptest.NewRecorder()
+	handler.ServeHTTP(patchResponse, patch)
+
+	if patchResponse.Code != http.StatusOK {
+		var failure struct {
+			Code string `json:"code"`
+		}
+		_ = json.NewDecoder(patchResponse.Body).Decode(&failure)
+		t.Fatalf("consent update status = %d, want %d (code %q)", patchResponse.Code, http.StatusOK, failure.Code)
+	}
+	var updated struct {
+ConsentGiven   bool   `json:"consentGiven"`
+		ConsentVersion string `json:"consentVersion"`
+	}
+	if err := json.NewDecoder(patchResponse.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode consent update response: %v", err)
+	}
+	if !updated.ConsentGiven || updated.ConsentVersion != postgres.VoiceConsentVersion {
+		t.Fatalf(
+			"consent update response = consentGiven:%t consentVersion:%q, want true and current version",
+			updated.ConsentGiven,
+			updated.ConsentVersion,
+		)
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/ai/transcription-preferences", nil)
+	get.Header.Set("Authorization", "Bearer "+sessionID)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, get)
+
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("consent read status = %d, want %d", getResponse.Code, http.StatusOK)
+	}
+	var persisted struct {
+ConsentGiven   bool   `json:"consentGiven"`
+		ConsentVersion string `json:"consentVersion"`
+	}
+	if err := json.NewDecoder(getResponse.Body).Decode(&persisted); err != nil {
+		t.Fatalf("decode persisted consent response: %v", err)
+	}
+	if !persisted.ConsentGiven || persisted.ConsentVersion != postgres.VoiceConsentVersion {
+		t.Fatalf(
+			"persisted consent = consentGiven:%t consentVersion:%q, want true and current version",
+			persisted.ConsentGiven,
+			persisted.ConsentVersion,
+		)
+	}
+}
+
+	func creditPolicySchemaURL(t *testing.T, databaseURL, schema string) string {
 	t.Helper()
 	parsed, err := url.Parse(databaseURL)
 	if err != nil {

@@ -1,7 +1,7 @@
 import { parseISO } from 'date-fns';
 import { Clock, MapPin, Link2 } from 'lucide-react';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@workspace/askolo-design-system/components/ui/hover-card';
-import { cn } from '@workspace/askolo-design-system/lib/utils';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { cn } from '@/lib/utils';
 import type { Event } from '@workspace/api-client-react';
 import { useLocale } from '@/contexts/locale-context';
 
