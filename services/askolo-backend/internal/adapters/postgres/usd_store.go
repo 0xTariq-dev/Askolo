@@ -686,28 +686,42 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 
 // RecordUSDEvidence stores provider metering metadata only. Payload must not
 // contain transcripts, prompts, audio, or other user content.
+func validateUSDUsageEvidence(evidence USDEvidence) error {
+	if len(evidence.ProviderRequestId) > 200 || len(evidence.Payload) > 8192 ||
+		evidence.UsageUnits < 0 || evidence.DurationMs < 0 || evidence.InputTokens < 0 || evidence.OutputTokens < 0 ||
+		(evidence.UsageUnit != "hour" && evidence.UsageUnit != "second" && evidence.UsageUnit != "millisecond" && evidence.UsageUnit != "milliseconds" &&
+			evidence.UsageUnit != "input_tokens" && evidence.UsageUnit != "output_tokens" && evidence.UsageUnit != "tokens") {
+		return errors.New("invalid USD usage evidence")
+	}
+	if len(evidence.Payload) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(evidence.Payload, &fields) != nil {
+		return errors.New("usage payload must be a JSON object")
+	}
+	for field := range fields {
+		if field != "providerRequestId" && field != "usageUnit" && field != "usageUnits" &&
+			field != "durationMs" && field != "inputTokens" && field != "outputTokens" && field != "meterSource" {
+			return errors.New("usage payload contains non-metering data")
+		}
+	}
+	return nil
+}
+
 func (s *Store) RecordUSDEvidence(ctx context.Context, reservationID, userID, provider, mode, model, key string, evidence USDEvidence) error {
 	if s == nil || s.pool == nil {
 		return errors.New("database is not configured")
 	}
-	if reservationID == "" || userID == "" || provider == "" || mode == "" || key == "" ||
-		len(key) > 240 || len(evidence.ProviderRequestId) > 200 || len(evidence.Payload) > 8192 ||
-		evidence.UsageUnits < 0 || evidence.DurationMs < 0 || evidence.InputTokens < 0 || evidence.OutputTokens < 0 ||
-		(evidence.UsageUnit != "hour" && evidence.UsageUnit != "second" && evidence.UsageUnit != "millisecond" && evidence.UsageUnit != "input_tokens" && evidence.UsageUnit != "output_tokens" && evidence.UsageUnit != "tokens") {
+	if reservationID == "" || userID == "" || provider == "" || mode == "" || key == "" || len(key) > 240 {
 		return errors.New("invalid USD usage evidence")
+	}
+	if err := validateUSDUsageEvidence(evidence); err != nil {
+		return err
 	}
 	payload := evidence.Payload
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
-	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(payload, &fields) != nil {
-		return errors.New("usage payload must be a JSON object")
-	}
-	for field := range fields {
-		if field != "providerRequestId" && field != "usageUnit" && field != "usageUnits" && field != "durationMs" && field != "inputTokens" && field != "outputTokens" {
-			return errors.New("usage payload contains non-metering data")
-		}
 	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO ai_provider_usage_evidence(
 		reservation_id,user_id,provider,mode,model,usage_unit,usage_units,duration_ms,

@@ -278,16 +278,15 @@ func applyMargin(base int64, margin int) (int64, bool) {
 	return ceilMulDiv(base, int64(100+margin), 100)
 }
 
-func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation, durationMS int64, source string) (voiceCreditReceipt, bool) {
+func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation, durationMS int64, providerRequestID string) (voiceCreditReceipt, bool) {
 	actual, ok := ceilMulDiv(reservation.RateCard.UsdMicrosPerHour, durationMS, 3600000)
 	if !ok || actual < 1 || actual > reservation.ReservedUsdMicros {
 		writeError(w, http.StatusBadGateway, "VOICE_USAGE_UNAVAILABLE", "The provider did not return valid usage for this operation.")
 		return voiceCreditReceipt{}, false
 	}
-	payload, _ := json.Marshal(map[string]string{"meterSource": source})
 	evidence := postgres.USDEvidence{
 		UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS,
-		ProviderRequestId: source, Payload: payload,
+		ProviderRequestId: providerRequestID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
