@@ -9,6 +9,7 @@
 - [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
+- [Opt-in AssemblyAI provider tests](assemblyai-live-tests.md) — keep billable real-provider checks separate from deterministic mock tests and gate them explicitly.
 - [AssemblyAI deletion claims](assemblyai-retention-claims.md) — report transcript-delete confirmation without promising the uploaded audio copy was removed.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
 - [Managed backup refs](managed-backup-refs.md) — the gitsafe backup remote rejects non-main pushes, including deletion of recovery branches.
