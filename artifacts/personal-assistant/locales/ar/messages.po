@@ -29,7 +29,7 @@ msgstr "الإجراءات"
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:30
 msgid "nav.aiCredits"
-msgstr "رصيد الذكاء الاصطناعي"
+msgstr "الرصيد"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:52

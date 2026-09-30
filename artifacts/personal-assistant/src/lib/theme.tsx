@@ -1,4 +1,5 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useLayoutEffect, useMemo, type ReactNode } from 'react';
+import designTokens from './askolo-design-tokens.json';
 
 export type ThemeMode = 'light' | 'dark';
 export type ThemeId = 'blueHorizon' | 'warmPaper';
@@ -11,12 +12,28 @@ export interface ResolvedThemePreferences {
   spaceOverrides: Record<string, ThemeId>;
 }
 
+type TokenColor = Record<string, { $value: string }>;
+interface SourceTheme {
+  label: string;
+  light: TokenColor;
+  dark: TokenColor;
+  surfaceOptions: Record<ThemeMode, Record<SurfaceStyleId, TokenColor>>;
+}
+
+const source = designTokens as unknown as {
+  color: Record<ThemeMode, TokenColor>;
+  themePresets: Record<ThemeId, SourceTheme>;
+};
+
 interface ThemeChartTokens {
   chart1: string;
   chart2: string;
   chart3: string;
   chart4: string;
   chart5: string;
+  chart6: string;
+  chart7: string;
+  chart8: string;
 }
 
 interface ThemePreset {
@@ -25,41 +42,62 @@ interface ThemePreset {
   dark: ThemeChartTokens;
 }
 
+function readHexColor(colors: TokenColor, role: string): string {
+  const value = colors[role]?.$value;
+  if (!value) throw new Error(`Askolo design token "${role}" is missing.`);
+  return value;
+}
+
+function hexToHslChannels(hex: string): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) throw new Error(`Expected a six-digit Askolo color token, received "${hex}".`);
+
+  const [red, green, blue] = match[1]
+    .match(/.{2}/g)!
+    .map((channel) => Number.parseInt(channel, 16) / 255);
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  let hue = 0;
+  let saturation = 0;
+
+  if (max !== min) {
+    const delta = max - min;
+    saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+    if (max === red) hue = (green - blue) / delta + (green < blue ? 6 : 0);
+    else if (max === green) hue = (blue - red) / delta + 2;
+    else hue = (red - green) / delta + 4;
+    hue /= 6;
+  }
+
+  return `${Math.round(hue * 360)} ${Math.round(saturation * 1000) / 10}% ${Math.round(lightness * 1000) / 10}%`;
+}
+
+function chartTokens(themeId: ThemeId, mode: ThemeMode): ThemeChartTokens {
+  const colors = source.themePresets[themeId][mode];
+  return {
+    chart1: hexToHslChannels(readHexColor(colors, 'chart1')),
+    chart2: hexToHslChannels(readHexColor(colors, 'chart2')),
+    chart3: hexToHslChannels(readHexColor(colors, 'chart3')),
+    chart4: hexToHslChannels(readHexColor(colors, 'chart4')),
+    chart5: hexToHslChannels(readHexColor(colors, 'chart5')),
+    chart6: hexToHslChannels(readHexColor(colors, 'chart6')),
+    chart7: hexToHslChannels(readHexColor(colors, 'chart7')),
+    chart8: hexToHslChannels(readHexColor(colors, 'chart8')),
+  };
+}
+
+function themePreset(themeId: ThemeId): ThemePreset {
+  return {
+    label: source.themePresets[themeId].label,
+    light: chartTokens(themeId, 'light'),
+    dark: chartTokens(themeId, 'dark'),
+  };
+}
+
 export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
-  blueHorizon: {
-    label: 'Blue Horizon',
-    light: {
-      chart1: '201 88% 43%',
-      chart2: '38 84% 48%',
-      chart3: '155 55% 39%',
-      chart4: '270 58% 56%',
-      chart5: '0 72% 52%',
-    },
-    dark: {
-      chart1: '198 92% 58%',
-      chart2: '38 92% 58%',
-      chart3: '152 56% 52%',
-      chart4: '280 70% 68%',
-      chart5: '0 84% 66%',
-    },
-  },
-  warmPaper: {
-    label: 'Warm Paper',
-    light: {
-      chart1: '25 79% 46%',
-      chart2: '197 68% 42%',
-      chart3: '143 42% 39%',
-      chart4: '273 48% 54%',
-      chart5: '0 67% 52%',
-    },
-    dark: {
-      chart1: '32 90% 62%',
-      chart2: '195 77% 61%',
-      chart3: '145 49% 57%',
-      chart4: '278 62% 70%',
-      chart5: '0 74% 66%',
-    },
-  },
+  blueHorizon: themePreset('blueHorizon'),
+  warmPaper: themePreset('warmPaper'),
 };
 
 export const DEFAULT_THEME_PREFERENCES: ResolvedThemePreferences = {
@@ -84,237 +122,98 @@ export function isSurfaceStyleId(value: unknown): value is SurfaceStyleId {
   return value === 'soft' || value === 'tinted';
 }
 
-interface ThemeColorTokens {
-  background: string;
-  foreground: string;
-  border: string;
-  input: string;
-  ring: string;
-  cardSoft: string;
-  cardTinted: string;
-  cardForeground: string;
-  popoverForeground: string;
-  primary: string;
-  primaryForeground: string;
-  secondary: string;
-  secondaryForeground: string;
-  muted: string;
-  mutedForeground: string;
-  accent: string;
-  accentForeground: string;
-  destructive: string;
-  destructiveForeground: string;
-  sidebar: string;
-  sidebarForeground: string;
-  sidebarBorder: string;
-  sidebarAccent: string;
-  sidebarAccentForeground: string;
-  success: string;
-  successForeground: string;
-  warning: string;
-  warningForeground: string;
-}
-
-const PALETTE: Record<ThemeId, Record<ThemeMode, ThemeColorTokens>> = {
-  blueHorizon: {
-    light: {
-      background: '210 40% 98%',
-      foreground: '222 47% 11%',
-      border: '214 32% 88%',
-      input: '214 32% 88%',
-      ring: '201 88% 43%',
-      cardSoft: '0 0% 100%',
-      cardTinted: '207 35% 96%',
-      cardForeground: '222 47% 11%',
-      popoverForeground: '222 47% 11%',
-      primary: '201 88% 43%',
-      primaryForeground: '0 0% 100%',
-      secondary: '210 30% 92%',
-      secondaryForeground: '222 47% 18%',
-      muted: '210 30% 94%',
-      mutedForeground: '215 16% 42%',
-      accent: '199 70% 91%',
-      accentForeground: '204 75% 25%',
-      destructive: '0 72% 52%',
-      destructiveForeground: '0 0% 100%',
-      sidebar: '210 40% 96%',
-      sidebarForeground: '222 47% 11%',
-      sidebarBorder: '214 32% 88%',
-      sidebarAccent: '199 70% 91%',
-      sidebarAccentForeground: '204 75% 25%',
-      success: '142 62% 35%',
-      successForeground: '0 0% 100%',
-      warning: '38 88% 43%',
-      warningForeground: '0 0% 100%',
-    },
-    dark: {
-      background: '222 43% 6%',
-      foreground: '210 40% 98%',
-      border: '215 28% 17%',
-      input: '215 28% 17%',
-      ring: '198 92% 58%',
-      cardSoft: '221 38% 10%',
-      cardTinted: '223 39% 13%',
-      cardForeground: '210 40% 98%',
-      popoverForeground: '210 40% 98%',
-      primary: '38 92% 50%',
-      primaryForeground: '222 43% 6%',
-      secondary: '215 28% 17%',
-      secondaryForeground: '210 40% 98%',
-      muted: '221 38% 10%',
-      mutedForeground: '215 16% 65%',
-      accent: '215 28% 17%',
-      accentForeground: '210 40% 98%',
-      destructive: '0 84% 60%',
-      destructiveForeground: '210 40% 98%',
-      sidebar: '222 43% 6%',
-      sidebarForeground: '210 40% 98%',
-      sidebarBorder: '215 28% 17%',
-      sidebarAccent: '215 28% 17%',
-      sidebarAccentForeground: '210 40% 98%',
-      success: '142 65% 48%',
-      successForeground: '222 43% 6%',
-      warning: '38 92% 58%',
-      warningForeground: '222 43% 6%',
-    },
-  },
-  warmPaper: {
-    light: {
-      background: '38 43% 96%',
-      foreground: '25 25% 15%',
-      border: '32 25% 83%',
-      input: '32 25% 83%',
-      ring: '25 79% 46%',
-      cardSoft: '42 100% 99%',
-      cardTinted: '36 45% 92%',
-      cardForeground: '25 25% 15%',
-      popoverForeground: '25 25% 15%',
-      primary: '25 79% 46%',
-      primaryForeground: '0 0% 100%',
-      secondary: '34 31% 88%',
-      secondaryForeground: '25 25% 18%',
-      muted: '35 31% 91%',
-      mutedForeground: '26 14% 40%',
-      accent: '32 55% 88%',
-      accentForeground: '25 49% 25%',
-      destructive: '0 68% 49%',
-      destructiveForeground: '0 0% 100%',
-      sidebar: '38 37% 93%',
-      sidebarForeground: '25 25% 15%',
-      sidebarBorder: '32 25% 83%',
-      sidebarAccent: '32 55% 88%',
-      sidebarAccentForeground: '25 49% 25%',
-      success: '142 53% 32%',
-      successForeground: '0 0% 100%',
-      warning: '29 81% 41%',
-      warningForeground: '0 0% 100%',
-    },
-    dark: {
-      background: '24 23% 8%',
-      foreground: '40 28% 94%',
-      border: '28 20% 22%',
-      input: '28 20% 22%',
-      ring: '32 90% 62%',
-      cardSoft: '27 25% 13%',
-      cardTinted: '28 29% 17%',
-      cardForeground: '40 28% 94%',
-      popoverForeground: '40 28% 94%',
-      primary: '32 90% 62%',
-      primaryForeground: '24 23% 8%',
-      secondary: '28 20% 22%',
-      secondaryForeground: '40 28% 94%',
-      muted: '27 25% 13%',
-      mutedForeground: '32 13% 68%',
-      accent: '28 20% 22%',
-      accentForeground: '40 28% 94%',
-      destructive: '0 74% 62%',
-      destructiveForeground: '24 23% 8%',
-      sidebar: '24 23% 8%',
-      sidebarForeground: '40 28% 94%',
-      sidebarBorder: '28 20% 22%',
-      sidebarAccent: '28 20% 22%',
-      sidebarAccentForeground: '40 28% 94%',
-      success: '142 56% 52%',
-      successForeground: '24 23% 8%',
-      warning: '32 90% 62%',
-      warningForeground: '24 23% 8%',
-    },
-  },
-};
-
 export function getThemeVariables(
   themeId: ThemeId,
   mode: ThemeMode,
   surfaceStyle: SurfaceStyleId,
 ): Record<string, string> {
-  const colors = PALETTE[themeId][mode];
-  const card = surfaceStyle === 'soft' ? colors.cardSoft : colors.cardTinted;
-  const charts = THEME_PRESETS[themeId][mode];
+  const sharedColors = source.color[mode];
+  const preset = source.themePresets[themeId];
+  const actionColors = preset[mode];
+  const surfaces = preset.surfaceOptions[mode][surfaceStyle];
+  const color = (group: TokenColor, role: string) =>
+    hexToHslChannels(readHexColor(group, role));
+
   const values: Record<string, string> = {
-    '--background': colors.background,
-    '--foreground': colors.foreground,
-    '--border': colors.border,
-    '--input': colors.input,
-    '--ring': colors.ring,
-    '--card': card,
-    '--card-foreground': colors.cardForeground,
-    '--card-border': colors.border,
-    '--popover': card,
-    '--popover-foreground': colors.popoverForeground,
-    '--popover-border': colors.border,
-    '--primary': colors.primary,
-    '--primary-foreground': colors.primaryForeground,
-    '--secondary': colors.secondary,
-    '--secondary-foreground': colors.secondaryForeground,
-    '--muted': colors.muted,
-    '--muted-foreground': colors.mutedForeground,
-    '--accent': colors.accent,
-    '--accent-foreground': colors.accentForeground,
-    '--destructive': colors.destructive,
-    '--destructive-foreground': colors.destructiveForeground,
-    '--sidebar': colors.sidebar,
-    '--sidebar-foreground': colors.sidebarForeground,
-    '--sidebar-border': colors.sidebarBorder,
-    '--sidebar-primary': colors.primary,
-    '--sidebar-primary-foreground': colors.primaryForeground,
-    '--sidebar-accent': colors.sidebarAccent,
-    '--sidebar-accent-foreground': colors.sidebarAccentForeground,
-    '--sidebar-ring': colors.ring,
-    '--success': colors.success,
-    '--success-foreground': colors.successForeground,
-    '--warning': colors.warning,
-    '--warning-foreground': colors.warningForeground,
-    '--chart-1': charts.chart1,
-    '--chart-2': charts.chart2,
-    '--chart-3': charts.chart3,
-    '--chart-4': charts.chart4,
-    '--chart-5': charts.chart5,
-    '--primary-border': `hsl(${colors.primary})`,
-    '--secondary-border': `hsl(${colors.secondary})`,
-    '--muted-border': `hsl(${colors.muted})`,
-    '--accent-border': `hsl(${colors.accent})`,
-    '--destructive-border': `hsl(${colors.destructive})`,
-    '--sidebar-primary-border': `hsl(${colors.primary})`,
-    '--sidebar-accent-border': `hsl(${colors.sidebarAccent})`,
-    '--button-outline': mode === 'dark' ? 'rgba(255,255,255,.16)' : 'rgba(20,35,55,.14)',
-    '--badge-outline': mode === 'dark' ? 'rgba(255,255,255,.08)' : 'rgba(20,35,55,.08)',
-    '--opaque-button-border-intensity': mode === 'dark' ? '9' : '12',
-    '--elevate-1': mode === 'dark' ? 'rgba(255,255,255,.04)' : 'rgba(20,35,55,.04)',
-    '--elevate-2': mode === 'dark' ? 'rgba(255,255,255,.09)' : 'rgba(20,35,55,.08)',
+    '--background': color(surfaces, 'background'),
+    '--foreground': color(sharedColors, 'foreground'),
+    '--border': color(surfaces, 'border'),
+    '--input': color(surfaces, 'input'),
+    '--ring': color(actionColors, 'ring'),
+    '--card': color(surfaces, 'card'),
+    '--card-foreground': color(sharedColors, 'cardForeground'),
+    '--card-border': color(surfaces, 'border'),
+    '--popover': color(surfaces, 'popover'),
+    '--popover-foreground': color(sharedColors, 'popoverForeground'),
+    '--popover-border': color(surfaces, 'border'),
+    '--primary': color(actionColors, 'primary'),
+    '--primary-foreground': color(actionColors, 'primaryForeground'),
+    '--secondary': color(actionColors, 'secondary'),
+    '--secondary-foreground': color(actionColors, 'secondaryForeground'),
+    '--muted': color(surfaces, 'muted'),
+    '--muted-foreground': color(sharedColors, 'mutedForeground'),
+    '--accent': color(actionColors, 'accent'),
+    '--accent-foreground': color(actionColors, 'accentForeground'),
+    '--destructive': color(sharedColors, 'destructive'),
+    '--destructive-foreground': color(sharedColors, 'destructiveForeground'),
+    '--success': color(sharedColors, 'success'),
+    '--success-foreground': color(sharedColors, 'successForeground'),
+    '--info': color(sharedColors, 'info'),
+    '--info-foreground': color(sharedColors, 'infoForeground'),
+    '--warning': color(sharedColors, 'warning'),
+    '--warning-foreground': color(sharedColors, 'warningForeground'),
+    '--invert': color(sharedColors, 'invert'),
+    '--invert-foreground': color(sharedColors, 'invertForeground'),
+    '--chart-1': color(actionColors, 'chart1'),
+    '--chart-2': color(actionColors, 'chart2'),
+    '--chart-3': color(actionColors, 'chart3'),
+    '--chart-4': color(actionColors, 'chart4'),
+    '--chart-5': color(actionColors, 'chart5'),
+    '--chart-6': color(actionColors, 'chart6'),
+    '--chart-7': color(actionColors, 'chart7'),
+    '--chart-8': color(actionColors, 'chart8'),
+    '--sidebar': color(surfaces, 'sidebar'),
+    '--sidebar-foreground': color(sharedColors, 'sidebarForeground'),
+    '--sidebar-border': color(surfaces, 'sidebarBorder'),
+    '--sidebar-primary': color(actionColors, 'sidebarPrimary'),
+    '--sidebar-primary-foreground': color(actionColors, 'sidebarPrimaryForeground'),
+    '--sidebar-accent': color(actionColors, 'sidebarAccent'),
+    '--sidebar-accent-foreground': color(actionColors, 'sidebarAccentForeground'),
+    '--sidebar-ring': color(actionColors, 'sidebarRing'),
+    '--space-personal': color(sharedColors, 'spacePersonal'),
+    '--space-personal-foreground': color(sharedColors, 'spacePersonalForeground'),
+    '--space-team': color(sharedColors, 'spaceTeam'),
+    '--space-team-foreground': color(sharedColors, 'spaceTeamForeground'),
+    '--space-family': color(sharedColors, 'spaceFamily'),
+    '--space-family-foreground': color(sharedColors, 'spaceFamilyForeground'),
   };
+
+  values['--primary-border'] = `hsl(${values['--primary']})`;
+  values['--secondary-border'] = `hsl(${values['--secondary']})`;
+  values['--muted-border'] = `hsl(${values['--muted']})`;
+  values['--accent-border'] = `hsl(${values['--accent']})`;
+  values['--destructive-border'] = `hsl(${values['--destructive']})`;
+  values['--sidebar-primary-border'] = `hsl(${values['--sidebar-primary']})`;
+  values['--sidebar-accent-border'] = `hsl(${values['--sidebar-accent']})`;
+  values['--button-outline'] = 'hsl(var(--foreground) / 16%)';
+  values['--badge-outline'] = 'hsl(var(--foreground) / 8%)';
+  values['--opaque-button-border-intensity'] = mode === 'dark' ? '9' : '12';
+  values['--elevate-1'] = 'hsl(var(--foreground) / 4%)';
+  values['--elevate-2'] = 'hsl(var(--foreground) / 9%)';
+
   return values;
 }
 
 function applyTheme(value: ResolvedThemePreferences) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const surfaceStyle = value.surfaceStyles[value.mode];
   root.classList.toggle('dark', value.mode === 'dark');
   root.style.colorScheme = value.mode;
   root.dataset.askoloTheme = value.accountThemeId;
-  root.dataset.askoloSurfaceStyle = surfaceStyle;
+  root.dataset.askoloMode = value.mode;
+  root.dataset.askoloSurfaceStyle = value.surfaceStyles[value.mode];
   for (const [name, token] of Object.entries(
-    getThemeVariables(value.accountThemeId, value.mode, surfaceStyle),
+    getThemeVariables(value.accountThemeId, value.mode, value.surfaceStyles[value.mode]),
   )) {
     root.style.setProperty(name, token);
   }
@@ -352,7 +251,7 @@ export function ThemeProvider({
     [onChange, value],
   );
 
-  applyTheme(value);
+  useLayoutEffect(() => applyTheme(value), [value]);
   return <ThemeContext.Provider value={context}>{children}</ThemeContext.Provider>;
 }
 

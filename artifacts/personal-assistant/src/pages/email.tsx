@@ -161,7 +161,7 @@ export function EmailPage() {
 
   if (!googleStatus?.gmailConnected || error) {
     return (
-      <PageTransition className="max-w-5xl mx-auto pb-10">
+      <PageTransition surface={false} className="max-w-5xl mx-auto pb-10">
         <EmailPageHeader connected={false} />
 
         <Card className="border border-border/60 bg-card/50 backdrop-blur-sm">
@@ -197,7 +197,7 @@ export function EmailPage() {
   }
 
   return (
-    <PageTransition className="max-w-5xl mx-auto pb-10">
+    <PageTransition surface={false} className="max-w-5xl mx-auto pb-10">
       <EmailPageHeader connected isLoading={isLoading} onRefresh={() => refetch()} />
 
       <Tabs value={filter} onValueChange={setFilter} className="w-full mb-6">
@@ -317,7 +317,7 @@ function EmailCard({
     urgent: 'bg-destructive/10 text-destructive border-destructive/20',
     'follow-up': 'bg-warning/10 text-warning border-warning/20',
     fyi: 'bg-info/10 text-info border-info/20',
-    archive: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+    archive: 'bg-muted text-muted-foreground border-border',
   }[message.priority] || 'bg-info/10 text-info border-info/20';
 
   const priorityIcon = {

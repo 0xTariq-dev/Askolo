@@ -1,85 +1,176 @@
-import { motion } from 'framer-motion';
-import type { ThemeMode } from '@/lib/theme';
+import { useEffect, useRef } from 'react';
+import './hero-animation.css';
 
-interface AskoloTunnelConceptProps {
-  theme: ThemeMode;
+type TunnelTheme = 'light' | 'dark';
+
+export interface AskoloTunnelConceptProps {
+  theme: TunnelTheme;
   reducedMotion: boolean;
   paused?: boolean;
 }
 
-const rings = [
-  { rx: 530, ry: 252, rotate: -8 },
-  { rx: 445, ry: 210, rotate: 7 },
-  { rx: 352, ry: 166, rotate: -6 },
-  { rx: 254, ry: 120, rotate: 8 },
-  { rx: 152, ry: 73, rotate: -7 },
-];
+const TAU = Math.PI * 2;
+const LAYERS = 88;
+const DOTS_PER_RING = 128;
+const DOT_RADIUS = 0.8375;
+
+function smoothstep(edge0: number, edge1: number, value: number) {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function tunnelPath(depth: number): [number, number] {
+  const easing = smoothstep(1, 4, depth);
+  return [
+    (0.16 * Math.sin(TAU * depth * 0.5) +
+      0.32 * Math.sin(TAU * depth * 0.2 + 0.3)) *
+      easing,
+    (0.24 * Math.cos(TAU * depth * 0.3) +
+      0.16 * Math.cos(TAU * depth * 0.1)) *
+      easing,
+  ];
+}
+
+function themeColor(tokenName: '--background' | '--primary'): string {
+  const channels = window
+    .getComputedStyle(document.documentElement)
+    .getPropertyValue(tokenName)
+    .trim();
+  if (!channels) {
+    throw new Error(`Askolo hero animation requires the ${tokenName} theme token.`);
+  }
+  return `hsl(${channels})`;
+}
 
 export function AskoloTunnelConcept({
   theme,
   reducedMotion,
   paused = false,
 }: AskoloTunnelConceptProps) {
-  const accent = theme === 'dark' ? '#73c9ee' : '#176fa7';
-  const warmAccent = theme === 'dark' ? '#ffc46d' : '#bf6c24';
-  const animate = !reducedMotion && !paused;
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d', { alpha: false });
+    if (!canvas || !context) return;
+
+    let width = 0;
+    let height = 0;
+    let pixelRatio = 1;
+    let elapsed = 3.2;
+    let lastTimestamp = 0;
+    let frame = 0;
+    let disposed = false;
+
+    const background = themeColor('--background');
+    const ink = themeColor('--primary');
+
+    const resize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      width = Math.max(1, bounds.width);
+      height = Math.max(1, bounds.height);
+      pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+      const nextWidth = Math.round(width * pixelRatio);
+      const nextHeight = Math.round(height * pixelRatio);
+      if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+      }
+    };
+
+    const draw = () => {
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.globalAlpha = 1;
+      context.fillStyle = background;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.setTransform(
+        height * pixelRatio,
+        0,
+        0,
+        -height * pixelRatio,
+        (width * pixelRatio) / 2,
+        (height * pixelRatio) / 2,
+      );
+
+      const cameraDepth = elapsed * 0.38;
+      const cameraOffset = tunnelPath(cameraDepth);
+      const cameraPhase = cameraDepth % (4 / LAYERS);
+      const pointRadius = DOT_RADIUS / height;
+      const visibleRadius = Math.hypot(width / height / 2, 0.5) + 0.25;
+
+      context.fillStyle = ink;
+      for (let layer = 1; layer <= LAYERS; layer += 1) {
+        let depth = 1 - layer / LAYERS;
+        depth -= cameraPhase;
+
+        const path = tunnelPath(cameraDepth + depth);
+        const offsetX = path[0] - cameraOffset[0];
+        const offsetY = path[1] - cameraOffset[1];
+        const denominator = depth * 0.8 + 0.4;
+        const ringRadius = 0.145 / (denominator * denominator);
+        if (ringRadius > visibleRadius + Math.hypot(offsetX, offsetY)) continue;
+
+        context.globalAlpha = Math.max(
+          0,
+          Math.min(1, 0.19 + 0.59 * (1 - depth)),
+        );
+        context.beginPath();
+        for (let dot = 0; dot < DOTS_PER_RING; dot += 1) {
+          const angle = (dot / DOTS_PER_RING) * TAU;
+          const x = ringRadius * Math.cos(angle) - offsetX;
+          const y = ringRadius * Math.sin(angle) - offsetY;
+          context.moveTo(x + pointRadius, y);
+          context.arc(x, y, pointRadius, 0, TAU);
+        }
+        context.fill();
+      }
+      context.globalAlpha = 1;
+    };
+
+    const isMoving = () =>
+      !paused && !reducedMotion && !document.hidden && !disposed;
+
+    const animate = (timestamp: number) => {
+      if (!isMoving()) return;
+      if (lastTimestamp) {
+        elapsed += Math.min((timestamp - lastTimestamp) / 1000, 0.05);
+      }
+      lastTimestamp = timestamp;
+      draw();
+      frame = window.requestAnimationFrame(animate);
+    };
+
+    const restart = () => {
+      window.cancelAnimationFrame(frame);
+      lastTimestamp = 0;
+      resize();
+      if (isMoving()) {
+        frame = window.requestAnimationFrame(animate);
+      } else {
+        draw();
+      }
+    };
+
+    const observer = new ResizeObserver(restart);
+    observer.observe(canvas);
+    document.addEventListener('visibilitychange', restart);
+    window.addEventListener('resize', restart, { passive: true });
+    restart();
+
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', restart);
+      window.removeEventListener('resize', restart);
+    };
+  }, [paused, reducedMotion, theme]);
 
   return (
-    <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-      <motion.svg
-        viewBox="0 0 1440 900"
-        preserveAspectRatio="xMidYMid slice"
-        className="h-full w-full"
-        role="presentation"
-        initial={false}
-        animate={animate ? { opacity: [0.86, 1, 0.86] } : { opacity: 1 }}
-        transition={animate ? { duration: 8, repeat: Infinity, ease: 'easeInOut' } : undefined}
-      >
-        <defs>
-          <radialGradient id="askolo-tunnel-glow">
-            <stop offset="0%" stopColor={warmAccent} stopOpacity="0.28" />
-            <stop offset="48%" stopColor={accent} stopOpacity="0.13" />
-            <stop offset="100%" stopColor={accent} stopOpacity="0" />
-          </radialGradient>
-          <linearGradient id="askolo-tunnel-line" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor={accent} stopOpacity="0.08" />
-            <stop offset="52%" stopColor={accent} stopOpacity="0.62" />
-            <stop offset="100%" stopColor={warmAccent} stopOpacity="0.23" />
-          </linearGradient>
-        </defs>
-
-        <ellipse cx="720" cy="455" rx="660" ry="380" fill="url(#askolo-tunnel-glow)" />
-        <g fill="none" stroke="url(#askolo-tunnel-line)" strokeWidth="1.4">
-          {rings.map((ring, index) => (
-            <motion.ellipse
-              key={`${ring.rx}-${ring.ry}`}
-              cx="720"
-              cy="455"
-              rx={ring.rx}
-              ry={ring.ry}
-              transform={`rotate(${ring.rotate} 720 455)`}
-              initial={false}
-              animate={animate ? { scale: [1, 1.018, 1] } : { scale: 1 }}
-              transition={
-                animate
-                  ? {
-                      duration: 7 + index * 0.8,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                      delay: index * 0.18,
-                    }
-                  : undefined
-              }
-              style={{ transformOrigin: '720px 455px' }}
-            />
-          ))}
-          <path d="M0 455 C280 348 470 330 720 455 C970 580 1160 562 1440 455" />
-          <path d="M0 500 C290 400 484 386 720 500 C956 614 1150 600 1440 500" opacity=".45" />
-          <path d="M0 410 C280 310 470 294 720 410 C970 526 1160 510 1440 410" opacity=".45" />
-        </g>
-        <circle cx="720" cy="455" r="7" fill={warmAccent} fillOpacity=".88" />
-        <circle cx="720" cy="455" r="20" fill="none" stroke={warmAccent} strokeOpacity=".46" />
-      </motion.svg>
-    </div>
+    <canvas
+      ref={canvasRef}
+      className="askolo-tunnel-concept"
+      aria-hidden="true"
+    />
   );
 }

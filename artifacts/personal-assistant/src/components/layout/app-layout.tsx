@@ -30,7 +30,9 @@ import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { AssistantSidebar } from '@/components/assistant-sidebar';
 import { NotificationBell } from '@/components/notification-bell';
+import { BalanceIndicator } from '@/components/credits/balance-indicator';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
+import { useCreditBalance } from '@/hooks/use-credit-balance';
 import { useIsMobile } from '@/hooks/use-mobile';
 import logoUrl from '/logo.png';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
@@ -176,6 +178,7 @@ function NavigationPanel({
 function AppLayoutInner({ children }: { children: ReactNode }) {
   const { user, signOut } = useAppAuth();
   const [location] = useLocation();
+  const balanceUsdMicros = useCreditBalance(location);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const mainContentRef = useRef<HTMLElement>(null);
@@ -367,7 +370,14 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
               </span>
             </Link>
           </div>
-          <NotificationBell />
+          <div className="flex items-center gap-1.5">
+            <BalanceIndicator
+              balanceUsdMicros={balanceUsdMicros}
+              label={t('nav.aiCredits')}
+              compact
+            />
+            <NotificationBell />
+          </div>
         </header>
 
         <div className="relative flex-1 overflow-y-auto bg-background">
@@ -393,6 +403,11 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
                     })),
                     { href: '/profile', label: 'Profile', icon: UserCircle },
                   ]}
+                />
+                <BalanceIndicator
+                  balanceUsdMicros={balanceUsdMicros}
+                  label={t('nav.aiCredits')}
+                  className="hidden md:inline-flex"
                 />
                 <div className="hidden items-center gap-2 text-end text-xs text-muted-foreground sm:flex">
                   <span className="rounded-full border border-border bg-card px-3 py-1.5">

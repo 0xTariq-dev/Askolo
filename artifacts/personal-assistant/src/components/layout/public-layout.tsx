@@ -3,8 +3,8 @@ import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { useAskoloTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
-import { Moon, Sun } from 'lucide-react';
-import { AnimatedBrandName } from '@/components/animated-brand-name';
+import { Moon, Puzzle, Sparkles, Sun } from 'lucide-react';
+import { ExpandedTabsNav } from '@/components/layout/expanded-tabs-nav';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
@@ -40,26 +40,19 @@ export function PublicLayout({
       </a>
 
       {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/45 shadow-sm backdrop-blur-md">
-        <div className="mx-auto flex h-20 w-full max-w-6xl items-center justify-between px-4 sm:px-6 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
-          <Link href="/" className="group flex shrink-0 items-center gap-3 justify-self-start">
-            <img src={logoUrl} alt="" width={64} height={64} className="h-10 w-auto object-contain" />
-            <AnimatedBrandName className="text-2xl" />
+      <header className="sticky top-0 z-50 w-full px-3 pt-3">
+        <div className="mx-auto flex h-20 w-full max-w-6xl items-center justify-between rounded-full border border-border/60 bg-background/35 px-4 shadow-sm backdrop-blur-md sm:px-6 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <Link href="/" aria-label="Askolo" className="group flex shrink-0 items-center justify-self-start">
+            <img src={logoUrl} alt="Askolo" width={64} height={64} className="h-10 w-auto object-contain" />
           </Link>
-          <nav aria-label="Page sections" className="hidden items-center justify-center gap-8 md:flex">
-            <a
-              href="#features"
-              className="rounded-sm px-1 py-2 text-[17px] font-bold text-muted-foreground transition-[color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none"
-            >
-              {t('common.features')}
-            </a>
-            <a
-              href="#integrations"
-              className="rounded-sm px-1 py-2 text-[17px] font-bold text-muted-foreground transition-[color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none"
-            >
-              {t('common.integrations')}
-            </a>
-          </nav>
+          <ExpandedTabsNav
+            ariaLabel="Page sections"
+            tabs={[
+              { title: t('common.features'), href: '#features', icon: Sparkles },
+              { title: t('common.integrations'), href: '#integrations', icon: Puzzle },
+            ]}
+            className="hidden md:flex"
+          />
           <div className="flex shrink-0 items-center justify-self-end gap-1 sm:gap-2">
             <Button variant="ghost" size="sm" asChild className="rounded-full">
               <a href={toAppUrl('/sign-in', { theme: mode })}>{t('common.signIn')}</a>
@@ -107,7 +100,7 @@ export function PublicLayout({
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 mt-auto border-t border-border/60 bg-background/45 py-8 shadow-sm backdrop-blur-md">
+      <footer className="relative z-10 mt-auto border-t border-border/60 bg-background/35 py-8 shadow-sm backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row gap-4 sm:gap-6 justify-between items-center text-sm text-muted-foreground">
           <div className="flex items-center gap-3">
             <img src={logoUrl} alt="" width={64} height={64} className="h-8 w-auto object-contain" />

@@ -239,7 +239,7 @@ async function blobToBase64(blob: Blob): Promise<string> {
 function assertVoiceReservationAllowed(estimate: CreditEstimate) {
   if (!estimate.canReserve) {
     throw new Error(
-      `This voice request needs up to ${formatUsdMicros(estimate.hardCapUsdMicros)}; ${formatUsdMicros(estimate.availableUsdMicros)} are available. Open AI Credits to review your balance.`,
+      `This voice request needs up to ${formatUsdMicros(estimate.hardCapUsdMicros)}; ${formatUsdMicros(estimate.availableUsdMicros)} are available. Open Balance to review your available amount.`,
     );
   }
 }

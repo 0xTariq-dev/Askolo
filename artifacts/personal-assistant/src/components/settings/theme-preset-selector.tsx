@@ -1,13 +1,6 @@
 import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
   getThemeVariables,
   THEME_PRESETS,
   useAskoloTheme,
@@ -27,15 +20,14 @@ export function ThemePresetSelector() {
   const surfaceStyle = preferences.surfaceStyles[mode];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Appearance</CardTitle>
-        <CardDescription>
+    <section aria-labelledby="appearance-settings-title" className="space-y-5">
+      <header className="space-y-1">
+        <h2 id="appearance-settings-title" className="text-base font-semibold">Appearance</h2>
+        <p className="text-sm text-muted-foreground">
           Choose a light or dark appearance and one of two color presets. Presets use shared
           design tokens for backgrounds, accents, charts, and focus colors.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
+        </p>
+      </header>
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Mode</legend>
           <div role="group" aria-label="Appearance mode" className="flex gap-2">
@@ -108,7 +100,6 @@ export function ThemePresetSelector() {
             })}
           </div>
         </fieldset>
-      </CardContent>
-    </Card>
+    </section>
   );
 }

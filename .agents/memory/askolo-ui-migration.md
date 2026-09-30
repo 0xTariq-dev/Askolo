@@ -8,3 +8,9 @@ Treat shared component adoption as both a visual and behavior migration. Follow 
 **Why:** A design-system migration can pass type and build checks while route-level styling, focus semantics, reduced-motion support, or full-height scrolling still regresses.
 
 **How to apply:** For UI-wide changes, audit every route for remaining legacy palette styles and demo content, preserve behavior-sensitive props, check the design-system API, and verify keyboard/accessibility and responsive behavior.
+
+For ReUI example installs, dry-run the registry item and back up any app-owned files it will overwrite. If the `@reui` alias redirects to a canonical public registry JSON URL that the shadcn CLI rejects, install that exact JSON from a temporary local file. Preserve the user-selected variant instead of switching variants only to match the app's current primitives.
+
+**Why:** Registry redirects can fail in the CLI even when the free example is publicly downloadable, and a variant substitution changes the requested example.
+
+**How to apply:** Verify the resolved item name and variant before installation, inspect every overwrite, retain a recoverable temporary backup, and keep a reference-only example unconnected until its app-specific use is requested.
