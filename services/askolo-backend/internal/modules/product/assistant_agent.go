@@ -14,9 +14,11 @@ import (
 )
 
 const (
-	assistantPlannerModel   = "gpt-5.6-luna"
-	assistantPlannerTimeout = 20 * time.Second
-	assistantMaxOutputBytes = 16 * 1024
+	assistantPlannerModel                     = "gpt-5.6-luna"
+	assistantPlannerTimeout                   = 20 * time.Second
+	assistantPlannerInputTokenReservationCap  = int64(4096)
+	assistantPlannerOutputTokenReservationCap = int64(256)
+	assistantMaxOutputBytes                   = 16 * 1024
 )
 
 type assistantPlanner interface {
@@ -89,7 +91,7 @@ func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (a
 			{Role: "user", Content: transcript},
 		},
 		ResponseFormat:      map[string]string{"type": "json_object"},
-		MaxCompletionTokens: 256,
+		MaxCompletionTokens: int(assistantPlannerOutputTokenReservationCap),
 	}
 	encoded, err := json.Marshal(requestBody)
 	if err != nil {
