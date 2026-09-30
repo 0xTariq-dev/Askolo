@@ -51,12 +51,14 @@ type USDUsage struct {
 }
 type USDReservation struct {
 	ID                string     `json:"id"`
+	OperationType     string     `json:"operationType,omitempty"`
 	Status            string     `json:"status"`
 	ReservedUsdMicros int64      `json:"reservedUsdMicros"`
 	SettledUsdMicros  int64      `json:"settledUsdMicros"`
 	RefundedUsdMicros int64      `json:"refundedUsdMicros"`
 	PolicyVersion     int        `json:"policyVersion"`
 	ExpiresAt         *time.Time `json:"expiresAt"`
+	CreatedAt         *time.Time `json:"createdAt,omitempty"`
 	Provider          string     `json:"provider"`
 	Mode              string     `json:"mode"`
 	Model             string     `json:"model"`
@@ -615,6 +617,8 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 		if err := rows.Scan(&r.ID, &operation, &r.Provider, &r.Mode, &r.Model, &r.Status, &r.ReservedUsdMicros, &r.SettledUsdMicros, &r.RefundedUsdMicros, &r.PolicyVersion, &r.ExpiresAt, &created); err != nil {
 			return nil, err
 		}
+		r.OperationType = operation
+		r.CreatedAt = &created
 		reservations = append(reservations, r)
 	}
 	if err := rows.Err(); err != nil {

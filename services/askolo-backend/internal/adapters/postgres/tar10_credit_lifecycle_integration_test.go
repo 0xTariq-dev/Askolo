@@ -350,6 +350,23 @@ func TestTAR10USDMicroLedgerLifecycleIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reservations, ok := recent["reservations"].([]USDReservation)
+	if !ok {
+		t.Fatalf("USD recent reservations have unexpected type: %T", recent["reservations"])
+	}
+	foundReservation := false
+	for _, recentReservation := range reservations {
+		if recentReservation.ID != r.ID {
+			continue
+		}
+		foundReservation = true
+		if recentReservation.OperationType != "voice" || recentReservation.CreatedAt == nil {
+			t.Fatalf("recent reservation activity fields = %#v, want operation and timestamp", recentReservation)
+		}
+	}
+	if !foundReservation {
+		t.Fatalf("recent reservations do not contain %q: %#v", r.ID, reservations)
+	}
 	for _, key := range []string{"reservations", "events", "adjustments", "grants"} {
 		if _, ok := recent[key]; !ok {
 			t.Fatalf("recent missing %s", key)

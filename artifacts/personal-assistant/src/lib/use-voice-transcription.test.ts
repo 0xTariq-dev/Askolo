@@ -77,6 +77,7 @@ class FakeAudioContext {
     const samples = new Float32Array(this.sampleRate).fill(0.1);
     return {
       sampleRate: this.sampleRate,
+      duration: 1,
       getChannelData: () => samples,
     } as unknown as AudioBuffer;
   }
@@ -95,6 +96,7 @@ class FakeMediaRecorder {
   }
 
   readonly mimeType: string;
+  readonly audioBitsPerSecond: number | undefined;
   state: RecordingState = 'inactive';
   startTimeslice: number | undefined;
   ondataavailable: ((event: BlobEvent) => void) | null = null;
@@ -104,6 +106,7 @@ class FakeMediaRecorder {
 
   constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
     this.mimeType = options?.mimeType ?? 'audio/webm;codecs=opus';
+    this.audioBitsPerSecond = options?.audioBitsPerSecond;
     FakeMediaRecorder.instances.push(this);
   }
 
@@ -307,9 +310,12 @@ test('microphone capture button records, transcribes, and presents a reviewable 
       return stream;
     },
   });
-  const originalDateNow = Date.now;
-  let fakeNow = 1_700_000_000_000;
-  Date.now = () => fakeNow;
+  const performanceNowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
+  let fakePerformanceNow = 1_000;
+  Object.defineProperty(performance, 'now', {
+    configurable: true,
+    value: () => fakePerformanceNow,
+  });
 
   try {
     let button = harness.container.querySelector<HTMLButtonElement>('[data-testid="button-voice-record"]');
@@ -327,13 +333,22 @@ test('microphone capture button records, transcribes, and presents a reviewable 
     assert.equal(harness.voice.state, 'listening');
     assert.equal(harness.voice.mode, 'recorded');
     assert.equal(harness.voice.isListening, true);
-    assert.deepEqual(constraints, { audio: true });
+    assert.deepEqual(constraints, {
+      audio: {
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: 48_000 },
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+      },
+    });
     assert.equal(FakeMediaRecorder.instances.length, 1);
-    assert.equal(FakeMediaRecorder.instances[0].startTimeslice, 1000);
+    assert.equal(FakeMediaRecorder.instances[0].startTimeslice, undefined);
+    assert.equal(FakeMediaRecorder.instances[0].audioBitsPerSecond, 96_000);
     assert.equal(button?.getAttribute('aria-pressed'), 'true');
     assert.equal(button?.getAttribute('aria-label'), 'Recording voice input; release or activate to stop');
 
-    fakeNow += 900;
+    fakePerformanceNow += 7_000;
     await act(async () => {
       clickForAssistiveTechnology(harness.browser, button!);
       await FakeMediaRecorder.instances[0].whenStopped();
@@ -342,6 +357,9 @@ test('microphone capture button records, transcribes, and presents a reviewable 
     assert.equal(harness.voice.state, 'review');
     assert.equal(harness.voice.transcript, transcriptResponse.transcript);
     assert.equal(harness.voice.recording?.mimeType, 'audio/webm;codecs=opus');
+    assert.equal(harness.voice.recording?.durationMs, 1_000);
+    assert.equal(harness.voice.recording?.captureDurationMs, 7_000);
+    assert.match(harness.voice.status, /capture timer reached 7 seconds, but the saved audio contains 1 second/);
     assert.equal(harness.voice.deletionStatus?.providerTranscript, 'deleted');
     assert.equal(trackStopCalls, 1, 'microphone track was not stopped');
     assert.ok(FakeAudioContext.instances.length >= 2, 'capture and speech-validation contexts were not both created');
@@ -361,13 +379,17 @@ test('microphone capture button records, transcribes, and presents a reviewable 
     };
     assert.match(payload.audioBase64, /^[A-Za-z0-9+/]+=*$/);
     assert.equal(payload.mimeType, 'audio/webm');
-    assert.ok(payload.durationMs >= 700, `recorded duration ${payload.durationMs}ms was below the speech gate`);
+    assert.equal(payload.durationMs, 1000, 'transcription should use the decoded clip duration');
     assert.equal(payload.language, 'en-US');
     assert.equal(transcriptionRequest.credentials, 'include');
     assert.ok(transcriptionRequest.headers.get('Idempotency-Key'));
     assert.equal(transcriptionRequest.headers.get('X-AI-Credit-Policy-Version'), '1');
   } finally {
-    Date.now = originalDateNow;
+    if (performanceNowDescriptor) {
+      Object.defineProperty(performance, 'now', performanceNowDescriptor);
+    } else {
+      Reflect.deleteProperty(performance, 'now');
+    }
     await harness.cleanup();
   }
 });

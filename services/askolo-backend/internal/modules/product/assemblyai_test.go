@@ -74,8 +74,8 @@ func TestTranscribeAssemblyAIRedactsReturnsReviewSignalsAndDeletes(t *testing.T)
 		t.Fatalf("provider request did not enable PII redaction: %#v", transcriptRequest)
 	}
 	models, ok := transcriptRequest["speech_models"].([]any)
-	if !ok || len(models) != 1 || models[0] != "universal-3-5-pro" {
-		t.Fatalf("speech_models = %#v, want only Universal-3.5 Pro", transcriptRequest["speech_models"])
+	if !ok || len(models) != 2 || models[0] != "universal-3-5-pro" || models[1] != "universal-2" {
+		t.Fatalf("speech_models = %#v, want the documented Universal-3.5 Pro/Universal-2 fallback", transcriptRequest["speech_models"])
 	}
 	if transcriptRequest["language_code"] != "en" {
 		t.Fatalf("language_code = %v, want normalized primary language", transcriptRequest["language_code"])
@@ -200,6 +200,46 @@ func TestTranscribeAssemblyAIUploadFailureReportsSafeStageAndStatus(t *testing.T
 	}
 	if !strings.Contains(attrs, "401") || !strings.Contains(attrs, "upload") {
 		t.Fatalf("diagnostic log attributes = %q, want upload stage and HTTP 401", attrs)
+	}
+}
+
+func TestTranscribeAssemblyAISubmissionClassifiesProviderErrorWithoutLoggingBody(t *testing.T) {
+	const privateProviderDetail = "private synthetic media locator"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/upload":
+			_, _ = io.WriteString(w, `{"upload_url":"https://cdn.assemblyai.com/upload/synthetic"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/transcript":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":"invalid audio_url: `+privateProviderDetail+`"}`)
+		default:
+			t.Errorf("unexpected provider request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	_, deletionStatus, err := transcribeAssemblyAI(
+		context.Background(), server.Client(), server.URL, "synthetic-test-key", []byte{1}, "",
+	)
+	var diagnostic assemblyAIDiagnosticError
+	if err == nil || deletionStatus != "deletion_failed" ||
+		!errors.As(err, &diagnostic) ||
+		diagnostic.stage != "transcript_submission" ||
+		diagnostic.failureKind != "http_status" ||
+		diagnostic.httpStatus != http.StatusBadRequest ||
+		diagnostic.providerErrorCategory != "audio_input" ||
+		diagnostic.deletion.status != "not_attempted" {
+		t.Fatalf("diagnostic=%#v deletion=%q error=%v; want a classified submission 400 without cleanup", diagnostic, deletionStatus, err)
+	}
+	attrs := fmt.Sprint(assemblyAIDiagnosticLogAttrs(err))
+	if strings.Contains(err.Error(), privateProviderDetail) ||
+		strings.Contains(attrs, privateProviderDetail) ||
+		strings.Contains(attrs, "synthetic-test-key") {
+		t.Fatalf("provider response body or credentials leaked into diagnostics: %q", attrs)
+	}
+	if !strings.Contains(attrs, "audio_input") {
+		t.Fatalf("diagnostic log attrs = %q, want only the safe audio-input category", attrs)
 	}
 }
 
