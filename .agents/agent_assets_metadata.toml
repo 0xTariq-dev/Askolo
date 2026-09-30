@@ -77,3 +77,73 @@ mtime_ms = 1790779044552
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/a3a4dcdc-daa3-4bf7-bd39-bd91db759b2c/052af761-5345-4961-badb-be45a62b5ff3"
 storage_version_token = "1790779055049097"
 content_type = "image/png"
+
+[[outputs]]
+id = "5KZukMj8BfAijrYHOvaR_"
+uri = "file://artifacts/askolo-app-walkthrough/public/audio/vo_dashboard.mp3"
+type = "audio"
+title = "dashboard narration"
+description = "Text-to-speech audio: The dashboard keeps your plan, habits, goals, and chores in view without switching places."
+logical_id = "c9165792-0048-4f9b-9778-17038d3b4618"
+
+[[outputs]]
+id = "EGEPt-coSHuptc8qYVuyZ"
+uri = "file://artifacts/askolo-app-walkthrough/public/audio/vo_close.mp3"
+type = "audio"
+title = "close narration"
+description = "Text-to-speech audio: One place for the next step. Plan by voice. Stay in control."
+logical_id = "74002055-3db2-4e7e-b1fd-6eb811cf20e3"
+
+[[outputs]]
+id = "JUJPbd1JPs1EMGuYErzUD"
+uri = "file://artifacts/askolo-app-walkthrough/public/audio/vo_overview.mp3"
+type = "audio"
+title = "overview narration"
+description = "Text-to-speech audio: Askolo brings your day into one workspace."
+logical_id = "0c592fca-9ece-48fc-8626-71c6c2cdff7b"
+
+[[outputs]]
+id = "4QFwfJOMou1UKGNxNFGn0"
+uri = "file://artifacts/askolo-app-walkthrough/public/audio/vo_planner.mp3"
+type = "audio"
+title = "planner narration"
+description = "Text-to-speech audio: In the daily planner, type a thought or speak it. AssemblyAI transcribes your words; review the transcript before continuing."
+logical_id = "944d7628-4137-4c12-9038-ab47369b86e9"
+
+[[outputs]]
+id = "WE3CoFBtHHJY-kElwzplD"
+uri = "file://artifacts/askolo-app-walkthrough/public/audio/vo_actions.mp3"
+type = "audio"
+title = "actions narration"
+description = "Text-to-speech audio: Askolo proposes one clear action item. Unclear or multi-action requests need clarification. Nothing is saved until you confirm."
+logical_id = "cd8c8b39-6f5c-4b8f-84cb-01365c2220f5"
+
+[[outputs]]
+id = "XZWr4LlR7UNRPgLnEM9ls"
+uri = "file://artifacts/askolo-app-walkthrough/public/audio/bg_music.mp3"
+type = "audio"
+title = "Askolo walkthrough music"
+description = "Generated music: Warm restrained ambient instrumental for a calm personal productivity app interface walkthrough, soft piano and muted analog synth, 82 BPM, subtle rhythmic pulse, patient intro, stea…"
+logical_id = "5ef71a42-1cc7-46d5-bea4-5bc6a3c74a6d"
+
+[[outputs]]
+id = "kMNthcm84f4V-1WMVBrzC"
+uri = "file://artifacts/askolo-app-walkthrough/public/audio/vo_actions_2.mp3"
+type = "audio"
+title = "actions narration"
+description = "Text-to-speech audio: Askolo proposes one action. Unclear requests need clarification. Nothing is saved until you confirm."
+logical_id = "c473bdb8-f509-4bb2-84d6-691412bf8a05"
+
+[[outputs]]
+id = "0zoL3KFABmH5ceXRAbtsS"
+uri = "file://artifacts/askolo-app-walkthrough/exports/askolo-app-walkthrough.mp4"
+type = "video"
+title = "Askolo — Narrated App Walkthrough (MP4)"
+description = "A 44-second, 16:9 interface tour with narration and music. The voice-to-action explanation is labeled illustrative."
+logical_id = "29356619-73e4-4833-b26d-f0661d1d9389"
+content_hash = "sha256:11a2e2c00217164ff758a5aa88fef588b1cf5efb4f67020ebc94b6390d45a2e9"
+size = 3364378
+mtime_ms = 1790780253387
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/29356619-73e4-4833-b26d-f0661d1d9389/8927e37b-d734-42c3-a7ab-b25e426380db"
+storage_version_token = "1790780334210471"
+content_type = "video/mp4"
