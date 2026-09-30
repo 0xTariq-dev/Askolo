@@ -105,6 +105,10 @@ interface RealtimeServerEvent {
   message?: string;
   maxSessionDurationSeconds?: number;
   creditReceipt?: CreditReceiptDetails;
+  receipt?: CreditReceiptDetails;
+  reservedUsdMicros?: number;
+  settledUsdMicros?: number;
+  balanceUsdMicros?: number;
   turn_order?: number;
   transcript?: string;
   end_of_turn?: boolean;
@@ -253,7 +257,13 @@ async function prepareVoiceCreditRequest(pricingKey: 'voice.recorded' | 'voice.r
 }
 
 function creditPostflightMessage(receipt: CreditReceiptDetails | undefined, estimate: CreditEstimate): string {
-  if (!receipt || typeof receipt.settledUsdMicros !== 'number' || typeof receipt.balanceUsdMicros !== 'number') {
+  if (!receipt ||
+    !Number.isFinite(receipt.reservedUsdMicros) ||
+    !Number.isFinite(receipt.settledUsdMicros) ||
+    !Number.isFinite(receipt.balanceUsdMicros) ||
+    receipt.reservedUsdMicros < 0 ||
+    receipt.settledUsdMicros < 0 ||
+    receipt.balanceUsdMicros < 0) {
     throw new Error('The operation completed but its credit receipt was missing. Refresh AI Credits before retrying.');
   }
   const returned = Math.max(0, receipt.reservedUsdMicros - receipt.settledUsdMicros);
@@ -735,9 +745,15 @@ export function useVoiceTranscription({
           resolveReady();
           return;
         }
-        if (envelope.type === 'AskoloSettlement') {
+        if (envelope.type === 'voice.settlement' || envelope.type === 'AskoloSettlement') {
           try {
-            postflight = creditPostflightMessage((envelope.payload as { creditReceipt?: CreditReceiptDetails; receipt?: CreditReceiptDetails })?.creditReceipt ?? (envelope.payload as { receipt?: CreditReceiptDetails })?.receipt, creditRequest.estimate);
+            const settlementPayload = envelope.payload as (RealtimeServerEvent & CreditReceiptDetails) | undefined;
+            const receipt = settlementPayload?.creditReceipt ??
+              settlementPayload?.receipt ??
+              (typeof settlementPayload?.settledUsdMicros === 'number'
+                ? settlementPayload as CreditReceiptDetails
+                : undefined);
+            postflight = creditPostflightMessage(receipt, creditRequest.estimate);
             voiceCreditPostflightRef.current = postflight;
             setStatus(postflight);
           } catch (settlementError) {
@@ -748,20 +764,22 @@ export function useVoiceTranscription({
         if (envelope.type === 'voice.ready') {
           if (readySettled) return;
           try {
-            postflight = creditPostflightMessage(envelope.payload?.creditReceipt, creditRequest.estimate);
             if (typeof envelope.payload?.maxSessionDurationSeconds === 'number' && envelope.payload.maxSessionDurationSeconds > 0) {
               realtimeMaxSessionSecondsRef.current = Math.min(
                 DEFAULT_REALTIME_MAX_SESSION_SECONDS,
                 Math.max(1, Math.floor(envelope.payload.maxSessionDurationSeconds)),
               );
             }
-            voiceCreditPostflightRef.current = postflight;
-            setStatus(`${postflight} Connecting live transcription…`);
+            const reservedUsdMicros = envelope.payload?.creditReceipt?.reservedUsdMicros ??
+              envelope.payload?.reservedUsdMicros;
+            setStatus(`${typeof reservedUsdMicros === 'number'
+              ? `Reserved up to ${formatUsdMicros(reservedUsdMicros)}. `
+              : 'Live-session credit reservation is active. '}Connecting live transcription…`);
             readySettled = true;
             if (realtimeReadyTimeout !== null) window.clearTimeout(realtimeReadyTimeout);
             resolveReady();
-          } catch (readyError) {
-            failRealtime(readyError instanceof Error ? readyError.message : 'The live session credit receipt was invalid.');
+          } catch {
+            failRealtime('The live transcription session could not be prepared. Try again.');
           }
           return;
         }

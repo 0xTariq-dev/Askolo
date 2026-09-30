@@ -51,12 +51,32 @@ func newOpenAIAssistantPlanner(apiKey, baseURL string) assistantPlanner {
 }
 
 func (p *openAIAssistantPlanner) Available() bool {
+	return p.availabilityReason() == ""
+}
+
+func (p *openAIAssistantPlanner) availabilityReason() string {
 	if p == nil || p.apiKey == "" {
-		return false
+		return "provider_key_missing"
 	}
 	parsed, err := url.Parse(strings.TrimSpace(p.baseURL))
-	return err == nil && parsed.Scheme == "https" && parsed.Host != "" &&
-		parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == ""
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "provider_base_url_invalid"
+	}
+	return ""
+}
+
+func assistantPlannerUnavailableReason(planner assistantPlanner) string {
+	if planner == nil {
+		return "planner_missing"
+	}
+	if configured, ok := planner.(*openAIAssistantPlanner); ok {
+		return configured.availabilityReason()
+	}
+	if !planner.Available() {
+		return "planner_not_ready"
+	}
+	return ""
 }
 
 func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (assistantModelPlan, error) {

@@ -41,7 +41,10 @@ import {
   VoiceCaptureFeedback,
   VoiceTranscriptReview,
 } from '@/components/voice/voice-session-ui';
-import { getReviewedVoiceValue } from '@/lib/voice-flow';
+import {
+  canAutoSubmitAssistantVoiceTranscript,
+  getReviewedVoiceValue,
+} from '@/lib/voice-flow';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
@@ -80,6 +83,7 @@ export function AssistantSidebar() {
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
   const [liveVoice, setLiveVoice] = useState(false);
+  const assistantVoiceAutoSendRef = useRef(false);
   const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
@@ -178,7 +182,7 @@ export function AssistantSidebar() {
 
   const onSubmit = async (data: MessageForm) => {
     const text = data.text.trim();
-    if (!text || isThinking || voice.isBusy) return;
+    if (!text || isThinking || pendingActionId !== null || voice.isBusy) return;
 
     setMessages((previous) => [
       ...previous,
@@ -225,6 +229,11 @@ export function AssistantSidebar() {
     }
   };
 
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
+  const resetVoiceRef = useRef(voice.reset);
+  resetVoiceRef.current = voice.reset;
+
   const startAssistantVoice = async () => {
     if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION) {
       setVoiceConsentError('');
@@ -233,15 +242,32 @@ export function AssistantSidebar() {
     }
     setVoiceReviewText('');
     setVoiceApplied(false);
+    assistantVoiceAutoSendRef.current = true;
     await voice.start();
   };
 
   useEffect(() => {
-    if (voice.state === 'review' && voice.transcript) {
-      setVoiceReviewText(voice.transcript);
-      setVoiceApplied(false);
+    if (voice.state === 'idle') {
+      assistantVoiceAutoSendRef.current = false;
+      return;
     }
-  }, [voice.state, voice.transcript]);
+    if (voice.state !== 'review' || !voice.transcript) return;
+
+    setVoiceReviewText(voice.transcript);
+    setVoiceApplied(false);
+    if (!assistantVoiceAutoSendRef.current) return;
+    assistantVoiceAutoSendRef.current = false;
+
+    if (!canAutoSubmitAssistantVoiceTranscript(
+      voice.state,
+      voice.transcript,
+      voice.reviewSignals.length,
+    )) return;
+
+    const transcript = voice.transcript;
+    resetVoiceRef.current();
+    void onSubmitRef.current({ text: transcript });
+  }, [voice.state, voice.transcript, voice.reviewSignals]);
 
   const applyAssistantTranscript = () => {
     if (!voiceReviewText.trim() || voiceApplied) return;
@@ -249,6 +275,13 @@ export function AssistantSidebar() {
     if (nextValue === null) return;
     form.setValue('text', nextValue, { shouldValidate: true });
     setVoiceApplied(true);
+  };
+
+  const sendReviewedAssistantTranscript = () => {
+    const text = voiceReviewText.trim();
+    if (!text || isThinking || pendingActionId !== null) return;
+    resetVoiceRef.current();
+    void onSubmitRef.current({ text });
   };
 
   const saveVoiceConsent = async () => {
@@ -553,7 +586,7 @@ export function AssistantSidebar() {
                     size="icon"
                     iconOnly
                     className="h-10 w-10 shrink-0"
-                    disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking}
+                    disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking || pendingActionId !== null}
                     data-testid="button-assistant-voice"
                   />
                   <Button
@@ -578,6 +611,21 @@ export function AssistantSidebar() {
                     onChange={setVoiceReviewText}
                     label="Editable message transcript"
                   >
+                    {voice.reviewSignals.length > 0 && (
+                      <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
+                        Transcription flagged possible uncertainty. Review and correct the text before sending.
+                      </p>
+                    )}
+                    {voice.reviewSignals.length > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={sendReviewedAssistantTranscript}
+                        disabled={!voiceReviewText.trim() || isThinking || pendingActionId !== null}
+                      >
+                        Send corrected transcript
+                      </Button>
+                    )}
                     <Button type="button" size="sm" onClick={applyAssistantTranscript} disabled={!voiceReviewText.trim() || voiceApplied}>
                       {voiceApplied ? 'Added to message' : 'Use transcript in message'}
                     </Button>

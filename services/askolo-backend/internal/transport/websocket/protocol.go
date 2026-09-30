@@ -554,6 +554,9 @@ func (h *Handler) dispatchMessage(
 			return err
 		}
 		if h.services == nil {
+			if h.logger != nil {
+				h.logger.Error("assistant run could not start", "reason", "services_unavailable")
+			}
 			return publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
 		}
 		state.assistant = true

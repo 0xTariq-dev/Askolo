@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const VoiceConsentVersion = "voice-v4"
+const VoiceConsentVersion = "voice-v5"
 
 type AICreditPolicy struct {
 	Version              int            `json:"version"`
