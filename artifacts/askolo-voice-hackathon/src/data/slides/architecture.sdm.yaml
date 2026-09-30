@@ -1,0 +1,219 @@
+format: "replit.sdm"
+version: 1
+size:
+  width: 1920
+  height: 1080
+background:
+  kind: "solid"
+  color:
+    kind: "token"
+    token: "background"
+theme:
+  colors:
+    background: "#0C141D"
+    surface: "#162332"
+    foreground: "#E8F2F0"
+    muted: "#B2C4C1"
+    accent: "#9CC4F3"
+    border: "#41546A"
+    secondary: "#2A405B"
+  fonts:
+    display: "Cairo"
+    body: "Cairo"
+elements:
+  - id: "headerRule"
+    type: "shape"
+    frame:
+      x: 120
+      y: 94
+      width: 94
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "headline"
+    type: "text"
+    frame:
+      x: 120
+      y: 143
+      width: 1680
+      height: 130
+    body:
+      paragraphs:
+        - runs:
+            - text: "Recognition and action stay separate"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 40
+            weight: 700
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "architecturePanel0"
+    type: "shape"
+    frame:
+      x: 120
+      y: 323
+      width: 1680
+      height: 170
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 16
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "architectureAnchor0"
+    type: "shape"
+    frame:
+      x: 150
+      y: 358
+      width: 84
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "architectureText0"
+    type: "text"
+    frame:
+      x: 150
+      y: 373
+      width: 1570
+      height: 150
+    body:
+      paragraphs:
+        - runs:
+            - text: "Browser capture → Askolo server → AssemblyAI transcription"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 22
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "architecturePanel1"
+    type: "shape"
+    frame:
+      x: 120
+      y: 538
+      width: 1680
+      height: 170
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 16
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "architectureAnchor1"
+    type: "shape"
+    frame:
+      x: 150
+      y: 573
+      width: 84
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "architectureText1"
+    type: "text"
+    frame:
+      x: 150
+      y: 588
+      width: 1570
+      height: 150
+    body:
+      paragraphs:
+        - runs:
+            - text: "Transcript → constrained assistant planner → proposed action"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 22
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12
+  - id: "architecturePanel2"
+    type: "shape"
+    frame:
+      x: 120
+      y: 753
+      width: 1680
+      height: 170
+    geometry:
+      kind: "preset"
+      preset: "roundRect"
+      cornerRadius: 16
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "surface"
+  - id: "architectureAnchor2"
+    type: "shape"
+    frame:
+      x: 150
+      y: 788
+      width: 84
+      height: 8
+    geometry:
+      kind: "preset"
+      preset: "rect"
+    fill:
+      kind: "solid"
+      color:
+        kind: "token"
+        token: "accent"
+  - id: "architectureText2"
+    type: "text"
+    frame:
+      x: 150
+      y: 823
+      width: 1570
+      height: 100
+    body:
+      paragraphs:
+        - runs:
+            - text: "User confirmation → Askolo action list"
+          defaultRunStyle:
+            font:
+              kind: "token"
+              token: "body"
+            sizePt: 25
+            weight: 400
+            color:
+              kind: "token"
+              token: "foreground"
+          lineHeight: 1.28
+          spaceAfterPt: 12

@@ -7,3 +7,59 @@ uri = "file://screenshots/email-connect.jpg"
 type = "image"
 title = "Gmail connect page preview"
 logical_id = "4890c635-11d1-4831-9d61-097de6bcf080"
+
+[[outputs]]
+id = "OpMAqF2sSvBtvBBV_8LVK"
+uri = "file://.local/outputs/Askolo-Voice-Agent-Hackathon.pdf"
+type = "pdf"
+title = "Askolo — Voice Agent Hackathon (PDF)"
+description = "The confirmed nine-slide 16:9 presentation in PDF format."
+logical_id = "909373de-f9c2-4907-b621-0e51f70df911"
+content_hash = "sha256:49961203eddaa59c0721261a151efebac08b02f908f49e5f79acd1b3a59b0f02"
+size = 367471
+mtime_ms = 1790778250312
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/909373de-f9c2-4907-b621-0e51f70df911/323c7f63-89af-421e-9da0-3952a0ba1f2d"
+storage_version_token = "1790778251169492"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "oxen6B8beF5jpuWBaX1Vw"
+uri = "file://.local/outputs/Askolo-Voice-Agent-Hackathon-Editable.pptx"
+type = "slides"
+title = "Askolo — Editable deck (PPTX)"
+description = "Optional editable PowerPoint copy alongside the requested PDF."
+logical_id = "e21391b8-68c6-4774-bd3a-fdab3749fa1a"
+content_hash = "sha256:c12222ab6f3ff93ead6ca565a56943acf91b49b7260e92f9cf5a2d4579d42363"
+size = 495880
+mtime_ms = 1790778282087
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/e21391b8-68c6-4774-bd3a-fdab3749fa1a/d7406ec1-1af3-44bb-9868-e234ebc1770e"
+storage_version_token = "1790778282658145"
+content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+[[outputs]]
+id = "H0GKtNPde1AfoGuRGxCDn"
+uri = "file://exports/askolo-cover-voice-led.png"
+type = "image"
+title = "Askolo cover — voice-led (recommended)"
+description = "1920 × 1080 PNG with the original Askolo mark and a voice-led composition."
+logical_id = "1a1570e5-33d1-4dfc-b772-10da71864ae3"
+content_hash = "sha256:2ee55fbfbf5d245c9c6707837194325f5aa2bf88c00f8d21a528a336d18a4fce"
+size = 224364
+mtime_ms = 1790778260012
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/1a1570e5-33d1-4dfc-b772-10da71864ae3/1026ba02-4817-4f4f-abc6-bb0fae0a5c21"
+storage_version_token = "1790778299245708"
+content_type = "image/png"
+
+[[outputs]]
+id = "HW6uoQIFbth39inL2kV8s"
+uri = "file://exports/askolo-cover-product-in-action.png"
+type = "image"
+title = "Askolo cover — product in action"
+description = "1920 × 1080 PNG with a cropped planner interface view; no account or browser controls."
+logical_id = "ea65b882-fe0c-4d8d-8489-c96a906214ff"
+content_hash = "sha256:8602bfbb2345946a997107ef09e8a5c420c774d592de89a314d0beb6ceb74d38"
+size = 109856
+mtime_ms = 1790778257716
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:5b8af2fa-e65c-4295-8e4b-b5f0d0c10891/ea65b882-fe0c-4d8d-8489-c96a906214ff/6ae07fac-890b-43c0-9501-414c4eefc7f0"
+storage_version_token = "1790778299907792"
+content_type = "image/png"

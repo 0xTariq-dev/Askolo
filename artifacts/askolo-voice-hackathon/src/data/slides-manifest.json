@@ -1,0 +1,83 @@
+[
+  {
+    "id": "cover",
+    "position": 1,
+    "kind": "sdm",
+    "filepath": "src/data/slides/cover.sdm.yaml",
+    "title": "Your whole life, one place",
+    "description": "Askolo hackathon deck — Your whole life, one place",
+    "speakerNotes": ""
+  },
+  {
+    "id": "problem",
+    "position": 2,
+    "kind": "sdm",
+    "filepath": "src/data/slides/problem.sdm.yaml",
+    "title": "Your day has too many places to live",
+    "description": "Askolo hackathon deck — Your day has too many places to live",
+    "speakerNotes": ""
+  },
+  {
+    "id": "workspace",
+    "position": 3,
+    "kind": "sdm",
+    "filepath": "src/data/slides/workspace.sdm.yaml",
+    "title": "One workspace holds the moving pieces",
+    "description": "Askolo hackathon deck — One workspace holds the moving pieces",
+    "speakerNotes": ""
+  },
+  {
+    "id": "voice-action",
+    "position": 4,
+    "kind": "sdm",
+    "filepath": "src/data/slides/voice-action.sdm.yaml",
+    "title": "Voice turns a quick thought into an action",
+    "description": "Askolo hackathon deck — Voice turns a quick thought into an action",
+    "speakerNotes": ""
+  },
+  {
+    "id": "assemblyai",
+    "position": 5,
+    "kind": "sdm",
+    "filepath": "src/data/slides/assemblyai.sdm.yaml",
+    "title": "AssemblyAI handles speech, not decisions",
+    "description": "Askolo hackathon deck — AssemblyAI handles speech, not decisions",
+    "speakerNotes": ""
+  },
+  {
+    "id": "confirmation",
+    "position": 6,
+    "kind": "sdm",
+    "filepath": "src/data/slides/confirmation.sdm.yaml",
+    "title": "Nothing is saved until you confirm",
+    "description": "Askolo hackathon deck — Nothing is saved until you confirm",
+    "speakerNotes": ""
+  },
+  {
+    "id": "architecture",
+    "position": 7,
+    "kind": "sdm",
+    "filepath": "src/data/slides/architecture.sdm.yaml",
+    "title": "Recognition and action stay separate",
+    "description": "Askolo hackathon deck — Recognition and action stay separate",
+    "speakerNotes": ""
+  },
+  {
+    "id": "benefit",
+    "position": 8,
+    "kind": "sdm",
+    "filepath": "src/data/slides/benefit.sdm.yaml",
+    "title": "The next step feels lighter",
+    "description": "Askolo hackathon deck — The next step feels lighter",
+    "speakerNotes": ""
+  },
+  {
+    "id": "demo",
+    "position": 9,
+    "kind": "sdm",
+    "filepath": "src/data/slides/demo.sdm.yaml",
+    "title": "Try the voice-to-action demo",
+    "description": "Askolo hackathon deck — Try the voice-to-action demo",
+    "speakerNotes": ""
+  }
+]
