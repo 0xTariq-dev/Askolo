@@ -6,6 +6,7 @@
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [Lingui macros in Vite](lingui-vite-macros.md) — the PO catalog plugin does not replace the Babel transform required by `@lingui/core/macro`.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
+- [Replit OpenAI proxy URL](replit-openai-proxy-url.md) — the managed integration may use HTTP loopback on port 1106; allow only that endpoint, not arbitrary HTTP.
 - [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
 - [Signup welcome-credit atomicity](signup-welcome-credit-atomicity.md) — grant only at verified signup and commit the ledger entry with its balance change under one stable per-user key.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
