@@ -8,3 +8,5 @@ Authorization scope has three states: both resource type and ID empty means work
 **Why:** Generic actions such as AI execution need workspace capability checks but do not target a particular object. Treating a type-only selector as a valid object scope can bypass future ownership checks.
 
 **How to apply:** For collection/list/create operations with no concrete resource ID, authorize the workspace action with both resource fields empty. Keep both fields populated for resource-specific operations so ownership and workspace checks still run.
+
+**Validation:** The scope rule passed the authenticated consent persistence integration test and was confirmed by a signed-in Development consent save.
