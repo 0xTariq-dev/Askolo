@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   appendVoiceText,
+  canAutoSubmitAssistantVoiceTranscript,
   formatVoiceDuration,
-  getAssistantVoiceTranscriptHandoff,
   getReviewedVoiceValue,
   getVoiceCaptureClickAction,
   getVoiceStatusText,
@@ -56,10 +56,11 @@ test('transcript review is shown only for non-empty completed transcripts', () =
   assert.equal(shouldShowVoiceTranscriptReview('listening', 'Words to review'), false);
 });
 
-test('assistant voice always pauses at transcript review regardless of confidence signals', () => {
-  assert.equal(getAssistantVoiceTranscriptHandoff('review', 'Add milk'), 'review');
-  assert.equal(getAssistantVoiceTranscriptHandoff('review', '  '), null);
-  assert.equal(getAssistantVoiceTranscriptHandoff('listening', 'Add milk'), null);
+test('assistant auto-submit requires a completed transcript with no review signals', () => {
+  assert.equal(canAutoSubmitAssistantVoiceTranscript('review', 'Add milk', 0), true);
+  assert.equal(canAutoSubmitAssistantVoiceTranscript('review', 'Add milk', 1), false);
+  assert.equal(canAutoSubmitAssistantVoiceTranscript('review', '  ', 0), false);
+  assert.equal(canAutoSubmitAssistantVoiceTranscript('listening', 'Add milk', 0), false);
 });
 
 test('voice status has a useful fallback while preserving provider status text', () => {
