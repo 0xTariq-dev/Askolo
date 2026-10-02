@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -68,6 +70,18 @@ type voiceStartPayload struct {
 	PolicyVersion  int    `json:"policyVersion"`
 }
 
+type voiceAgentStartPayload struct {
+	ConversationID         string `json:"conversationId,omitempty"`
+	Locale                 string `json:"locale"`
+	IdempotencyKey         string `json:"idempotencyKey"`
+	PolicyVersion          int    `json:"policyVersion"`
+	AssistantPolicyVersion int    `json:"assistantPolicyVersion"`
+}
+
+type voiceAgentAudioPayload struct {
+	Data string `json:"data"`
+}
+
 type decodedFrame struct {
 	messageType websocket.MessageType
 	payload     []byte
@@ -80,6 +94,7 @@ type queuedEvent struct {
 	payload            json.RawMessage
 	assistantRunID     string
 	voiceReservationID string
+	voiceAgentID       string
 	terminalState      string
 	sent               chan error
 }
@@ -95,25 +110,34 @@ type providerResult struct {
 	eventType          string
 	payload            json.RawMessage
 	voiceReservationID string
+	voiceAgentID       string
 	err                error
 }
 
 type protocolState struct {
-	userID      string
-	workspaceID string
-	store       *postgres.Store
-	session     postgres.PublicWSSession
-	conn        *websocket.Conn
-	ctx         context.Context
-	lastClient  int64
-	lastActive  time.Time
-	voice       publicws.VoiceSession
-	voiceCancel context.CancelFunc
-	voiceTimer  *time.Timer
-	voiceStop   *time.Timer
-	voiceID     string
-	assistant   bool
-	terminal    string
+	userID                string
+	workspaceID           string
+	store                 *postgres.Store
+	session               postgres.PublicWSSession
+	conn                  *websocket.Conn
+	ctx                   context.Context
+	lastClient            int64
+	lastActive            time.Time
+	voice                 publicws.VoiceSession
+	voiceCancel           context.CancelFunc
+	voiceTimer            *time.Timer
+	voiceStop             *time.Timer
+	voiceID               string
+	voiceAgent            publicws.VoiceAgentSession
+	voiceAgentCancel      context.CancelFunc
+	voiceAgentTimer       *time.Timer
+	voiceAgentStop        *time.Timer
+	voiceAgentID          string
+	voiceAgentAudioWindow time.Time
+	voiceAgentAudioBytes  int
+	voiceAgentAudioFrames int
+	assistant             bool
+	terminal              string
 }
 
 func (h *Handler) allowedOrigin(r *http.Request) (*url.URL, bool) {
@@ -277,7 +301,9 @@ func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, 
 				}
 				h.sendPublicError(state, err)
 				var operation *publicws.Error
-				if errors.As(err, &operation) && operation.Status == http.StatusBadRequest {
+				if errors.As(err, &operation) &&
+					(operation.Status == http.StatusBadRequest ||
+						(message.Type == "voice.agent.audio" && operation.Status == http.StatusTooManyRequests)) {
 					return
 				}
 				continue
@@ -290,10 +316,43 @@ func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, 
 				}
 				continue
 			}
+			if event.voiceAgentID != "" && event.voiceAgentID != state.voiceAgentID {
+				if event.sent != nil {
+					event.sent <- nil
+				}
+				continue
+			}
 			if event.eventType == "voice.session_limit" {
 				state.stopVoice(true)
 			} else if event.eventType == "voice.ended" {
 				state.stopVoice(false)
+			}
+			if event.eventType == "voice.agent.session_limit" {
+				event.eventType = "voice.agent.limit_reached"
+				if err := h.sendEvent(state, event); err != nil {
+					return
+				}
+				if err := h.requestVoiceAgentTermination(state, moduleEvents, "duration_limit", ""); err != nil {
+					h.sendPublicError(state, err)
+				}
+				continue
+			}
+			if event.eventType == "voice.agent.force_end" {
+				reason := "termination_timeout"
+				var payload struct {
+					Reason string `json:"reason"`
+				}
+				if json.Unmarshal(event.payload, &payload) == nil && payload.Reason != "" {
+					reason = payload.Reason
+				}
+				outcome := state.stopVoiceAgent(false)
+				if err := h.sendEvent(state, queuedEvent{
+					eventType: "voice.agent.ended", voiceAgentID: event.voiceAgentID,
+					terminalState: "completed", payload: voiceAgentOutcomePayload(reason, outcome),
+				}); err != nil {
+					return
+				}
+				continue
 			}
 			sendErr := h.sendEvent(state, event)
 			if event.sent != nil {
@@ -336,6 +395,15 @@ func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, 
 			}
 
 		case result := <-providerEvents:
+			if result.voiceAgentID != "" {
+				if result.voiceAgentID != state.voiceAgentID {
+					continue
+				}
+				if err := h.handleVoiceAgentProviderResult(state, result); err != nil {
+					return
+				}
+				continue
+			}
 			if result.err != nil {
 				if result.voiceReservationID != state.voiceID {
 					continue
@@ -411,6 +479,80 @@ func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, 
 			return
 		}
 	}
+}
+
+func (h *Handler) handleVoiceAgentProviderResult(state *protocolState, result providerResult) error {
+	if result.err != nil {
+		if h.logger != nil {
+			h.logger.Warn("AssemblyAI Voice Agent stream stopped", "session_id", state.session.ID, "error_type", fmt.Sprintf("%T", result.err))
+		}
+		outcome := state.stopVoiceAgent(false)
+		if state.ctx.Err() != nil {
+			return nil
+		}
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.failed", voiceAgentID: result.voiceAgentID, terminalState: "failed",
+			payload: mustJSON(map[string]any{
+				"code":           "VOICE_AGENT_PROVIDER_FAILED",
+				"message":        "The Live Mode connection stopped unexpectedly. Start a new session to continue.",
+				"deletionStatus": outcome.DeletionStatus, "creditReceipt": outcome.CreditReceipt,
+			}),
+		})
+	}
+
+	switch result.eventType {
+	case "Termination":
+		outcome := state.stopVoiceAgent(false)
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.ended", voiceAgentID: result.voiceAgentID,
+			terminalState: "completed", payload: voiceAgentOutcomePayload("provider_terminated", outcome),
+		})
+	case "AskoloVoiceAgentEnded":
+		state.stopVoiceAgent(false)
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.ended", voiceAgentID: result.voiceAgentID,
+			terminalState: "completed", payload: result.payload,
+		})
+	case "AskoloVoiceAgentFailed":
+		state.stopVoiceAgent(false)
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.failed", voiceAgentID: result.voiceAgentID,
+			terminalState: "failed", payload: result.payload,
+		})
+	case "AskoloVoiceAgentActionRefused":
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.action_refused", voiceAgentID: result.voiceAgentID,
+			payload: result.payload,
+		})
+	case "AskoloVoiceAgentActionFailed":
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.action_failed", voiceAgentID: result.voiceAgentID,
+			payload: result.payload,
+		})
+	case "AskoloAssistantRun":
+		runID, _ := assistantRunMetadata(result.payload)
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.action_proposed", voiceAgentID: result.voiceAgentID,
+			assistantRunID: runID, payload: result.payload,
+		})
+	}
+
+	eventType := ""
+	switch result.eventType {
+	case "transcript.user", "transcript.agent":
+		eventType = "voice.agent.transcript"
+	case "transcript.agent.delta", "transcript.user.delta":
+		eventType = "voice.agent.transcript.delta"
+	case "reply.audio":
+		eventType = "voice.agent.audio"
+	case "input.speech.started", "input.speech.stopped", "reply.started", "reply.interrupted":
+		eventType = "voice.agent.activity"
+	default:
+		return nil
+	}
+	return h.sendEvent(state, queuedEvent{
+		eventType: eventType, voiceAgentID: result.voiceAgentID, payload: result.payload,
+	})
 }
 
 func readFrames(ctx context.Context, conn *websocket.Conn, frames chan<- decodedFrame) {
@@ -547,7 +689,7 @@ func (h *Handler) dispatchMessage(
 		if !decodePayload(message.Payload, &input) || len(input.IdempotencyKey) > 200 || strings.TrimSpace(input.IdempotencyKey) != input.IdempotencyKey {
 			return invalidClientMessage()
 		}
-		if state.assistant {
+		if state.assistant || state.voiceAgent != nil {
 			return publicws.Failure(http.StatusConflict, "ASSISTANT_RUN_ACTIVE", "An assistant request is already running on this connection.", nil)
 		}
 		if err := h.authorizeCapability(state, policy.ActionAIExecute); err != nil {
@@ -598,7 +740,7 @@ func (h *Handler) dispatchMessage(
 			input.PolicyVersion < 1 {
 			return invalidClientMessage()
 		}
-		if state.voice != nil {
+		if state.voice != nil || state.voiceAgent != nil {
 			return publicws.Failure(http.StatusConflict, "VOICE_SESSION_ACTIVE", "A live voice session is already active.", nil)
 		}
 		if err := h.authorizeCapability(state, policy.ActionAIExecute); err != nil {
@@ -648,11 +790,8 @@ func (h *Handler) dispatchMessage(
 		if !decodePayload(message.Payload, &struct{}{}) {
 			return invalidClientMessage()
 		}
-		if state.voice == nil {
+		if state.voice == nil || state.voiceStop != nil {
 			return publicws.Failure(http.StatusConflict, "VOICE_NOT_ACTIVE", "There is no active voice session to stop.", nil)
-		}
-		if state.voiceStop != nil {
-			return nil
 		}
 		if err := h.sendEvent(state, queuedEvent{
 			eventType: "voice.stopping", correlationID: message.CorrelationID,
@@ -677,6 +816,113 @@ func (h *Handler) dispatchMessage(
 			}
 		})
 		return nil
+
+	case "voice.agent.start":
+		var input voiceAgentStartPayload
+		if !decodePayload(message.Payload, &input) || len(input.IdempotencyKey) > 200 ||
+			input.IdempotencyKey == "" || strings.TrimSpace(input.IdempotencyKey) != input.IdempotencyKey ||
+			input.Locale == "" || len(input.Locale) > 16 ||
+			input.PolicyVersion < 1 || input.AssistantPolicyVersion < 1 ||
+			len(input.ConversationID) > 128 ||
+			(input.ConversationID != "" && strings.TrimSpace(input.ConversationID) != input.ConversationID) {
+			return invalidClientMessage()
+		}
+		if state.voice != nil || state.voiceAgent != nil || state.assistant {
+			return publicws.Failure(http.StatusConflict, "VOICE_SESSION_ACTIVE", "Stop the current voice or assistant request before starting Live Mode.", nil)
+		}
+		if err := h.authorizeCapability(state, policy.ActionAIExecute); err != nil {
+			return err
+		}
+		agentServices, ok := h.services.(publicws.VoiceAgentServices)
+		if !ok {
+			return publicws.Failure(http.StatusServiceUnavailable, "VOICE_AGENT_UNAVAILABLE", "Live Mode is temporarily unavailable.", nil)
+		}
+		voiceAgent, readyPayload, err := agentServices.StartVoiceAgent(state.ctx, state.userID, state.workspaceID, publicws.VoiceAgentRequest{
+			ConversationID: input.ConversationID, Locale: input.Locale,
+			IdempotencyKey: input.IdempotencyKey, PolicyVersion: input.PolicyVersion,
+			AssistantPolicyVersion: input.AssistantPolicyVersion,
+		})
+		if err != nil {
+			return err
+		}
+		state.voiceAgent = voiceAgent
+		state.voiceAgentID = voiceReservationID(readyPayload)
+		reservationID := state.voiceAgentID
+		voiceCtx, cancel := context.WithCancel(state.ctx)
+		state.voiceAgentCancel = cancel
+		state.voiceAgentTimer = time.AfterFunc(voiceAgent.MaxDuration(), func() {
+			select {
+			case moduleEvents <- queuedEvent{
+				eventType: "voice.agent.session_limit", voiceAgentID: reservationID,
+				payload: mustJSON(map[string]string{"message": "The 180-second Live Mode limit was reached."}),
+			}:
+			case <-state.ctx.Done():
+			}
+		})
+		go func(session publicws.VoiceAgentSession, agentID string) {
+			for {
+				eventType, payload, err := session.ReadProviderMessage(voiceCtx)
+				result := providerResult{
+					eventType: eventType, payload: payload, voiceAgentID: agentID,
+					err: err,
+				}
+				select {
+				case providerEvents <- result:
+				case <-voiceCtx.Done():
+					return
+				}
+				if err != nil || eventType == "Termination" {
+					return
+				}
+			}
+		}(voiceAgent, state.voiceAgentID)
+		return h.sendEvent(state, queuedEvent{
+			eventType: "voice.agent.ready", correlationID: message.CorrelationID,
+			payload: readyPayload, voiceAgentID: state.voiceAgentID,
+		})
+
+	case "voice.agent.audio":
+		var input voiceAgentAudioPayload
+		if !decodePayload(message.Payload, &input) || input.Data == "" || len(input.Data) > ((16*1024+2)/3)*4 {
+			return invalidClientMessage()
+		}
+		if state.voiceAgent == nil || state.voiceAgentStop != nil {
+			return publicws.Failure(http.StatusConflict, "VOICE_AGENT_NOT_ACTIVE", "Start Live Mode before sending audio.", nil)
+		}
+		pcm, err := base64.StdEncoding.DecodeString(input.Data)
+		if err != nil || len(pcm) < 2 || len(pcm) > 16*1024 || len(pcm)%2 != 0 {
+			return publicws.Failure(http.StatusBadRequest, "INVALID_AUDIO_FRAME", "The live audio frame is invalid.", nil)
+		}
+		now := time.Now()
+		if state.voiceAgentAudioWindow.IsZero() || now.Sub(state.voiceAgentAudioWindow) >= time.Second {
+			state.voiceAgentAudioWindow = now
+			state.voiceAgentAudioBytes = 0
+			state.voiceAgentAudioFrames = 0
+		}
+		if state.voiceAgentAudioBytes+len(pcm) > 96*1024 || state.voiceAgentAudioFrames >= 40 {
+			return publicws.Failure(http.StatusTooManyRequests, "VOICE_AGENT_AUDIO_RATE_LIMIT", "Live Mode received audio too quickly. Start a new session to continue.", nil)
+		}
+		state.voiceAgentAudioBytes += len(pcm)
+		state.voiceAgentAudioFrames++
+		if err := h.store.TouchPublicWSSession(state.ctx, state.userID, state.session.ID, postgres.PublicWSDefaultLease); err != nil {
+			return err
+		}
+		sendCtx, cancel := context.WithTimeout(state.ctx, protocolWriteTimeout)
+		err = state.voiceAgent.SendAudio(sendCtx, pcm)
+		cancel()
+		if err != nil {
+			return publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "The Live Mode connection stopped. Start a new session to continue.", err)
+		}
+		return nil
+
+	case "voice.agent.stop":
+		if !decodePayload(message.Payload, &struct{}{}) {
+			return invalidClientMessage()
+		}
+		if state.voiceAgent == nil {
+			return publicws.Failure(http.StatusConflict, "VOICE_AGENT_NOT_ACTIVE", "There is no active Live Mode session to stop.", nil)
+		}
+		return h.requestVoiceAgentTermination(state, moduleEvents, "user_stop", message.CorrelationID)
 
 	case "session.close":
 		var input struct {
@@ -921,8 +1167,85 @@ func (state *protocolState) stopVoice(sendTermination bool) {
 	state.voiceID = ""
 }
 
+func (h *Handler) requestVoiceAgentTermination(
+	state *protocolState,
+	moduleEvents chan<- queuedEvent,
+	reason string,
+	correlationID string,
+) error {
+	if state.voiceAgent == nil {
+		return publicws.Failure(http.StatusConflict, "VOICE_AGENT_NOT_ACTIVE", "There is no active Live Mode session to stop.", nil)
+	}
+	if state.voiceAgentStop != nil {
+		return nil
+	}
+	if err := h.sendEvent(state, queuedEvent{
+		eventType: "voice.agent.stopping", correlationID: correlationID,
+		voiceAgentID: state.voiceAgentID,
+	}); err != nil {
+		return err
+	}
+	terminateCtx, cancel := context.WithTimeout(state.ctx, protocolWriteTimeout)
+	err := state.voiceAgent.SendTermination(terminateCtx)
+	cancel()
+	agentID := state.voiceAgentID
+	state.voiceAgentStop = time.AfterFunc(voiceStopTimeout, func() {
+		select {
+		case moduleEvents <- queuedEvent{
+			eventType: "voice.agent.force_end", voiceAgentID: agentID,
+			terminalState: "completed", payload: mustJSON(map[string]string{"reason": reason}),
+		}:
+		case <-state.ctx.Done():
+		}
+	})
+	if err != nil {
+		return publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "The Live Mode session could not be stopped cleanly.", err)
+	}
+	return nil
+}
+
+func voiceAgentOutcomePayload(reason string, outcome publicws.VoiceAgentOutcome) json.RawMessage {
+	return mustJSON(map[string]any{
+		"reason": reason, "deletionStatus": outcome.DeletionStatus,
+		"creditReceipt": outcome.CreditReceipt,
+	})
+}
+
+func (state *protocolState) stopVoiceAgent(sendTermination bool) publicws.VoiceAgentOutcome {
+	if state.voiceAgentTimer != nil {
+		state.voiceAgentTimer.Stop()
+		state.voiceAgentTimer = nil
+	}
+	if state.voiceAgentStop != nil {
+		state.voiceAgentStop.Stop()
+		state.voiceAgentStop = nil
+	}
+	if state.voiceAgent != nil {
+		if sendTermination {
+			ctx, cancel := context.WithTimeout(context.Background(), protocolWriteTimeout)
+			_ = state.voiceAgent.SendTermination(ctx)
+			cancel()
+		}
+		if state.voiceAgentCancel != nil {
+			state.voiceAgentCancel()
+			state.voiceAgentCancel = nil
+		}
+		outcome := state.voiceAgent.Close()
+		state.voiceAgent = nil
+		state.voiceAgentID = ""
+		return outcome
+	}
+	if state.voiceAgentCancel != nil {
+		state.voiceAgentCancel()
+		state.voiceAgentCancel = nil
+	}
+	state.voiceAgentID = ""
+	return publicws.VoiceAgentOutcome{DeletionStatus: "unconfirmed"}
+}
+
 func (state *protocolState) finish() {
 	state.stopVoice(true)
+	state.stopVoiceAgent(true)
 	if state.session.ID == "" || state.session.Status != "active" {
 		return
 	}

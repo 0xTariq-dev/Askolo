@@ -10,12 +10,28 @@ import { PageTransition } from '@/components/ui/page-transition';
 import { useToast } from '@/hooks/use-toast';
 import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, parseUsdMicros, type CreditPolicy, type CreditUsageResponse } from '@/lib/credit-api';
 
+const voiceAgentRateCardKey = 'assemblyai:voice_agent:managed-voice-agent';
+
 export function AdminCreditsPage() {
   const { toast } = useToast(); const [policy, setPolicy] = useState<CreditPolicy | null>(null); const [usage, setUsage] = useState<CreditUsageResponse | null>(null);
   const [userId, setUserId] = useState(''); const [amount, setAmount] = useState(''); const [reason, setReason] = useState(''); const [changeReason, setChangeReason] = useState('');
   const [saving, setSaving] = useState(false); const [loading, setLoading] = useState(true);
   const load = async () => { setLoading(true); try { setPolicy(await creditApi.adminPolicy()); } catch (e) { toast({ title: creditErrorMessage(e, 'USD tariff policy is unavailable'), variant: 'destructive' }); } finally { setLoading(false); } };
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (!policy || policy.rateCards[voiceAgentRateCardKey]) return;
+    setPolicy((current) => current && !current.rateCards[voiceAgentRateCardKey] ? {
+      ...current,
+      rateCards: {
+        ...current.rateCards,
+        [voiceAgentRateCardKey]: {
+          provider: 'assemblyai', mode: 'voice_agent', model: 'managed-voice-agent',
+          meter: 'hour', usdMicrosPerHour: null,
+          inputUsdMicrosPerMillion: null, outputUsdMicrosPerMillion: null,
+        },
+      },
+    } : current);
+  }, [policy]);
   const lookup = async () => { if (!userId.trim()) return; try { setUsage(await creditApi.adminUsage(userId.trim())); } catch (e) { toast({ title: creditErrorMessage(e, 'Account usage is unavailable'), variant: 'destructive' }); } };
   const adjust = async () => { const micros = parseUsdMicros(amount); if (!userId.trim() || !micros || !reason.trim()) return; setSaving(true); try { await creditApi.adminAdjustment({ userId: userId.trim(), amountUsdMicros: micros, reason: reason.trim(), idempotencyKey: newCreditIdempotencyKey() }); toast({ title: 'USD adjustment posted', description: `${formatUsdMicros(micros)} posted to ${userId.trim()}.` }); setAmount(''); setReason(''); await lookup(); } catch (e) { toast({ title: creditErrorMessage(e, 'Adjustment could not be posted'), variant: 'destructive' }); } finally { setSaving(false); } };
   const update = (patch: Partial<CreditPolicy>) => setPolicy((current) => current ? { ...current, ...patch } : current);

@@ -75,7 +75,7 @@ async function request<T>(path: string, options: CreditRequestOptions = {}): Pro
 export const creditApi = {
   account: () => request<CreditAccountResponse>('/api/ai/credits'),
   usage: () => request<CreditUsageResponse>('/api/ai/credits/usage'),
-  estimate: (pricingKey: 'voice.recorded' | 'voice.realtime' | 'assistant', units: number) => request<CreditEstimate>(`/api/ai/credits/estimate?pricingKey=${encodeURIComponent(pricingKey)}&units=${Math.max(0, Math.trunc(units))}`),
+  estimate: (pricingKey: 'voice.recorded' | 'voice.realtime' | 'voice.agent' | 'assistant', units: number) => request<CreditEstimate>(`/api/ai/credits/estimate?pricingKey=${encodeURIComponent(pricingKey)}&units=${Math.max(0, Math.trunc(units))}`),
   adminPolicy: () => request<CreditPolicy>('/api/admin/ai-credit-policy'),
   updateAdminPolicy: (policy: Pick<CreditPolicy, 'rateCards' | 'monthlyGrantUsdMicros' | 'rolloverCapUsdMicros' | 'rolloverExpiryDays' | 'overrunMarginPercent'>, expectedVersion: number, changeReason: string) => request<CreditPolicy>('/api/admin/ai-credit-policy', { method: 'PATCH', body: JSON.stringify({ ...policy, expectedVersion, changeReason }) }),
   adminAdjustment: (input: AdminAdjustmentInput) => request<CreditUsage>('/api/admin/ai-credit-adjustments', { method: 'POST', body: JSON.stringify(input) }),

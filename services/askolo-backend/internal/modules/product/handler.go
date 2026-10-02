@@ -90,6 +90,7 @@ type Handler struct {
 	speechOutput        azureSpeechProvider
 	adminEmails         map[string]struct{}
 	realtimeLimiter     *realtimeSessionLimiter
+	voiceAgentEnabled   bool
 	authRateLimitSecret string
 	realtimeIdleTimeout time.Duration
 	assistantPlanner    assistantPlanner
@@ -158,6 +159,7 @@ func newHandler(
 		realtimeIdleTimeout: realtimeClientIdleTimeout,
 		assistantPlanner:    assistantPlanner,
 		assistantTools:      assistantTools,
+		voiceAgentEnabled:   cfg.AssemblyAIVoiceAgentEnabled,
 	}
 }
 
@@ -225,6 +227,9 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 		}
 	}
 	model := assemblyAIRealtimeSpeechModel
+	if mode == "voice_agent" {
+		model = assemblyAIVoiceAgentModel
+	}
 	card, known := p.RateCards["assemblyai:"+mode+":"+model]
 	if !known || card.Meter != "hour" || card.UsdMicrosPerHour <= 0 || mode == "" {
 		return result, &voiceCreditReservationFailure{
@@ -233,7 +238,7 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 		}
 	}
 	maxMS := int64(maxVoiceRecordingDurationMS)
-	if mode == "realtime" {
+	if mode == "realtime" || mode == "voice_agent" {
 		maxMS = int64(assemblyAIRealtimeMaxSessionDurationSeconds) * 1000
 	}
 	base, ok := ceilMulDiv(card.UsdMicrosPerHour, maxMS, 3600000)
@@ -1161,6 +1166,8 @@ func usdEstimateRateCardKey(pricingKey string) (string, bool) {
 		return "assemblyai:recorded:" + assemblyAIRealtimeSpeechModel, true
 	case "voice.realtime":
 		return "assemblyai:realtime:" + assemblyAIRealtimeSpeechModel, true
+	case "voice.agent":
+		return "assemblyai:voice_agent:" + assemblyAIVoiceAgentModel, true
 	default:
 		return pricingKey, false
 	}

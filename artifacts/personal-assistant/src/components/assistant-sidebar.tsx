@@ -57,6 +57,7 @@ import { AssistantSpeechControl } from '@/components/assistant-speech-control';
 import { VoiceOutputConsentDialog } from '@/components/voice-output-consent-dialog';
 import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent';
 import { useToast } from '@/hooks/use-toast';
+import { VoiceAgentControls } from '@/components/voice-agent-controls';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -201,6 +202,17 @@ export function AssistantSidebar() {
       ];
     });
   };
+
+  useEffect(() => {
+    const onVoiceAgentAction = (event: Event) => {
+      const run = (event as CustomEvent<AssistantRun>).detail;
+      if (!run || typeof run.id !== 'string' || typeof run.state !== 'string') return;
+      incorporateRun(run);
+      if (!isOpen) toggle();
+    };
+    window.addEventListener('askolo:voice-agent-action', onVoiceAgentAction);
+    return () => window.removeEventListener('askolo:voice-agent-action', onVoiceAgentAction);
+  }, [incorporateRun, isOpen, toggle]);
 
   const onSubmit = async (data: MessageForm) => {
     const text = data.text.trim();
@@ -632,7 +644,7 @@ export function AssistantSidebar() {
                       </FormItem>
                     )}
                   />
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setLiveVoice((value) => !value)} disabled={voice.isBusy || isThinking} aria-pressed={liveVoice} data-testid="button-toggle-assistant-live-voice">{liveVoice ? 'Recorded mode' : 'Live mode'}</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setLiveVoice((value) => !value)} disabled={voice.isBusy || isThinking} aria-pressed={liveVoice} data-testid="button-toggle-assistant-live-voice">{liveVoice ? 'Recorded dictation' : 'Realtime dictation'}</Button>
                   <VoiceCaptureButton
                     voice={voice}
                     onStart={startAssistantVoice}
@@ -656,6 +668,9 @@ export function AssistantSidebar() {
                   </Button>
                 </form>
               </Form>
+              <div className="mt-3 px-1">
+                <VoiceAgentControls />
+              </div>
               {(voice.state !== 'idle' || voice.status || voice.error || voice.recording) && (
                 <div className="mt-2 space-y-2 px-1">
                   <VoiceCaptureFeedback voice={voice} />

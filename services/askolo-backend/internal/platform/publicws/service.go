@@ -56,12 +56,39 @@ type Services interface {
 	) (VoiceSession, json.RawMessage, error)
 }
 
+type VoiceAgentRequest struct {
+	ConversationID         string
+	Locale                 string
+	IdempotencyKey         string
+	PolicyVersion          int
+	AssistantPolicyVersion int
+}
+
+// VoiceAgentServices is optional so deployments without the managed agent
+// provider can continue to serve the existing transcription protocol.
+type VoiceAgentServices interface {
+	StartVoiceAgent(context.Context, string, string, VoiceAgentRequest) (VoiceAgentSession, json.RawMessage, error)
+}
+
 type VoiceSession interface {
 	SendPCMFrame(context.Context, []byte) error
 	ReadProviderMessage(context.Context) (string, json.RawMessage, error)
 	SendTermination(context.Context) error
 	MaxDuration() time.Duration
 	Close()
+}
+
+type VoiceAgentSession interface {
+	SendAudio(context.Context, []byte) error
+	ReadProviderMessage(context.Context) (string, json.RawMessage, error)
+	SendTermination(context.Context) error
+	MaxDuration() time.Duration
+	Close() VoiceAgentOutcome
+}
+
+type VoiceAgentOutcome struct {
+	DeletionStatus string          `json:"deletionStatus"`
+	CreditReceipt  json.RawMessage `json:"creditReceipt,omitempty"`
 }
 
 var ErrUnavailable = errors.New("public WebSocket service unavailable")
