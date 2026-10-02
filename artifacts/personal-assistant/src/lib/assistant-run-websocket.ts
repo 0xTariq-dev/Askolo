@@ -2,6 +2,7 @@ import type { AssistantRun } from '@workspace/api-client-react';
 import {
   parsePublicWebSocketEnvelope,
   publicWebSocketURL,
+  resumePublicWebSocketMetadata,
   sendPublicWebSocketMessage,
 } from '@/lib/public-websocket';
 
@@ -28,8 +29,10 @@ export function createAssistantRunOverWebSocket(
   let serverSequence = 0;
   let ready = false;
   let closing = false;
+  let recovering = false;
   let settled = false;
   let result: AssistantRun | null = null;
+  let sessionId = '';
   let timeout = 0;
   let closeTimeout = 0;
 
@@ -58,6 +61,26 @@ export function createAssistantRunOverWebSocket(
 
     const fail = (message: string) => settle(new Error(message));
 
+    const recoverThenFail = (fallbackMessage: string) => {
+      if (settled || recovering) return;
+      recovering = true;
+      window.clearTimeout(timeout);
+      if (!sessionId) {
+        fail(fallbackMessage);
+        return;
+      }
+      void resumePublicWebSocketMetadata(sessionId, serverSequence)
+        .then((state) => {
+          const requestMayHaveStarted = state.assistantRunIds.length > 0;
+          fail(requestMayHaveStarted
+            ? 'The assistant request may have continued after the connection ended. Check the conversation before retrying.'
+            : fallbackMessage);
+        })
+        .catch(() => {
+          fail('The assistant connection ended and its status could not be confirmed. Check the conversation before retrying.');
+        });
+    };
+
     const closeSession = (reason: 'completed' | 'cancelled') => {
       if (closing || socket.readyState !== WebSocket.OPEN) {
         if (result) settle();
@@ -65,7 +88,15 @@ export function createAssistantRunOverWebSocket(
         return;
       }
       closing = true;
-      sendPublicWebSocketMessage(socket, clientSequence, 'session.close', { reason });
+      try {
+        sendPublicWebSocketMessage(socket, clientSequence, 'session.close', { reason });
+      } catch {
+        if (reason === 'completed' && result) settle();
+        else fail(reason === 'cancelled'
+          ? 'Request stopped. No action was taken.'
+          : 'The assistant connection closed before the request was confirmed.');
+        return;
+      }
       closeTimeout = window.setTimeout(() => {
         if (reason === 'completed' && result) settle();
         else fail('The assistant connection closed before the request was confirmed.');
@@ -77,6 +108,7 @@ export function createAssistantRunOverWebSocket(
     };
 
     const onMessage = (event: MessageEvent) => {
+      if (recovering) return;
       if (typeof event.data !== 'string') {
         fail('The assistant connection returned an invalid message.');
         return;
@@ -86,6 +118,7 @@ export function createAssistantRunOverWebSocket(
         fail('The assistant connection returned an invalid message.');
         return;
       }
+      sessionId = envelope.sessionId;
       if (envelope.type === 'protocol.error') {
         const message = typeof envelope.payload?.message === 'string'
           ? envelope.payload.message
@@ -95,8 +128,8 @@ export function createAssistantRunOverWebSocket(
       }
       if (envelope.sequence > 0) {
         if (envelope.sequence <= serverSequence) return;
-        if (serverSequence > 0 && envelope.sequence !== serverSequence + 1) {
-          fail('The assistant connection missed an event. Retry the request.');
+        if (envelope.sequence !== serverSequence + 1) {
+          recoverThenFail('The assistant connection missed an event. Check the conversation before retrying.');
           return;
         }
         serverSequence = envelope.sequence;
@@ -135,12 +168,16 @@ export function createAssistantRunOverWebSocket(
       }
     };
 
-    const onError = () => fail('The assistant connection could not be opened. Try again.');
+    const onError = () => recoverThenFail('The assistant connection could not be opened. Check the conversation before retrying.');
     const onClose = () => {
       if (!settled) {
-        fail(result
-          ? 'The assistant connection closed before the result was confirmed.'
-          : 'The assistant connection ended unexpectedly. Try again.');
+        if (result) {
+          settle();
+          return;
+        }
+        recoverThenFail(result
+          ? 'The assistant connection closed before the result was confirmed. Check the conversation before retrying.'
+          : 'The assistant connection ended unexpectedly. Check the conversation before retrying.');
       }
     };
     const onAbort = () => {

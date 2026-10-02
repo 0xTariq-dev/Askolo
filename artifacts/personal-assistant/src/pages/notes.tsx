@@ -81,10 +81,9 @@ export function NotesPage() {
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [consentSaving, setConsentSaving] = useState(false);
-  const [liveVoice, setLiveVoice] = useState(false);
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
-  const voice = useVoiceTranscription({ realtime: liveVoice });
+  const voice = useVoiceTranscription();
   const noteVoice = useVoiceTranscription();
 
   const form = useForm<NoteForm>({
@@ -350,17 +349,6 @@ export function NotesPage() {
               />
               <VoiceCaptureFeedback voice={voice} />
               <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setLiveVoice((value) => !value)}
-                  disabled={voice.isBusy}
-                  aria-pressed={liveVoice}
-                  data-testid="button-toggle-notes-live-voice"
-                >
-                  {liveVoice ? 'Recorded mode' : 'Live mode'}
-                </Button>
                 <VoiceCaptureButton
                   voice={voice}
                   onStart={startVoice}

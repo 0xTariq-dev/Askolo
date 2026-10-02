@@ -87,10 +87,9 @@ export function PlanPage() {
   const [consentSaving, setConsentSaving] = useState(false);
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
-  const [liveMode, setLiveMode] = useState(false);
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
-  const voice = useVoiceTranscription({ realtime: liveMode });
+  const voice = useVoiceTranscription();
   const {
     state: voiceState,
     transcript,
@@ -397,12 +396,7 @@ export function PlanPage() {
             </div>
 
             <div className="pt-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span>Voice is optional. Review the transcript before generating your plan.</span>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setLiveMode((value) => !value)} disabled={voiceIsBusy || isGenerating} aria-pressed={liveMode} data-testid="button-toggle-live-voice">
-                  {liveMode ? 'Use recorded dictation' : 'Use realtime dictation'}
-                </Button>
-              </div>
+              <p className="text-xs text-muted-foreground">Voice is optional. Review the transcript before generating your plan.</p>
               <div className="flex items-center justify-end gap-2">
                 <VoiceCaptureButton
                   voice={voice}

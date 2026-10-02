@@ -93,14 +93,13 @@ export function AssistantSidebar() {
   const [voiceOutputConsentError, setVoiceOutputConsentError] = useState('');
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
-  const [liveVoice, setLiveVoice] = useState(false);
   const assistantVoiceAutoSendRef = useRef(false);
   const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
   const { data: voiceOutputPreferences } = useGetVoiceOutputPreferences();
   const updateVoiceOutputPreferences = useUpdateVoiceOutputPreferences();
-  const voice = useVoiceTranscription({ realtime: liveVoice });
+  const voice = useVoiceTranscription();
   const conversationQuery = useGetAssistantConversation({
     query: {
       queryKey: getGetAssistantConversationQueryKey(),
@@ -644,7 +643,6 @@ export function AssistantSidebar() {
                       </FormItem>
                     )}
                   />
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setLiveVoice((value) => !value)} disabled={voice.isBusy || isThinking} aria-pressed={liveVoice} data-testid="button-toggle-assistant-live-voice">{liveVoice ? 'Recorded dictation' : 'Realtime dictation'}</Button>
                   <VoiceCaptureButton
                     voice={voice}
                     onStart={startAssistantVoice}

@@ -4,6 +4,7 @@ import { creditApi, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimat
 import {
   parsePublicWebSocketEnvelope,
   publicWebSocketURL,
+  resumePublicWebSocketMetadata,
   sendPublicWebSocketMessage,
 } from '@/lib/public-websocket';
 
@@ -26,6 +27,10 @@ export function useVoiceAgent() {
   const startingRef = useRef(false);
   const clientSequenceRef = useRef({ current: 0 });
   const serverSequenceRef = useRef(0);
+  const lastSessionRef = useRef<{ sessionId: string; sequence: number } | null>(null);
+  const recoveryRequestRef = useRef<{ sessionId: string; afterSequence: number } | null>(null);
+  const expectedCloseRef = useRef(false);
+  const recoveringAttemptRef = useRef<number | null>(null);
   const attemptRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const heartbeatRef = useRef<number | null>(null);
@@ -78,10 +83,37 @@ export function useVoiceAgent() {
     }
   }, [clearTimers]);
 
+  const recoverMetadata = useCallback((previous: { sessionId: string; afterSequence: number }, attempt: number) => {
+    if (recoveringAttemptRef.current === attempt) return;
+    recoveringAttemptRef.current = attempt;
+    setNotice('Checking the previous session status. Live audio and transcript content will not be restored.');
+    window.setTimeout(() => {
+      if (attemptRef.current !== attempt) {
+        if (recoveringAttemptRef.current === attempt) recoveringAttemptRef.current = null;
+        return;
+      }
+      void resumePublicWebSocketMetadata(previous.sessionId, previous.afterSequence)
+        .then((state) => {
+          if (attemptRef.current !== attempt) return;
+          setNotice(state.voiceRestartRequired
+            ? 'The previous Live Mode session ended. Audio and transcripts are not replayed; start a new session to continue.'
+            : 'The previous session stopped. No audio or transcript was stored; start a new session to continue.');
+        })
+        .catch(() => {
+          if (attemptRef.current !== attempt) return;
+          setNotice('The previous Live Mode session stopped, but its status could not be confirmed. No audio or transcript was restored; start a new session to continue.');
+        })
+        .finally(() => {
+          if (recoveringAttemptRef.current === attempt) recoveringAttemptRef.current = null;
+        });
+    }, 200);
+  }, []);
+
   const stop = useCallback((unmounting = false) => {
     const wasReady = readyRef.current;
     const socket = socketRef.current;
     if (!unmounting && wasReady && socket?.readyState === WebSocket.OPEN) {
+      expectedCloseRef.current = true;
       startingRef.current = false;
       cleanupAudio();
       sendPublicWebSocketMessage(socket, clientSequenceRef.current, 'voice.agent.stop');
@@ -90,6 +122,8 @@ export function useVoiceAgent() {
     }
     startingRef.current = false;
     attemptRef.current += 1;
+    expectedCloseRef.current = true;
+    recoveryRequestRef.current = null;
     cleanupAudio();
     if (socket?.readyState === WebSocket.OPEN) {
       try {
@@ -167,6 +201,9 @@ export function useVoiceAgent() {
     setVoiceEstimate(null);
     setAssistantEstimate(null);
     setAssistantEstimateUnavailable(false);
+    lastSessionRef.current = null;
+    recoveryRequestRef.current = null;
+    expectedCloseRef.current = false;
 
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined') {
@@ -232,13 +269,21 @@ export function useVoiceAgent() {
         }
         if (envelope.sequence > 0) {
           if (envelope.sequence <= serverSequenceRef.current) return;
-          if (serverSequenceRef.current > 0 && envelope.sequence !== serverSequenceRef.current + 1) {
-            setError('The Live Mode connection missed an event. Start a new session to continue.');
-            stop();
+          if (envelope.sequence !== serverSequenceRef.current + 1) {
+            recoveryRequestRef.current = {
+              sessionId: lastSessionRef.current?.sessionId ?? envelope.sessionId,
+              afterSequence: serverSequenceRef.current,
+            };
+            expectedCloseRef.current = true;
+            startingRef.current = false;
+            cleanupAudio();
+            closeSocket();
+            setStatus('idle');
             return;
           }
           serverSequenceRef.current = envelope.sequence;
         }
+        lastSessionRef.current = { sessionId: envelope.sessionId, sequence: serverSequenceRef.current };
         const payload = envelope.payload ?? {};
         if (envelope.type === 'protocol.error') {
           setError(typeof payload.message === 'string' ? payload.message : 'Live Mode could not continue.');
@@ -296,6 +341,7 @@ export function useVoiceAgent() {
           return;
         }
         if (envelope.type === 'voice.agent.limit_reached') {
+          expectedCloseRef.current = true;
           setNotice(typeof payload.message === 'string' ? payload.message : 'The 180-second session limit was reached.');
           setStatus('stopping');
           return;
@@ -306,6 +352,7 @@ export function useVoiceAgent() {
           return;
         }
         if (envelope.type === 'voice.agent.ended' || envelope.type === 'voice.agent.failed') {
+          expectedCloseRef.current = true;
           startingRef.current = false;
           const wasFailure = envelope.type === 'voice.agent.failed';
           if (wasFailure && typeof payload.message === 'string') setError(payload.message);
@@ -321,17 +368,32 @@ export function useVoiceAgent() {
       });
       socket.addEventListener('error', () => {
         if (attemptRef.current !== attempt) return;
-        setError('The Live Mode connection failed. Try again.');
-        stop();
+        recoveryRequestRef.current = lastSessionRef.current
+          ? { sessionId: lastSessionRef.current.sessionId, afterSequence: lastSessionRef.current.sequence }
+          : null;
+        expectedCloseRef.current = true;
+        startingRef.current = false;
+        cleanupAudio();
+        closeSocket();
+        setStatus('idle');
       });
       socket.addEventListener('close', () => {
         if (attemptRef.current !== attempt) return;
+        const recovery = recoveryRequestRef.current ??
+          (!expectedCloseRef.current && lastSessionRef.current
+            ? { sessionId: lastSessionRef.current.sessionId, afterSequence: lastSessionRef.current.sequence }
+            : null);
+        recoveryRequestRef.current = null;
+        expectedCloseRef.current = true;
         startingRef.current = false;
         clearTimers();
         cleanupAudio();
         socketRef.current = null;
         readyRef.current = false;
         setStatus('idle');
+        if (recovery) {
+          recoverMetadata(recovery, attempt);
+        }
       }, { once: true });
     } catch (cause) {
       if (attemptRef.current !== attempt) return;
@@ -341,7 +403,7 @@ export function useVoiceAgent() {
       setStatus('idle');
       setError(cause instanceof Error ? cause.message : 'Live Mode could not start.');
     }
-  }, [cleanupAudio, closeSocket, clearTimers, playAudio, startAudio, status, stop]);
+  }, [cleanupAudio, closeSocket, clearTimers, playAudio, recoverMetadata, startAudio, status, stop]);
 
   useEffect(() => () => stop(true), [stop]);
 
