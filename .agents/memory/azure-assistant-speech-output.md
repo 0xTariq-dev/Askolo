@@ -1,12 +1,12 @@
 ---
 name: Azure assistant speech privacy
-description: Durable safeguards for the custom Azure TTS path used to read assistant responses.
+description: Safeguards for Azure speech in the complementary semi-live assistant mode and existing Listen flow.
 ---
 
-Azure speech output is separate from transcription consent and must be revocable. Only synthesize an authenticated user's stored assistant response for a run they own; never accept arbitrary client text or SSML for Azure synthesis. Consent acceptance saves permission but must not trigger playback. The user starts playback explicitly.
+Azure speech is a separate, revocable provider choice from AssemblyAI's full-duplex live Voice Agent. In the opt-in semi-live mode, synthesize completed assistant responses for spoken playback rather than relying only on a text message with a Listen button; preserve an accessible text alternative and replay path. Only synthesize an authenticated user's stored assistant response for a run they own; never accept arbitrary client text or SSML. Granting consent alone must not trigger synthesis or playback—the user must initiate an assistant turn in the chosen mode. Keep the existing explicit Listen behavior available outside semi-live mode.
 
 Browser/device speech is only a fallback after an Azure/network or audio-playback failure. Do not use it when consent is absent or when the server returns a 4xx response such as authorization, consent, or rate limiting. Audio stays transient; do not log speech, transcripts, provider response bodies, credentials, or audio.
 
-**Why:** Assistant speech can expose personal response content to a third-party provider or a device speech engine, so the user needs clear control over each disclosure and playback.
+**Why:** Semi-live Azure replies and managed AssemblyAI live sessions are complementary modes with different data flows. Assistant speech can expose response content to a third party, so each provider needs a clear, independent consent and disclosure.
 
-**How to apply:** Preserve these boundaries when adding another speech provider, changing fallback behavior, or modifying assistant-run ownership and consent checks.
+**How to apply:** Preserve ownership and consent checks when adding or changing speech modes, playback behavior, or provider fallback. Do not silently fall back between Azure and AssemblyAI modes.

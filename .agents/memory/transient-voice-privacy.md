@@ -1,10 +1,12 @@
 ---
 name: Transient voice privacy
-description: Voice audio and provider transcripts stay transient; live-session recovery persists metadata only.
+description: Keep active voice transports transient; completed Voice Agent artifacts may be copied locally only through a separate consented async memory layer.
 ---
 
-Voice recordings and AssemblyAI provider transcript payloads must not be persisted by Askolo or represented as retention choices. Keep a completed Blob only in the active browser session for playback, retry, and explicit deletion; send it to AssemblyAI for transcription and delete the provider transcript after processing. Live WebSocket recovery may persist session/event metadata, identifiers, sequence numbers, and HMAC digests, but must never persist or replay audio or provider transcripts. Assistant-run text follows the separate existing assistant conversation storage contract.
+Recorded-transcription audio and provider transcript payloads remain transient in the existing flow: keep the completed Blob only in the active browser session and delete the provider transcript after processing. Live WebSocket recovery remains metadata-only and must not persist or replay audio or provider transcript content.
 
-**Why:** The product decision prioritizes no recording or provider-transcript retention while allowing safe status recovery without storing sensitive message content.
+The user has approved a separate follow-up for an asynchronous Voice Agent session-memory layer that may retrieve completed-session artifacts and store the minimum data needed locally. That layer must not block or replay the live interaction, and must define explicit consent, user-scoped access, retention, deletion, and the handling of recordings, transcripts, metadata, and tool-call details. Do not treat this future exception as permission to persist active-session data in the current transport or recovery path. Assistant-run text continues to follow its separate conversation-storage contract.
 
-**How to apply:** Do not add object storage, audio metadata tables, retention selectors, or recording-list APIs for this flow. Keep live-session resume metadata-only; update the consent version whenever the privacy wording or processing behavior changes.
+**Why:** The product keeps live interaction recovery low-latency and content-free while allowing completed Voice Agent context to be considered later under a distinct, consented storage policy.
+
+**How to apply:** Keep active-session recovery metadata-only. Implement completed-session retrieval and local storage only in the separate memory-layer task, with durable ownership, retention, deletion, and access controls; update the consent version whenever user-facing privacy behavior changes.
