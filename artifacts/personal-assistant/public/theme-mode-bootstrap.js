@@ -1,13 +1,10 @@
 (() => {
   const root = document.documentElement;
-  let storedMode = null;
+  let stored = null;
 
   try {
     const serialized = window.localStorage.getItem('askolo-theme-preferences');
-    const stored = serialized ? JSON.parse(serialized) : null;
-    if (stored?.mode === 'light' || stored?.mode === 'dark') {
-      storedMode = stored.mode;
-    }
+    stored = serialized ? JSON.parse(serialized) : null;
   } catch {
     // The app's theme provider logs storage errors and applies its safe default.
   }
@@ -16,8 +13,17 @@
   const mode =
     queryMode === 'light' || queryMode === 'dark'
       ? queryMode
-      : storedMode ?? 'light';
+      : stored?.mode === 'light' || stored?.mode === 'dark'
+        ? stored.mode
+        : 'dark';
+  const theme =
+    stored?.accountThemeId === 'warmPaper' ? 'warmPaper' : 'blueHorizon';
+  const surface =
+    stored?.surfaceStyles?.[mode] === 'tinted' ? 'tinted' : 'soft';
 
   root.classList.toggle('dark', mode === 'dark');
   root.style.colorScheme = mode;
+  root.dataset.askoloTheme = theme;
+  root.dataset.askoloMode = mode;
+  root.dataset.askoloSurfaceStyle = surface;
 })();

@@ -31,12 +31,67 @@ var (
 	errAssemblyAIAudioTooLong         = errors.New("recording exceeds the allowed duration")
 )
 
+var assemblyAIPiiRedactionPolicies = []string{
+	"account_number",
+	"banking_information",
+	"blood_type",
+	"credit_card_cvv",
+	"credit_card_expiration",
+	"credit_card_number",
+	"date",
+	"date_interval",
+	"date_of_birth",
+	"drivers_license",
+	"drug",
+	"duration",
+	"email_address",
+	"event",
+	"filename",
+	"gender_sexuality",
+	"healthcare_number",
+	"injury",
+	"ip_address",
+	"language",
+	"location",
+	"location_address",
+	"location_address_street",
+	"location_city",
+	"location_coordinate",
+	"location_country",
+	"location_state",
+	"location_zip",
+	"marital_status",
+	"medical_condition",
+	"medical_process",
+	"money_amount",
+	"nationality",
+	"number_sequence",
+	"occupation",
+	"organization",
+	"passport_number",
+	"password",
+	"person_age",
+	"person_name",
+	"phone_number",
+	"physical_attribute",
+	"political_affiliation",
+	"religion",
+	"statistics",
+	"time",
+	"url",
+	"us_social_security_number",
+	"username",
+	"vehicle_id",
+	"zodiac_sign",
+}
+
 type assemblyAITranscriptionResult struct {
 	Transcript        string
 	Confidence        *float64
 	Words             []assemblyAIWord
 	AudioDurationMs   int64
 	ProviderRequestID string
+	deletion          assemblyAIDeletionDiagnostics
 }
 
 type assemblyAIWord struct {
@@ -70,7 +125,153 @@ type assemblyAITranscriptResponse struct {
 }
 
 type assemblyAIHTTPStatusError struct {
-	statusCode int
+	statusCode            int
+	providerErrorCategory string
+}
+
+type assemblyAIDeletionDiagnostics struct {
+	status      string
+	attempts    int
+	httpStatus  int
+	failureKind string
+}
+
+type assemblyAIDiagnosticError struct {
+	stage                 string
+	failureKind           string
+	httpStatus            int
+	providerErrorCategory string
+	lastPollFailureKind   string
+	lastPollHTTPStatus    int
+	deletion              assemblyAIDeletionDiagnostics
+	cause                 error
+}
+
+func (e assemblyAIDiagnosticError) Error() string {
+	if e.cause == nil {
+		return errAssemblyAIProviderFailure.Error()
+	}
+	return e.cause.Error()
+}
+
+func (e assemblyAIDiagnosticError) Unwrap() error {
+	return e.cause
+}
+
+func newAssemblyAIDiagnosticError(
+	stage string,
+	failureKind string,
+	httpStatus int,
+	deletion assemblyAIDeletionDiagnostics,
+	cause error,
+) error {
+	if cause == nil {
+		cause = errAssemblyAIProviderFailure
+	}
+	return assemblyAIDiagnosticError{
+		stage:       stage,
+		failureKind: failureKind,
+		httpStatus:  httpStatus,
+		deletion:    deletion,
+		cause:       cause,
+	}
+}
+
+func assemblyAIRequestFailure(err error) (string, int) {
+	var statusError assemblyAIHTTPStatusError
+	if errors.As(err, &statusError) {
+		return "http_status", statusError.statusCode
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "request_timeout", 0
+	}
+	return "network_error", 0
+}
+
+func withAssemblyAIProviderErrorCategory(diagnosticErr, requestErr error) error {
+	var diagnostic assemblyAIDiagnosticError
+	var statusError assemblyAIHTTPStatusError
+	if errors.As(diagnosticErr, &diagnostic) && errors.As(requestErr, &statusError) {
+		diagnostic.providerErrorCategory = statusError.providerErrorCategory
+		return diagnostic
+	}
+	return diagnosticErr
+}
+
+func classifyAssemblyAIProviderError(body []byte) string {
+	message := strings.ToLower(string(body))
+	switch {
+	case strings.Contains(message, "speech_models"), strings.Contains(message, "speech model"):
+		return "model_configuration"
+	case strings.Contains(message, "language_code"), strings.Contains(message, "language code"):
+		return "language_configuration"
+	case strings.Contains(message, "redact_pii_policies"):
+		return "privacy_policy_configuration"
+	case strings.Contains(message, "redact_pii_sub"):
+		return "privacy_substitution_configuration"
+	case strings.Contains(message, "redact_pii"), strings.Contains(message, "pii redaction"):
+		return "privacy_configuration"
+	case strings.Contains(message, "audio_url"),
+		strings.Contains(message, "audio file"),
+		strings.Contains(message, "audio format"),
+		strings.Contains(message, "unsupported media"):
+		return "audio_input"
+	case len(body) > 0:
+		return "unclassified"
+	default:
+		return ""
+	}
+}
+
+func assemblyAIDiagnosticLogAttrs(err error) []any {
+	var diagnostic assemblyAIDiagnosticError
+	if !errors.As(err, &diagnostic) {
+		return []any{"stage", "unknown", "failure_kind", "unclassified"}
+	}
+
+	deletionStatus := diagnostic.deletion.status
+	if deletionStatus == "" {
+		deletionStatus = "not_attempted"
+	}
+	attrs := []any{
+		"stage", diagnostic.stage,
+		"failure_kind", diagnostic.failureKind,
+		"cleanup_status", deletionStatus,
+		"cleanup_attempts", diagnostic.deletion.attempts,
+	}
+	if diagnostic.httpStatus > 0 {
+		attrs = append(attrs, "http_status", diagnostic.httpStatus)
+	}
+	if diagnostic.providerErrorCategory != "" {
+		attrs = append(attrs, "provider_error_category", diagnostic.providerErrorCategory)
+	}
+	if diagnostic.lastPollFailureKind != "" {
+		attrs = append(attrs, "last_poll_failure_kind", diagnostic.lastPollFailureKind)
+	}
+	if diagnostic.lastPollHTTPStatus > 0 {
+		attrs = append(attrs, "last_poll_http_status", diagnostic.lastPollHTTPStatus)
+	}
+	if diagnostic.deletion.failureKind != "" {
+		attrs = append(attrs, "cleanup_failure_kind", diagnostic.deletion.failureKind)
+	}
+	if diagnostic.deletion.httpStatus > 0 {
+		attrs = append(attrs, "cleanup_http_status", diagnostic.deletion.httpStatus)
+	}
+	return attrs
+}
+
+func assemblyAINotAttemptedDeletion() assemblyAIDeletionDiagnostics {
+	return assemblyAIDeletionDiagnostics{
+		status:      "not_attempted",
+		failureKind: "not_attempted",
+	}
+}
+
+func (d assemblyAIDeletionDiagnostics) handlerStatus() string {
+	if d.status == "deleted" {
+		return "deleted"
+	}
+	return "deletion_failed"
 }
 
 func audioDurationMillis(seconds float64) int64 {
@@ -170,12 +371,15 @@ func transcribeAssemblyAI(
 	language string,
 ) (assemblyAITranscriptionResult, string, error) {
 	var empty assemblyAITranscriptionResult
+	notAttempted := assemblyAINotAttemptedDeletion()
 	if len(audio) == 0 || len(audio) > maxVoiceAudioBytes || strings.TrimSpace(apiKey) == "" {
-		return empty, "deletion_failed", errAssemblyAIProviderFailure
+		return empty, notAttempted.handlerStatus(),
+			newAssemblyAIDiagnosticError("input", "invalid_input", 0, notAttempted, errAssemblyAIProviderFailure)
 	}
 	normalizedLanguage, validLanguage := normalizeVoiceLanguage(language)
 	if !validLanguage {
-		return empty, "deletion_failed", errAssemblyAIProviderFailure
+		return empty, notAttempted.handlerStatus(),
+			newAssemblyAIDiagnosticError("input", "invalid_language", 0, notAttempted, errAssemblyAIProviderFailure)
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -190,10 +394,13 @@ func transcribeAssemblyAI(
 		ctx, client, http.MethodPost, baseURL+"/v2/upload", audio, apiKey, "application/octet-stream", 25*time.Second,
 	)
 	if err != nil {
+		failureKind, statusCode := assemblyAIRequestFailure(err)
 		if ctx.Err() != nil {
-			return empty, "deletion_failed", ctx.Err()
+			return empty, notAttempted.handlerStatus(),
+				newAssemblyAIDiagnosticError("upload", failureKind, statusCode, notAttempted, ctx.Err())
 		}
-		return empty, "deletion_failed", errAssemblyAIProviderFailure
+		return empty, notAttempted.handlerStatus(),
+			newAssemblyAIDiagnosticError("upload", failureKind, statusCode, notAttempted, errAssemblyAIProviderFailure)
 	}
 	var uploaded struct {
 		URL string `json:"upload_url"`
@@ -201,31 +408,37 @@ func transcribeAssemblyAI(
 	decodeErr := decodeAssemblyAIResponse(uploadResponse, &uploaded, 64*1024)
 	cancel()
 	if decodeErr != nil || !validAssemblyAIUploadURL(uploaded.URL) {
-		return empty, "deletion_failed", errAssemblyAIProviderFailure
+		return empty, notAttempted.handlerStatus(),
+			newAssemblyAIDiagnosticError("upload", "invalid_response", 0, notAttempted, errAssemblyAIProviderFailure)
 	}
 
 	submitPayload := map[string]any{
-		"audio_url":      uploaded.URL,
-		"speech_models":  []string{"universal-3-5-pro"},
-		"speaker_labels": false,
-		"redact_pii":     true,
-		"redact_pii_sub": "hash",
+		"audio_url":           uploaded.URL,
+		"speech_models":       []string{"universal-3-5-pro", "universal-2"},
+		"speaker_labels":      false,
+		"redact_pii":          true,
+		"redact_pii_policies": assemblyAIPiiRedactionPolicies,
+		"redact_pii_sub":      "hash",
 	}
 	if normalizedLanguage != "" {
 		submitPayload["language_code"] = normalizedLanguage
 	}
 	payload, err := json.Marshal(submitPayload)
 	if err != nil {
-		return empty, "deletion_failed", errAssemblyAIProviderFailure
+		return empty, notAttempted.handlerStatus(),
+			newAssemblyAIDiagnosticError("transcript_submission", "request_encoding", 0, notAttempted, errAssemblyAIProviderFailure)
 	}
 	submitResponse, cancel, err := assemblyAIRequest(
 		ctx, client, http.MethodPost, baseURL+"/v2/transcript", payload, apiKey, "application/json", 25*time.Second,
 	)
 	if err != nil {
+		failureKind, statusCode := assemblyAIRequestFailure(err)
 		if ctx.Err() != nil {
-			return empty, "deletion_failed", ctx.Err()
+			diagnostic := newAssemblyAIDiagnosticError("transcript_submission", failureKind, statusCode, notAttempted, ctx.Err())
+			return empty, notAttempted.handlerStatus(), withAssemblyAIProviderErrorCategory(diagnostic, err)
 		}
-		return empty, "deletion_failed", errAssemblyAIProviderFailure
+		diagnostic := newAssemblyAIDiagnosticError("transcript_submission", failureKind, statusCode, notAttempted, errAssemblyAIProviderFailure)
+		return empty, notAttempted.handlerStatus(), withAssemblyAIProviderErrorCategory(diagnostic, err)
 	}
 	var submitted struct {
 		ID string `json:"id"`
@@ -233,11 +446,14 @@ func transcribeAssemblyAI(
 	decodeErr = decodeAssemblyAIResponse(submitResponse, &submitted, 64*1024)
 	cancel()
 	if decodeErr != nil || !validAssemblyAITranscriptID(submitted.ID) {
-		return empty, "deletion_failed", errAssemblyAIProviderFailure
+		return empty, notAttempted.handlerStatus(),
+			newAssemblyAIDiagnosticError("transcript_submission", "invalid_response", 0, notAttempted, errAssemblyAIProviderFailure)
 	}
 
 	pollCtx, pollCancel := context.WithTimeout(ctx, assemblyAIPollTimeout)
 	defer pollCancel()
+	var lastPollFailureKind string
+	var lastPollHTTPStatus int
 	for {
 		pollResponse, requestCancel, requestErr := assemblyAIRequest(
 			pollCtx, client, http.MethodGet, baseURL+"/v2/transcript/"+url.PathEscape(submitted.ID), nil, apiKey, "", 10*time.Second,
@@ -247,15 +463,19 @@ func transcribeAssemblyAI(
 			decodeErr = decodeAssemblyAIResponse(pollResponse, &transcript, 2*1024*1024)
 			requestCancel()
 			if decodeErr == nil {
+				lastPollFailureKind = ""
+				lastPollHTTPStatus = 0
 				switch transcript.Status {
 				case "completed":
-					deletionStatus, _ := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
+					deletion := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
 					if strings.TrimSpace(transcript.Text) == "" || len(transcript.Text) > 2*1024*1024 {
-						return empty, deletionStatus, errAssemblyAIProviderFailure
+						return empty, deletion.handlerStatus(),
+							newAssemblyAIDiagnosticError("transcript_result", "invalid_transcript", 0, deletion, errAssemblyAIProviderFailure)
 					}
 					if math.IsNaN(transcript.AudioDuration) || math.IsInf(transcript.AudioDuration, 0) ||
 						transcript.AudioDuration <= 0 || transcript.AudioDuration > float64(maxVoiceRecordingDurationMS)/1000 {
-						return empty, deletionStatus, errAssemblyAIAudioTooLong
+						return empty, deletion.handlerStatus(),
+							newAssemblyAIDiagnosticError("transcript_result", "audio_duration_out_of_range", 0, deletion, errAssemblyAIAudioTooLong)
 					}
 					if transcript.Confidence != nil && (*transcript.Confidence < 0 || *transcript.Confidence > 1) {
 						transcript.Confidence = nil
@@ -266,20 +486,27 @@ func transcribeAssemblyAI(
 						Words:             transcript.Words,
 						AudioDurationMs:   audioDurationMillis(transcript.AudioDuration),
 						ProviderRequestID: submitted.ID,
-					}, deletionStatus, nil
+						deletion:          deletion,
+					}, deletion.handlerStatus(), nil
 				case "error":
-					deletionStatus, _ := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
-					return empty, deletionStatus, errAssemblyAIProviderFailure
+					deletion := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
+					return empty, deletion.handlerStatus(),
+						newAssemblyAIDiagnosticError("poll", "provider_transcription_error", 0, deletion, errAssemblyAIProviderFailure)
 				}
+			} else {
+				lastPollFailureKind = "invalid_response"
+				lastPollHTTPStatus = 0
 			}
 		} else {
+			lastPollFailureKind, lastPollHTTPStatus = assemblyAIRequestFailure(requestErr)
 			var statusError assemblyAIHTTPStatusError
 			if errors.As(requestErr, &statusError) &&
 				statusError.statusCode < http.StatusInternalServerError &&
 				statusError.statusCode != http.StatusRequestTimeout &&
 				statusError.statusCode != http.StatusTooManyRequests {
-				deletionStatus, _ := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
-				return empty, deletionStatus, errAssemblyAIProviderFailure
+				deletion := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
+				return empty, deletion.handlerStatus(),
+					newAssemblyAIDiagnosticError("poll", "http_status", statusError.statusCode, deletion, errAssemblyAIProviderFailure)
 			}
 		}
 
@@ -287,11 +514,19 @@ func transcribeAssemblyAI(
 		select {
 		case <-pollCtx.Done():
 			timer.Stop()
-			deletionStatus, _ := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
+			deletion := deleteAssemblyAITranscript(ctx, client, baseURL, apiKey, submitted.ID)
 			if ctx.Err() != nil {
-				return empty, deletionStatus, ctx.Err()
+				return empty, deletion.handlerStatus(),
+					newAssemblyAIDiagnosticError("poll", "request_cancelled", 0, deletion, ctx.Err())
 			}
-			return empty, deletionStatus, errAssemblyAITranscriptionTimeout
+			return empty, deletion.handlerStatus(), assemblyAIDiagnosticError{
+				stage:               "poll",
+				failureKind:         "poll_timeout",
+				lastPollFailureKind: lastPollFailureKind,
+				lastPollHTTPStatus:  lastPollHTTPStatus,
+				deletion:            deletion,
+				cause:               errAssemblyAITranscriptionTimeout,
+			}
 		case <-timer.C:
 		}
 	}
@@ -324,9 +559,13 @@ func assemblyAIRequest(
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		statusCode := response.StatusCode
+		errorBody, _ := io.ReadAll(io.LimitReader(response.Body, 8*1024))
 		response.Body.Close()
 		cancel()
-		return nil, nil, assemblyAIHTTPStatusError{statusCode: statusCode}
+		return nil, nil, assemblyAIHTTPStatusError{
+			statusCode:            statusCode,
+			providerErrorCategory: classifyAssemblyAIProviderError(errorBody),
+		}
 	}
 	return response, cancel, nil
 }
@@ -362,7 +601,13 @@ func validAssemblyAITranscriptID(id string) bool {
 	return true
 }
 
-func deleteAssemblyAITranscript(ctx context.Context, client *http.Client, baseURL, apiKey, transcriptID string) (string, int) {
+func deleteAssemblyAITranscript(
+	ctx context.Context,
+	client *http.Client,
+	baseURL string,
+	apiKey string,
+	transcriptID string,
+) assemblyAIDeletionDiagnostics {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -370,7 +615,9 @@ func deleteAssemblyAITranscript(ctx context.Context, client *http.Client, baseUR
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
 	defer cancelCleanup()
 	endpoint := strings.TrimRight(baseURL, "/") + "/v2/transcript/" + url.PathEscape(transcriptID)
+	outcome := assemblyAIDeletionDiagnostics{status: "unconfirmed", failureKind: "request_error"}
 	for attempt := 1; attempt <= assemblyAITranscriptDeleteAttempts; attempt++ {
+		outcome.attempts = attempt
 		requestCtx, cancel := context.WithTimeout(cleanupCtx, 2*time.Second)
 		request, err := http.NewRequestWithContext(requestCtx, http.MethodDelete, endpoint, nil)
 		if err == nil {
@@ -378,16 +625,28 @@ func deleteAssemblyAITranscript(ctx context.Context, client *http.Client, baseUR
 			response, doErr := client.Do(request)
 			if doErr == nil {
 				status := response.StatusCode
+				outcome.httpStatus = status
 				_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 16*1024))
 				response.Body.Close()
 				cancel()
 				if status >= http.StatusOK && status < http.StatusMultipleChoices || status == http.StatusNotFound {
-					return "deleted", attempt
+					return assemblyAIDeletionDiagnostics{
+						status:     "deleted",
+						attempts:   attempt,
+						httpStatus: status,
+					}
 				}
+				outcome.failureKind = "http_status"
 			} else {
+				if errors.Is(doErr, context.DeadlineExceeded) {
+					outcome.failureKind = "request_timeout"
+				} else {
+					outcome.failureKind = "network_error"
+				}
 				cancel()
 			}
 		} else {
+			outcome.failureKind = "request_error"
 			cancel()
 		}
 		if attempt < assemblyAITranscriptDeleteAttempts {
@@ -395,12 +654,13 @@ func deleteAssemblyAITranscript(ctx context.Context, client *http.Client, baseUR
 			select {
 			case <-cleanupCtx.Done():
 				timer.Stop()
-				return "deletion_failed", attempt
+				outcome.failureKind = "cleanup_timeout"
+				return outcome
 			case <-timer.C:
 			}
 		}
 	}
-	return "deletion_failed", assemblyAITranscriptDeleteAttempts
+	return outcome
 }
 
 func assemblyAINoRedirectClient(client *http.Client) *http.Client {

@@ -27,7 +27,6 @@ import type { Locale } from '@/lib/locale';
 import {
   ActionsPage,
   AdminCreditsPage,
-  AppLayout,
   CalendarPage,
   ChoresPage,
   CreditsPage,
@@ -41,6 +40,7 @@ import {
   PlanPage,
   PrivacyPage,
   ProfilePage,
+  SidebarAppLayout,
   TermsPage,
 } from '@/routes/lazy-pages';
 
@@ -135,6 +135,28 @@ function PublicSiteRoutes() {
   );
 }
 
+function AuthenticatedPageRoutes() {
+  return (
+    <Switch>
+      <Route path="/sign-in"><Redirect to="/dashboard" /></Route>
+      <Route path="/sign-up"><Redirect to="/dashboard" /></Route>
+      <Route path="/dashboard" component={DashboardPage} />
+      <Route path="/habits" component={HabitsPage} />
+      <Route path="/goals" component={GoalsPage} />
+      <Route path="/plan" component={PlanPage} />
+      <Route path="/calendar" component={CalendarPage} />
+      <Route path="/chores" component={ChoresPage} />
+      <Route path="/notes" component={NotesPage} />
+      <Route path="/actions" component={ActionsPage} />
+      <Route path="/assistant"><Redirect to="/dashboard" /></Route>
+      <Route path="/email" component={EmailPage} />
+      <Route path="/profile" component={ProfilePage} />
+      <Route path="/credits" component={CreditsPage} />
+      <Route path="/admin/credits" component={AdminCreditsPage} />
+    </Switch>
+  );
+}
+
 function NativeProtectedRoutes() {
   const { isLoaded, isSignedIn } = useAppAuth();
 
@@ -143,23 +165,9 @@ function NativeProtectedRoutes() {
 
   return (
     <AccountLocaleProvider>
-      <AppLayout>
-        <Switch>
-          <Route path="/dashboard" component={DashboardPage} />
-          <Route path="/habits" component={HabitsPage} />
-          <Route path="/goals" component={GoalsPage} />
-          <Route path="/plan" component={PlanPage} />
-          <Route path="/calendar" component={CalendarPage} />
-          <Route path="/chores" component={ChoresPage} />
-          <Route path="/notes" component={NotesPage} />
-          <Route path="/actions" component={ActionsPage} />
-          <Route path="/assistant"><Redirect to="/dashboard" /></Route>
-          <Route path="/email" component={EmailPage} />
-          <Route path="/profile" component={ProfilePage} />
-          <Route path="/credits" component={CreditsPage} />
-          <Route path="/admin/credits" component={AdminCreditsPage} />
-        </Switch>
-      </AppLayout>
+      <SidebarAppLayout>
+        <AuthenticatedPageRoutes />
+      </SidebarAppLayout>
     </AccountLocaleProvider>
   );
 }

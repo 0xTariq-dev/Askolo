@@ -4,6 +4,12 @@ export const AppLayout = lazy(() =>
   import('@/components/layout/app-layout').then(({ AppLayout }) => ({ default: AppLayout })),
 );
 
+export const SidebarAppLayout = lazy(() =>
+  import('@/components/layout/app-sidebar-layout').then(({ SidebarAppLayout }) => ({
+    default: SidebarAppLayout,
+  })),
+);
+
 export const DashboardPage = lazy(() =>
   import('@/pages/dashboard').then(({ DashboardPage }) => ({ default: DashboardPage })),
 );

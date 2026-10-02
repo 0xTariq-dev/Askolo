@@ -90,9 +90,9 @@ export function LoginPage() {
       : 'signin';
   const beginProviderLogin = (provider: 'google' | 'github', intent: 'signin' | 'signup' = 'signin') => {
     ensureDeviceFingerprint();
-    const returnTo = `${window.location.pathname}${window.location.search}`;
+    const returnTo = `${basePath}/dashboard${window.location.search}`;
     window.location.assign(
-      `${basePath}/api/auth/${provider}?intent=${intent}&returnTo=${encodeURIComponent(returnTo || '/dashboard')}`,
+      `${basePath}/api/auth/${provider}?intent=${intent}&returnTo=${encodeURIComponent(returnTo)}`,
     );
   };
   const [mode, setMode] = useState<PasswordMode>(initialMode);
@@ -384,7 +384,6 @@ export function LoginPage() {
             </div>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Private by default · Google integrations are optional</p>
       </section>
 
       <motion.div
@@ -402,7 +401,6 @@ export function LoginPage() {
           eyebrow={isPasswordMode ? 'Your workspace awaits' : 'Secure account access'}
           title={cardTitle}
           description={cardDescription}
-          footer="Private by default · Google integrations are optional"
         >
 
         {isPasswordMode ? (

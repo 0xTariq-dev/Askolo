@@ -21,10 +21,10 @@ export function VoiceConsentDialog({ open, onOpenChange, onConfirm, saving, erro
             Voice audio is sent through Askolo’s server connection to AssemblyAI for live or recorded transcription. Askolo does not store audio or live transcripts. AssemblyAI processes voice data under its own retention and model-improvement settings. For recorded transcription, Askolo requests deletion of the provider transcript and reports whether deletion is confirmed; that confirmation does not mean provider audio was deleted.
           </p>
           <p>
-            We request automatic redaction of detected personal information before AssemblyAI returns a transcript. Redaction can miss details, so review every word before using it.
+            We request automatic redaction of detected personal information before AssemblyAI returns a transcript. Redaction can miss details. In Assistant chat, a clear transcript is sent as a message when you stop recording; if transcription flags uncertainty, you can review and correct it before sending. In Notes and planning, transcripts remain available for review before insertion.
           </p>
           <p>
-            Live transcription sessions end after 180 seconds at most. Voice is optional, requires your consent, and never sends a message or executes an action automatically.
+            Live transcription sessions end after 180 seconds at most. Voice is optional and requires your consent. Assistant actions are still only added after you confirm them.
           </p>
         </div>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

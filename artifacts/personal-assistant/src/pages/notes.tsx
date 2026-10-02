@@ -235,7 +235,7 @@ export function NotesPage() {
   };
 
   return (
-    <PageTransition className="max-w-5xl mx-auto space-y-6 pb-10">
+    <PageTransition surface={false} className="max-w-5xl mx-auto space-y-6 pb-10">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold tracking-tight">Notes & Meetings</h1>

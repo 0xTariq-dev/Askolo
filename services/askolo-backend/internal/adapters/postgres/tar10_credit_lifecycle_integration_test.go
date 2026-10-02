@@ -350,9 +350,85 @@ func TestTAR10USDMicroLedgerLifecycleIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reservations, ok := recent["reservations"].([]USDReservation)
+	if !ok {
+		t.Fatalf("USD recent reservations have unexpected type: %T", recent["reservations"])
+	}
+	foundReservation := false
+	for _, recentReservation := range reservations {
+		if recentReservation.ID != r.ID {
+			continue
+		}
+		foundReservation = true
+		if recentReservation.OperationType != "voice" || recentReservation.CreatedAt == nil {
+			t.Fatalf("recent reservation activity fields = %#v, want operation and timestamp", recentReservation)
+		}
+	}
+	if !foundReservation {
+		t.Fatalf("recent reservations do not contain %q: %#v", r.ID, reservations)
+	}
 	for _, key := range []string{"reservations", "events", "adjustments", "grants"} {
 		if _, ok := recent[key]; !ok {
 			t.Fatalf("recent missing %s", key)
 		}
+	}
+}
+
+func TestTAR10SignupWelcomeUSDGrantIsIdempotent(t *testing.T) {
+	ctx, pool, _ := openTAR10(t)
+	tar10User(t, ctx, pool, "welcome-user")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ai_credit_accounts(user_id,granted_usd_micros)
+		VALUES('welcome-user',1250000)
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	const attempts = 12
+	errs := make(chan error, attempts)
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer tx.Rollback(ctx)
+			if err := grantSignupWelcomeUSDTx(ctx, tx, "welcome-user"); err != nil {
+				errs <- err
+				return
+			}
+			errs <- tx.Commit(ctx)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent welcome grant: %v", err)
+		}
+	}
+
+	var balance int64
+	if err := pool.QueryRow(ctx, `
+		SELECT granted_usd_micros FROM ai_credit_accounts WHERE user_id='welcome-user'
+	`).Scan(&balance); err != nil {
+		t.Fatal(err)
+	}
+	if balance != 6_250_000 {
+		t.Fatalf("welcome account balance = %d USD micros, want existing 1250000 plus exactly one 5000000 grant", balance)
+	}
+	var grants int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM ai_credit_grants
+		WHERE user_id='welcome-user' AND idempotency_key='welcome-credit-usd-v1'
+	`).Scan(&grants); err != nil {
+		t.Fatal(err)
+	}
+	if grants != 1 {
+		t.Fatalf("welcome grant row count = %d, want exactly 1", grants)
 	}
 }

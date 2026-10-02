@@ -1,6 +1,8 @@
 @layer theme, base, components, utilities;
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './lib/askolo-fonts.css';
+@import './theme-token-fallbacks.css';
 @plugin '@tailwindcss/typography';
 
 @custom-variant dark (&:is(.dark *));
@@ -36,13 +38,21 @@
   --color-destructive-border: var(--destructive-border);
   --color-success: hsl(var(--success));
   --color-success-foreground: hsl(var(--success-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-invert: hsl(var(--invert));
+  --color-invert-foreground: hsl(var(--invert-foreground));
+
   --color-chart-1: hsl(var(--chart-1));
   --color-chart-2: hsl(var(--chart-2));
   --color-chart-3: hsl(var(--chart-3));
   --color-chart-4: hsl(var(--chart-4));
   --color-chart-5: hsl(var(--chart-5));
+  --color-chart-6: hsl(var(--chart-6));
+  --color-chart-7: hsl(var(--chart-7));
+  --color-chart-8: hsl(var(--chart-8));
 
   --color-sidebar: hsl(var(--sidebar));
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
@@ -55,10 +65,18 @@
   --color-sidebar-accent-border: var(--sidebar-accent-border);
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
+  --color-space-personal: hsl(var(--space-personal));
+  --color-space-personal-foreground: hsl(var(--space-personal-foreground));
+  --color-space-team: hsl(var(--space-team));
+  --color-space-team-foreground: hsl(var(--space-team-foreground));
+  --color-space-family: hsl(var(--space-family));
+  --color-space-family-foreground: hsl(var(--space-family-foreground));
+
   --font-sans: var(--app-font-sans);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
   --font-display: var(--app-font-display);
+  --spacing: 0.25rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -66,66 +84,20 @@
 }
 
 :root {
-  --background: 222 43% 6%;
-  --foreground: 210 40% 98%;
-  --border: 215 28% 17%;
-  --input: 215 28% 17%;
-  --ring: 198 92% 58%;
-
-  --card: 221 38% 10%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 215 28% 17%;
-  --popover: 221 38% 10%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 215 28% 17%;
-
-  --primary: 38 92% 50%;
-  --primary-foreground: 222 43% 6%;
-  --secondary: 215 28% 17%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 221 38% 10%;
-  --muted-foreground: 215 16% 65%;
-  --accent: 215 28% 17%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
-  --success: 142 65% 48%;
-  --success-foreground: 222 43% 6%;
-  --warning: 38 92% 58%;
-  --warning-foreground: 222 43% 6%;
-  --chart-1: 198 92% 58%;
-  --chart-2: 38 92% 58%;
-  --chart-3: 152 56% 52%;
-  --chart-4: 280 70% 68%;
-  --chart-5: 0 84% 66%;
-
-  --sidebar: 222 43% 6%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 215 28% 17%;
-  --sidebar-primary: 38 92% 50%;
-  --sidebar-primary-foreground: 222 43% 6%;
-  --sidebar-accent: 215 28% 17%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 198 92% 58%;
-
-  --app-font-sans: 'Geist', sans-serif;
-  --app-font-display: 'Outfit', sans-serif;
+  /* Typography, spacing, and radius values mirror askolo-design-tokens.json. */
+  --app-font-sans: 'Cairo', sans-serif;
+  --app-font-display: 'Cairo', sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
-  --radius: 0.75rem;
-  --button-outline: rgba(255, 255, 255, 0.16);
-  --badge-outline: rgba(255, 255, 255, 0.08);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255, 255, 255, 0.04);
-  --elevate-2: rgba(255, 255, 255, 0.09);
-
-  --primary-border: hsl(var(--primary));
-  --secondary-border: hsl(var(--secondary));
-  --muted-border: hsl(var(--muted));
-  --accent-border: hsl(var(--accent));
-  --destructive-border: hsl(var(--destructive));
-  --sidebar-primary-border: hsl(var(--sidebar-primary));
-  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --radius: 0.875rem;
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(240 5.3% 26.1%);
+  --sidebar-primary: hsl(240 5.9% 10%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(240 4.8% 95.9%);
+  --sidebar-accent-foreground: hsl(240 5.9% 10%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
 
 * {
@@ -236,4 +208,15 @@ input[type='search']::-webkit-search-cancel-button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.dark {
+  --sidebar: hsl(240 5.9% 10%);
+  --sidebar-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-primary: hsl(224.3 76.3% 48%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(240 3.7% 15.9%);
+  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-border: hsl(240 3.7% 15.9%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }

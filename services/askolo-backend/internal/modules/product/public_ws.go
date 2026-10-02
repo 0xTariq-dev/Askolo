@@ -2,8 +2,6 @@ package product
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -244,7 +242,12 @@ func (h *Handler) RunAssistant(
 	if input.PolicyVersion < 1 {
 		return nil, publicws.Failure(http.StatusBadRequest, "CREDIT_POLICY_VERSION_REQUIRED", "Refresh the credit estimate before sending.", nil)
 	}
-	if h.store == nil || h.assistantPlanner == nil || !h.assistantPlanner.Available() {
+	if h.store == nil {
+		h.logAssistantUnavailable("preflight", "store_unavailable", nil)
+		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
+	}
+	if reason := assistantPlannerUnavailableReason(h.assistantPlanner); reason != "" {
+		h.logAssistantUnavailable("preflight", reason, nil)
 		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
 	}
 
@@ -258,10 +261,11 @@ func (h *Handler) RunAssistant(
 		input.PolicyVersion,
 	)
 	if err != nil {
-		return nil, assistantPublicError(err)
+		return nil, h.assistantPublicErrorAt("create_run", err)
 	}
 	startedPayload, err := json.Marshal(run)
 	if err != nil {
+		h.logAssistantUnavailable("serialize_run", "serialization_failure", err)
 		return nil, publicws.Failure(http.StatusInternalServerError, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", err)
 	}
 	if onStarted != nil {
@@ -288,12 +292,12 @@ func (h *Handler) RunAssistant(
 			})
 			return nil, ctx.Err()
 		}
-		return nil, assistantPublicError(err)
+		return nil, h.assistantPublicErrorAt("claim_provider", err)
 	}
 	if !started {
 		current, lookupErr := h.store.GetAssistantRun(ctx, userID, run.ID)
 		if lookupErr != nil {
-			return nil, assistantPublicError(lookupErr)
+			return nil, h.assistantPublicErrorAt("load_run", lookupErr)
 		}
 		return json.Marshal(current)
 	}
@@ -326,58 +330,41 @@ func (h *Handler) RunAssistant(
 			InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
 		}
 		if _, finishErr := h.store.FinishAssistantPlanning(context.Background(), userID, run.ID, outcome); finishErr != nil {
-			return nil, assistantPublicError(finishErr)
+			return nil, h.assistantPublicErrorAt("finish_failed_run", finishErr)
 		}
 		return nil, publicws.Failure(http.StatusBadGateway, "ASSISTANT_PROVIDER_FAILED", "The assistant could not complete this request. Please try again.", planErr)
 	}
 
-	outcome := postgres.AssistantPlanOutcome{
-		State: "completed", Message: "I can prepare one action item at a time. Tell me the single item you want me to add.",
-		AuditEvent: "plan_ready", Settle: plan.UsageValid,
-		ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
-		InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
-	}
-	switch plan.Intent {
-	case "none":
-		outcome.Message = "I can help prepare one action item for your list. Tell me the specific item you want to add."
-	case "clarify":
-		outcome.Message = "What single action item would you like me to prepare?"
-	case "create_action_item":
-		title := strings.TrimSpace(plan.Title)
-		if !validAssistantActionTitle(title) {
-			outcome.State = "rejected"
-			outcome.Message = "I couldn't safely prepare that item. Please rephrase it as one specific action."
-			outcome.AuditEvent = "intent_rejected"
-			break
-		}
-		intentJSON, marshalErr := json.Marshal(assistantIntent{Tool: "create_action_item", Title: title})
-		if marshalErr != nil {
-			outcome.State = "rejected"
-			outcome.Message = "I couldn't safely prepare that item. Please try again."
-			outcome.AuditEvent = "intent_rejected"
-			break
-		}
-		digest := sha256.Sum256(intentJSON)
-		outcome.State = "needs_confirmation"
-		outcome.Intent = intentJSON
-		outcome.IntentSHA256 = hex.EncodeToString(digest[:])
-		outcome.RiskLevel = "write"
-		outcome.RequiresConfirmation = true
-		expires := time.Now().UTC().Add(assistantConfirmationTTL)
-		outcome.ConfirmationExpires = &expires
-		outcome.ToolName = "create_action_item"
-		outcome.ToolArgsSHA256 = outcome.IntentSHA256
-		outcome.Message = fmt.Sprintf("I can add “%s” to your action items. Confirm to save it.", title)
-	default:
-		outcome.State = "rejected"
-		outcome.Message = "I couldn't safely prepare an action from that request. Please try rephrasing it."
-		outcome.AuditEvent = "intent_rejected"
-	}
+	outcome := prepareAssistantPlanOutcome(plan, h.toolRegistry())
 	finished, err := h.store.FinishAssistantPlanning(ctx, userID, run.ID, outcome)
 	if err != nil {
-		return nil, assistantPublicError(err)
+		return nil, h.assistantPublicErrorAt("finish_run", err)
 	}
 	return json.Marshal(finished)
+}
+
+func (h *Handler) logAssistantUnavailable(stage, reason string, err error) {
+	if h == nil || h.logger == nil {
+		return
+	}
+	attributes := []any{"stage", stage, "reason", reason}
+	if err != nil {
+		attributes = append(attributes, "error_type", fmt.Sprintf("%T", err))
+		var sqlStateError interface{ SQLState() string }
+		if errors.As(err, &sqlStateError) {
+			attributes = append(attributes, "sql_state", sqlStateError.SQLState())
+		}
+	}
+	h.logger.Error("assistant operation unavailable", attributes...)
+}
+
+func (h *Handler) assistantPublicErrorAt(stage string, err error) error {
+	failure := assistantPublicError(err)
+	var publicError *publicws.Error
+	if errors.As(failure, &publicError) && publicError.Code == "ASSISTANT_UNAVAILABLE" {
+		h.logAssistantUnavailable(stage, "persistence_failure", err)
+	}
+	return failure
 }
 
 func assistantPublicError(err error) error {

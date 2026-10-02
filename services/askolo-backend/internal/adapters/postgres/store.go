@@ -1531,6 +1531,30 @@ func (s *Store) ConsumeEmailChallenge(
 	`, challengeID); err != nil {
 		return "", err
 	}
+	if purpose == "email_verification" {
+		if userID == "" {
+			return "", ErrChallengeInvalid
+		}
+		tag, err := tx.Exec(ctx, `
+			UPDATE users
+			SET email_verified_at = COALESCE(email_verified_at, NOW()),
+			    status = CASE
+			        WHEN status = 'pending_email_verification' THEN 'active'
+			        ELSE status
+			    END,
+			    updated_at = NOW()
+			WHERE id = $1
+		`, userID)
+		if err != nil {
+			return "", err
+		}
+		if tag.RowsAffected() != 1 {
+			return "", ErrNotFound
+		}
+		if err := grantSignupWelcomeUSDTx(ctx, tx, userID); err != nil {
+			return "", err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
@@ -1590,23 +1614,6 @@ func (s *Store) VerifyEmailChallenge(
 		return "", err
 	}
 	return userID, nil
-}
-
-func (s *Store) MarkEmailVerified(ctx context.Context, userID string) error {
-	if s == nil {
-		return errors.New("database is not configured")
-	}
-	_, err := s.pool.Exec(ctx, `
-		UPDATE users
-		SET email_verified_at = COALESCE(email_verified_at, NOW()),
-		    status = CASE
-		        WHEN status = 'pending_email_verification' THEN 'active'
-		        ELSE status
-		    END,
-		    updated_at = NOW()
-		WHERE id = $1
-	`, userID)
-	return err
 }
 
 func (s *Store) UpsertVerifiedRecoveryEmail(ctx context.Context, userID, email string) error {
@@ -1862,6 +1869,9 @@ func (s *Store) CreateProviderSignupUser(
 	`, accountID, userID, provider, externalSubject, email,
 		strings.TrimSpace(strings.TrimSpace(firstName)+" "+strings.TrimSpace(lastName)), imageURL)
 	if err != nil {
+		return "", err
+	}
+	if err := grantSignupWelcomeUSDTx(ctx, tx, userID); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
