@@ -17,6 +17,7 @@
 - [AssemblyAI explicit PII policies](assemblyai-pii-policy-requirements.md) — newer accounts require an explicit full `redact_pii_policies` list or transcript submissions can fail with HTTP 400.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
 - [Managed backup refs](managed-backup-refs.md) — the gitsafe backup remote rejects non-main pushes, including deletion of recovery branches.
+- [Merge-safe publish cleanup](merge-safe-publish-cleanup.md) — make one canonical patch commit a shared base when preserving a merge with duplicate patch-equivalent commits.
 - [GitHub CLI Git transport](github-cli-git-transport.md) — `gh auth status` does not configure Git HTTPS; run `gh auth setup-git` before fetch/push.
 - [Transient voice privacy](transient-voice-privacy.md) — keep recovery metadata-only; same-chat summaries require consent, and Live Mode must disclose unverified processing regions.
 - [Voice Agent surface scope](voice-agent-surface-scope.md) — managed Live Mode is available in Assistant chat and Planning, not Notes/upload; recorded dictation remains separate.
