@@ -109,6 +109,57 @@ check_upstream_freshness() {
   return 0
 }
 
+inspect_selected_to_tip_history() {
+  local selected_hash="$1"
+  local branch_tip="$2"
+  local commit_hash
+  local patch_id
+  local parent_list
+  local -a parents=()
+  local -a descendant_hashes=()
+  local -a merge_hashes=()
+  local -a equivalent_pairs=()
+  local -A first_commit_for_patch=()
+  local refusal_message="selected-to-tip history is not safe for a linear rewrite"
+
+  mapfile -t descendant_hashes < <(
+    git rev-list --topo-order "$selected_hash..$branch_tip"
+  )
+
+  for commit_hash in "${descendant_hashes[@]}"; do
+    parent_list="$(git show -s --format='%P' "$commit_hash")"
+    read -r -a parents <<<"$parent_list"
+
+    if ((${#parents[@]} > 1)); then
+      merge_hashes+=("$commit_hash")
+      continue
+    fi
+
+    patch_id="$(
+      git show --format= --binary "$commit_hash" |
+        git patch-id --stable |
+        awk 'NR == 1 { print $1 }'
+    )"
+    [[ -n "$patch_id" ]] || continue
+
+    if [[ -n "${first_commit_for_patch[$patch_id]:-}" ]]; then
+      equivalent_pairs+=("${first_commit_for_patch[$patch_id]}=$commit_hash")
+    else
+      first_commit_for_patch["$patch_id"]="$commit_hash"
+    fi
+  done
+
+  if ((${#merge_hashes[@]} > 0 || ${#equivalent_pairs[@]} > 0)); then
+    if ((${#merge_hashes[@]} > 0)); then
+      refusal_message+="; merge commit(s): ${merge_hashes[*]}"
+    fi
+    if ((${#equivalent_pairs[@]} > 0)); then
+      refusal_message+="; patch-equivalent commit(s): ${equivalent_pairs[*]}"
+    fi
+    die "$refusal_message; refusing before rewriting"
+  fi
+}
+
 usage() {
   cat <<EOF
 Usage:
@@ -132,7 +183,9 @@ Options:
 Safety:
   - Requires a clean worktree.
   - Only local branches can be updated.
-  - Exactly one linear empty commit may be selected.
+  - Exactly one empty commit may be selected.
+  - The entire selected-to-tip range must be linear and contain no repeated
+    non-empty patches; complex ranges are refused before rewriting.
   - The requested branch is not moved until after the rewritten HEAD is shown
     and the user confirms with MERGE.
   - A backup Git ref is created before the detached rewrite.
@@ -347,8 +400,10 @@ selected_date="${commit_dates[$index]}"
 [[ "$selected_type" == linear-empty ]] ||
   die "selected commit $selected_hash is $selected_type; only linear empty commits are safe to drop automatically"
 
-parent_hash="$(git rev-parse "$selected_hash^")"
 branch_tip="$(git rev-parse "refs/heads/$branch")"
+inspect_selected_to_tip_history "$selected_hash" "$branch_tip"
+
+parent_hash="$(git rev-parse "$selected_hash^")"
 descendant_count="$(git rev-list --count "$selected_hash..$branch")"
 
 printf '\n%s\n' "$(styled "$COLOR_BOLD$COLOR_CYAN" 'Selected commit:')"
