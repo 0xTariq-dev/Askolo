@@ -5,6 +5,7 @@ import { useAskoloTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { Moon, Puzzle, Sparkles, Sun } from 'lucide-react';
 import { ExpandedTabsNav } from '@/components/layout/expanded-tabs-nav';
+import { SiteOriginLink } from '@/components/layout/site-origin-link';
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
@@ -55,10 +56,14 @@ export function PublicLayout({
           />
           <div className="flex shrink-0 items-center justify-self-end gap-1 sm:gap-2">
             <Button variant="ghost" size="sm" asChild className="rounded-full">
-              <a href={toAppUrl('/sign-in', { theme: mode })}>{t('common.signIn')}</a>
+              <SiteOriginLink href={toAppUrl('/sign-in', { theme: mode })}>
+                {t('common.signIn')}
+              </SiteOriginLink>
             </Button>
             <Button size="sm" asChild className="rounded-full">
-              <a href={toAppUrl('/sign-up', { theme: mode })}>{t('common.getStarted')}</a>
+              <SiteOriginLink href={toAppUrl('/sign-up', { theme: mode })}>
+                {t('common.getStarted')}
+              </SiteOriginLink>
             </Button>
             <Button
               type="button"

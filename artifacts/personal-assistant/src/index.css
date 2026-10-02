@@ -126,9 +126,35 @@ h6 {
   outline-offset: 2px;
 }
 
-/* Input groups use a rounded container-level ring for their focused control. */
+/*
+ * Form controls share one focus ring. Keep this outside Tailwind's layers so
+ * component-level ring utilities cannot produce different or doubled rings.
+ */
+:where(
+  input:not([type='button']):not([type='submit']):not([type='reset']):not([type='file']):not([type='hidden']),
+  textarea,
+  select,
+  [role='combobox'],
+  [role='checkbox'],
+  [role='radio'],
+  [role='switch'],
+  [role='slider'],
+  [contenteditable='true']
+):focus-visible,
+[data-slot='input-otp-slot'][data-active='true'] {
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.5);
+}
+
+/* Input groups put the shared ring around the complete control, not its child. */
 [data-slot='input-group-control']:focus-visible {
   outline: none;
+  box-shadow: none;
+}
+
+[data-slot='input-group']:has([data-slot='input-group-control']:focus-visible) {
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.5);
 }
 
 #main-content:focus-visible,

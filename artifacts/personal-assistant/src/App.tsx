@@ -6,7 +6,7 @@ import {
   isThemeMode,
   type ResolvedThemePreferences,
 } from '@/lib/theme';
-import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
+import { Route, Switch, Router as WouterRouter, Redirect, useLocation } from 'wouter';
 import { Loader2 } from 'lucide-react';
 import { Toaster } from '@/components/ui/toaster';
 
@@ -111,7 +111,8 @@ function currentPathWithQuery(): string {
 }
 
 function PublicSiteRoutes() {
-  const currentPath = window.location.pathname || '/';
+  const [location] = useLocation();
+  const currentPath = location || '/';
 
   if (window.location.hostname.toLowerCase() === 'www.askolo.app') {
     return <ExternalRedirect href={toPublicUrl(currentPathWithQuery())} />;
