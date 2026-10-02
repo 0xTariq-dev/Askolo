@@ -53,6 +53,7 @@ import type { TrustedDevice } from '@workspace/api-client-react';
 import { useAppAuth } from '@/contexts/auth-context';
 import { ThemePresetSelector } from '@/components/settings/theme-preset-selector';
 import { LanguageSelector } from '@/components/settings/language-selector';
+import { CInputOtp6 } from '@/components/examples/c-input-otp-6';
 import { useKeyboardShortcutPreferences } from '@/contexts/keyboard-shortcut-context';
 import {
   COMMAND_MENU_SHORTCUT_OPTIONS,
@@ -665,31 +666,25 @@ export function ProfilePage() {
               <p className="text-sm text-muted-foreground">
                 Enter the six-digit code sent to <span className="font-medium text-foreground">{recoveryEmail}</span>.
               </p>
-              <div className="space-y-1.5">
-                <Label htmlFor="recovery-code">Verification code</Label>
-                <Input
-                  id="recovery-code"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={recoveryCode}
-                  onChange={(event) => setRecoveryCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  maxLength={6}
-                  placeholder="123456"
-                />
-              </div>
+              <CInputOtp6
+                id="recovery-code"
+                label="Email verification code"
+                description="Enter the six-digit code sent to your recovery email."
+                value={recoveryCode}
+                onChange={setRecoveryCode}
+                disabled={savingRecoveryEmail}
+                testId="input-recovery-email-code"
+              />
               {mfaEnabled && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="recovery-verify-totp">Fresh authenticator code</Label>
-                  <Input
-                    id="recovery-verify-totp"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={recoveryTotpCode}
-                    onChange={(event) => setRecoveryTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                    maxLength={6}
-                    placeholder="123456"
-                  />
-                </div>
+                <CInputOtp6
+                  id="recovery-verify-totp"
+                  label="Fresh authenticator code"
+                  description="Enter a current six-digit code to verify this recovery email."
+                  value={recoveryTotpCode}
+                  onChange={setRecoveryTotpCode}
+                  disabled={savingRecoveryEmail}
+                  testId="input-recovery-verify-totp"
+                />
               )}
               <div className="flex gap-2">
                 <Button
@@ -730,18 +725,15 @@ export function ProfilePage() {
                 />
               </div>
               {mfaEnabled && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="recovery-enroll-totp">Fresh authenticator code</Label>
-                  <Input
-                    id="recovery-enroll-totp"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={recoveryTotpCode}
-                    onChange={(event) => setRecoveryTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                    maxLength={6}
-                    placeholder="123456"
-                  />
-                </div>
+                <CInputOtp6
+                  id="recovery-enroll-totp"
+                  label="Fresh authenticator code"
+                  description="Enter the current six-digit code from your authenticator app."
+                  value={recoveryTotpCode}
+                  onChange={setRecoveryTotpCode}
+                  disabled={savingRecoveryEmail}
+                  testId="input-recovery-enroll-totp"
+                />
               )}
               <Button
                 size="sm"
@@ -796,18 +788,15 @@ export function ProfilePage() {
               <code className="block break-all rounded-lg border border-border bg-muted/30 p-3 text-sm font-mono select-all">
                 {mfaSecret}
               </code>
-              <div className="space-y-1.5">
-                <Label htmlFor="mfa-enrollment-code">Authenticator code</Label>
-                <Input
-                  id="mfa-enrollment-code"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={mfaCode}
-                  onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="123456"
-                  maxLength={6}
-                />
-              </div>
+              <CInputOtp6
+                id="mfa-enrollment-code"
+                label="Authenticator code"
+                description="Enter the current six-digit code to confirm setup."
+                value={mfaCode}
+                onChange={setMfaCode}
+                disabled={mfaBusy}
+                testId="input-mfa-enrollment-code"
+              />
               <div className="flex gap-2">
                 <Button size="sm" onClick={confirmMFAEnrollment} disabled={mfaBusy || mfaCode.length !== 6}>
                   {mfaBusy && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
@@ -858,18 +847,15 @@ export function ProfilePage() {
                   placeholder="ABCD-1234-5678-9ABC"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="mfa-fresh-totp-code">Fresh authenticator code</Label>
-                <Input
-                  id="mfa-fresh-totp-code"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={mfaFreshTotpCode}
-                  onChange={(event) => setMfaFreshTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  maxLength={6}
-                  placeholder="123456"
-                />
-              </div>
+              <CInputOtp6
+                id="mfa-fresh-totp-code"
+                label="Fresh authenticator code"
+                description="Enter a current six-digit code from your authenticator app."
+                value={mfaFreshTotpCode}
+                onChange={setMfaFreshTotpCode}
+                disabled={mfaBusy}
+                testId="input-mfa-fresh-totp-code"
+              />
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
@@ -906,22 +892,15 @@ export function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="trusted-device-totp">Fresh authenticator code</Label>
-              <Input
-                id="trusted-device-totp"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={trustedTotpCode}
-                onChange={(event) => setTrustedTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                maxLength={6}
-                placeholder="123456"
-                aria-describedby="trusted-device-totp-help"
-              />
-              <p id="trusted-device-totp-help" className="text-xs text-muted-foreground">
-                The code is used only for the revocation request and is not saved.
-              </p>
-            </div>
+            <CInputOtp6
+              id="trusted-device-totp"
+              label="Fresh authenticator code"
+              description="Used only for the revocation request; it is not saved."
+              value={trustedTotpCode}
+              onChange={setTrustedTotpCode}
+              disabled={Boolean(revokingDeviceId)}
+              testId="input-trusted-device-totp"
+            />
 
             {trustedDevicesLoading ? (
               <div className="space-y-3" aria-label="Loading trusted devices">

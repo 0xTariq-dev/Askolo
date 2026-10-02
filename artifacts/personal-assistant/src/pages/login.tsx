@@ -26,6 +26,8 @@ import {
 } from '@/lib/go-api';
 import { CCard12AuthCard } from '@/components/examples/c-card-12';
 import { CButton60SocialAuthButtons } from '@/components/examples/c-button-60';
+import { CInputOtp6 } from '@/components/examples/c-input-otp-6';
+import { CInput23PasswordFields } from '@/components/examples/c-input-23';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 import logoUrl from '/logo.png';
@@ -102,6 +104,7 @@ export function LoginPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [code, setCode] = useState('');
+  const [mfaUsingRecoveryCode, setMfaUsingRecoveryCode] = useState(false);
   const [trustDevice, setTrustDevice] = useState(false);
   const [recoveryMethod, setRecoveryMethod] = useState<RecoveryMethod>('primary_email');
   const [moreWaysOpen, setMoreWaysOpen] = useState(false);
@@ -144,9 +147,11 @@ export function LoginPage() {
     setError(null);
     setNotice(null);
     if (nextMode === 'signin' || nextMode === 'signup' || nextMode === 'recovery-request') {
+      setPassword('');
       setCode('');
       setNewPassword('');
       setConfirmPassword('');
+      setMfaUsingRecoveryCode(false);
       setRecoveryMethod('primary_email');
       setMoreWaysOpen(false);
       setResendAvailableAt(null);
@@ -169,12 +174,21 @@ export function LoginPage() {
         const payload = await postAuth(() => goApi.passwordLogin({ email, password }));
         if (payload.status === 'mfa_required') {
           setMode('mfa');
+          setMfaUsingRecoveryCode(false);
+          setCode('');
+          setPassword('');
           setNotice('Enter an authenticator code or one of your recovery codes to continue.');
         } else {
           window.location.assign(`${basePath}/dashboard`);
         }
       } else if (mode === 'signup') {
+        if (password !== confirmPassword) {
+          throw new Error('The passwords do not match.');
+        }
         await postAuth(() => goApi.passwordSignup({ email, password }));
+        setPassword('');
+        setConfirmPassword('');
+        setCode('');
         setMode('verify');
         startResendCooldown();
         setNotice('If an account can be created for this address, a verification email may arrive shortly. Check spam if you don’t see it.');
@@ -320,11 +334,11 @@ export function LoginPage() {
     mode === 'recovery-request' ||
     mode === 'mfa-recovery-request' ||
     mode === 'mfa-recovery-verify';
-  const showCodeInput =
+  const showOtpCodeInput =
     mode === 'verify' ||
     mode === 'recovery-verify' ||
-    mode === 'mfa' ||
-    mode === 'mfa-recovery-verify';
+    mode === 'mfa-recovery-verify' ||
+    (mode === 'mfa' && !mfaUsingRecoveryCode);
   const showMFARecoveryPassword =
     mode === 'mfa-recovery-request' || mode === 'mfa-recovery-verify';
   const showPasswordReset = mode === 'recovery-reset';
@@ -423,46 +437,59 @@ export function LoginPage() {
                     required
                   />
                 </Field>
-                <Field>
-                  <div className="flex items-center justify-between gap-3">
-                    <FieldLabel htmlFor="auth-password">Password</FieldLabel>
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      className="h-auto px-0 py-0 text-xs"
-                      onClick={() => changeMode('recovery-request')}
-                    >
-                      Forgot password?
-                    </Button>
-                  </div>
-                  <InputGroup>
-                    <InputGroupInput
-                      id="auth-password"
-                      type={passwordVisible ? 'text' : 'password'}
-                      autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                      placeholder="Password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      aria-invalid={Boolean(error)}
-                      aria-describedby={error ? 'auth-form-error' : undefined}
-                      required
-                    />
-                    <InputGroupAddon align="inline-end">
-                      <InputGroupButton
+                {mode === 'signup' ? (
+                  <CInput23PasswordFields
+                    idPrefix="signup"
+                    password={password}
+                    confirmation={confirmPassword}
+                    onPasswordChange={setPassword}
+                    onConfirmationChange={setConfirmPassword}
+                    passwordLabel="Password"
+                    confirmationLabel="Confirm password"
+                    errorDescribedBy={error ? 'auth-form-error' : undefined}
+                  />
+                ) : (
+                  <Field>
+                    <div className="flex items-center justify-between gap-3">
+                      <FieldLabel htmlFor="auth-password">Password</FieldLabel>
+                      <Button
                         type="button"
-                        size="icon-sm"
-                        aria-label={passwordVisible ? 'Hide password' : 'Show password'}
-                        aria-pressed={passwordVisible}
-                        onClick={() => setPasswordVisible((visible) => !visible)}
+                        variant="link"
+                        size="sm"
+                        className="h-auto px-0 py-0 text-xs"
+                        onClick={() => changeMode('recovery-request')}
                       >
-                        {passwordVisible
-                          ? <EyeOff aria-hidden="true" />
-                          : <Eye aria-hidden="true" />}
-                      </InputGroupButton>
-                    </InputGroupAddon>
-                  </InputGroup>
-                </Field>
+                        Forgot password?
+                      </Button>
+                    </div>
+                    <InputGroup>
+                      <InputGroupInput
+                        id="auth-password"
+                        type={passwordVisible ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        placeholder="Password"
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        aria-invalid={Boolean(error)}
+                        aria-describedby={error ? 'auth-form-error' : undefined}
+                        required
+                      />
+                      <InputGroupAddon align="inline-end">
+                        <InputGroupButton
+                          type="button"
+                          size="icon-sm"
+                          aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                          aria-pressed={passwordVisible}
+                          onClick={() => setPasswordVisible((visible) => !visible)}
+                        >
+                          {passwordVisible
+                            ? <EyeOff aria-hidden="true" />
+                            : <Eye aria-hidden="true" />}
+                        </InputGroupButton>
+                      </InputGroupAddon>
+                    </InputGroup>
+                  </Field>
+                )}
               </FieldGroup>
               {error && <p id="auth-form-error" className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
@@ -471,7 +498,10 @@ export function LoginPage() {
                   type="submit"
                   size="sm"
                   className="min-h-11 w-full max-w-44 rounded-full text-center"
-                  disabled={submitting}
+                  disabled={
+                    submitting ||
+                    (mode === 'signup' && password !== confirmPassword)
+                  }
                 >
                   {submitting ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
                 </Button>
@@ -522,7 +552,9 @@ export function LoginPage() {
                             : mode === 'mfa-recovery-verify'
                               ? 'Enter the code from your recovery email. Account eligibility is not disclosed.'
                         : mode === 'mfa'
-                          ? 'Enter the six-digit code from your authenticator app, or use a recovery code.'
+                          ? mfaUsingRecoveryCode
+                            ? 'Enter one of your unused MFA recovery codes.'
+                            : 'Enter the current six-digit code from your authenticator app.'
                           : ''}
               </p>
               {showEmailInput && (
@@ -620,57 +652,100 @@ export function LoginPage() {
                   )}
                 </fieldset>
               )}
-              {showCodeInput && (
-                <>
-                  <label htmlFor="flow-code" className="sr-only">
-                    {mode === 'mfa' ? 'Authenticator or recovery code' : 'Six-digit verification code'}
+              {showOtpCodeInput && (
+                <CInputOtp6
+                  id="flow-code"
+                  label={
+                    mode === 'verify'
+                      ? 'Email verification code'
+                      : mode === 'recovery-verify'
+                        ? 'Password reset code'
+                        : mode === 'mfa-recovery-verify'
+                          ? 'MFA recovery verification code'
+                          : 'Authenticator code'
+                  }
+                  description={
+                    mode === 'verify'
+                      ? 'Enter the six-digit code sent to your email address.'
+                      : mode === 'recovery-verify'
+                        ? `Enter the six-digit code sent to ${recoveryMethodLabel}.`
+                        : mode === 'mfa-recovery-verify'
+                          ? 'Enter the six-digit code from your recovery email.'
+                          : 'Enter the current six-digit code from your authenticator app.'
+                  }
+                  value={code}
+                  onChange={setCode}
+                  disabled={submitting}
+                  ariaDescribedBy={error ? 'auth-form-error' : undefined}
+                  ariaInvalid={Boolean(error)}
+                  testId="input-flow-code"
+                />
+              )}
+              {mode === 'mfa' && mfaUsingRecoveryCode && (
+                <div className="space-y-2">
+                  <label htmlFor="flow-code" className="text-sm font-medium">
+                    MFA recovery code
                   </label>
                   <Input
                     id="flow-code"
-                    inputMode={mode === 'mfa' ? 'text' : 'numeric'}
-                    autoComplete={mode === 'mfa' ? 'one-time-code' : 'one-time-code'}
-                    placeholder={mode === 'mfa' ? '123456 or ABCD-1234-5678-9ABC' : '123456'}
+                    inputMode="text"
+                    autoComplete="one-time-code"
+                    placeholder="ABCD-1234-5678-9ABC"
                     value={code}
-                    onChange={(event) =>
-                      setCode(
-                        mode === 'mfa'
-                          ? event.target.value.toUpperCase().replace(/[^A-F0-9-]/g, '').slice(0, 19)
-                          : event.target.value.replace(/\D/g, '').slice(0, 6),
-                      )
-                    }
-                    minLength={mode === 'mfa' ? 6 : 6}
-                    maxLength={mode === 'mfa' ? 19 : 6}
+                    onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^A-F0-9-]/g, '').slice(0, 19))}
+                    minLength={6}
+                    maxLength={19}
                     required
+                    disabled={submitting}
+                    aria-describedby={error ? 'auth-form-error' : undefined}
+                    aria-invalid={Boolean(error)}
+                    data-testid="input-mfa-recovery-code"
                   />
-                </>
+                </div>
+              )}
+              {mode === 'mfa' && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto justify-start px-0"
+                  onClick={() => {
+                    setMfaUsingRecoveryCode((usingRecoveryCode) => !usingRecoveryCode);
+                    setCode('');
+                    setError(null);
+                  }}
+                  disabled={submitting}
+                  data-testid="button-toggle-mfa-code-type"
+                >
+                  {mfaUsingRecoveryCode
+                    ? 'Use an authenticator code instead'
+                    : 'Use a recovery code instead'}
+                </Button>
               )}
               {showPasswordReset && (
-                <>
-                  <label htmlFor="new-password" className="sr-only">New password</label>
-                  <Input
-                    id="new-password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="New password"
-                    value={newPassword}
-                    onChange={(event) => setNewPassword(event.target.value)}
-                    required
-                  />
-                  <label htmlFor="confirm-password" className="sr-only">Confirm new password</label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="Confirm new password"
-                    value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                    required
-                  />
-                </>
+                <CInput23PasswordFields
+                  idPrefix="reset"
+                  password={newPassword}
+                  confirmation={confirmPassword}
+                  onPasswordChange={setNewPassword}
+                  onConfirmationChange={setConfirmPassword}
+                  passwordLabel="New password"
+                  confirmationLabel="Confirm new password"
+                  passwordPlaceholder="Create a strong password"
+                  confirmationPlaceholder="Re-enter your new password"
+                  errorDescribedBy={error ? 'auth-form-error' : undefined}
+                />
               )}
               {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
-              <Button type="submit" className="w-full" disabled={submitting}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={
+                  submitting ||
+                  (showPasswordReset && newPassword !== confirmPassword)
+                }
+              >
                 {submitting
                   ? 'Working…'
                   : mode === 'verify'

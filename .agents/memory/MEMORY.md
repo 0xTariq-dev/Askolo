@@ -8,6 +8,7 @@
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [Replit OpenAI proxy URL](replit-openai-proxy-url.md) — the managed integration may use HTTP loopback on port 1106; allow only that endpoint, not arbitrary HTTP.
 - [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
+- [USD form draft handling](usd-form-draft-handling.md) — preserve money inputs as editable text; strictly validate drafts and convert to integer microunits only at API boundaries.
 - [Signup welcome-credit atomicity](signup-welcome-credit-atomicity.md) — grant only at verified signup and commit the ledger entry with its balance change under one stable per-user key.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.

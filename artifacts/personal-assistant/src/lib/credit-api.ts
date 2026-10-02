@@ -93,12 +93,31 @@ export function formatUsdMicros(micros: number, locale = 'en-US'): string {
   const fraction = String(absolute % 1_000_000).padStart(6, '0').replace(/0+$/, '').padEnd(2, '0');
   return `${sign}$${new Intl.NumberFormat(locale).format(dollars)}.${fraction}`;
 }
+
+export function formatUsdMicrosInput(micros: number): string {
+  const safe = Number.isSafeInteger(micros) ? micros : 0;
+  const sign = safe < 0 ? '-' : '';
+  const absolute = Math.abs(safe);
+  const dollars = Math.floor(absolute / 1_000_000);
+  const fraction = String(absolute % 1_000_000).padStart(6, '0').replace(/0+$/, '').padEnd(2, '0');
+  return `${sign}${dollars}.${fraction}`;
+}
+
+export function tryParseUsdMicros(value: string): number | null {
+  const normalized = value.trim().replace(/^\-\$/, '-').replace(/^\$/, '');
+  const match = normalized.match(
+    /^(-?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,6}))?$/,
+  );
+  if (!match) return null;
+  const [, sign, whole, fraction = ''] = match;
+  const micros = Number(
+    `${sign}${whole.replace(/,/g, '')}${fraction.padEnd(6, '0')}`,
+  );
+  return Number.isSafeInteger(micros) ? micros : null;
+}
+
 export function parseUsdMicros(value: string): number {
-  const normalized = value.trim().replace(/^\-\$/, '-').replace(/^\$/, '').replace(/,/g, '');
-  if (!/^-?\d+(?:\.\d{1,6})?$/.test(normalized)) return 0;
-  const [whole, fraction = ''] = normalized.split('.');
-  const micros = Number(`${whole}${fraction.padEnd(6, '0')}`);
-  return Number.isSafeInteger(micros) ? micros : 0;
+  return tryParseUsdMicros(value) ?? 0;
 }
 export function creditErrorMessage(error: unknown, fallback: string): string { return error instanceof Error && error.message ? error.message : fallback; }
 export function newCreditIdempotencyKey(): string {
