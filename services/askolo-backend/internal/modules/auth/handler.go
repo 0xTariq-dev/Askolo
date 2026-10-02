@@ -617,7 +617,8 @@ func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
 		h.writeStoreError(w, "verification resend lookup failed", err)
 		return
 	}
-	if user.Status != "pending_email_verification" {
+	if user.EmailVerifiedAt != nil ||
+		(user.Status != "pending_email_verification" && user.Status != "active") {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "verification_required"})
 		return
 	}

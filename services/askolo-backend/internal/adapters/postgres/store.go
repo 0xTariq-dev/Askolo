@@ -1535,6 +1535,18 @@ func (s *Store) ConsumeEmailChallenge(
 		if userID == "" {
 			return "", ErrChallengeInvalid
 		}
+		var wasPendingSignup bool
+		if err := tx.QueryRow(ctx, `
+			SELECT status = 'pending_email_verification'
+			FROM users
+			WHERE id = $1
+			FOR UPDATE
+		`, userID).Scan(&wasPendingSignup); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ErrNotFound
+			}
+			return "", err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE users
 			SET email_verified_at = COALESCE(email_verified_at, NOW()),
@@ -1551,8 +1563,10 @@ func (s *Store) ConsumeEmailChallenge(
 		if tag.RowsAffected() != 1 {
 			return "", ErrNotFound
 		}
-		if err := grantSignupWelcomeUSDTx(ctx, tx, userID); err != nil {
-			return "", err
+		if wasPendingSignup {
+			if err := grantSignupWelcomeUSDTx(ctx, tx, userID); err != nil {
+				return "", err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

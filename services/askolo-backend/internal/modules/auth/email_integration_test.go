@@ -1389,6 +1389,115 @@ func TestNativeEmailSignupAndExplicitVerificationResendInvokeSenderOnce(t *testi
 	assertResponseDoesNotContain(t, verify, integrationEmail, resendCode, integrationPassword)
 }
 
+func TestEmailVerificationResendSupportsActiveUnverifiedLegacyUser(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	const email = "active-unverified@example.com"
+	passwordHash, err := HashPassword(integrationPassword)
+	if err != nil {
+		t.Fatalf("hash fixture password: %v", err)
+	}
+	userID, err := fixture.store.CreatePasswordUser(context.Background(), email, passwordHash)
+	if err != nil {
+		t.Fatalf("create fixture user: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		UPDATE users
+		SET status = 'active', email_verified_at = NULL, account_created_via = ''
+		WHERE id = $1
+	`, userID); err != nil {
+		t.Fatalf("prepare active unverified user: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		DELETE FROM auth_passwords WHERE user_id = $1
+	`, userID); err != nil {
+		t.Fatalf("remove fixture password identity: %v", err)
+	}
+
+	sender := &captureEmailSender{}
+	handler := testAuthHandler(fixture, sender, slog.Default())
+	resend := jsonRequest(t, handler, http.MethodPost, "/api/auth/email/resend", map[string]string{
+		"email": email,
+	}, nil, "192.0.2.64:6000")
+	if resend.Code != http.StatusAccepted || sender.count() != 1 {
+		t.Fatalf("active unverified resend status=%d sender calls=%d; want accepted and one send",
+			resend.Code, sender.count())
+	}
+	code := sender.codeForSubject(t, "Verify your Askolo email")
+	assertResponseDoesNotContain(t, resend, email, code, integrationPassword)
+
+	verify := jsonRequest(t, handler, http.MethodPost, "/api/auth/email/verify", map[string]string{
+		"email": email,
+		"code":  code,
+	}, nil, "192.0.2.65:6000")
+	if verify.Code != http.StatusOK {
+		t.Fatalf("active unverified account verification status=%d, want success", verify.Code)
+	}
+	assertResponseDoesNotContain(t, verify, email, code, integrationPassword)
+
+	recoveryRequest := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+		"email": email, "method": "primary_email",
+	}, nil, "192.0.2.67:6000")
+	if recoveryRequest.Code != http.StatusAccepted || sender.count() != 2 {
+		t.Fatalf("initial-password recovery status=%d sender calls=%d; want accepted and one recovery email",
+			recoveryRequest.Code, sender.count())
+	}
+	recoveryCode := sender.codeForSubject(t, "Reset your Askolo password")
+	recoveryVerify := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/verify", map[string]string{
+		"email": email, "method": "primary_email", "code": recoveryCode,
+	}, nil, "192.0.2.68:6000")
+	if recoveryVerify.Code != http.StatusOK {
+		t.Fatalf("initial-password recovery verification status=%d, want success", recoveryVerify.Code)
+	}
+	resetPassword := "new active account password"
+	reset := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/reset", map[string]string{
+		"email": email, "method": "primary_email", "code": recoveryCode, "password": resetPassword,
+	}, nil, "192.0.2.69:6000")
+	if reset.Code != http.StatusOK {
+		t.Fatalf("initial-password setup status=%d, want success", reset.Code)
+	}
+	assertResponseDoesNotContain(t, recoveryRequest, email, recoveryCode, resetPassword)
+	assertResponseDoesNotContain(t, recoveryVerify, email, recoveryCode, resetPassword)
+	assertResponseDoesNotContain(t, reset, email, recoveryCode, resetPassword)
+	login := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login", map[string]string{
+		"email": email, "password": resetPassword,
+	}, nil, "192.0.2.70:6000")
+	if login.Code != http.StatusOK || login.Header().Get("Set-Cookie") == "" {
+		t.Fatalf("login after initial password setup status=%d has-session-cookie=%t; want authenticated",
+			login.Code, login.Header().Get("Set-Cookie") != "")
+	}
+	assertResponseDoesNotContain(t, login, email, resetPassword)
+
+	var status, accountCreatedVia string
+	var emailVerified, hasPassword bool
+	var welcomeGrants int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT u.status, (u.email_verified_at IS NOT NULL), COALESCE(u.account_created_via, ''),
+		       EXISTS (SELECT 1 FROM auth_passwords p WHERE p.user_id = u.id),
+		       (SELECT count(*) FROM ai_credit_grants g
+		        WHERE g.user_id = u.id AND g.idempotency_key = 'welcome-credit-usd-v1')
+		FROM users u
+		WHERE u.id = $1
+	`, userID).Scan(&status, &emailVerified, &accountCreatedVia, &hasPassword, &welcomeGrants); err != nil {
+		t.Fatalf("read verified legacy account state: %v", err)
+	}
+	if status != "active" || !emailVerified || accountCreatedVia != "" || !hasPassword {
+		t.Fatalf("verified legacy account state = status:%q verified:%t source:%q password:%t",
+			status, emailVerified, accountCreatedVia, hasPassword)
+	}
+	if welcomeGrants != 0 {
+		t.Fatalf("active legacy verification granted signup welcome credit %d times, want zero", welcomeGrants)
+	}
+
+	verifiedResend := jsonRequest(t, handler, http.MethodPost, "/api/auth/email/resend", map[string]string{
+		"email": email,
+	}, nil, "192.0.2.66:6000")
+	if verifiedResend.Code != http.StatusAccepted || sender.count() != 2 {
+		t.Fatalf("verified account resend status=%d sender calls=%d; want accepted and no additional send",
+			verifiedResend.Code, sender.count())
+	}
+	assertResponseDoesNotContain(t, verifiedResend, email, code, recoveryCode, resetPassword)
+}
+
 func TestEmailChallengeCleanupRetainsRecentAndActiveRecords(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	ctx := context.Background()
