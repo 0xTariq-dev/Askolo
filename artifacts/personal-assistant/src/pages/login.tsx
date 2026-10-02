@@ -256,7 +256,7 @@ export function LoginPage() {
     }
   };
 
-  const resendVerification = async () => {
+  const resendVerification = async (enterCodeModeOnSuccess = false) => {
     if (submitting || resendSeconds > 0) return;
     setError(null);
     setNotice(null);
@@ -264,6 +264,11 @@ export function LoginPage() {
     try {
       await postAuth(() => goApi.resendEmailVerification({ email }));
       startResendCooldown();
+      if (enterCodeModeOnSuccess) {
+        setMode('verify');
+        setPassword('');
+        setCode('');
+      }
       setNotice('If this account is eligible for verification, a new code should arrive. Delivery may be delayed; check spam or try again after the timer.');
     } catch (err) {
       applyRetryAfter(err);
@@ -271,6 +276,12 @@ export function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const requestVerificationFromSignIn = async () => {
+    const emailInput = document.getElementById('auth-email');
+    if (!(emailInput instanceof HTMLInputElement) || !emailInput.reportValidity()) return;
+    await resendVerification(true);
   };
 
   const resendRecovery = async () => {
@@ -474,6 +485,19 @@ export function LoginPage() {
                   {submitting ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
                 </Button>
               </div>
+              {mode === 'signin' && (
+                <div className="flex justify-center">
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="min-h-11"
+                    onClick={requestVerificationFromSignIn}
+                    disabled={submitting || resendSeconds > 0}
+                  >
+                    Send verification code
+                  </Button>
+                </div>
+              )}
             </form>
             <FieldSeparator className="text-xs">Or continue with</FieldSeparator>
             <CButton60SocialAuthButtons
@@ -506,7 +530,7 @@ export function LoginPage() {
             <form onSubmit={submitPasswordFlow} className="space-y-3 text-left">
               <p className="text-sm text-muted-foreground">
                 {mode === 'verify'
-                  ? 'If a new account can be created for this address, we’ll send a six-digit code. We can’t confirm inbox delivery here. If no code arrives, it may be delayed or this address may already be linked to an account. Check spam; this same guidance is shown for every address.'
+                  ? 'If this address is eligible for verification, we’ll send a six-digit code. We can’t confirm inbox delivery here. If no code arrives, delivery may be delayed or the account may not be eligible. Check spam; this same guidance is shown for every address.'
                   : mode === 'recovery-request'
                     ? 'Enter the primary email address on your Askolo account.'
                     : mode === 'recovery-method'
@@ -725,7 +749,7 @@ export function LoginPage() {
                   variant="link"
                   onClick={
                     mode === 'verify'
-                      ? resendVerification
+                      ? () => resendVerification()
                       : mode === 'mfa-recovery-verify'
                         ? resendMFARecovery
                         : resendRecovery
