@@ -42,7 +42,7 @@
 - [PostgreSQL inventory fingerprints](postgres-schema-inventory.md) — treat catalog inventories as versioned, engine-specific contracts and validate them on the pinned PostgreSQL major.
 - [Workspace migration provenance](workspace-migration-provenance.md) — preserve reviewed baselines and checksums; scope catalog guards to the target relation.
 - [Auth email delivery retry safety](auth-email-delivery-retry.md) — release challenges only for retry-safe failures; retain uncertain handoffs so cooldowns prevent duplicates.
-- [Password recovery verification](password-recovery-verification.md) — validate recovery codes on the code page, then atomically consume them during the final password reset.
+- [Password recovery verification](password-recovery-verification.md) — active unverified accounts can confirm the primary email and set a first password via one atomic reset.
 - [Deployment health probes](deployment-health-probes.md) — use a cold-start-safe health endpoint for publishing startup probes, not transient operational readiness.
 - [Bare remote test fixtures](bare-remote-test-fixtures.md) — clone temporary bare remotes with an explicit branch because the first push may not set symbolic HEAD.
 - [Publish path smoke isolation](publish-path-smoke-isolation.md) — release smoke checks must choose their own ports and never stop the managed preview API.

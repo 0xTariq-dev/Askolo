@@ -1498,6 +1498,123 @@ func TestEmailVerificationResendSupportsActiveUnverifiedLegacyUser(t *testing.T)
 	assertResponseDoesNotContain(t, verifiedResend, email, code, recoveryCode, resetPassword)
 }
 
+func TestPasswordRecoveryVerifiesActiveUnverifiedEmailAndSetsFirstPassword(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	const email = "active-unverified-first-password@example.com"
+	passwordHash, err := HashPassword(integrationPassword)
+	if err != nil {
+		t.Fatalf("hash fixture password: %v", err)
+	}
+	userID, err := fixture.store.CreatePasswordUser(context.Background(), email, passwordHash)
+	if err != nil {
+		t.Fatalf("create fixture user: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		UPDATE users
+		SET status = 'active', email_verified_at = NULL, account_created_via = ''
+		WHERE id = $1
+	`, userID); err != nil {
+		t.Fatalf("prepare active unverified user: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		DELETE FROM auth_passwords WHERE user_id = $1
+	`, userID); err != nil {
+		t.Fatalf("remove fixture password identity: %v", err)
+	}
+
+	sender := &captureEmailSender{}
+	handler := testAuthHandler(fixture, sender, slog.Default())
+	recoveryRequest := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/request", map[string]string{
+		"email": email, "method": passwordRecoveryPrimaryEmail,
+	}, nil, "192.0.2.81:6000")
+	if recoveryRequest.Code != http.StatusAccepted ||
+		recoveryRequest.Body.String() != `{"status":"recovery_if_available"}`+"\n" ||
+		sender.count() != 1 {
+		t.Fatalf("unverified passwordless recovery status=%d body=%q sender calls=%d",
+			recoveryRequest.Code, recoveryRequest.Body.String(), sender.count())
+	}
+	code := sender.codeForSubject(t, "Reset your Askolo password")
+	if messages := sender.snapshot(); len(messages) != 1 || messages[0].To != email {
+		t.Fatalf("recovery message was not sent to the primary email")
+	}
+	assertResponseDoesNotContain(t, recoveryRequest, email, code, integrationPassword)
+
+	wrongCode := "000000"
+	if wrongCode == code {
+		wrongCode = "000001"
+	}
+	invalidVerify := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/verify", map[string]string{
+		"email": email, "method": passwordRecoveryPrimaryEmail, "code": wrongCode,
+	}, nil, "192.0.2.82:6000")
+	if invalidVerify.Code != http.StatusBadRequest ||
+		!strings.Contains(invalidVerify.Body.String(), `"code":"INVALID_RESET"`) {
+		t.Fatalf("invalid recovery code status=%d body=%q", invalidVerify.Code, invalidVerify.Body.String())
+	}
+
+	recoveryVerify := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/verify", map[string]string{
+		"email": email, "method": passwordRecoveryPrimaryEmail, "code": code,
+	}, nil, "192.0.2.83:6000")
+	if recoveryVerify.Code != http.StatusOK {
+		t.Fatalf("recovery code verification status=%d, want success", recoveryVerify.Code)
+	}
+	var verifiedBeforeReset bool
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT email_verified_at IS NOT NULL FROM users WHERE id = $1
+	`, userID).Scan(&verifiedBeforeReset); err != nil {
+		t.Fatalf("check verification before password reset: %v", err)
+	}
+	if verifiedBeforeReset {
+		t.Fatal("non-consuming recovery verification confirmed the email before reset")
+	}
+
+	resetPassword := "new active account password"
+	reset := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/reset", map[string]string{
+		"email": email, "method": passwordRecoveryPrimaryEmail, "code": code, "password": resetPassword,
+	}, nil, "192.0.2.84:6000")
+	if reset.Code != http.StatusOK {
+		t.Fatalf("first-password setup status=%d body=%q", reset.Code, reset.Body.String())
+	}
+	assertResponseDoesNotContain(t, recoveryVerify, email, code, resetPassword)
+	assertResponseDoesNotContain(t, reset, email, code, resetPassword)
+
+	var status, accountCreatedVia string
+	var emailVerified, hasPassword bool
+	var welcomeGrants int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT u.status, (u.email_verified_at IS NOT NULL), COALESCE(u.account_created_via, ''),
+		       EXISTS (SELECT 1 FROM auth_passwords p WHERE p.user_id = u.id),
+		       (SELECT count(*) FROM ai_credit_grants g
+		        WHERE g.user_id = u.id AND g.idempotency_key = 'welcome-credit-usd-v1')
+		FROM users u
+		WHERE u.id = $1
+	`, userID).Scan(&status, &emailVerified, &accountCreatedVia, &hasPassword, &welcomeGrants); err != nil {
+		t.Fatalf("read recovered account state: %v", err)
+	}
+	if status != "active" || !emailVerified || accountCreatedVia != "" || !hasPassword {
+		t.Fatalf("recovered account state = status:%q verified:%t source:%q password:%t",
+			status, emailVerified, accountCreatedVia, hasPassword)
+	}
+	if welcomeGrants != 0 {
+		t.Fatalf("password recovery granted signup welcome credit %d times, want zero", welcomeGrants)
+	}
+
+	login := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login", map[string]string{
+		"email": email, "password": resetPassword,
+	}, nil, "192.0.2.85:6000")
+	if login.Code != http.StatusOK || login.Header().Get("Set-Cookie") == "" {
+		t.Fatalf("login after initial password setup status=%d has-session-cookie=%t; want authenticated",
+			login.Code, login.Header().Get("Set-Cookie") != "")
+	}
+	assertResponseDoesNotContain(t, login, email, resetPassword)
+
+	reusedCode := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/recovery/reset", map[string]string{
+		"email": email, "method": passwordRecoveryPrimaryEmail, "code": code, "password": "another active account password",
+	}, nil, "192.0.2.86:6000")
+	if reusedCode.Code != http.StatusBadRequest {
+		t.Fatalf("consumed recovery code reuse status=%d, want invalid request", reusedCode.Code)
+	}
+}
+
 func TestEmailChallengeCleanupRetainsRecentAndActiveRecords(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	ctx := context.Background()

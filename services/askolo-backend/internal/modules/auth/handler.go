@@ -830,7 +830,7 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		h.writeStoreError(w, "password recovery lookup failed", err)
 		return
 	}
-	if user.Status == "suspended" || user.Status == "deleted" || user.EmailVerifiedAt == nil {
+	if !passwordRecoveryEligible(user, method) {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
 		return
 	}
@@ -879,7 +879,7 @@ func (h *Handler) verifyPasswordRecovery(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
 		return
 	}
-	_, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), input.Email, method)
+	user, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), input.Email, method)
 	if errors.Is(err, postgres.ErrNotFound) || errors.Is(err, postgres.ErrRecoveryUnavailable) {
 		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
 		return
@@ -888,7 +888,11 @@ func (h *Handler) verifyPasswordRecovery(w http.ResponseWriter, r *http.Request)
 		h.writeStoreError(w, "password recovery lookup failed", err)
 		return
 	}
-	userID, err := h.verifyChallenge(r, deliveryEmail, "password_recovery", input.Code)
+	if !passwordRecoveryEligible(user, method) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	err = h.verifyPasswordRecoveryChallenge(r, deliveryEmail, user.ID, input.Code)
 	if errors.Is(err, postgres.ErrChallengeLocked) {
 		writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
 		return
@@ -901,7 +905,7 @@ func (h *Handler) verifyPasswordRecovery(w http.ResponseWriter, r *http.Request)
 		h.writeStoreError(w, "password recovery code verification failed", err)
 		return
 	}
-	h.recordSecurityEvent(r, userID, "password_recovery_code_verified", map[string]any{"purpose": "password_recovery"})
+	h.recordSecurityEvent(r, user.ID, "password_recovery_code_verified", map[string]any{"purpose": "password_recovery"})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "recovery_code_verified"})
 }
 
@@ -930,7 +934,7 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
 		return
 	}
-	_, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), input.Email, method)
+	user, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), input.Email, method)
 	if errors.Is(err, postgres.ErrNotFound) || errors.Is(err, postgres.ErrRecoveryUnavailable) {
 		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
 		return
@@ -939,7 +943,11 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		h.writeStoreError(w, "password recovery lookup failed", err)
 		return
 	}
-	userID, err := h.consumeChallenge(r, deliveryEmail, "password_recovery", input.Code)
+	if !passwordRecoveryEligible(user, method) {
+		writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+		return
+	}
+	err = h.verifyPasswordRecoveryChallenge(r, deliveryEmail, user.ID, input.Code)
 	if errors.Is(err, postgres.ErrChallengeLocked) {
 		writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
 		return
@@ -957,17 +965,35 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_PASSWORD", "Password does not meet the security requirements.")
 		return
 	}
-	if err := h.store.SetPassword(r.Context(), userID, passwordHash); err != nil {
+	if err := h.store.CompletePasswordRecovery(
+		r.Context(),
+		deliveryEmail,
+		user.ID,
+		h.hashChallenge(input.Code),
+		passwordHash,
+		emailChallengeMaxAttempts,
+		method == passwordRecoveryPrimaryEmail,
+	); err != nil {
+		if errors.Is(err, postgres.ErrChallengeLocked) {
+			writeError(w, http.StatusTooManyRequests, "CHALLENGE_LOCKED", "The recovery request is temporarily locked.")
+			return
+		}
+		if errors.Is(err, postgres.ErrChallengeInvalid) ||
+			errors.Is(err, postgres.ErrRecoveryUnavailable) ||
+			errors.Is(err, postgres.ErrNotFound) {
+			writeError(w, http.StatusBadRequest, "INVALID_RESET", "The password reset request is invalid or expired.")
+			return
+		}
 		h.writeStoreError(w, "password recovery password update failed", err)
 		return
 	}
-	if err := h.store.DeleteUserSessions(r.Context(), userID); err != nil {
-		h.logger.Warn("password recovery session revocation failed", "operation", "password_recovery", "request_id", requestID(r), "user_id", userID, "error", err)
+	if err := h.store.DeleteUserSessions(r.Context(), user.ID); err != nil {
+		h.logger.Warn("password recovery session revocation failed", "operation", "password_recovery", "request_id", requestID(r), "user_id", user.ID, "error", err)
 	}
-	if err := h.store.ActivateProviderUserIfReady(r.Context(), userID); err != nil {
-		h.logger.Warn("provider account activation check failed", "operation", "password_recovery", "request_id", requestID(r), "user_id", userID, "error", err)
+	if err := h.store.ActivateProviderUserIfReady(r.Context(), user.ID); err != nil {
+		h.logger.Warn("provider account activation check failed", "operation", "password_recovery", "request_id", requestID(r), "user_id", user.ID, "error", err)
 	}
-	h.recordSecurityEvent(r, userID, "password_reset", map[string]any{"purpose": "password_recovery"})
+	h.recordSecurityEvent(r, user.ID, "password_reset", map[string]any{"purpose": "password_recovery"})
 	h.clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
 }
@@ -1166,6 +1192,16 @@ func normalizePasswordRecoveryMethod(method string) string {
 
 func validPasswordRecoveryMethod(method string) bool {
 	return method == passwordRecoveryPrimaryEmail || method == passwordRecoveryEmail
+}
+
+func passwordRecoveryEligible(user postgres.User, method string) bool {
+	if user.Status == "suspended" || user.Status == "deleted" {
+		return false
+	}
+	if user.EmailVerifiedAt != nil {
+		return true
+	}
+	return method == passwordRecoveryPrimaryEmail && user.Status == "active"
 }
 
 func (h *Handler) passwordRecoveryTarget(ctx context.Context, primaryEmail, method string) (postgres.User, string, error) {
@@ -1719,6 +1755,19 @@ func (h *Handler) verifyChallenge(r *http.Request, email, purpose, code string) 
 		r.Context(),
 		normalizeEmail(email),
 		purpose,
+		h.hashChallenge(code),
+		emailChallengeMaxAttempts,
+	)
+}
+
+func (h *Handler) verifyPasswordRecoveryChallenge(r *http.Request, email, userID, code string) error {
+	if err := h.challengeConfiguration(); err != nil {
+		return err
+	}
+	return h.store.VerifyPasswordRecoveryChallenge(
+		r.Context(),
+		normalizeEmail(email),
+		userID,
 		h.hashChallenge(code),
 		emailChallengeMaxAttempts,
 	)
