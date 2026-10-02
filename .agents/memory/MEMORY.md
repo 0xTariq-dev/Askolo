@@ -56,7 +56,7 @@
 - [Linear project management](linear-task-migration.md) — Linear is canonical; archiving can clear blockers and related links, so verify affected issues afterward.
 - [Shell timing without GNU time](nix-shell-timing.md) — `/usr/bin/time` is unavailable; use `date +%s%N` for simple elapsed-time measurements.
 - [Outbound cancellation test harness](outbound-cancellation-tests.md) — prefer controlled RoundTrippers for request-cancellation tests; a blocked test-server handler can stall cleanup.
-- [Askolo app UI migration](askolo-ui-migration.md) — verify shared primitives, route-level token styling, and behavior-sensitive component API changes independently.
+- [Askolo app UI migration](askolo-ui-migration.md) — keep lazy-route loading inside the persistent shell and verify route-level behavior changes independently.
 - [Theme prepaint bootstrap](theme-prepaint-bootstrap.md) — use a classic head script for saved mode; Vite’s merged module bootstrap cannot guarantee pre-paint execution.
 - [Resend MCP output handling](resend-mcp-output.md) — Resend list/get tools may return formatted text blocks; parse only the needed recipient metadata and never log message bodies or codes.
 - [Node tests and Vite env](node-vite-test-environment.md) — `tsx --test` does not provide `import.meta.env`; guard Vite-only reads or use a Vite-aware test runner.
