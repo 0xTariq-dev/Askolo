@@ -126,6 +126,11 @@ h6 {
   outline-offset: 2px;
 }
 
+/* Input groups use a rounded container-level ring for their focused control. */
+[data-slot='input-group-control']:focus-visible {
+  outline: none;
+}
+
 #main-content:focus-visible,
 [data-route-focus-target='true']:focus-visible {
   outline: 2px solid hsl(var(--ring));
