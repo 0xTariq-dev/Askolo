@@ -186,9 +186,11 @@ export function LoginPage() {
         setResendAvailableAt(null);
         setNotice('Your email is verified. You can sign in now.');
       } else if (mode === 'recovery-request') {
-        setMode('recovery-method');
-        setMoreWaysOpen(false);
+        await postAuth(() => goApi.requestPasswordRecovery({ email, method: 'primary_email' }));
         setRecoveryMethod('primary_email');
+        setMode('recovery-verify');
+        startResendCooldown();
+        setNotice('If your account is eligible, a password-reset code is on its way. You do not need your current password to choose a new one.');
       } else if (mode === 'recovery-method') {
         await postAuth(() => goApi.requestPasswordRecovery({ email, method: recoveryMethod }));
         setMode('recovery-verify');
@@ -256,7 +258,7 @@ export function LoginPage() {
     }
   };
 
-  const resendVerification = async (enterCodeModeOnSuccess = false) => {
+  const resendVerification = async () => {
     if (submitting || resendSeconds > 0) return;
     setError(null);
     setNotice(null);
@@ -264,11 +266,6 @@ export function LoginPage() {
     try {
       await postAuth(() => goApi.resendEmailVerification({ email }));
       startResendCooldown();
-      if (enterCodeModeOnSuccess) {
-        setMode('verify');
-        setPassword('');
-        setCode('');
-      }
       setNotice('If this account is eligible for verification, a new code should arrive. Delivery may be delayed; check spam or try again after the timer.');
     } catch (err) {
       applyRetryAfter(err);
@@ -276,12 +273,6 @@ export function LoginPage() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const requestVerificationFromSignIn = async () => {
-    const emailInput = document.getElementById('auth-email');
-    if (!(emailInput instanceof HTMLInputElement) || !emailInput.reportValidity()) return;
-    await resendVerification(true);
   };
 
   const resendRecovery = async () => {
@@ -485,19 +476,6 @@ export function LoginPage() {
                   {submitting ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
                 </Button>
               </div>
-              {mode === 'signin' && (
-                <div className="flex justify-center">
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="min-h-11"
-                    onClick={requestVerificationFromSignIn}
-                    disabled={submitting || resendSeconds > 0}
-                  >
-                    Send verification code
-                  </Button>
-                </div>
-              )}
             </form>
             <FieldSeparator className="text-xs">Or continue with</FieldSeparator>
             <CButton60SocialAuthButtons
@@ -532,7 +510,7 @@ export function LoginPage() {
                 {mode === 'verify'
                   ? 'If this address is eligible for verification, we’ll send a six-digit code. We can’t confirm inbox delivery here. If no code arrives, delivery may be delayed or the account may not be eligible. Check spam; this same guidance is shown for every address.'
                   : mode === 'recovery-request'
-                    ? 'Enter the primary email address on your Askolo account.'
+                    ? 'Enter the primary email address on your Askolo account. You do not need your current password to receive a reset code.'
                     : mode === 'recovery-method'
                       ? 'Choose where to send your recovery code.'
                     : mode === 'recovery-verify'
@@ -712,6 +690,16 @@ export function LoginPage() {
                             : 'Set new password'}
               </Button>
             </form>
+            {mode === 'recovery-request' && (
+              <Button
+                type="button"
+                variant="link"
+                className="min-h-11"
+                onClick={() => changeMode('recovery-method')}
+              >
+                More recovery options
+              </Button>
+            )}
             {mode === 'mfa' && (
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-left">
                 <div className="flex items-start gap-3">
