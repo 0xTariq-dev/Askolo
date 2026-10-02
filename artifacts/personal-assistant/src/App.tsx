@@ -91,9 +91,19 @@ function RouteLoadingState() {
   return (
     <div
       className="min-h-screen w-full flex items-center justify-center bg-background"
-      aria-label="Loading page"
+      role="status"
     >
       <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+      <span className="sr-only">Loading page</span>
+    </div>
+  );
+}
+
+function RouteContentLoadingState() {
+  return (
+    <div className="flex min-h-64 w-full items-center justify-center" role="status">
+      <Loader2 className="h-7 w-7 animate-spin text-primary" aria-hidden="true" />
+      <span className="sr-only">Loading page</span>
     </div>
   );
 }
@@ -167,7 +177,9 @@ function NativeProtectedRoutes() {
   return (
     <AccountLocaleProvider>
       <SidebarAppLayout>
-        <AuthenticatedPageRoutes />
+        <Suspense fallback={<RouteContentLoadingState />}>
+          <AuthenticatedPageRoutes />
+        </Suspense>
       </SidebarAppLayout>
     </AccountLocaleProvider>
   );
