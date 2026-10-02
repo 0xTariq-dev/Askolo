@@ -1,14 +1,19 @@
 (() => {
   const root = document.documentElement;
-  let locale = 'en';
+  const registry = window.__ASKOLO_LOCALE_BOOTSTRAP__;
+  if (!registry || !registry.locales || !registry.locales[registry.defaultLocale]) return;
+
+  let locale = registry.defaultLocale;
 
   try {
     const storedLocale = window.localStorage.getItem('askolo-locale');
-    if (storedLocale === 'en' || storedLocale === 'ar') locale = storedLocale;
+    if (Object.prototype.hasOwnProperty.call(registry.locales, storedLocale)) {
+      locale = storedLocale;
+    }
   } catch {
     // The app locale provider uses English when browser storage is unavailable.
   }
 
   root.lang = locale;
-  root.dir = locale === 'ar' ? 'rtl' : 'ltr';
+  root.dir = registry.locales[locale].direction;
 })();

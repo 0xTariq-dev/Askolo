@@ -5,10 +5,14 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
-import type { UserProfileUpdatePreferredLocale } from './userProfileUpdatePreferredLocale';
 
 export interface UserProfileUpdate {
   firstName?: string;
   lastName?: string;
-  preferredLocale?: UserProfileUpdatePreferredLocale;
+  /**
+     * @minLength 2
+     * @maxLength 2
+     * @pattern ^[a-z]{2}$
+     */
+  preferredLocale?: string;
 }

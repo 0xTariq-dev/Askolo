@@ -1,10 +1,19 @@
 import { defineConfig } from '@lingui/cli';
 import { formatter } from '@lingui/format-po';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+const localeRegistry = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, 'src/lib/locale-registry.json'), 'utf8'),
+) as {
+  sourceLocale: string;
+  locales: Record<string, unknown>;
+};
 
 export default defineConfig({
-  sourceLocale: 'en',
-  locales: ['en', 'ar'],
-  fallbackLocales: { default: 'en' },
+  sourceLocale: localeRegistry.sourceLocale,
+  locales: Object.keys(localeRegistry.locales),
+  fallbackLocales: { default: localeRegistry.sourceLocale },
   catalogs: [
     {
       path: '<rootDir>/locales/{locale}/messages',

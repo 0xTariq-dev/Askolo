@@ -2119,7 +2119,9 @@ components:
           type: string
         preferredLocale:
           type: string
-          enum: [en, ar]
+          minLength: 2
+          maxLength: 2
+          pattern: '^[a-z]{2}$'
           nullable: true
         status:
           type: string
@@ -2334,7 +2336,9 @@ components:
         lastName: { type: string }
         preferredLocale:
           type: string
-          enum: [en, ar]
+          minLength: 2
+          maxLength: 2
+          pattern: '^[a-z]{2}$'
     ProfileUser:
       type: object
       required: [id, email, firstName, lastName, profileImageUrl, preferredLocale, status, authProvider]
@@ -2346,7 +2350,9 @@ components:
         profileImageUrl: { type: string }
         preferredLocale:
           type: string
-          enum: [en, ar]
+          minLength: 2
+          maxLength: 2
+          pattern: '^[a-z]{2}$'
           nullable: true
         status: { type: string }
         authProvider: { type: string }

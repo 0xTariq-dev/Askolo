@@ -34,9 +34,9 @@ export function WeekGrid({
   onSlotClick,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { formatDate, formatNumber } = useLocale();
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-  const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+  const { formatDate, formatNumber, weekStartsOn } = useLocale();
+  const weekStart = startOfWeek(currentDate, { weekStartsOn });
+  const weekEnd = endOfWeek(currentDate, { weekStartsOn });
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
   useEffect(() => {

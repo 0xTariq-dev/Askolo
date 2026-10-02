@@ -83,6 +83,19 @@ ON CONFLICT (bucket_hash) DO NOTHING
 	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('sentinel', 'sentinel@example.test')`); err != nil {
 		t.Fatalf("insert sentinel user: %v", err)
 	}
+	for _, locale := range []string{"en", "ar", "fr"} {
+		if _, err := pool.Exec(ctx, `UPDATE users SET preferred_locale = $1 WHERE id = 'sentinel'`, locale); err != nil {
+			t.Errorf("locale format constraint rejected valid two-letter code %q: %v", locale, err)
+		}
+	}
+	for _, locale := range []string{"EN", "e1", "en-US"} {
+		if _, err := pool.Exec(ctx, `UPDATE users SET preferred_locale = $1 WHERE id = 'sentinel'`, locale); err == nil {
+			t.Errorf("locale format constraint accepted malformed code %q", locale)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET preferred_locale = NULL WHERE id = 'sentinel'`); err != nil {
+		t.Fatalf("restore nullable preferred locale: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO ai_credit_accounts
 		(user_id, granted_credits, adjustment_credits, reserved_credits, spent_credits, refunded_credits)
 		VALUES ('sentinel', 17, -2, 3, 4, 5)`); err != nil {

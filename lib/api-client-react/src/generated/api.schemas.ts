@@ -12,21 +12,18 @@ export interface HealthStatus {
   release: string;
 }
 
-export type AuthUserPreferredLocale = typeof AuthUserPreferredLocale[keyof typeof AuthUserPreferredLocale] | null;
-
-
-export const AuthUserPreferredLocale = {
-  en: 'en',
-  ar: 'ar',
-} as const;
-
 export interface AuthUser {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
   profileImageUrl: string;
-  preferredLocale: AuthUserPreferredLocale;
+  /**
+     * @minLength 2
+     * @maxLength 2
+     * @pattern ^[a-z]{2}$
+     */
+  preferredLocale: string | null;
   status: string;
   emailVerified: boolean;
   accountCreatedVia: string;
@@ -223,27 +220,16 @@ export interface MFARecoveryCodesResponse {
   recoveryCodes: string[];
 }
 
-export type UserProfileUpdatePreferredLocale = typeof UserProfileUpdatePreferredLocale[keyof typeof UserProfileUpdatePreferredLocale];
-
-
-export const UserProfileUpdatePreferredLocale = {
-  en: 'en',
-  ar: 'ar',
-} as const;
-
 export interface UserProfileUpdate {
   firstName?: string;
   lastName?: string;
-  preferredLocale?: UserProfileUpdatePreferredLocale;
+  /**
+     * @minLength 2
+     * @maxLength 2
+     * @pattern ^[a-z]{2}$
+     */
+  preferredLocale?: string;
 }
-
-export type ProfileUserPreferredLocale = typeof ProfileUserPreferredLocale[keyof typeof ProfileUserPreferredLocale] | null;
-
-
-export const ProfileUserPreferredLocale = {
-  en: 'en',
-  ar: 'ar',
-} as const;
 
 export interface ProfileUser {
   id: string;
@@ -251,7 +237,12 @@ export interface ProfileUser {
   firstName: string;
   lastName: string;
   profileImageUrl: string;
-  preferredLocale: ProfileUserPreferredLocale;
+  /**
+     * @minLength 2
+     * @maxLength 2
+     * @pattern ^[a-z]{2}$
+     */
+  preferredLocale: string | null;
   status: string;
   authProvider: string;
 }

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1556,8 +1557,23 @@ func trimOptionalString(value *string) *string {
 	return &trimmed
 }
 
+var lowercaseTwoLetterLocalePattern = regexp.MustCompile(`^[a-z]{2}$`)
+
+var enabledPreferredLocales = map[string]struct{}{
+	"en": {},
+	"ar": {},
+}
+
+func isWellFormedLocaleCode(value string) bool {
+	return lowercaseTwoLetterLocalePattern.MatchString(value)
+}
+
 func isSupportedPreferredLocale(value string) bool {
-	return value == "en" || value == "ar"
+	if !isWellFormedLocaleCode(value) {
+		return false
+	}
+	_, enabled := enabledPreferredLocales[value]
+	return enabled
 }
 
 func (h *Handler) deleteUserData(w http.ResponseWriter, r *http.Request) {

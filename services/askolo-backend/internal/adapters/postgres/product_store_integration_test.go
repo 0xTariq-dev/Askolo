@@ -49,7 +49,10 @@ func TestUpdateUserProfilePersistsPreferredLocale(t *testing.T) {
 			last_name text,
 			profile_image_url text,
 			preferred_locale varchar(2)
-				CHECK (preferred_locale IS NULL OR preferred_locale IN ('en', 'ar')),
+				CHECK (
+					preferred_locale IS NULL
+					OR (preferred_locale COLLATE "C") ~ '^[a-z]{2}$'
+				),
 			status text,
 			email_verified_at timestamptz,
 			account_created_via text,
@@ -91,6 +94,15 @@ func TestUpdateUserProfilePersistsPreferredLocale(t *testing.T) {
 	}
 	if unchanged.PreferredLocale == nil || *unchanged.PreferredLocale != locale {
 		t.Fatalf("preferred locale after unrelated profile update = %v, want %q", unchanged.PreferredLocale, locale)
+	}
+
+	if _, err := adminPool.Exec(ctx, `UPDATE `+quotedSchema+`.users SET preferred_locale = 'fr' WHERE id = 'locale-user'`); err != nil {
+		t.Fatalf("format-only database constraint rejected a future two-letter locale: %v", err)
+	}
+	for _, malformed := range []string{"EN", "e1", "en-US"} {
+		if _, err := adminPool.Exec(ctx, `UPDATE `+quotedSchema+`.users SET preferred_locale = $1 WHERE id = 'locale-user'`, malformed); err == nil {
+			t.Errorf("database accepted malformed preferred locale %q", malformed)
+		}
 	}
 }
 

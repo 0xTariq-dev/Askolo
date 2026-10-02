@@ -73,21 +73,25 @@ type EventFormValues = z.infer<typeof eventSchema>;
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 // ─── Date range helpers ──────────────────────────────────────────────────────
-function getViewRange(date: Date, view: CalendarView): { from: string; to: string } {
+function getViewRange(
+  date: Date,
+  view: CalendarView,
+  weekStartsOn: 0 | 1 | 2 | 3 | 4 | 5 | 6,
+): { from: string; to: string } {
   switch (view) {
     case 'month': {
       const ms = startOfMonth(date);
       const me = endOfMonth(date);
       // Include the partial weeks shown in the grid
       return {
-        from: format(startOfWeek(ms, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-        to: format(endOfWeek(me, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+        from: format(startOfWeek(ms, { weekStartsOn }), 'yyyy-MM-dd'),
+        to: format(endOfWeek(me, { weekStartsOn }), 'yyyy-MM-dd'),
       };
     }
     case 'week': {
       return {
-        from: format(startOfWeek(date, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-        to: format(endOfWeek(date, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+        from: format(startOfWeek(date, { weekStartsOn }), 'yyyy-MM-dd'),
+        to: format(endOfWeek(date, { weekStartsOn }), 'yyyy-MM-dd'),
       };
     }
     case 'day':
@@ -114,11 +118,12 @@ function headerLabel(
   date: Date,
   view: CalendarView,
   formatLocaleDate: (value: Date | number, options?: Intl.DateTimeFormatOptions) => string,
+  weekStartsOn: 0 | 1 | 2 | 3 | 4 | 5 | 6,
 ): string {
   if (view === 'month') return formatLocaleDate(date, { month: 'long', year: 'numeric' });
   if (view === 'week') {
-    const ws = startOfWeek(date, { weekStartsOn: 1 });
-    const we = endOfWeek(date, { weekStartsOn: 1 });
+    const ws = startOfWeek(date, { weekStartsOn });
+    const we = endOfWeek(date, { weekStartsOn });
     return `${formatLocaleDate(ws, { month: 'short', day: 'numeric' })} – ${formatLocaleDate(we, { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
   return formatLocaleDate(date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -126,7 +131,7 @@ function headerLabel(
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 export function CalendarPage() {
-  const { formatDate, formatRelativeDate, t } = useLocale();
+  const { formatDate, formatRelativeDate, t, weekStartsOn } = useLocale();
   const { preferences } = useAskoloTheme();
   const defaultEventColor =
     THEME_PRESETS[preferences.accountThemeId][preferences.mode].chart1;
@@ -142,7 +147,7 @@ export function CalendarPage() {
   const [, setLocation] = useLocation();
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const { from, to } = getViewRange(currentDate, view);
+  const { from, to } = getViewRange(currentDate, view, weekStartsOn);
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const { data: events = [], isLoading } = useListEvents({ from, to });
@@ -414,7 +419,7 @@ export function CalendarPage() {
             <ChevronLeft className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
           </Button>
           <h2 className="text-lg font-display font-semibold min-w-[200px] text-center">
-            {headerLabel(currentDate, view, formatDate)}
+            {headerLabel(currentDate, view, formatDate, weekStartsOn)}
           </h2>
           <Button variant="outline" size="icon" aria-label={t('calendar.next')} onClick={() => setCurrentDate((d) => navigateNext(d, view))}>
             <ChevronRight className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />

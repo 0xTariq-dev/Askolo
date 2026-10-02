@@ -10,25 +10,30 @@ import {
 } from 'react';
 import { setupI18n } from '@lingui/core';
 import { I18nProvider } from '@lingui/react';
-import { messages as englishMessages } from '../../locales/en/messages.po';
-import { messages as arabicMessages } from '../../locales/ar/messages.po';
 import {
+  DEFAULT_LOCALE,
   directionForLocale,
   formatDate,
   formatNumber,
   formatRelativeDate,
   getStoredLocale,
   isLocale,
+  loadLocaleCatalog,
   LOCALE_STORAGE_KEY,
-  mergeCatalogWithFallback,
+  LOCALE_REGISTRY,
   type Locale,
+  type MessageCatalog,
   type TranslationValues,
+  type DateFnsLocale,
+  type CalendarWeekStart,
 } from '@/lib/locale';
 import { messages, type MessageKey } from '@/lib/messages';
 
 type LocaleContextValue = {
   locale: Locale;
   direction: 'ltr' | 'rtl';
+  dateFnsLocale: DateFnsLocale;
+  weekStartsOn: CalendarWeekStart;
   setLocale: (locale: Locale) => Promise<void>;
   t: (key: string, values?: TranslationValues) => string;
   plural: (key: string, count: number, values?: TranslationValues) => string;
@@ -43,6 +48,11 @@ function applyDocumentLocale(locale: Locale) {
   const root = document.documentElement;
   root.lang = locale;
   root.dir = directionForLocale(locale);
+}
+
+function loadMessages(i18n: ReturnType<typeof setupI18n>, locale: Locale, catalog: MessageCatalog) {
+  i18n.load(locale, catalog as never);
+  i18n.activate(locale);
 }
 
 function formatTranslationValues(
@@ -95,6 +105,10 @@ export function LocaleProvider({
   persistAccountLocale,
 }: LocaleProviderProps) {
   const persistenceQueue = useRef<Promise<void>>(Promise.resolve());
+  const catalogPromises = useRef<Partial<Record<Locale, Promise<MessageCatalog>>>>({});
+  const localeChangeSequence = useRef(0);
+  const [catalogReadyLocale, setCatalogReadyLocale] = useState<Locale | null>(null);
+  const [catalogLoadFailed, setCatalogLoadFailed] = useState(false);
   const [locale, setLocaleState] = useState<Locale>(() => {
     const selectedLocale = isLocale(initialLocale) ? initialLocale : getStoredLocale();
     applyDocumentLocale(selectedLocale);
@@ -102,13 +116,42 @@ export function LocaleProvider({
   });
   const [i18n] = useState(() => {
     const instance = setupI18n();
-    instance.load({
-      en: englishMessages,
-      ar: mergeCatalogWithFallback(englishMessages, arabicMessages),
-    });
+    instance.load(locale, {});
     instance.activate(locale);
     return instance;
   });
+
+  const getCatalog = useCallback((requestedLocale: Locale) => {
+    const cached = catalogPromises.current[requestedLocale];
+    if (cached) return cached;
+    const pending = loadLocaleCatalog(requestedLocale);
+    catalogPromises.current[requestedLocale] = pending;
+    void pending.catch(() => {
+      delete catalogPromises.current[requestedLocale];
+    });
+    return pending;
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setCatalogLoadFailed(false);
+    void getCatalog(locale)
+      .then((catalog) => {
+        if (active) {
+          loadMessages(i18n, locale, catalog);
+          setCatalogReadyLocale(locale);
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setCatalogLoadFailed(true);
+          console.error('Askolo could not load its default English catalog.', error);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [getCatalog, i18n, locale]);
 
   const queueAccountLocale = useCallback((nextLocale: Locale) => {
     if (!persistAccountLocale) return Promise.resolve();
@@ -122,18 +165,23 @@ export function LocaleProvider({
     return pending;
   }, [persistAccountLocale]);
 
-  const setLocale = useCallback((nextLocale: Locale) => {
+  const setLocale = useCallback(async (nextLocale: Locale) => {
+    const sequence = ++localeChangeSequence.current;
     if (nextLocale === locale) return Promise.resolve();
+    const catalog = await getCatalog(nextLocale);
+    if (sequence !== localeChangeSequence.current) return;
+    loadMessages(i18n, nextLocale, catalog);
+    setCatalogReadyLocale(nextLocale);
+    setCatalogLoadFailed(false);
     applyDocumentLocale(nextLocale);
-    i18n.activate(nextLocale);
     try {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, nextLocale);
     } catch {
       console.warn('Askolo could not save the language preference.');
     }
     setLocaleState(nextLocale);
-    return queueAccountLocale(nextLocale);
-  }, [i18n, locale, queueAccountLocale]);
+    await queueAccountLocale(nextLocale);
+  }, [getCatalog, i18n, locale, queueAccountLocale]);
 
   useEffect(() => {
     try {
@@ -153,18 +201,20 @@ export function LocaleProvider({
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== LOCALE_STORAGE_KEY) return;
-      const nextLocale = isLocale(event.newValue) ? event.newValue : 'en';
+      localeChangeSequence.current += 1;
+      const nextLocale = isLocale(event.newValue) ? event.newValue : DEFAULT_LOCALE;
       applyDocumentLocale(nextLocale);
-      i18n.activate(nextLocale);
       setLocaleState(nextLocale);
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
-  }, [i18n]);
+  }, []);
 
   const value = useMemo<LocaleContextValue>(() => ({
     locale,
     direction: directionForLocale(locale),
+    dateFnsLocale: LOCALE_REGISTRY[locale].dateFnsLocale,
+    weekStartsOn: LOCALE_REGISTRY[locale].weekStartsOn,
     setLocale,
     t: (key, values) => translate(i18n, locale, key, values),
     plural: (key, count, values) => translatePlural(i18n, locale, key, count, values),
@@ -175,7 +225,20 @@ export function LocaleProvider({
 
   return (
     <I18nProvider i18n={i18n}>
-      <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>
+      <LocaleContext.Provider value={value}>
+        {catalogReadyLocale === locale
+          ? children
+          : catalogLoadFailed
+            ? (
+              <div
+                className="flex min-h-screen items-center justify-center p-6 text-sm text-muted-foreground"
+                role="alert"
+              >
+                Could not load language content. Refresh the page to try again.
+              </div>
+            )
+            : <div className="min-h-screen" aria-busy="true" />}
+      </LocaleContext.Provider>
     </I18nProvider>
   );
 }

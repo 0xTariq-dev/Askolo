@@ -30,11 +30,11 @@ export function MonthGrid({
   onEventClick,
   onDayClick,
 }: MonthGridProps) {
-  const { formatDate, formatNumber, plural } = useLocale();
+  const { formatDate, formatNumber, plural, weekStartsOn } = useLocale();
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
-  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+  const gridStart = startOfWeek(monthStart, { weekStartsOn });
+  const gridEnd = endOfWeek(monthEnd, { weekStartsOn });
   const cells = eachDayOfInterval({ start: gridStart, end: gridEnd });
   const hasHabits = habits.length > 0;
   const weekDays = Array.from({ length: 7 }, (_, index) =>

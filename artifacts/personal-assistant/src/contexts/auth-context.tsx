@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { ApiError } from '@workspace/api-client-react';
 import { toPublicUrl } from '@/lib/site-domains';
 import { goApi } from '@/lib/go-api';
-import type { Locale } from '@/lib/locale';
+import { isLocale, type Locale } from '@/lib/locale';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -56,7 +56,14 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
     goApi.currentUser(controller.signal)
       .then((payload) => {
         if (!active) return;
-        setUser(payload.user);
+        setUser(payload.user
+          ? {
+              ...payload.user,
+              preferredLocale: isLocale(payload.user.preferredLocale)
+                ? payload.user.preferredLocale
+                : null,
+            }
+          : null);
         setMfaRequired(payload.mfaRequired === true);
         setIsLoaded(true);
       })
@@ -93,7 +100,12 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
       },
       updateProfile: async (profile) => {
         const updated = await goApi.updateProfile(profile);
-        setUser(updated);
+        setUser({
+          ...updated,
+          preferredLocale: isLocale(updated.preferredLocale)
+            ? updated.preferredLocale
+            : null,
+        });
       },
       updateProfileImage: async () => {
         throw new Error('Native profile photo editing is not available');

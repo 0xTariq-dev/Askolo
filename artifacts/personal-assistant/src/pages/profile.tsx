@@ -51,6 +51,7 @@ import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import type { TrustedDevice } from '@workspace/api-client-react';
 import { useAppAuth } from '@/contexts/auth-context';
+import { useLocale } from '@/contexts/locale-context';
 import { ThemePresetSelector } from '@/components/settings/theme-preset-selector';
 import { LanguageSelector } from '@/components/settings/language-selector';
 import { CInputOtp6 } from '@/components/examples/c-input-otp-6';
@@ -62,12 +63,15 @@ import {
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
-function formatDeviceDate(value: string | null): string {
+function formatDeviceDate(
+  value: string | null,
+  formatLocaleDate: (value: Date | number, options?: Intl.DateTimeFormatOptions) => string,
+): string {
   if (!value) return 'Not used yet';
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? 'Date unavailable'
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+    : formatLocaleDate(date, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 export function ProfilePage() {
@@ -80,6 +84,7 @@ export function ProfilePage() {
     updateProfileImage,
     updatePassword,
   } = useAppAuth();
+  const { formatDate } = useLocale();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { commandMenuShortcut, setCommandMenuShortcut } =
@@ -946,10 +951,10 @@ export function ProfilePage() {
                       </div>
                       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                        Expires {formatDeviceDate(device.expiresAt)}
+                        Expires {formatDeviceDate(device.expiresAt, formatDate)}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Last used: {formatDeviceDate(device.lastUsedAt)}
+                        Last used: {formatDeviceDate(device.lastUsedAt, formatDate)}
                       </p>
                     </div>
                     <Button

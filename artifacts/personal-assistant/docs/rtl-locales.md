@@ -1,15 +1,24 @@
 # Locale and RTL conventions
 
-## Supported locales and preference
+## Enabled locales and preference
 
-The app currently supports `en` (English, LTR) and `ar` (Arabic, RTL). The
-account's `preferredLocale` is the cross-device preference and Profile is its
+The locale registry at `src/lib/locale-registry.json` is the shared source for
+enabled locale codes, native display names, text direction, number/date
+formatting, calendar, week start, date-fns locale, Lingui catalog module, and
+the pre-render document bootstrap. It currently enables `en` (English, LTR)
+and `ar` (Arabic, RTL). The account's `preferredLocale` is the cross-device preference and Profile is its
 user-facing setting. When the account has no saved choice, the `askolo-locale`
 local-storage value seeds the app and is saved to the account after sign-in.
 Locale changes apply locally immediately and then sync to the account. A sync
 failure keeps the current-device choice and reports the failure. Speech
 transcription language is a separate provider preference and must not be used
 as the app locale.
+
+Locale codes use exactly two lowercase ASCII letters. The shared registry and
+the Go profile API each explicitly enable only `en` and `ar`; a well-formed
+code such as `fr` remains unsupported until it is deliberately added to both.
+The database checks only the two-letter format so a future enabled locale does
+not need a column or constraint redesign.
 
 The initial document bootstrap reads the same preference before React renders.
 Runtime changes update the root `lang` and `dir` together and update the mounted
@@ -21,7 +30,8 @@ event.
 ## Catalog and fallback contract
 
 - Catalogs use Lingui 6 gettext-style PO files at
-  `locales/{locale}/messages.po`. Keep English source descriptors in
+  `locales/{locale}/messages.po`, loaded as separate Vite chunks using the
+  registry's catalog module path. Keep English source descriptors in
   `src/lib/messages.ts`; run
   `pnpm --filter @workspace/personal-assistant run i18n:extract` after adding or
   changing descriptors, then add reviewed translations to the Arabic catalog.
@@ -36,8 +46,10 @@ event.
 - Plural messages use the active locale's CLDR categories. Arabic messages
   should cover `zero`, `one`, `two`, `few`, `many`, and `other`; English
   messages normally use `one` and `other`. Always include `other`.
-- Dates use `Intl.DateTimeFormat` with the Gregorian calendar. Numbers use
-  `Intl.NumberFormat`; Arabic explicitly uses Arabic-Indic digits.
+- Dates use `Intl.DateTimeFormat` with the registry's calendar (Gregorian for
+  current locales). Numbers use `Intl.NumberFormat`; Arabic explicitly uses
+  Arabic-Indic digits. Calendar week starts and date-fns locale data also come
+  from the registry.
 - Keep date keys, API payloads, route identifiers, and persisted enum values
   locale-neutral. Do not localize machine-readable values.
 

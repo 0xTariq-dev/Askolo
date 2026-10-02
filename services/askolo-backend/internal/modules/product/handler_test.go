@@ -46,18 +46,26 @@ func TestProfileUserResponseUsesClientFieldNames(t *testing.T) {
 	}
 }
 
-func TestSupportedPreferredLocalesAreAllowListed(t *testing.T) {
+func TestPreferredLocaleFormatAndEnabledSetAreSeparate(t *testing.T) {
 	for _, test := range []struct {
-		value string
-		valid bool
+		value       string
+		wellFormed  bool
+		isSupported bool
 	}{
-		{value: "en", valid: true},
-		{value: "ar", valid: true},
-		{value: "fr", valid: false},
-		{value: "", valid: false},
+		{value: "en", wellFormed: true, isSupported: true},
+		{value: "ar", wellFormed: true, isSupported: true},
+		{value: "fr", wellFormed: true, isSupported: false},
+		{value: "zz", wellFormed: true, isSupported: false},
+		{value: "", wellFormed: false, isSupported: false},
+		{value: "EN", wellFormed: false, isSupported: false},
+		{value: "e1", wellFormed: false, isSupported: false},
+		{value: "pt-BR", wellFormed: false, isSupported: false},
 	} {
-		if got := isSupportedPreferredLocale(test.value); got != test.valid {
-			t.Errorf("isSupportedPreferredLocale(%q) = %t, want %t", test.value, got, test.valid)
+		if got := isWellFormedLocaleCode(test.value); got != test.wellFormed {
+			t.Errorf("isWellFormedLocaleCode(%q) = %t, want %t", test.value, got, test.wellFormed)
+		}
+		if got := isSupportedPreferredLocale(test.value); got != test.isSupported {
+			t.Errorf("isSupportedPreferredLocale(%q) = %t, want %t", test.value, got, test.isSupported)
 		}
 	}
 }

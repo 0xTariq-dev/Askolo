@@ -1,4 +1,5 @@
 import path from 'path';
+import { readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { lingui } from '@lingui/vite-plugin';
@@ -28,9 +29,33 @@ if (!basePath) {
   );
 }
 
+const localeRegistry = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, 'src/lib/locale-registry.json'), 'utf8'),
+) as {
+  defaultLocale: string;
+  locales: Record<string, { direction: 'ltr' | 'rtl' }>;
+};
+const localeBootstrapManifest = {
+  defaultLocale: localeRegistry.defaultLocale,
+  locales: localeRegistry.locales,
+};
+
+const localeBootstrapManifestPlugin = {
+  name: 'askolo-locale-bootstrap-manifest',
+  transformIndexHtml() {
+    const manifest = JSON.stringify(localeBootstrapManifest).replace(/</g, '\\u003c');
+    return [{
+      tag: 'script',
+      children: `window.__ASKOLO_LOCALE_BOOTSTRAP__ = ${manifest};`,
+      injectTo: 'head-prepend' as const,
+    }];
+  },
+};
+
 export default defineConfig({
   base: basePath,
   plugins: [
+    localeBootstrapManifestPlugin,
     lingui({ failOnMissing: 'resolved' }),
     react({
       babel: {

@@ -26,6 +26,13 @@ export const GetCurrentAuthUserHeader = zod.object({
   "Authorization": zod.string().optional().describe('Opaque session token — `Bearer <sid>`.')
 })
 
+export const getCurrentAuthUserResponseUserOnePreferredLocaleMin = 2;
+export const getCurrentAuthUserResponseUserOnePreferredLocaleMax = 2;
+
+
+export const getCurrentAuthUserResponseUserOnePreferredLocaleRegExp = new RegExp('^[a-z]{2}$');
+
+
 export const GetCurrentAuthUserResponse = zod.object({
   "user": zod.union([zod.object({
   "id": zod.string(),
@@ -33,7 +40,7 @@ export const GetCurrentAuthUserResponse = zod.object({
   "firstName": zod.string(),
   "lastName": zod.string(),
   "profileImageUrl": zod.string(),
-  "preferredLocale": zod.enum(['en', 'ar']).nullable(),
+  "preferredLocale": zod.string().min(getCurrentAuthUserResponseUserOnePreferredLocaleMin).max(getCurrentAuthUserResponseUserOnePreferredLocaleMax).regex(getCurrentAuthUserResponseUserOnePreferredLocaleRegExp).nullable(),
   "status": zod.string(),
   "emailVerified": zod.boolean(),
   "accountCreatedVia": zod.string(),
@@ -353,11 +360,25 @@ export const LogoutMobileSessionResponse = zod.object({
 })
 
 
+export const updateUserProfileBodyPreferredLocaleMin = 2;
+export const updateUserProfileBodyPreferredLocaleMax = 2;
+
+
+export const updateUserProfileBodyPreferredLocaleRegExp = new RegExp('^[a-z]{2}$');
+
+
 export const UpdateUserProfileBody = zod.object({
   "firstName": zod.string().optional(),
   "lastName": zod.string().optional(),
-  "preferredLocale": zod.enum(['en', 'ar']).optional()
+  "preferredLocale": zod.string().min(updateUserProfileBodyPreferredLocaleMin).max(updateUserProfileBodyPreferredLocaleMax).regex(updateUserProfileBodyPreferredLocaleRegExp).optional()
 })
+
+export const updateUserProfileResponsePreferredLocaleMin = 2;
+export const updateUserProfileResponsePreferredLocaleMax = 2;
+
+
+export const updateUserProfileResponsePreferredLocaleRegExp = new RegExp('^[a-z]{2}$');
+
 
 export const UpdateUserProfileResponse = zod.object({
   "id": zod.string(),
@@ -365,7 +386,7 @@ export const UpdateUserProfileResponse = zod.object({
   "firstName": zod.string(),
   "lastName": zod.string(),
   "profileImageUrl": zod.string(),
-  "preferredLocale": zod.enum(['en', 'ar']).nullable(),
+  "preferredLocale": zod.string().min(updateUserProfileResponsePreferredLocaleMin).max(updateUserProfileResponsePreferredLocaleMax).regex(updateUserProfileResponsePreferredLocaleRegExp).nullable(),
   "status": zod.string(),
   "authProvider": zod.string()
 })

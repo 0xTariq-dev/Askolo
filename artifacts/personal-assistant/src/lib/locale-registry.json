@@ -1,0 +1,26 @@
+{
+  "defaultLocale": "en",
+  "sourceLocale": "en",
+  "locales": {
+    "en": {
+      "displayName": "English",
+      "direction": "ltr",
+      "numberFormatLocale": "en",
+      "dateFormatLocale": "en",
+      "calendar": "gregory",
+      "weekStartsOn": 1,
+      "dateFnsLocale": "en-US",
+      "catalogModule": "../../locales/en/messages.po"
+    },
+    "ar": {
+      "displayName": "العربية",
+      "direction": "rtl",
+      "numberFormatLocale": "ar-u-nu-arab",
+      "dateFormatLocale": "ar-u-nu-arab",
+      "calendar": "gregory",
+      "weekStartsOn": 1,
+      "dateFnsLocale": "ar-SA",
+      "catalogModule": "../../locales/ar/messages.po"
+    }
+  }
+}

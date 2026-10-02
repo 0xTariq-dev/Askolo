@@ -103,7 +103,10 @@ CREATE TABLE %susers (
 	updated_at timestamptz DEFAULT now() NOT NULL,
 	preferred_locale varchar(2),
 	CONSTRAINT users_preferred_locale_check
-		CHECK (preferred_locale IS NULL OR preferred_locale IN ('en', 'ar'))
+		CHECK (
+			preferred_locale IS NULL
+			OR (preferred_locale COLLATE "C") ~ '^[a-z]{2}$'
+		)
 );
 CREATE TABLE %ssessions (
 	sid varchar PRIMARY KEY,
