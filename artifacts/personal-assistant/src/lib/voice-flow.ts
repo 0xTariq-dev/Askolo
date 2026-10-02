@@ -49,6 +49,14 @@ export function shouldShowVoiceTranscriptReview(
   return state === 'review' && transcript.trim().length > 0;
 }
 
+export function canAutoSubmitAssistantVoiceTranscript(
+  state: VoiceFlowState,
+  transcript: string,
+  reviewSignalCount: number,
+): boolean {
+  return shouldShowVoiceTranscriptReview(state, transcript) && reviewSignalCount === 0;
+}
+
 export function getVoiceStatusText(
   state: VoiceFlowState,
   mode: VoiceFlowMode,

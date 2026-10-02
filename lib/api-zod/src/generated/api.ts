@@ -1625,6 +1625,20 @@ export const GetAssistantRunResponse = zod.object({
 
 
 /**
+ * @summary Synthesize speech from a stored assistant run response
+ */
+export const synthesizeAssistantSpeechPathIdMax = 128;
+
+
+
+export const SynthesizeAssistantSpeechParams = zod.object({
+  "id": zod.coerce.string().max(synthesizeAssistantSpeechPathIdMax)
+})
+
+export const SynthesizeAssistantSpeechResponse = zod.unknown()
+
+
+/**
  * @summary Confirm a pending allow-listed assistant action
  */
 export const ConfirmAssistantRunParams = zod.object({
@@ -1835,6 +1849,28 @@ export const UpdateTranscriptionPreferencesBody = zod.object({
 })
 
 export const UpdateTranscriptionPreferencesResponse = zod.object({
+  "consentGiven": zod.boolean(),
+  "consentVersion": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get Azure speech output consent
+ */
+export const GetVoiceOutputPreferencesResponse = zod.object({
+  "consentGiven": zod.boolean(),
+  "consentVersion": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update Azure speech output consent
+ */
+export const UpdateVoiceOutputPreferencesBody = zod.object({
+  "consent": zod.boolean()
+})
+
+export const UpdateVoiceOutputPreferencesResponse = zod.object({
   "consentGiven": zod.boolean(),
   "consentVersion": zod.string().nullish()
 })

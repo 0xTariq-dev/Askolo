@@ -217,6 +217,163 @@ func creditPolicySchemaURL(t *testing.T, databaseURL, schema string) string {
 	return parsed.String()
 }
 
+func TestVoiceOutputPreferencesRequireAuthenticationAndConsent(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	userID := "speech-output-consent-user"
+	sessionID := fixture.createUserAndSession(
+		t,
+		userID,
+		"speech-output-consent@example.test",
+		true,
+	)
+	if err := fixture.store.EnsurePersonalWorkspace(fixture.ctx, userID); err != nil {
+		t.Fatalf("ensure test personal workspace: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx,
+		postgres.DefaultWorkspaceID(userID),
+		userID,
+		"active",
+		"owner",
+		policy.PersonalWorkspaceCapabilities,
+	); err != nil {
+		t.Fatalf("set test workspace membership: %v", err)
+	}
+
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+	anonymous := httptest.NewRequest(http.MethodGet, "/api/ai/voice-output-preferences", nil)
+	anonymousResponse := httptest.NewRecorder()
+	handler.ServeHTTP(anonymousResponse, anonymous)
+	if anonymousResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous preferences status = %d, want %d: %s",
+			anonymousResponse.Code, http.StatusUnauthorized, anonymousResponse.Body.String())
+	}
+	anonymousSpeech := httptest.NewRequest(
+		http.MethodPost,
+		"/api/ai/assistant/runs/not-owned-by-this-user/speech",
+		nil,
+	)
+	anonymousSpeechResponse := httptest.NewRecorder()
+	handler.ServeHTTP(anonymousSpeechResponse, anonymousSpeech)
+	if anonymousSpeechResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous speech status = %d, want %d: %s",
+			anonymousSpeechResponse.Code, http.StatusUnauthorized, anonymousSpeechResponse.Body.String())
+	}
+
+	authenticatedRequest := func(method, path, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+sessionID)
+		if body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	preferences := authenticatedRequest(http.MethodGet, "/api/ai/voice-output-preferences", "")
+	if preferences.Code != http.StatusOK {
+		t.Fatalf("initial preferences status = %d, want %d: %s",
+			preferences.Code, http.StatusOK, preferences.Body.String())
+	}
+	var initial struct {
+		ConsentGiven   bool    `json:"consentGiven"`
+		ConsentVersion *string `json:"consentVersion"`
+	}
+	if err := json.Unmarshal(preferences.Body.Bytes(), &initial); err != nil {
+		t.Fatalf("decode initial preferences: %v", err)
+	}
+	if initial.ConsentGiven || initial.ConsentVersion != nil {
+		t.Fatalf("initial preferences = %+v, want consent disabled", initial)
+	}
+
+	speechPath := "/api/ai/assistant/runs/not-owned-by-this-user/speech"
+	speech := authenticatedRequest(http.MethodPost, speechPath, "")
+	if speech.Code != http.StatusForbidden ||
+		!strings.Contains(speech.Body.String(), `"VOICE_OUTPUT_CONSENT_REQUIRED"`) {
+		t.Fatalf("speech without consent status/body = %d %s, want consent-required 403",
+			speech.Code, speech.Body.String())
+	}
+
+	enabled := authenticatedRequest(
+		http.MethodPatch,
+		"/api/ai/voice-output-preferences",
+		`{"consent":true}`,
+	)
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable consent status = %d, want %d: %s",
+			enabled.Code, http.StatusOK, enabled.Body.String())
+	}
+	var granted struct {
+		ConsentGiven   bool   `json:"consentGiven"`
+		ConsentVersion string `json:"consentVersion"`
+	}
+	if err := json.Unmarshal(enabled.Body.Bytes(), &granted); err != nil {
+		t.Fatalf("decode granted preferences: %v", err)
+	}
+	if !granted.ConsentGiven || granted.ConsentVersion != postgres.VoiceOutputConsentVersion {
+		t.Fatalf("granted preferences = %+v, want current consent version", granted)
+	}
+
+	ownerID := "speech-output-other-owner"
+	_ = fixture.createUserAndSession(t, ownerID, "speech-output-owner@example.test", true)
+	conversationID := "speech-output-other-conversation"
+	foreignRunID := "speech-output-private-run"
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO assistant_conversations(id,user_id,workspace_id,title)
+		 VALUES($1,$2,$3,'Assistant')`,
+		conversationID, ownerID, postgres.DefaultWorkspaceID(ownerID),
+	); err != nil {
+		t.Fatalf("insert other user's assistant conversation: %v", err)
+	}
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO assistant_runs(
+			id,conversation_id,user_id,idempotency_key_hash,transcript,transcript_sha256,
+			state,reservation_id,base_credits,reserved_credits,policy_version,assistant_message
+		) VALUES($1,$2,$3,$4,'test request',$5,'completed','test-reservation',1,1,1,'Private assistant reply')`,
+		foreignRunID, conversationID, ownerID, strings.Repeat("a", 64), strings.Repeat("b", 64),
+	); err != nil {
+		t.Fatalf("insert other user's assistant run: %v", err)
+	}
+	foreignRunPath := "/api/ai/assistant/runs/" + foreignRunID + "/speech"
+	foreignRun := authenticatedRequest(http.MethodPost, foreignRunPath, "")
+	if foreignRun.Code != http.StatusNotFound ||
+		!strings.Contains(foreignRun.Body.String(), `"NOT_FOUND"`) ||
+		strings.Contains(foreignRun.Body.String(), "Private assistant reply") {
+		t.Fatalf("speech for another user's run status/body = %d %s, want opaque 404",
+			foreignRun.Code, foreignRun.Body.String())
+	}
+
+	revoked := authenticatedRequest(
+		http.MethodPatch,
+		"/api/ai/voice-output-preferences",
+		`{"consent":false}`,
+	)
+	if revoked.Code != http.StatusOK {
+		t.Fatalf("revoke consent status = %d, want %d: %s",
+			revoked.Code, http.StatusOK, revoked.Body.String())
+	}
+	var revokedPreferences struct {
+		ConsentGiven   bool    `json:"consentGiven"`
+		ConsentVersion *string `json:"consentVersion"`
+	}
+	if err := json.Unmarshal(revoked.Body.Bytes(), &revokedPreferences); err != nil {
+		t.Fatalf("decode revoked preferences: %v", err)
+	}
+	if revokedPreferences.ConsentGiven || revokedPreferences.ConsentVersion != nil {
+		t.Fatalf("revoked preferences = %+v, want consent disabled", revokedPreferences)
+	}
+
+	speechAfterRevocation := authenticatedRequest(http.MethodPost, foreignRunPath, "")
+	if speechAfterRevocation.Code != http.StatusForbidden ||
+		!strings.Contains(speechAfterRevocation.Body.String(), `"VOICE_OUTPUT_CONSENT_REQUIRED"`) {
+		t.Fatalf("speech after revocation status/body = %d %s, want consent-required 403",
+			speechAfterRevocation.Code, speechAfterRevocation.Body.String())
+	}
+}
+
 func (f *creditPolicyIntegrationFixture) createUserAndSession(
 	t *testing.T,
 	userID, email string,
@@ -476,8 +633,8 @@ func TestAICreditEstimateResolvesPublicPricingKeysAndUnits(t *testing.T) {
 
 	current.RateCards["openai:assistant:"+assistantPlannerModel] = postgres.USDRateCard{
 		Provider: "openai", Mode: "assistant", Model: assistantPlannerModel, Meter: "tokens",
-		InputUsdMicrosPerMillion:  1_000_000,
-		OutputUsdMicrosPerMillion: 2_000_000,
+		InputUsdMicrosPerMillion:  3_000_000,
+		OutputUsdMicrosPerMillion: 5_000_000,
 	}
 	current.RateCards["assemblyai:recorded:"+assemblyAIRealtimeSpeechModel] = postgres.USDRateCard{
 		Provider: "assemblyai", Mode: "recorded", Model: assemblyAIRealtimeSpeechModel,
@@ -497,7 +654,7 @@ func TestAICreditEstimateResolvesPublicPricingKeysAndUnits(t *testing.T) {
 		wantUnit     string
 		wantEstimate int64
 	}{
-		{name: "one assistant request uses reservation token caps", key: "assistant", units: "1", wantUnits: 1, wantUnit: "request", wantEstimate: 4_608},
+		{name: "one assistant request uses reservation token caps", key: "assistant", units: "1", wantUnits: 1, wantUnit: "request", wantEstimate: 13_568},
 		{name: "recorded voice units are seconds", key: "voice.recorded", units: "60", wantUnits: 60, wantUnit: "seconds", wantEstimate: 3_500},
 		{name: "realtime voice units are seconds", key: "voice.realtime", units: "60", wantUnits: 60, wantUnit: "seconds", wantEstimate: 7_500},
 	} {
@@ -542,6 +699,106 @@ func TestAICreditEstimateResolvesPublicPricingKeysAndUnits(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAICreditBalanceAndUsageRoutesExposeUSDLedger(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	const userID = "usd-ledger-viewer"
+	sessionID := fixture.createUserAndSession(t, userID, "usd-ledger-viewer@example.test", true)
+	if err := fixture.store.EnsurePersonalWorkspace(fixture.ctx, userID); err != nil {
+		t.Fatalf("ensure personal workspace: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx,
+		postgres.DefaultWorkspaceID(userID),
+		userID,
+		"active",
+		"owner",
+		policy.PersonalWorkspaceCapabilities,
+	); err != nil {
+		t.Fatalf("grant test workspace capabilities: %v", err)
+	}
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO ai_credit_accounts (user_id, granted_usd_micros) VALUES ($1, $2)`,
+		userID,
+		int64(2_500_000),
+	); err != nil {
+		t.Fatalf("seed isolated USD test balance: %v", err)
+	}
+
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+	request := func(path string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+sessionID)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want %d: %s", path, response.Code, http.StatusOK, response.Body.String())
+		}
+		return response
+	}
+
+	t.Run("balance route", func(t *testing.T) {
+		var got struct {
+			Currency       string `json:"currency"`
+			BalanceUSD     int64  `json:"balanceUsdMicros"`
+			GrantedUSD     int64  `json:"grantedUsdMicros"`
+			AdjustmentsUSD int64  `json:"adjustmentsUsdMicros"`
+			ReservedUSD    int64  `json:"reservedUsdMicros"`
+			SpentUSD       int64  `json:"spentUsdMicros"`
+			RefundedUSD    int64  `json:"refundedUsdMicros"`
+			PolicyVersion  int    `json:"policyVersion"`
+			CanManage      bool   `json:"canManage"`
+			Enforcement    string `json:"enforcement"`
+		}
+		if err := json.NewDecoder(request("/api/ai/credits").Body).Decode(&got); err != nil {
+			t.Fatalf("decode balance response: %v", err)
+		}
+		if got.Currency != "USD" || got.BalanceUSD != 2_500_000 || got.GrantedUSD != 2_500_000 {
+			t.Fatalf("balance fields = %#v, want USD balance and grant of 2500000 micro-USD", got)
+		}
+		if got.AdjustmentsUSD != 0 || got.ReservedUSD != 0 || got.SpentUSD != 0 || got.RefundedUSD != 0 {
+			t.Fatalf("unexpected nonzero ledger totals: %#v", got)
+		}
+		if got.PolicyVersion < 1 || got.CanManage || got.Enforcement != "strict" {
+			t.Fatalf("unexpected policy/access fields: %#v", got)
+		}
+	})
+
+	t.Run("usage route", func(t *testing.T) {
+		var got struct {
+			Currency string `json:"currency"`
+			Usage    struct {
+				BalanceUSD     int64 `json:"balanceUsdMicros"`
+				GrantedUSD     int64 `json:"grantedUsdMicros"`
+				AdjustmentsUSD int64 `json:"adjustmentsUsdMicros"`
+				ReservedUSD    int64 `json:"reservedUsdMicros"`
+				SpentUSD       int64 `json:"spentUsdMicros"`
+				RefundedUSD    int64 `json:"refundedUsdMicros"`
+			} `json:"usage"`
+			Reservations []json.RawMessage `json:"reservations"`
+			Events       []json.RawMessage `json:"events"`
+			Adjustments  []json.RawMessage `json:"adjustments"`
+			Grants       []json.RawMessage `json:"grants"`
+		}
+		if err := json.NewDecoder(request("/api/ai/credits/usage").Body).Decode(&got); err != nil {
+			t.Fatalf("decode usage response: %v", err)
+		}
+		if got.Currency != "USD" || got.Usage.BalanceUSD != 2_500_000 || got.Usage.GrantedUSD != 2_500_000 {
+			t.Fatalf("usage totals = %#v, want USD balance and grant of 2500000 micro-USD", got)
+		}
+		if got.Usage.AdjustmentsUSD != 0 || got.Usage.ReservedUSD != 0 || got.Usage.SpentUSD != 0 || got.Usage.RefundedUSD != 0 {
+			t.Fatalf("unexpected nonzero usage totals: %#v", got.Usage)
+		}
+		if got.Reservations == nil || got.Events == nil || got.Adjustments == nil || got.Grants == nil {
+			t.Fatalf("empty history collections must be arrays, got %#v", got)
+		}
+		if len(got.Reservations)+len(got.Events)+len(got.Adjustments)+len(got.Grants) != 0 {
+			t.Fatalf("unexpected history for a newly seeded balance: %#v", got)
+		}
+	})
 }
 
 func TestVoiceCreditReservationRejectsStalePolicyBeforeReserving(t *testing.T) {

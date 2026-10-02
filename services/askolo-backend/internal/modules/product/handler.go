@@ -87,11 +87,13 @@ type Handler struct {
 	sessionCookieName   string
 	canonicalOrigin     string
 	assemblyAI          assemblyAIProvider
+	speechOutput        azureSpeechProvider
 	adminEmails         map[string]struct{}
 	realtimeLimiter     *realtimeSessionLimiter
 	authRateLimitSecret string
 	realtimeIdleTimeout time.Duration
 	assistantPlanner    assistantPlanner
+	assistantTools      *assistantToolRegistry
 	realtimeMeters      sync.Map
 }
 
@@ -133,17 +135,29 @@ func newHandler(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	assistantTools := newAssistantToolRegistry()
+	assistantPlanner := newOpenAIAssistantPlanner(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, assistantTools)
+	if reason := assistantPlannerUnavailableReason(assistantPlanner); reason != "" {
+		logger.Warn("assistant planner configuration is unavailable", "reason", reason)
+	}
 	return &Handler{
-		store:               store,
-		logger:              logger,
-		sessionCookieName:   sessionCookieName,
-		assemblyAI:          assemblyAI,
-		adminEmails:         cfg.AdminEmails,
-		canonicalOrigin:     canonicalOrigin,
+		store:             store,
+		logger:            logger,
+		sessionCookieName: sessionCookieName,
+		assemblyAI:        assemblyAI,
+		adminEmails:       cfg.AdminEmails,
+		canonicalOrigin:   canonicalOrigin,
+		speechOutput: newAzureSpeechProvider(
+			cfg.AzureTTSKey,
+			cfg.AzureTTSRegion,
+			cfg.AzureTTSURL,
+			&http.Client{Timeout: 25 * time.Second},
+		),
 		realtimeLimiter:     newRealtimeSessionLimiter(),
 		authRateLimitSecret: cfg.AuthRateLimitHMACSecret,
 		realtimeIdleTimeout: realtimeClientIdleTimeout,
-		assistantPlanner:    newOpenAIAssistantPlanner(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL),
+		assistantPlanner:    assistantPlanner,
+		assistantTools:      assistantTools,
 	}
 }
 
@@ -278,16 +292,15 @@ func applyMargin(base int64, margin int) (int64, bool) {
 	return ceilMulDiv(base, int64(100+margin), 100)
 }
 
-func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation, durationMS int64, source string) (voiceCreditReceipt, bool) {
+func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string, reservation voiceCreditReservation, durationMS int64, providerRequestID string) (voiceCreditReceipt, bool) {
 	actual, ok := ceilMulDiv(reservation.RateCard.UsdMicrosPerHour, durationMS, 3600000)
 	if !ok || actual < 1 || actual > reservation.ReservedUsdMicros {
 		writeError(w, http.StatusBadGateway, "VOICE_USAGE_UNAVAILABLE", "The provider did not return valid usage for this operation.")
 		return voiceCreditReceipt{}, false
 	}
-	payload, _ := json.Marshal(map[string]string{"meterSource": source})
 	evidence := postgres.USDEvidence{
 		UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS,
-		ProviderRequestId: source, Payload: payload,
+		ProviderRequestId: providerRequestID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -394,11 +407,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/ai-credit-usage/{userId}", h.adminCreditUsage)
 	mux.HandleFunc("GET /api/ai/transcription-preferences", h.transcriptionPreferences)
 	mux.HandleFunc("PATCH /api/ai/transcription-preferences", h.updateTranscriptionPreferences)
+	mux.HandleFunc("GET /api/ai/voice-output-preferences", h.voiceOutputPreferences)
+	mux.HandleFunc("PATCH /api/ai/voice-output-preferences", h.updateVoiceOutputPreferences)
 	mux.HandleFunc("POST /api/ai/coaching", h.coaching)
 	mux.HandleFunc("POST /api/ai/assistant", h.assistant)
 	mux.HandleFunc("GET /api/ai/assistant/conversations/current", h.getAssistantConversation)
 	mux.HandleFunc("POST /api/ai/assistant/runs", h.createAssistantRun)
 	mux.HandleFunc("GET /api/ai/assistant/runs/{id}", h.getAssistantRun)
+	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/speech", h.assistantRunSpeech)
 	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/confirm", h.confirmAssistantRun)
 	mux.HandleFunc("POST /api/ai/assistant/runs/{id}/cancel", h.cancelAssistantRun)
 	mux.HandleFunc("POST /api/ai/generate-plan", h.generatePlan)
@@ -1380,12 +1396,16 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 	}()
 	result, deletionStatus, err := h.assemblyAI.Transcribe(r.Context(), audio, input.Language)
 	if err != nil {
-		if deletionStatus != "deleted" {
-			h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
-		}
 		if r.Context().Err() != nil {
 			return
 		}
+		diagnosticAttrs := []any{
+			"request_id", r.Header.Get("X-Request-ID"),
+			"provider", "assemblyai",
+			"operation", "transcribe",
+		}
+		diagnosticAttrs = append(diagnosticAttrs, assemblyAIDiagnosticLogAttrs(err)...)
+		h.logger.Error("voice transcription provider failed", diagnosticAttrs...)
 		if errors.Is(err, errAssemblyAITranscriptionTimeout) {
 			if deletionStatus != "deleted" {
 				writeError(w, http.StatusGatewayTimeout, "VOICE_PROVIDER_TIMEOUT_CLEANUP_FAILED", "Transcription timed out and provider data deletion could not be confirmed.")
@@ -1415,7 +1435,18 @@ func (h *Handler) transcribeAudio(w http.ResponseWriter, r *http.Request) {
 	if deletionStatus != "deleted" {
 		providerTranscriptStatus = "deletion_failed"
 		deletionMarker = "provider_transcript_deletion_failed"
-		h.logger.Error("voice provider deletion could not be confirmed", "provider", "assemblyai", "operation", "transcribe")
+		diagnosticAttrs := []any{
+			"request_id", r.Header.Get("X-Request-ID"),
+			"provider", "assemblyai",
+			"operation", "transcribe",
+			"stage", "delete_transcript",
+			"failure_kind", result.deletion.failureKind,
+			"cleanup_attempts", result.deletion.attempts,
+		}
+		if result.deletion.httpStatus > 0 {
+			diagnosticAttrs = append(diagnosticAttrs, "cleanup_http_status", result.deletion.httpStatus)
+		}
+		h.logger.Error("voice provider deletion could not be confirmed", diagnosticAttrs...)
 	}
 	writeJSON(w, http.StatusOK, audioTranscriptionResponse{
 		Transcript:    result.Transcript,

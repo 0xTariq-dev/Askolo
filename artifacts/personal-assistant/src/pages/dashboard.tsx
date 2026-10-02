@@ -92,8 +92,8 @@ export function DashboardPage() {
   const googleConnected = google?.calendarConnected || google?.gmailConnected;
 
   return (
-    <PageTransition className="space-y-8 pb-10 max-w-7xl mx-auto">
-      <header className="grid gap-6 rounded-2xl border border-border bg-card/70 p-6 shadow-sm md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:p-8">
+    <PageTransition surface={false} className="space-y-8 pb-10 max-w-7xl mx-auto">
+      <header className="grid gap-6 border-b border-border pb-8 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-primary">Daily command center</p>
           <h1 className="mt-3 text-4xl font-display font-semibold tracking-tight md:text-5xl">Good morning.</h1>

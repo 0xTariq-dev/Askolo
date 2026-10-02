@@ -1,10 +1,12 @@
 ---
-name: AssemblyAI deletion claims
-description: Bound user-facing retention claims to the provider's documented transcript-delete behavior.
+name: AssemblyAI deletion and retention claims
+description: Distinguish transcript deletion from Voice Agent session deletion, account opt-out, and verified retention guarantees.
 ---
 
-Treat `DELETE /v2/transcript/{id}` confirmation as confirmation that the transcript record was deleted. Do not claim the uploaded audio copy was also deleted unless AssemblyAI documentation or an account-level retention guarantee explicitly confirms it.
+For recorded transcription, treat `DELETE /v2/transcript/{id}` confirmation as confirmation that the transcript record was deleted. Do not claim the separately uploaded audio copy was also deleted unless documentation or an account-level retention guarantee explicitly confirms it.
 
-**Why:** The API reference documents removing transcript data and marking the transcript deleted, but does not clearly state that this operation deletes the separately uploaded audio object.
+Voice Agent session retrieval can expose recordings, conversation timelines, metadata, and tool-call details. Its delete endpoint is documented as a soft-delete that makes artifacts inaccessible; do not describe it as confirmed physical erasure. AssemblyAI says model-improvement opt-out applies across APIs, but it is prospective and does not cover earlier requests. Enable it before new sessions. Configure TTLs only when their scope is verified for Voice Agent artifacts; do not assume asynchronous-transcription or streaming-STT policies apply.
 
-**How to apply:** Keep the app's own raw-audio storage claim separate from provider deletion status. Disclose that provider retention and model-improvement settings apply to audio sent for transcription.
+**Why:** Provider deletion endpoints and product-specific retention controls have different guarantees; treating soft-delete, account opt-out, and TTL as equivalent would overstate what happens to voice data.
+
+**How to apply:** Keep Askolo storage claims separate from provider status. Disclose provider-specific processing and deletion limits, and verify the account configuration and product scope before promising retention or erasure behavior.

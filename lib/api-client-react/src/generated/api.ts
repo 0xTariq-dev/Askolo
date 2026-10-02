@@ -109,6 +109,8 @@ import type {
   TranscriptionPreferencesUpdateResponse,
   TrustedDevicesResponse,
   UserProfileUpdate,
+  VoiceOutputPreferences,
+  VoiceOutputPreferencesUpdate,
   VoiceToPlanBody,
   VoiceToPlanResponse
 } from './api.schemas';
@@ -6210,6 +6212,80 @@ export function useGetAssistantRun<TData = Awaited<ReturnType<typeof getAssistan
 
 
 
+export const getSynthesizeAssistantSpeechUrl = (id: string,) => {
+
+
+
+
+  return `/api/ai/assistant/runs/${id}/speech`
+}
+
+/**
+ * @summary Synthesize speech from a stored assistant run response
+ */
+export const synthesizeAssistantSpeech = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getSynthesizeAssistantSpeechUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getSynthesizeAssistantSpeechMutationKey = () => ['synthesizeAssistantSpeech'] as const;
+
+export const getSynthesizeAssistantSpeechMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof synthesizeAssistantSpeech>>, TError,SynthesizeAssistantSpeechMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof synthesizeAssistantSpeech>>, TError,SynthesizeAssistantSpeechMutationVariables, TContext> => {
+
+const mutationKey = getSynthesizeAssistantSpeechMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof synthesizeAssistantSpeech>>, SynthesizeAssistantSpeechMutationVariables> = (props) => {
+          const {id} = props ?? {};
+
+          return  synthesizeAssistantSpeech(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SynthesizeAssistantSpeechMutationResult = NonNullable<Awaited<ReturnType<typeof synthesizeAssistantSpeech>>>
+
+    export type SynthesizeAssistantSpeechMutationError = ErrorType<ErrorEnvelope>
+    export type SynthesizeAssistantSpeechMutationVariables = {id: string}
+
+    /**
+ * @summary Synthesize speech from a stored assistant run response
+ */
+export const useSynthesizeAssistantSpeech = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof synthesizeAssistantSpeech>>, TError,SynthesizeAssistantSpeechMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof synthesizeAssistantSpeech>>,
+        TError,
+        SynthesizeAssistantSpeechMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSynthesizeAssistantSpeechMutationOptions(options));
+    }
+
 export const getConfirmAssistantRunUrl = (id: string,) => {
 
 
@@ -6687,6 +6763,163 @@ export const useUpdateTranscriptionPreferences = <TError = ErrorType<ErrorEnvelo
         TContext
       > => {
       return useMutation(getUpdateTranscriptionPreferencesMutationOptions(options));
+    }
+
+export const getGetVoiceOutputPreferencesUrl = () => {
+
+
+
+
+  return `/api/ai/voice-output-preferences`
+}
+
+/**
+ * @summary Get Azure speech output consent
+ */
+export const getVoiceOutputPreferences = async ( options?: Parameters<typeof customFetch>[1]): Promise<VoiceOutputPreferences> => {
+
+  return customFetch<VoiceOutputPreferences>(getGetVoiceOutputPreferencesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVoiceOutputPreferencesQueryKey = () => {
+    return [
+    `/api/ai/voice-output-preferences`
+    ] as const;
+    }
+
+
+export const getGetVoiceOutputPreferencesQueryOptions = <TData = Awaited<ReturnType<typeof getVoiceOutputPreferences>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVoiceOutputPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVoiceOutputPreferencesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVoiceOutputPreferences>>> = ({ signal }) => getVoiceOutputPreferences({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVoiceOutputPreferences>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVoiceOutputPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof getVoiceOutputPreferences>>>
+export type GetVoiceOutputPreferencesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get Azure speech output consent
+ */
+
+export function useGetVoiceOutputPreferences<TData = Awaited<ReturnType<typeof getVoiceOutputPreferences>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVoiceOutputPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVoiceOutputPreferencesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateVoiceOutputPreferencesUrl = () => {
+
+
+
+
+  return `/api/ai/voice-output-preferences`
+}
+
+/**
+ * @summary Update Azure speech output consent
+ */
+export const updateVoiceOutputPreferences = async (voiceOutputPreferencesUpdate: VoiceOutputPreferencesUpdate, options?: Parameters<typeof customFetch>[1]): Promise<VoiceOutputPreferences> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<VoiceOutputPreferences>(getUpdateVoiceOutputPreferencesUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(voiceOutputPreferencesUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateVoiceOutputPreferencesMutationKey = () => ['updateVoiceOutputPreferences'] as const;
+
+export const getUpdateVoiceOutputPreferencesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVoiceOutputPreferences>>, TError,UpdateVoiceOutputPreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateVoiceOutputPreferences>>, TError,UpdateVoiceOutputPreferencesMutationVariables, TContext> => {
+
+const mutationKey = getUpdateVoiceOutputPreferencesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateVoiceOutputPreferences>>, UpdateVoiceOutputPreferencesMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateVoiceOutputPreferences(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateVoiceOutputPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof updateVoiceOutputPreferences>>>
+    export type UpdateVoiceOutputPreferencesMutationBody = BodyType<VoiceOutputPreferencesUpdate>
+    export type UpdateVoiceOutputPreferencesMutationError = ErrorType<ErrorEnvelope>
+    export type UpdateVoiceOutputPreferencesMutationVariables = {data: BodyType<VoiceOutputPreferencesUpdate>}
+
+    /**
+ * @summary Update Azure speech output consent
+ */
+export const useUpdateVoiceOutputPreferences = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVoiceOutputPreferences>>, TError,UpdateVoiceOutputPreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateVoiceOutputPreferences>>,
+        TError,
+        UpdateVoiceOutputPreferencesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateVoiceOutputPreferencesMutationOptions(options));
     }
 
 export const getMeetingExtractUrl = () => {

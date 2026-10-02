@@ -6,14 +6,19 @@
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [Lingui macros in Vite](lingui-vite-macros.md) — the PO catalog plugin does not replace the Babel transform required by `@lingui/core/macro`.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
+- [Replit OpenAI proxy URL](replit-openai-proxy-url.md) — the managed integration may use HTTP loopback on port 1106; allow only that endpoint, not arbitrary HTTP.
 - [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
+- [Signup welcome-credit atomicity](signup-welcome-credit-atomicity.md) — grant only at verified signup and commit the ledger entry with its balance change under one stable per-user key.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
-- [AssemblyAI deletion claims](assemblyai-retention-claims.md) — report transcript-delete confirmation without promising the uploaded audio copy was removed.
+- [Opt-in AssemblyAI provider tests](assemblyai-live-tests.md) — keep billable real-provider checks separate from deterministic mock tests and gate them explicitly.
+- [AssemblyAI deletion and retention claims](assemblyai-retention-claims.md) — distinguish transcript deletion, Voice Agent soft-delete, account-wide opt-out, and verified TTL coverage.
+- [AssemblyAI safe diagnostics](assemblyai-safe-diagnostics.md) — log controlled request stages, HTTP statuses, and cleanup retries; never provider bodies, audio, transcripts, keys, or transcript IDs.
+- [AssemblyAI explicit PII policies](assemblyai-pii-policy-requirements.md) — newer accounts require an explicit full `redact_pii_policies` list or transcript submissions can fail with HTTP 400.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
 - [Managed backup refs](managed-backup-refs.md) — the gitsafe backup remote rejects non-main pushes, including deletion of recovery branches.
 - [GitHub CLI Git transport](github-cli-git-transport.md) — `gh auth status` does not configure Git HTTPS; run `gh auth setup-git` before fetch/push.
-- [Transient voice privacy](transient-voice-privacy.md) — voice audio/provider transcripts stay transient; WebSocket recovery stores metadata/HMACs only and never replays speech.
+- [Transient voice privacy](transient-voice-privacy.md) — keep recovery metadata-only; summaries stay in consented same-chat memory, and EU Voice Agent use needs a clear residency warning.
 - [Client voice gating](client-voice-gating.md) — reject short or silent recordings in the browser before any provider request.
 - [Structured data without reviews](structured-data-without-reviews.md) — never add aggregateRating to marketing schema without authentic, verifiable review data.
 - [Published static build freshness](published-static-build-freshness.md) — verify live asset hashes against the current build before diagnosing SEO or compression findings.
@@ -27,6 +32,7 @@
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Replit artifact and canvas separation](replit-artifact-cleanup.md) — artifact files, Library registrations, and canvas frames are separate; inspect frame provenance before changing active service configuration.
+- [Manual artifact builds](artifact-shell-build-env.md) — shell builds do not inherit the artifact workflow's manifest environment; pass required values from the current manifest.
 - [Same-origin auth routing](same-origin-auth-routing.md) — render app routes locally when public and app origins share a host; otherwise redirects can loop forever.
 - [Production autoscale configuration](production-autoscale-config.md) — verify required Go production env vars and internal-auth secret before Autoscale promotion.
 - [Static Go binaries for Autoscale](go-autoscale-static-binary.md) — avoid Nix-loader “not found” crashes by producing and verifying a static production executable.
@@ -50,4 +56,9 @@
 - [Askolo app UI migration](askolo-ui-migration.md) — verify shared primitives, route-level token styling, and behavior-sensitive component API changes independently.
 - [Theme prepaint bootstrap](theme-prepaint-bootstrap.md) — use a classic head script for saved mode; Vite’s merged module bootstrap cannot guarantee pre-paint execution.
 - [Resend MCP output handling](resend-mcp-output.md) — Resend list/get tools may return formatted text blocks; parse only the needed recipient metadata and never log message bodies or codes.
+- [Node tests and Vite env](node-vite-test-environment.md) — `tsx --test` does not provide `import.meta.env`; guard Vite-only reads or use a Vite-aware test runner.
+- [Workspace-scoped package installs](workspace-package-installs.md) — the package callback may target the pnpm root; use a package-filtered install for artifact dependencies.
+- [AssemblyAI standalone TTS limit](assemblyai-tts-limit.md) — AssemblyAI speech output is part of its full Voice Agent API, not a standalone way to read existing text.
+- [Assistant tool registry contract](assistant-tool-registry.md) — keep planner arguments registry-driven and transform them into the existing persisted confirmation format before any write.
+- [Azure assistant speech privacy](azure-assistant-speech-output.md) — Azure semi-live replies complement AssemblyAI live mode and require independent consent and owner-scoped stored responses.
 

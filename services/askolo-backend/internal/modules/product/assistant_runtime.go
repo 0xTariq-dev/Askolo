@@ -142,48 +142,7 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outcome := postgres.AssistantPlanOutcome{
-		State: "completed", Message: "I can prepare one action item at a time. Tell me the single item you want me to add.",
-		AuditEvent: "plan_ready", Settle: plan.UsageValid,
-		ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
-		InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
-	}
-	switch plan.Intent {
-	case "none":
-		outcome.Message = "I can help prepare one action item for your list. Tell me the specific item you want to add."
-	case "clarify":
-		outcome.Message = "What single action item would you like me to prepare?"
-	case "create_action_item":
-		title := strings.TrimSpace(plan.Title)
-		if !validAssistantActionTitle(title) {
-			outcome.State = "rejected"
-			outcome.Message = "I couldn't safely prepare that item. Please rephrase it as one specific action."
-			outcome.AuditEvent = "intent_rejected"
-			break
-		}
-		intentJSON, marshalErr := json.Marshal(assistantIntent{Tool: "create_action_item", Title: title})
-		if marshalErr != nil {
-			outcome.State = "rejected"
-			outcome.Message = "I couldn't safely prepare that item. Please try again."
-			outcome.AuditEvent = "intent_rejected"
-			break
-		}
-		intentDigest := sha256.Sum256(intentJSON)
-		outcome.State = "needs_confirmation"
-		outcome.Intent = intentJSON
-		outcome.IntentSHA256 = hex.EncodeToString(intentDigest[:])
-		outcome.RiskLevel = "write"
-		outcome.RequiresConfirmation = true
-		expires := time.Now().UTC().Add(assistantConfirmationTTL)
-		outcome.ConfirmationExpires = &expires
-		outcome.ToolName = "create_action_item"
-		outcome.ToolArgsSHA256 = outcome.IntentSHA256
-		outcome.Message = fmt.Sprintf("I can add “%s” to your action items. Confirm to save it.", title)
-	default:
-		outcome.State = "rejected"
-		outcome.Message = "I couldn't safely prepare an action from that request. Please try rephrasing it."
-		outcome.AuditEvent = "intent_rejected"
-	}
+	outcome := prepareAssistantPlanOutcome(plan, h.toolRegistry())
 	finished, err := h.store.FinishAssistantPlanning(r.Context(), userID, run.ID, outcome)
 	if err != nil {
 		h.storeError(w, "assistant plan persistence failed", err)
@@ -232,9 +191,6 @@ func (h *Handler) confirmAssistantRun(w http.ResponseWriter, r *http.Request) {
 	if status != http.StatusOK || !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
-	if !h.authorize(r, userID, "actionItem", "", policy.ActionResourceCreate, w) {
-		return
-	}
 	var input assistantConfirmationInput
 	if !decodeAssistantJSON(w, r, &input, 2*1024) || !validIntentHash(input.ExpectedIntentSHA256) {
 		writeError(w, http.StatusBadRequest, "INVALID_CONFIRMATION", "The action confirmation is invalid. Review the action and try again.")
@@ -245,7 +201,29 @@ func (h *Handler) confirmAssistantRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_RUN_ID", "A valid assistant run id is required.")
 		return
 	}
-	run, err := h.store.ConfirmAssistantActionItem(r.Context(), userID, runID, input.ExpectedIntentSHA256)
+	pendingRun, err := h.store.GetAssistantRun(r.Context(), userID, runID)
+	if errors.Is(err, postgres.ErrAssistantNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Assistant run not found.")
+		return
+	}
+	if err != nil {
+		h.storeError(w, "assistant run lookup failed", err)
+		return
+	}
+	toolName, ok := assistantToolNameFromIntent(pendingRun.Intent)
+	if !ok {
+		writeError(w, http.StatusConflict, "ASSISTANT_TOOL_UNAVAILABLE", "This assistant action can no longer be confirmed.")
+		return
+	}
+	tool, ok := h.toolRegistry().lookup(toolName)
+	if !ok {
+		writeError(w, http.StatusConflict, "ASSISTANT_TOOL_UNAVAILABLE", "This assistant action can no longer be confirmed.")
+		return
+	}
+	if !h.authorize(r, userID, tool.ResourceType, "", tool.ResourcePermission, w) {
+		return
+	}
+	run, err := tool.confirm(r.Context(), h.store, userID, runID, input.ExpectedIntentSHA256)
 	if err != nil {
 		if h.handleAssistantStoreError(w, err) {
 			return

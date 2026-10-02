@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -89,6 +90,51 @@ func TestRequestAssemblyAIRealtimeTokenUsesEdgeTokenEndpoint(t *testing.T) {
 	}
 	if token != "synthetic-temporary-token" {
 		t.Fatalf("token = %q, want the provider's temporary token", token)
+	}
+}
+
+func TestRequestAssemblyAIRealtimeTokenUsesRequestedSessionDuration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("max_session_duration_seconds"); got != "60" {
+			t.Errorf("max_session_duration_seconds = %q, want the minimum 60-second session cap", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"token":"synthetic-temporary-token","expires_in_seconds":60}`)
+	}))
+	defer server.Close()
+
+	token, err := requestAssemblyAIRealtimeTokenWithSessionDuration(
+		context.Background(),
+		server.Client(),
+		server.URL,
+		"synthetic-test-key",
+		assemblyAIRealtimeMinProviderSessionSeconds,
+	)
+	if err != nil {
+		t.Fatalf("requestAssemblyAIRealtimeTokenWithSessionDuration returned error: %v", err)
+	}
+	if token != "synthetic-temporary-token" {
+		t.Fatalf("token = %q, want the provider's temporary token", token)
+	}
+}
+
+func TestRequestAssemblyAIRealtimeTokenRejectsOutOfRangeSessionDuration(t *testing.T) {
+	for _, duration := range []int{
+		assemblyAIRealtimeMinProviderSessionSeconds - 1,
+		assemblyAIRealtimeMaxProviderSessionSeconds + 1,
+	} {
+		t.Run(strconv.Itoa(duration), func(t *testing.T) {
+			_, err := requestAssemblyAIRealtimeTokenWithSessionDuration(
+				context.Background(),
+				nil,
+				"https://streaming.assemblyai.com",
+				"synthetic-test-key",
+				duration,
+			)
+			if !errors.Is(err, errAssemblyAIProviderFailure) {
+				t.Fatalf("error = %v, want a generic provider failure", err)
+			}
+		})
 	}
 }
 

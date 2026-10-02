@@ -1,4 +1,4 @@
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+const basePath = import.meta.env?.BASE_URL?.replace(/\/$/, '') ?? '';
 
 type CreditRequestOptions = RequestInit & { body?: BodyInit | null };
 export type UsdMicros = number;

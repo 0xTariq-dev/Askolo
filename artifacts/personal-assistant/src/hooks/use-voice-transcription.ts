@@ -32,6 +32,7 @@ export interface CompletedVoiceRecording {
   blob: Blob;
   mimeType: string;
   durationMs: number;
+  captureDurationMs?: number;
   transcript: string;
 }
 
@@ -69,6 +70,16 @@ const DEFAULT_MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const MIN_RECORDED_SPEECH_MS = 700;
 const MIN_ACTIVE_AUDIO_MS = 140;
 const ACTIVE_AUDIO_RMS_THRESHOLD = 0.008;
+const RECORDED_AUDIO_BITRATE = 96_000;
+const RECORDED_AUDIO_CONSTRAINTS: MediaStreamConstraints = {
+  audio: {
+    channelCount: { ideal: 1 },
+    sampleRate: { ideal: 48_000 },
+    echoCancellation: { ideal: true },
+    noiseSuppression: { ideal: true },
+    autoGainControl: { ideal: true },
+  },
+};
 const LOW_CONFIDENCE_THRESHOLD = 0.78;
 const DEFAULT_REALTIME_MAX_SESSION_SECONDS = 180;
 const SUPPORTED_FILE_TYPES = new Set(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/wav', 'audio/ogg', 'audio/mpeg']);
@@ -94,6 +105,10 @@ interface RealtimeServerEvent {
   message?: string;
   maxSessionDurationSeconds?: number;
   creditReceipt?: CreditReceiptDetails;
+  receipt?: CreditReceiptDetails;
+  reservedUsdMicros?: number;
+  settledUsdMicros?: number;
+  balanceUsdMicros?: number;
   turn_order?: number;
   transcript?: string;
   end_of_turn?: boolean;
@@ -163,17 +178,25 @@ function getRecorderMimeType(): string | null {
   return supportedTypes.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
 }
 
-async function validateRecordedSpeech(blob: Blob, durationMs: number): Promise<boolean> {
-  if (durationMs < MIN_RECORDED_SPEECH_MS) return false;
+async function validateRecordedSpeech(
+  blob: Blob,
+  captureDurationMs: number,
+  maxDurationMs: number,
+): Promise<number | null> {
+  if (captureDurationMs < MIN_RECORDED_SPEECH_MS) return null;
 
   const AudioContextCtor = window.AudioContext ??
     (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextCtor) return false;
+  if (!AudioContextCtor) return null;
 
   let context: AudioContext | null = null;
   try {
     context = new AudioContextCtor();
     const audioBuffer = await context.decodeAudioData(await blob.arrayBuffer());
+    const audioDurationMs = Math.round(audioBuffer.duration * 1000);
+    if (!Number.isFinite(audioBuffer.duration) ||
+      audioDurationMs < MIN_RECORDED_SPEECH_MS ||
+      audioDurationMs > maxDurationMs) return null;
     const channel = audioBuffer.getChannelData(0);
     const windowSize = Math.max(1, Math.floor(audioBuffer.sampleRate * 0.02));
     let activeSamples = 0;
@@ -191,10 +214,12 @@ async function validateRecordedSpeech(blob: Blob, durationMs: number): Promise<b
     }
 
     const activeDurationMs = (activeSamples / audioBuffer.sampleRate) * 1000;
-    return peakRms >= ACTIVE_AUDIO_RMS_THRESHOLD && activeDurationMs >= MIN_ACTIVE_AUDIO_MS;
+    return peakRms >= ACTIVE_AUDIO_RMS_THRESHOLD && activeDurationMs >= MIN_ACTIVE_AUDIO_MS
+      ? audioDurationMs
+      : null;
   } catch {
     // Do not send an unvalidated recording if this browser cannot decode it.
-    return false;
+    return null;
   } finally {
     if (context && context.state !== 'closed') await context.close();
   }
@@ -214,7 +239,7 @@ async function blobToBase64(blob: Blob): Promise<string> {
 function assertVoiceReservationAllowed(estimate: CreditEstimate) {
   if (!estimate.canReserve) {
     throw new Error(
-      `This voice request needs up to ${formatUsdMicros(estimate.hardCapUsdMicros)}; ${formatUsdMicros(estimate.availableUsdMicros)} are available. Open AI Credits to review your balance.`,
+      `This voice request needs up to ${formatUsdMicros(estimate.hardCapUsdMicros)}; ${formatUsdMicros(estimate.availableUsdMicros)} are available. Open Balance to review your available amount.`,
     );
   }
 }
@@ -232,7 +257,13 @@ async function prepareVoiceCreditRequest(pricingKey: 'voice.recorded' | 'voice.r
 }
 
 function creditPostflightMessage(receipt: CreditReceiptDetails | undefined, estimate: CreditEstimate): string {
-  if (!receipt || typeof receipt.settledUsdMicros !== 'number' || typeof receipt.balanceUsdMicros !== 'number') {
+  if (!receipt ||
+    !Number.isFinite(receipt.reservedUsdMicros) ||
+    !Number.isFinite(receipt.settledUsdMicros) ||
+    !Number.isFinite(receipt.balanceUsdMicros) ||
+    receipt.reservedUsdMicros < 0 ||
+    receipt.settledUsdMicros < 0 ||
+    receipt.balanceUsdMicros < 0) {
     throw new Error('The operation completed but its credit receipt was missing. Refresh AI Credits before retrying.');
   }
   const returned = Math.max(0, receipt.reservedUsdMicros - receipt.settledUsdMicros);
@@ -328,6 +359,7 @@ export function useVoiceTranscription({
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
     mediaRecorderRef.current = null;
+    recordingStartedAtRef.current = null;
     audioChunksRef.current = [];
     const context = audioContextRef.current;
     audioContextRef.current = null;
@@ -421,14 +453,17 @@ export function useVoiceTranscription({
       const preflight = await creditApi.estimate('voice.recorded', 60);
       assertVoiceReservationAllowed(preflight);
       setStatus(`Estimate: ${formatUsdMicros(preflight.estimatedUsdMicros)}; maximum ${formatUsdMicros(preflight.hardCapUsdMicros)}. Requesting microphone permission…`);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia(RECORDED_AUDIO_CONSTRAINTS);
        if (sessionRef.current !== sessionId || cancelRequestedRef.current || stopRequestedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
          updateState('idle');
          setStatus('');
         return;
       }
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        audioBitsPerSecond: RECORDED_AUDIO_BITRATE,
+      });
       mediaStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
@@ -458,12 +493,14 @@ export function useVoiceTranscription({
       }
       recorder.onstop = async () => {
         const canceled = cancelRequestedRef.current || sessionRef.current !== sessionId;
-        const recordedDurationMs = Math.min(
+        const captureDurationMs = Math.min(
           maxRecordingMs,
-          Math.max(1, Date.now() - (recordingStartedAtRef.current ?? Date.now())),
+          Math.max(1, Math.round(performance.now() - (recordingStartedAtRef.current ?? performance.now()))),
         );
+        setRecordingSeconds(Math.round(captureDurationMs / 1000));
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType });
         cleanupMediaStream();
+        updateState('processing');
         if (canceled) return;
         if (blob.size === 0) {
           updateState('error');
@@ -477,17 +514,24 @@ export function useVoiceTranscription({
           setStatus('');
           return;
         }
-        if (!(await validateRecordedSpeech(blob, recordedDurationMs))) {
+        const audioDurationMs = await validateRecordedSpeech(blob, captureDurationMs, maxRecordingMs);
+        if (audioDurationMs === null) {
           updateState('error');
           setError('This recording is too short or contains no clear speech. Hold to record while speaking, then release.');
           setStatus('');
           return;
         }
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
+        const captureSeconds = Math.max(1, Math.round(captureDurationMs / 1000));
+        const audioSeconds = Math.max(1, Math.round(audioDurationMs / 1000));
+        const durationNote = Math.abs(captureDurationMs - audioDurationMs) > 1000
+          ? `The capture timer reached ${captureSeconds} second${captureSeconds === 1 ? '' : 's'}, but the saved audio contains ${audioSeconds} second${audioSeconds === 1 ? '' : 's'}. Check the microphone if audio seems missing. `
+          : '';
         setRecording({
           blob,
           mimeType: blob.type || mimeType,
-          durationMs: recordedDurationMs,
+          durationMs: audioDurationMs,
+          captureDurationMs,
           transcript: '',
         });
 
@@ -497,16 +541,16 @@ export function useVoiceTranscription({
         try {
           const audioBase64 = await blobToBase64(blob);
           if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-           const creditRequest = await prepareVoiceCreditRequest('voice.recorded', Math.max(1, Math.ceil(recordedDurationMs / 1000)));
+           const creditRequest = await prepareVoiceCreditRequest('voice.recorded', Math.max(1, Math.ceil(audioDurationMs / 1000)));
           if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-           setStatus(`Estimate: ${formatUsdMicros(creditRequest.estimate.estimatedUsdMicros)}; maximum ${formatUsdMicros(creditRequest.estimate.hardCapUsdMicros)}. Transcribing…`);
+           setStatus(`${durationNote}Estimate: ${formatUsdMicros(creditRequest.estimate.estimatedUsdMicros)}; maximum ${formatUsdMicros(creditRequest.estimate.hardCapUsdMicros)}. Transcribing…`);
           transcriptionController = new AbortController();
           transcriptionAbortRef.current = transcriptionController;
           const data = await transcribeAudioRequest({
             audioBase64,
             mimeType: (blob.type || mimeType).split(';')[0] as
               'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
-            durationMs: recordedDurationMs,
+            durationMs: audioDurationMs,
             language,
           }, {
             credentials: 'include',
@@ -530,24 +574,25 @@ export function useVoiceTranscription({
           setRecording({
             blob,
             mimeType: blob.type || mimeType,
-            durationMs: recordedDurationMs,
+            durationMs: audioDurationMs,
+            captureDurationMs,
             transcript: spokenText,
           });
           updateState('review');
-          setStatus(`${postflight} Review the transcript before submitting it.`);
+          setStatus(`${durationNote}${postflight} Review the transcript before submitting it.`);
         } catch (transcriptionError) {
           if (transcriptionController?.signal.aborted || sessionRef.current !== sessionId || cancelRequestedRef.current) return;
           updateState('error');
           setError(transcriptionError instanceof Error ? transcriptionError.message : 'Voice transcription failed. Try again or type instead.');
-          setStatus('');
+          setStatus(durationNote);
         } finally {
           if (transcriptionAbortRef.current === transcriptionController) {
             transcriptionAbortRef.current = null;
           }
         }
       };
-      recordingStartedAtRef.current = Date.now();
-      recorder.start(1000);
+      recordingStartedAtRef.current = performance.now();
+      recorder.start();
       updateState('listening');
       setStatus('Speak naturally. Your audio is sent to AssemblyAI for reviewable transcription.');
     } catch (captureError) {
@@ -700,9 +745,15 @@ export function useVoiceTranscription({
           resolveReady();
           return;
         }
-        if (envelope.type === 'AskoloSettlement') {
+        if (envelope.type === 'voice.settlement' || envelope.type === 'AskoloSettlement') {
           try {
-            postflight = creditPostflightMessage((envelope.payload as { creditReceipt?: CreditReceiptDetails; receipt?: CreditReceiptDetails })?.creditReceipt ?? (envelope.payload as { receipt?: CreditReceiptDetails })?.receipt, creditRequest.estimate);
+            const settlementPayload = envelope.payload as (RealtimeServerEvent & CreditReceiptDetails) | undefined;
+            const receipt = settlementPayload?.creditReceipt ??
+              settlementPayload?.receipt ??
+              (typeof settlementPayload?.settledUsdMicros === 'number'
+                ? settlementPayload as CreditReceiptDetails
+                : undefined);
+            postflight = creditPostflightMessage(receipt, creditRequest.estimate);
             voiceCreditPostflightRef.current = postflight;
             setStatus(postflight);
           } catch (settlementError) {
@@ -713,20 +764,22 @@ export function useVoiceTranscription({
         if (envelope.type === 'voice.ready') {
           if (readySettled) return;
           try {
-            postflight = creditPostflightMessage(envelope.payload?.creditReceipt, creditRequest.estimate);
             if (typeof envelope.payload?.maxSessionDurationSeconds === 'number' && envelope.payload.maxSessionDurationSeconds > 0) {
               realtimeMaxSessionSecondsRef.current = Math.min(
                 DEFAULT_REALTIME_MAX_SESSION_SECONDS,
                 Math.max(1, Math.floor(envelope.payload.maxSessionDurationSeconds)),
               );
             }
-            voiceCreditPostflightRef.current = postflight;
-            setStatus(`${postflight} Connecting live transcription…`);
+            const reservedUsdMicros = envelope.payload?.creditReceipt?.reservedUsdMicros ??
+              envelope.payload?.reservedUsdMicros;
+            setStatus(`${typeof reservedUsdMicros === 'number'
+              ? `Reserved up to ${formatUsdMicros(reservedUsdMicros)}. `
+              : 'Live-session credit reservation is active. '}Connecting live transcription…`);
             readySettled = true;
             if (realtimeReadyTimeout !== null) window.clearTimeout(realtimeReadyTimeout);
             resolveReady();
-          } catch (readyError) {
-            failRealtime(readyError instanceof Error ? readyError.message : 'The live session credit receipt was invalid.');
+          } catch {
+            failRealtime('The live transcription session could not be prepared. Try again.');
           }
           return;
         }
@@ -1038,11 +1091,12 @@ export function useVoiceTranscription({
         if (!Number.isFinite(durationMs) || durationMs < MIN_RECORDED_SPEECH_MS || durationMs > maxRecordingMs) {
           throw new Error(`Audio must be between 1 second and ${Math.round(maxRecordingMs / 1000)} seconds.`);
         }
-        if (!(await validateRecordedSpeech(file, durationMs))) throw new Error('This audio is too short or contains no clear speech.');
+        const verifiedDurationMs = await validateRecordedSpeech(file, durationMs, maxRecordingMs);
+        if (verifiedDurationMs === null) throw new Error('This audio is too short or contains no clear speech.');
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
-        setRecording({ blob: file, mimeType, durationMs, transcript: '' });
+        setRecording({ blob: file, mimeType, durationMs: verifiedDurationMs, transcript: '' });
         const audioBase64 = await blobToBase64(file);
-         const creditRequest = await prepareVoiceCreditRequest('voice.recorded', Math.max(1, Math.ceil(durationMs / 1000)));
+         const creditRequest = await prepareVoiceCreditRequest('voice.recorded', Math.max(1, Math.ceil(verifiedDurationMs / 1000)));
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
          setStatus(`Estimate: ${formatUsdMicros(creditRequest.estimate.estimatedUsdMicros)}; transcribing audio…`);
         transcriptionController = new AbortController();
@@ -1050,7 +1104,7 @@ export function useVoiceTranscription({
         const data = await transcribeAudioRequest({
           audioBase64,
           mimeType: mimeType as 'audio/webm' | 'audio/mp4' | 'audio/m4a' | 'audio/wav' | 'audio/ogg' | 'audio/mpeg',
-          durationMs,
+          durationMs: verifiedDurationMs,
           language,
         }, {
           credentials: 'include',
@@ -1090,7 +1144,10 @@ export function useVoiceTranscription({
     if (state !== 'listening') return;
     const timer = window.setInterval(() => {
       setRecordingSeconds((current) => {
-        const next = current + 1;
+        const startedAt = mode === 'recorded' ? recordingStartedAtRef.current : null;
+        const next = startedAt === null
+          ? current + 1
+          : Math.max(current, Math.floor((performance.now() - startedAt) / 1000));
         const sessionLimit = mode === 'live' ? realtimeMaxSessionSecondsRef.current : maxRecordingMs / 1000;
         if (next >= sessionLimit && !durationStopRequestedRef.current) {
           durationStopRequestedRef.current = true;

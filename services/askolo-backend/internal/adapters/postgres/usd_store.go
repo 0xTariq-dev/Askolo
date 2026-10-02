@@ -15,6 +15,12 @@ import (
 
 const USDMicroUnitsPerDollar int64 = 1_000_000
 
+const (
+	signupWelcomeUSDGrantAmount int64 = 5 * USDMicroUnitsPerDollar
+	signupWelcomeUSDGrantKey          = "welcome-credit-usd-v1"
+	signupWelcomeUSDGrantReason       = "Signup welcome credit"
+)
+
 type USDRateCard struct {
 	Provider                  string `json:"provider"`
 	Mode                      string `json:"mode"`
@@ -45,12 +51,14 @@ type USDUsage struct {
 }
 type USDReservation struct {
 	ID                string     `json:"id"`
+	OperationType     string     `json:"operationType,omitempty"`
 	Status            string     `json:"status"`
 	ReservedUsdMicros int64      `json:"reservedUsdMicros"`
 	SettledUsdMicros  int64      `json:"settledUsdMicros"`
 	RefundedUsdMicros int64      `json:"refundedUsdMicros"`
 	PolicyVersion     int        `json:"policyVersion"`
 	ExpiresAt         *time.Time `json:"expiresAt"`
+	CreatedAt         *time.Time `json:"createdAt,omitempty"`
 	Provider          string     `json:"provider"`
 	Mode              string     `json:"mode"`
 	Model             string     `json:"model"`
@@ -162,6 +170,55 @@ func (s *Store) USDUsage(ctx context.Context, userID string) (USDUsage, error) {
 		return u, nil
 	}
 	return u, err
+}
+
+func grantSignupWelcomeUSDTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	if strings.TrimSpace(userID) == "" {
+		return errors.New("welcome grant user is required")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id) VALUES($1) ON CONFLICT DO NOTHING`, userID); err != nil {
+		return err
+	}
+	var lockedUserID string
+	if err := tx.QueryRow(ctx, `SELECT user_id FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		return err
+	}
+
+	var sourceType, currency, reason string
+	var amount int64
+	err := tx.QueryRow(ctx, `
+		SELECT source_type, currency, amount_usd_micros, COALESCE(reason, '')
+		FROM ai_credit_grants
+		WHERE user_id=$1 AND idempotency_key=$2
+	`, userID, signupWelcomeUSDGrantKey).Scan(&sourceType, &currency, &amount, &reason)
+	if err == nil {
+		if sourceType == "signup" && currency == "USD" &&
+			amount == signupWelcomeUSDGrantAmount && reason == signupWelcomeUSDGrantReason {
+			return nil
+		}
+		return ErrUSDReservationConflict
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	metadata := json.RawMessage(`{"grantType":"signup_welcome","version":1}`)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_credit_grants
+			(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,
+			 actor_user_id,reason,currency,amount_usd_micros)
+		VALUES ($1,'signup',1,$2,$2,$3,NULL,$4,'USD',$5)
+	`, userID, signupWelcomeUSDGrantKey, metadata, signupWelcomeUSDGrantReason, signupWelcomeUSDGrantAmount); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE ai_credit_accounts
+		SET granted_usd_micros=granted_usd_micros+$2,updated_at=NOW()
+		WHERE user_id=$1
+	`, userID, signupWelcomeUSDGrantAmount); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) ReserveUSD(ctx context.Context, id, userID, operation, provider, mode, model, key string, amount, ttl int64, policyVersion int, snapshot json.RawMessage) (USDReservation, bool, error) {
@@ -560,6 +617,8 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 		if err := rows.Scan(&r.ID, &operation, &r.Provider, &r.Mode, &r.Model, &r.Status, &r.ReservedUsdMicros, &r.SettledUsdMicros, &r.RefundedUsdMicros, &r.PolicyVersion, &r.ExpiresAt, &created); err != nil {
 			return nil, err
 		}
+		r.OperationType = operation
+		r.CreatedAt = &created
 		reservations = append(reservations, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -627,28 +686,42 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 
 // RecordUSDEvidence stores provider metering metadata only. Payload must not
 // contain transcripts, prompts, audio, or other user content.
+func validateUSDUsageEvidence(evidence USDEvidence) error {
+	if len(evidence.ProviderRequestId) > 200 || len(evidence.Payload) > 8192 ||
+		evidence.UsageUnits < 0 || evidence.DurationMs < 0 || evidence.InputTokens < 0 || evidence.OutputTokens < 0 ||
+		(evidence.UsageUnit != "hour" && evidence.UsageUnit != "second" && evidence.UsageUnit != "millisecond" && evidence.UsageUnit != "milliseconds" &&
+			evidence.UsageUnit != "input_tokens" && evidence.UsageUnit != "output_tokens" && evidence.UsageUnit != "tokens") {
+		return errors.New("invalid USD usage evidence")
+	}
+	if len(evidence.Payload) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(evidence.Payload, &fields) != nil {
+		return errors.New("usage payload must be a JSON object")
+	}
+	for field := range fields {
+		if field != "providerRequestId" && field != "usageUnit" && field != "usageUnits" &&
+			field != "durationMs" && field != "inputTokens" && field != "outputTokens" && field != "meterSource" {
+			return errors.New("usage payload contains non-metering data")
+		}
+	}
+	return nil
+}
+
 func (s *Store) RecordUSDEvidence(ctx context.Context, reservationID, userID, provider, mode, model, key string, evidence USDEvidence) error {
 	if s == nil || s.pool == nil {
 		return errors.New("database is not configured")
 	}
-	if reservationID == "" || userID == "" || provider == "" || mode == "" || key == "" ||
-		len(key) > 240 || len(evidence.ProviderRequestId) > 200 || len(evidence.Payload) > 8192 ||
-		evidence.UsageUnits < 0 || evidence.DurationMs < 0 || evidence.InputTokens < 0 || evidence.OutputTokens < 0 ||
-		(evidence.UsageUnit != "hour" && evidence.UsageUnit != "second" && evidence.UsageUnit != "millisecond" && evidence.UsageUnit != "input_tokens" && evidence.UsageUnit != "output_tokens" && evidence.UsageUnit != "tokens") {
+	if reservationID == "" || userID == "" || provider == "" || mode == "" || key == "" || len(key) > 240 {
 		return errors.New("invalid USD usage evidence")
+	}
+	if err := validateUSDUsageEvidence(evidence); err != nil {
+		return err
 	}
 	payload := evidence.Payload
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
-	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(payload, &fields) != nil {
-		return errors.New("usage payload must be a JSON object")
-	}
-	for field := range fields {
-		if field != "providerRequestId" && field != "usageUnit" && field != "usageUnits" && field != "durationMs" && field != "inputTokens" && field != "outputTokens" {
-			return errors.New("usage payload contains non-metering data")
-		}
 	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO ai_provider_usage_evidence(
 		reservation_id,user_id,provider,mode,model,usage_unit,usage_units,duration_ms,

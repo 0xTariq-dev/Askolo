@@ -10,7 +10,7 @@ export interface PublicWebSocketEnvelope<TPayload = Record<string, unknown>> {
 export type SequenceRef = { current: number };
 
 export function publicWebSocketURL(): string {
-  const rawBasePath = import.meta.env.BASE_URL ?? '/';
+  const rawBasePath = import.meta.env?.BASE_URL ?? '/';
   const basePath = rawBasePath.endsWith('/') ? rawBasePath : `${rawBasePath}/`;
   const url = new URL(`${basePath}ws`, window.location.origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';

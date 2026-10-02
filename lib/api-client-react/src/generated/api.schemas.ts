@@ -1069,6 +1069,16 @@ export interface TranscriptionPreferencesUpdateResponse {
   consentVersion?: string | null;
 }
 
+export interface VoiceOutputPreferences {
+  consentGiven: boolean;
+  /** @nullable */
+  consentVersion?: string | null;
+}
+
+export interface VoiceOutputPreferencesUpdate {
+  consent: boolean;
+}
+
 export interface MeetingExtractActionItem {
   title: string;
   /** @nullable */
