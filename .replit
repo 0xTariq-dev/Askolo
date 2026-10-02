@@ -40,6 +40,8 @@ timeoutMs = 20000
 [userenv.shared]
 AUTH_EMAIL_FROM = "noreply@mail.askolo.app"
 GOSUMDB = "sum.golang.org"
+ASKOLO_ASSEMBLYAI_VOICE_AGENT_ENABLED = "true"
+ASKOLO_ADMIN_EMAILS = "tariqmohsen222@gmail.com"
 
 # This workspace is the development Repl. Staging and production use separate
 # Replit projects and their own environment-specific resources.
@@ -48,7 +50,6 @@ ASKOLO_ENVIRONMENT = "development"
 ASKOLO_COOKIE_NAMESPACE = "askolo_dev"
 ASKOLO_DATABASE_ID = "development-database"
 GOOGLE_REDIRECT_URI = "https://5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvhiesj.picard.replit.dev/api/google/gmail/callback"
-ASKOLO_ADMIN_EMAILS = "tariqmohsen222@gmail.com"
 
 [userenv.production]
 ASKOLO_CANONICAL_ORIGIN = "https://dev.askolo.app"
