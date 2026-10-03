@@ -11,9 +11,12 @@ const localeBootstrap = await readFile(
   new URL('../../public/locale-bootstrap.js', import.meta.url),
   'utf8',
 );
+<<<<<<< HEAD
 const localeRegistry = JSON.parse(
   await readFile(new URL('./locale-registry.json', import.meta.url), 'utf8'),
 );
+=======
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 
 function makeWindow(search = '') {
   return new Window({ url: `http://localhost/${search}` });
@@ -77,15 +80,19 @@ test('an explicit theme query overrides saved mode without replacing saved palet
 test('locale prepaint restores Arabic direction independently of theme', () => {
   const window = makeWindow();
   window.localStorage.setItem('askolo-locale', 'ar');
+<<<<<<< HEAD
   window.__ASKOLO_LOCALE_BOOTSTRAP__ = {
     defaultLocale: localeRegistry.defaultLocale,
     locales: localeRegistry.locales,
   };
+=======
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 
   window.eval(themeBootstrap);
   window.eval(localeBootstrap);
 
   assert.equal(window.document.documentElement.lang, 'ar');
+<<<<<<< HEAD
   assert.equal(window.document.documentElement.dir, localeRegistry.locales.ar.direction);
   window.close();
 });
@@ -105,5 +112,8 @@ test('locale prepaint falls back to the registry default for unsupported values'
     window.document.documentElement.dir,
     localeRegistry.locales[localeRegistry.defaultLocale].direction,
   );
+=======
+  assert.equal(window.document.documentElement.dir, 'rtl');
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
   window.close();
 });

@@ -5,7 +5,10 @@ import { useAskoloTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { Moon, Puzzle, Sparkles, Sun } from 'lucide-react';
 import { ExpandedTabsNav } from '@/components/layout/expanded-tabs-nav';
+<<<<<<< HEAD
 import { SiteOriginLink } from '@/components/layout/site-origin-link';
+=======
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 import logoUrl from '/logo.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';

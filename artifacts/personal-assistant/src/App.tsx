@@ -6,7 +6,11 @@ import {
   isThemeMode,
   type ResolvedThemePreferences,
 } from '@/lib/theme';
+<<<<<<< HEAD
 import { Route, Switch, Router as WouterRouter, Redirect, useLocation } from 'wouter';
+=======
+import { Route, Switch, Router as WouterRouter, Redirect } from 'wouter';
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 import { Loader2 } from 'lucide-react';
 import { Toaster } from '@/components/ui/toaster';
 
@@ -177,9 +181,13 @@ function NativeProtectedRoutes() {
   return (
     <AccountLocaleProvider>
       <SidebarAppLayout>
+<<<<<<< HEAD
         <Suspense fallback={<RouteContentLoadingState />}>
           <AuthenticatedPageRoutes />
         </Suspense>
+=======
+        <AuthenticatedPageRoutes />
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
       </SidebarAppLayout>
     </AccountLocaleProvider>
   );

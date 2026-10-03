@@ -16,7 +16,10 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { CommandMenu } from '@/components/layout/command-menu';
+<<<<<<< HEAD
 import { SiteOriginLink } from '@/components/layout/site-origin-link';
+=======
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';

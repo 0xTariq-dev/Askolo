@@ -57,7 +57,10 @@ import { AssistantSpeechControl } from '@/components/assistant-speech-control';
 import { VoiceOutputConsentDialog } from '@/components/voice-output-consent-dialog';
 import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent';
 import { useToast } from '@/hooks/use-toast';
+<<<<<<< HEAD
 import { VoiceAgentControls } from '@/components/voice-agent-controls';
+=======
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -93,13 +96,21 @@ export function AssistantSidebar() {
   const [voiceOutputConsentError, setVoiceOutputConsentError] = useState('');
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
+<<<<<<< HEAD
+=======
+  const [liveVoice, setLiveVoice] = useState(false);
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
   const assistantVoiceAutoSendRef = useRef(false);
   const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
   const { data: voiceOutputPreferences } = useGetVoiceOutputPreferences();
   const updateVoiceOutputPreferences = useUpdateVoiceOutputPreferences();
+<<<<<<< HEAD
   const voice = useVoiceTranscription();
+=======
+  const voice = useVoiceTranscription({ realtime: liveVoice });
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
   const conversationQuery = useGetAssistantConversation({
     query: {
       queryKey: getGetAssistantConversationQueryKey(),

@@ -14,7 +14,11 @@ import (
 // chain on PostgreSQL 16. It deliberately excludes the Go runner's ledger.
 // Update it only after validating the new inventory in the disposable migration
 // test database.
+<<<<<<< HEAD
 const publishSchemaFingerprint = "inventory-v1:1ab9dc8eaba4c336acf3aad2c9dd2908b17095723f158a19cd3683eace5459ef"
+=======
+const publishSchemaFingerprint = "inventory-v1:889ca9a8e76c0d674465ce8375722907ba6905a702fd1d5f434a4d98a1e683a1"
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 
 type approvedPublishDataMigration struct {
 	name     string

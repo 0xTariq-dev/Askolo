@@ -33,7 +33,11 @@ import { getApiErrorMessage, goApi } from '@/lib/go-api';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+<<<<<<< HEAD
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+=======
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as DatePicker } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';

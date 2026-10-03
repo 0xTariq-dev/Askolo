@@ -160,7 +160,10 @@ func newHandler(
 		realtimeIdleTimeout: realtimeClientIdleTimeout,
 		assistantPlanner:    assistantPlanner,
 		assistantTools:      assistantTools,
+<<<<<<< HEAD
 		voiceAgentEnabled:   cfg.AssemblyAIVoiceAgentEnabled,
+=======
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 	}
 }
 
@@ -1167,8 +1170,11 @@ func usdEstimateRateCardKey(pricingKey string) (string, bool) {
 		return "assemblyai:recorded:" + assemblyAIRealtimeSpeechModel, true
 	case "voice.realtime":
 		return "assemblyai:realtime:" + assemblyAIRealtimeSpeechModel, true
+<<<<<<< HEAD
 	case "voice.agent":
 		return "assemblyai:voice_agent:" + assemblyAIVoiceAgentModel, true
+=======
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 	default:
 		return pricingKey, false
 	}

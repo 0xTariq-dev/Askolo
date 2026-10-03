@@ -252,6 +252,7 @@ func Load() (Config, error) {
 			UserURL:      "https://api.github.com/user",
 			EmailsURL:    "https://api.github.com/user/emails",
 		},
+<<<<<<< HEAD
 		AssemblyAIKey:               strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
 		AssemblyAIVoiceAgentEnabled: voiceAgentEnabled,
 		OpenAIAPIKey:                strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_API_KEY")),
@@ -261,6 +262,16 @@ func Load() (Config, error) {
 		AzureTTSURL:                 strings.TrimSpace(os.Getenv("AZURE_TTS_URL")),
 		AllowedOAuthHosts:           oauthHosts(environment, canonicalOrigin),
 		AdminEmails:                 adminEmails,
+=======
+		AssemblyAIKey:     strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
+		OpenAIAPIKey:      strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_API_KEY")),
+		OpenAIBaseURL:     strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_BASE_URL")),
+		AzureTTSKey:       strings.TrimSpace(os.Getenv("AZURE_TTS_KEY")),
+		AzureTTSRegion:    strings.TrimSpace(os.Getenv("AZURE_TTS_REGION")),
+		AzureTTSURL:       strings.TrimSpace(os.Getenv("AZURE_TTS_URL")),
+		AllowedOAuthHosts: oauthHosts(environment, canonicalOrigin),
+		AdminEmails:       adminEmails,
+>>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 	}, nil
 }
 
