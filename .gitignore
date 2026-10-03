@@ -52,3 +52,10 @@ Thumbs.db
 .local/
 attached_assets/client_secret*.json
 attached_assets/*
+assembly-test
+
+# Environment
+.env
+
+# Other
+askolo.app.txt
