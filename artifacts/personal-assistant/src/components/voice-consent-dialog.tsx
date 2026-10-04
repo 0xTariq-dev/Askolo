@@ -13,25 +13,18 @@ export function VoiceConsentDialog({ open, onOpenChange, onConfirm, saving, erro
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle><ShieldCheck className="mr-2 inline h-5 w-5 text-primary" />Before using Askolo voice features</DialogTitle>
-          <DialogDescription>Review how voice recording, transcription, and Live Mode are handled.</DialogDescription>
+          <DialogTitle><ShieldCheck className="mr-2 inline h-5 w-5 text-primary" />Before you use voice input</DialogTitle>
+          <DialogDescription>Please review how Askolo handles voice notes and AI processing.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Voice audio is sent through Askolo’s server connection to AssemblyAI. Recorded transcription requests deletion of the provider transcript, but that does not confirm provider audio was deleted. Live Mode uses AssemblyAI’s managed Voice Agent, which may retain session audio and transcripts under provider settings. When a session ends, Askolo requests a provider soft-delete; the response does not confirm physical erasure.
+            Voice audio is sent through Askolo’s server connection to AssemblyAI for live or recorded transcription. Askolo does not store audio or live transcripts. AssemblyAI processes voice data under its own retention and model-improvement settings. For recorded transcription, Askolo requests deletion of the provider transcript and reports whether deletion is confirmed; that confirmation does not mean provider audio was deleted.
           </p>
           <p>
-<<<<<<< HEAD
-            Askolo does not put Live Mode audio or raw provider transcripts in recovery storage or logs. If you ask Live Mode to prepare a workspace action, Askolo redacts detected personal information before sending the transcript to the Assistant planner; that redacted text may appear in your Assistant conversation. Redaction can miss details, so do not speak passwords, codes, or other secrets.
-          </p>
-          <p>
-            AssemblyAI’s processing location is not verified, and Askolo cannot promise regional residency. Account-wide model-improvement opt-out and Voice Agent-specific retention coverage have not been verified. Managed Live Mode stays unavailable until provider privacy settings are verified and an administrator configures its credit rate. If enabled, sessions end after 180 seconds at most. English speech is supported; Arabic Live Mode is unavailable. Voice is optional, and workspace changes still require your confirmation.
-=======
             We request automatic redaction of detected personal information before AssemblyAI returns a transcript. Redaction can miss details. In Assistant chat, a clear transcript is sent as a message when you stop recording; if transcription flags uncertainty, you can review and correct it before sending. In Notes and planning, transcripts remain available for review before insertion.
           </p>
           <p>
             Live transcription sessions end after 180 seconds at most. Voice is optional and requires your consent. Assistant actions are still only added after you confirm them.
->>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
           </p>
         </div>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

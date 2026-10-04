@@ -14,6 +14,7 @@ import {
   LayoutList,
   Calendar as CalendarIcon,
   ListTodo,
+  ShieldCheck,
 } from 'lucide-react';
 
 import {
@@ -33,11 +34,7 @@ import { getApiErrorMessage, goApi } from '@/lib/go-api';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-<<<<<<< HEAD
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-=======
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
->>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as DatePicker } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
@@ -54,8 +51,6 @@ import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { cn } from '@/lib/utils';
 import { useAssistantState } from '@/contexts/assistant-context';
-import { VoiceAgentControls } from '@/components/voice-agent-controls';
-import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 
 const priorityColors = {
   high: 'border-destructive bg-destructive/10 text-destructive',
@@ -91,9 +86,10 @@ export function PlanPage() {
   const [consentSaving, setConsentSaving] = useState(false);
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
-  const voice = useVoiceTranscription();
+  const voice = useVoiceTranscription({ realtime: liveMode });
   const {
     state: voiceState,
     transcript,
@@ -253,9 +249,6 @@ export function PlanPage() {
           </h1>
           <p className="text-muted-foreground mt-2 text-lg">Brain dump your thoughts, and let AI structure your day.</p>
         </div>
-        <div className="w-full sm:max-w-xl">
-          <VoiceAgentControls />
-        </div>
       </header>
 
       <div className="flex-1 min-h-0 pb-6">
@@ -400,7 +393,12 @@ export function PlanPage() {
             </div>
 
             <div className="pt-4 flex flex-col gap-3">
-              <p className="text-xs text-muted-foreground">Voice is optional. Review the transcript before generating your plan.</p>
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>Voice is optional. Review the transcript before generating your plan.</span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setLiveMode((value) => !value)} disabled={voiceIsBusy || isGenerating} aria-pressed={liveMode} data-testid="button-toggle-live-voice">
+                  {liveMode ? 'Use recorded mode' : 'Use live mode'}
+                </Button>
+              </div>
               <div className="flex items-center justify-end gap-2">
                 <VoiceCaptureButton
                   voice={voice}
@@ -439,13 +437,39 @@ export function PlanPage() {
         </section>
       </div>
 
-      <VoiceConsentDialog
-        open={consentOpen}
-        onOpenChange={setConsentOpen}
-        onConfirm={() => void saveVoiceConsent()}
-        saving={consentSaving}
-        error={consentError}
-      />
+      <Dialog open={consentOpen} onOpenChange={setConsentOpen}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Before you use voice input
+            </DialogTitle>
+            <DialogDescription>
+              Please review how Askolo handles voice notes and AI processing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Voice audio is sent through Askolo’s secure server connection to AssemblyAI for live or recorded transcription. Askolo does not store audio or live transcripts. AssemblyAI processes voice data under its own retention and model-improvement settings. For recorded transcription, Askolo requests deletion of the provider transcript and reports whether deletion is confirmed; the provider may retain data under its settings.
+            </p>
+            <p>
+              We request automatic redaction of detected personal information before AssemblyAI returns the transcript. Redaction can miss details, so review every word before using the transcript to build your plan.
+            </p>
+            <p>
+              Live transcription sessions end after 180 seconds at most. By continuing, you consent to Askolo processing voice audio through AssemblyAI for transcription.
+            </p>
+            {consentError && <p role="alert" className="text-destructive">{consentError}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConsentOpen(false)} disabled={consentSaving}>
+              Not now
+            </Button>
+            <Button type="button" onClick={() => void saveVoiceConsent()} disabled={consentSaving}>
+              {consentSaving ? 'Saving…' : 'I understand and continue'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">

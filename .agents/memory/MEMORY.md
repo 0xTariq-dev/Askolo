@@ -4,14 +4,10 @@
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
-- [Lingui localization in Vite](lingui-vite-macros.md) — configure the macro transform and verify runtime browser catalog loaders; Vite’s static glob expansion is not a runtime API.
+- [Lingui macros in Vite](lingui-vite-macros.md) — the PO catalog plugin does not replace the Babel transform required by `@lingui/core/macro`.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [Replit OpenAI proxy URL](replit-openai-proxy-url.md) — the managed integration may use HTTP loopback on port 1106; allow only that endpoint, not arbitrary HTTP.
 - [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
-<<<<<<< HEAD
-- [USD form draft handling](usd-form-draft-handling.md) — preserve money inputs as editable text; strictly validate drafts and convert to integer microunits only at API boundaries.
-=======
->>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 - [Signup welcome-credit atomicity](signup-welcome-credit-atomicity.md) — grant only at verified signup and commit the ledger entry with its balance change under one stable per-user key.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
@@ -46,7 +42,7 @@
 - [PostgreSQL inventory fingerprints](postgres-schema-inventory.md) — treat catalog inventories as versioned, engine-specific contracts and validate them on the pinned PostgreSQL major.
 - [Workspace migration provenance](workspace-migration-provenance.md) — preserve reviewed baselines and checksums; scope catalog guards to the target relation.
 - [Auth email delivery retry safety](auth-email-delivery-retry.md) — release challenges only for retry-safe failures; retain uncertain handoffs so cooldowns prevent duplicates.
-- [Password recovery verification](password-recovery-verification.md) — active unverified accounts can confirm the primary email and set a first password via one atomic reset.
+- [Password recovery verification](password-recovery-verification.md) — validate recovery codes on the code page, then atomically consume them during the final password reset.
 - [Deployment health probes](deployment-health-probes.md) — use a cold-start-safe health endpoint for publishing startup probes, not transient operational readiness.
 - [Bare remote test fixtures](bare-remote-test-fixtures.md) — clone temporary bare remotes with an explicit branch because the first push may not set symbolic HEAD.
 - [Publish path smoke isolation](publish-path-smoke-isolation.md) — release smoke checks must choose their own ports and never stop the managed preview API.
@@ -59,7 +55,7 @@
 - [Linear project management](linear-task-migration.md) — Linear is canonical; archiving can clear blockers and related links, so verify affected issues afterward.
 - [Shell timing without GNU time](nix-shell-timing.md) — `/usr/bin/time` is unavailable; use `date +%s%N` for simple elapsed-time measurements.
 - [Outbound cancellation test harness](outbound-cancellation-tests.md) — prefer controlled RoundTrippers for request-cancellation tests; a blocked test-server handler can stall cleanup.
-- [Askolo app UI migration](askolo-ui-migration.md) — keep lazy-route loading inside the persistent shell and verify route-level behavior changes independently.
+- [Askolo app UI migration](askolo-ui-migration.md) — verify shared primitives, route-level token styling, and behavior-sensitive component API changes independently.
 - [Theme prepaint bootstrap](theme-prepaint-bootstrap.md) — use a classic head script for saved mode; Vite’s merged module bootstrap cannot guarantee pre-paint execution.
 - [Resend MCP output handling](resend-mcp-output.md) — Resend list/get tools may return formatted text blocks; parse only the needed recipient metadata and never log message bodies or codes.
 - [Node tests and Vite env](node-vite-test-environment.md) — `tsx --test` does not provide `import.meta.env`; guard Vite-only reads or use a Vite-aware test runner.

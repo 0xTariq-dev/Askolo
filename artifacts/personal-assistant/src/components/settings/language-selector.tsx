@@ -8,11 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useLocale } from '@/contexts/locale-context';
-<<<<<<< HEAD
-import { isLocale, LOCALE_REGISTRY, SUPPORTED_LOCALES } from '@/lib/locale';
-=======
 import { isLocale } from '@/lib/locale';
->>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
 import { useToast } from '@/hooks/use-toast';
 
 export function LanguageSelector() {
@@ -44,11 +40,8 @@ export function LanguageSelector() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {SUPPORTED_LOCALES.map((option) => (
-              <SelectItem key={option} value={option}>
-                {LOCALE_REGISTRY[option].displayName}
-              </SelectItem>
-            ))}
+            <SelectItem value="en">{t('common.english')}</SelectItem>
+            <SelectItem value="ar">{t('common.arabic')}</SelectItem>
           </SelectContent>
         </Select>
       </CardContent>
