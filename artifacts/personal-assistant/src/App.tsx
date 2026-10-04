@@ -177,13 +177,9 @@ function NativeProtectedRoutes() {
   return (
     <AccountLocaleProvider>
       <SidebarAppLayout>
-<<<<<<< HEAD
         <Suspense fallback={<RouteContentLoadingState />}>
           <AuthenticatedPageRoutes />
         </Suspense>
-=======
-        <AuthenticatedPageRoutes />
->>>>>>> c7ea45a5fdbf4bb422d76b6a13e0d4dca631b40a
       </SidebarAppLayout>
     </AccountLocaleProvider>
   );
