@@ -14,7 +14,7 @@ import (
 // chain on PostgreSQL 16. It deliberately excludes the Go runner's ledger.
 // Update it only after validating the new inventory in the disposable migration
 // test database.
-const publishSchemaFingerprint = "inventory-v1:1ab9dc8eaba4c336acf3aad2c9dd2908b17095723f158a19cd3683eace5459ef"
+const publishSchemaFingerprint = "inventory-v1:889ca9a8e76c0d674465ce8375722907ba6905a702fd1d5f434a4d98a1e683a1"
 
 type approvedPublishDataMigration struct {
 	name     string
@@ -27,15 +27,15 @@ type approvedPublishDataMigration struct {
 var approvedPublishDataMigrations = map[int]approvedPublishDataMigration{
 	4: {
 		name:     "0004_ai_credit_policy",
-		checksum: "f51f64bc2caf84b7c12d61bb51aa133c37f575c21dae462416f313bc238cf895",
+		checksum: "aa2f857396e7c596241a8dc37e7233fdbbaedfd2c55ccf3966d2d8840503ab2f",
 	},
 	5: {
 		name:     "0005_guarded_assistant_runtime",
-		checksum: "6f95a74805fa040ef26079284eed55a33665f65d4a93924dd91930cdf859502d",
+		checksum: "6744b1047dbc1ca460be634d5c8453596dcdc7bd6af74827701cb95712624f72",
 	},
 	8: {
 		name:     "0008_usd_micro_ledger",
-		checksum: "a09d959a24986ff386279dfeddfb936aba9971e058c7cad904d7d97f9039b7a5",
+		checksum: "b48c8f4972228cd0d226da281fc7d26dbd0619ac684035be3339671da373ef4a",
 	},
 }
 

@@ -52,6 +52,25 @@ func TestLoadRejectsMalformedMigrationFiles(t *testing.T) {
 	}
 }
 
+func TestLoadNormalizesWindowsLineEndingsBeforeHashing(t *testing.T) {
+	files := fstest.MapFS{
+		"sql/0000_first.sql": {Data: []byte("first\r\nsecond\r\n")},
+	}
+
+	migrations, err := Load(files)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	sum := sha256.Sum256([]byte("first\nsecond\n"))
+	if migrations[0].SQL != "first\nsecond\n" {
+		t.Fatalf("SQL = %q, want normalized LF line endings", migrations[0].SQL)
+	}
+	if migrations[0].SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("checksum = %q, want %x", migrations[0].SHA256, sum)
+	}
+}
+
 func TestLoadRejectsMissingSQLDirectory(t *testing.T) {
 	_, err := Load(fstest.MapFS{})
 	if err == nil {
