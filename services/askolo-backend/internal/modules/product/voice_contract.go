@@ -12,15 +12,17 @@ import (
 )
 
 const (
-	assemblyAIRealtimeTokenBaseURL              = "https://streaming.assemblyai.com"
-	assemblyAIRealtimeWebsocketURL              = "wss://streaming.assemblyai.com/v3/ws"
-	assemblyAIRealtimeTokenExpiresInSeconds     = 60
-	assemblyAIRealtimeMinProviderSessionSeconds = 60
-	assemblyAIRealtimeMaxProviderSessionSeconds = 10_800
-	assemblyAIRealtimeMaxSessionDurationSeconds = 180
-	assemblyAIRealtimeSpeechModel               = "universal-3-5-pro"
-	maxAssemblyAIRealtimeTokenResponseBytes     = 64 * 1024
-	maxAssemblyAIRealtimeTokenCharacters        = 16 * 1024
+	assemblyAIRealtimeTokenBaseURL                = "https://streaming.assemblyai.com"
+	assemblyAIRealtimeWebsocketURL                = "wss://streaming.assemblyai.com/v3/ws"
+	assemblyAIRealtimeTokenExpiresInSeconds       = 60
+	assemblyAIRealtimeMinProviderSessionSeconds   = 60
+	assemblyAIRealtimeMaxProviderSessionSeconds   = 10_800
+	assemblyAIRealtimeMaxSessionDurationSeconds   = 180
+	assemblyAIRealtimeSpeechModel                 = "universal-3-5-pro"
+	assemblyAIVoiceAgentModel                     = "managed-voice-agent"
+	assemblyAIVoiceAgentMaxSessionDurationSeconds = 180
+	maxAssemblyAIRealtimeTokenResponseBytes       = 64 * 1024
+	maxAssemblyAIRealtimeTokenCharacters          = 16 * 1024
 )
 
 type voiceCreditReceipt struct {

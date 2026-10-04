@@ -16,6 +16,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { CommandMenu } from '@/components/layout/command-menu';
+import { SiteOriginLink } from '@/components/layout/site-origin-link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -423,12 +424,12 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
         </div>
         <footer className="flex shrink-0 flex-col items-center justify-center gap-4 border-t border-border/50 bg-background px-4 py-4 text-xs text-muted-foreground sm:flex-row sm:gap-6 md:px-8">
           <span>© {new Date().getFullYear()} Askolo</span>
-          <a href={toPublicUrl('/privacy')} className="transition-colors hover:text-primary">
+          <SiteOriginLink href={toPublicUrl('/privacy')} className="transition-colors hover:text-primary">
             {t('common.privacyPolicy')}
-          </a>
-          <a href={toPublicUrl('/terms')} className="transition-colors hover:text-primary">
+          </SiteOriginLink>
+          <SiteOriginLink href={toPublicUrl('/terms')} className="transition-colors hover:text-primary">
             {t('common.termsOfService')}
-          </a>
+          </SiteOriginLink>
         </footer>
       </main>
 

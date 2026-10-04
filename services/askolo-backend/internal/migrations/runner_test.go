@@ -126,7 +126,8 @@ func TestBaselineContractPinsArchiveAndMigrationChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read protected archive manifest: %v", err)
 	}
-	if !strings.Contains(string(manifest), "archive_commit="+archiveBaselineContract.ArchiveCommit+"\n") {
+	manifestText := strings.ReplaceAll(string(manifest), "\r\n", "\n")
+	if !strings.Contains(manifestText, "archive_commit="+archiveBaselineContract.ArchiveCommit+"\n") {
 		t.Fatalf("contract archive commit %s does not match the protected archive manifest", archiveBaselineContract.ArchiveCommit)
 	}
 	migrations, err := Load(SQL)

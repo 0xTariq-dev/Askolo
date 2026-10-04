@@ -1535,6 +1535,18 @@ func (s *Store) ConsumeEmailChallenge(
 		if userID == "" {
 			return "", ErrChallengeInvalid
 		}
+		var wasPendingSignup bool
+		if err := tx.QueryRow(ctx, `
+			SELECT status = 'pending_email_verification'
+			FROM users
+			WHERE id = $1
+			FOR UPDATE
+		`, userID).Scan(&wasPendingSignup); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ErrNotFound
+			}
+			return "", err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE users
 			SET email_verified_at = COALESCE(email_verified_at, NOW()),
@@ -1551,14 +1563,173 @@ func (s *Store) ConsumeEmailChallenge(
 		if tag.RowsAffected() != 1 {
 			return "", ErrNotFound
 		}
-		if err := grantSignupWelcomeUSDTx(ctx, tx, userID); err != nil {
-			return "", err
+		if wasPendingSignup {
+			if err := grantSignupWelcomeUSDTx(ctx, tx, userID); err != nil {
+				return "", err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
 	return userID, nil
+}
+
+// VerifyPasswordRecoveryChallenge validates a reset code without consuming it.
+// Only failed guesses count toward the attempt limit, so a correct code can
+// still be used by the final atomic password-reset operation.
+func (s *Store) VerifyPasswordRecoveryChallenge(
+	ctx context.Context, email, userID, codeHash string, maxAttempts int,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var challengeID, challengeUserID, storedHash string
+	var attempts int
+	err = tx.QueryRow(ctx, `
+		SELECT id, COALESCE(user_id, ''), code_hash, attempt_count
+		FROM auth_email_challenges
+		WHERE lower(email) = lower($1)
+		  AND purpose = 'password_recovery'
+		  AND consumed_at IS NULL
+		  AND expires_at > NOW()
+		ORDER BY created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, strings.TrimSpace(email)).Scan(&challengeID, &challengeUserID, &storedHash, &attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrChallengeInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if attempts >= maxAttempts {
+		return ErrChallengeLocked
+	}
+	if !secureStringEqual(storedHash, codeHash) || challengeUserID == "" || challengeUserID != userID {
+		if _, err := tx.Exec(ctx, `
+			UPDATE auth_email_challenges
+			SET attempt_count = attempt_count + 1
+			WHERE id = $1
+		`, challengeID); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return ErrChallengeInvalid
+	}
+	return tx.Commit(ctx)
+}
+
+// CompletePasswordRecovery atomically consumes a reset code, stores the new
+// password, and (for primary-email recovery) confirms an active account's
+// primary email address.
+func (s *Store) CompletePasswordRecovery(
+	ctx context.Context,
+	email, userID, codeHash, passwordHash string,
+	maxAttempts int,
+	verifyPrimaryEmail bool,
+) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var challengeID, challengeUserID, storedHash string
+	var attempts int
+	err = tx.QueryRow(ctx, `
+		SELECT id, COALESCE(user_id, ''), code_hash, attempt_count
+		FROM auth_email_challenges
+		WHERE lower(email) = lower($1)
+		  AND purpose = 'password_recovery'
+		  AND consumed_at IS NULL
+		  AND expires_at > NOW()
+		ORDER BY created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, strings.TrimSpace(email)).Scan(&challengeID, &challengeUserID, &storedHash, &attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrChallengeInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if attempts >= maxAttempts {
+		return ErrChallengeLocked
+	}
+
+	if !secureStringEqual(storedHash, codeHash) || challengeUserID == "" || challengeUserID != userID {
+		if _, err := tx.Exec(ctx, `
+			UPDATE auth_email_challenges
+			SET attempt_count = attempt_count + 1
+			WHERE id = $1
+		`, challengeID); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return ErrChallengeInvalid
+	}
+
+	var status string
+	var emailVerified bool
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(status, 'active'), email_verified_at IS NOT NULL
+		FROM users
+		WHERE id = $1
+		FOR UPDATE
+	`, userID).Scan(&status, &emailVerified)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status == "suspended" || status == "deleted" ||
+		(!emailVerified && (!verifyPrimaryEmail || status != "active")) {
+		return ErrRecoveryUnavailable
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO auth_passwords (user_id, password_hash, hash_version)
+		VALUES ($1, $2, 'argon2id-v1')
+		ON CONFLICT (user_id) DO UPDATE SET
+			password_hash = EXCLUDED.password_hash,
+			hash_version = EXCLUDED.hash_version,
+			updated_at = NOW()
+	`, userID, passwordHash); err != nil {
+		return err
+	}
+	if verifyPrimaryEmail {
+		if _, err := tx.Exec(ctx, `
+			UPDATE users
+			SET email_verified_at = COALESCE(email_verified_at, NOW()),
+			    updated_at = NOW()
+			WHERE id = $1
+		`, userID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_email_challenges
+		SET consumed_at = NOW()
+		WHERE id = $1
+	`, challengeID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) VerifyEmailChallenge(

@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const VoiceConsentVersion = "voice-v5"
+const VoiceConsentVersion = "voice-v6"
 const VoiceOutputConsentVersion = "azure-tts-v1"
 
 type AICreditPolicy struct {

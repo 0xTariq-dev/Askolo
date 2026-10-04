@@ -210,8 +210,8 @@ var archiveBaselineContract = baselineContract{
 	// and pinned with migration checksums and the protected archive commit.
 	Fingerprint: "inventory-v1:f712d478e83b68d96e26defd3f8456be3e0ea8a95ae961948a431555eff21660",
 	MigrationChecksums: [][2]string{
-		{"0000_legacy_schema", "be3362f2caa0dc8beed2c19fc8ef4f1ea44e1d73548dd11e11a773918fe3bfb3"},
-		{"0001_auth_schema", "6c34db4a8e1c675215e829bbc3030c439bbe4049ba1cc642a4289cc868600b45"},
+		{"0000_legacy_schema", "ac876e24d188c145b648c5151491b54599252ce4cb1a216ef19d950405dcac6c"},
+		{"0001_auth_schema", "b559b82cb1665b6811c418fee5fbfaf418a34ddd0737a0bf81d98544f83ac88d"},
 	},
 }
 

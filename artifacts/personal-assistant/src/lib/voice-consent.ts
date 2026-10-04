@@ -1,1 +1,1 @@
-export const CURRENT_VOICE_CONSENT_VERSION = 'voice-v5';
+export const CURRENT_VOICE_CONSENT_VERSION = 'voice-v6';

@@ -40,6 +40,7 @@ type Config struct {
 	Google                        GoogleOAuthConfig
 	GitHub                        GitHubOAuthConfig
 	AssemblyAIKey                 string
+	AssemblyAIVoiceAgentEnabled   bool
 	OpenAIAPIKey                  string
 	OpenAIBaseURL                 string
 	AzureTTSKey                   string
@@ -98,6 +99,12 @@ type GitHubOAuthConfig struct {
 
 func Load() (Config, error) {
 	port, err := envPort("PORT", defaultPort)
+	if err != nil {
+		return Config{}, err
+	}
+	// Keep managed Voice Agent disabled until provider-side privacy and
+	// retention settings have been verified for this account.
+	voiceAgentEnabled, err := envBool("ASKOLO_ASSEMBLYAI_VOICE_AGENT_ENABLED", false)
 	if err != nil {
 		return Config{}, err
 	}
@@ -245,14 +252,15 @@ func Load() (Config, error) {
 			UserURL:      "https://api.github.com/user",
 			EmailsURL:    "https://api.github.com/user/emails",
 		},
-		AssemblyAIKey:     strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
-		OpenAIAPIKey:      strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_API_KEY")),
-		OpenAIBaseURL:     strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_BASE_URL")),
-		AzureTTSKey:       strings.TrimSpace(os.Getenv("AZURE_TTS_KEY")),
-		AzureTTSRegion:    strings.TrimSpace(os.Getenv("AZURE_TTS_REGION")),
-		AzureTTSURL:       strings.TrimSpace(os.Getenv("AZURE_TTS_URL")),
-		AllowedOAuthHosts: oauthHosts(environment, canonicalOrigin),
-		AdminEmails:       adminEmails,
+		AssemblyAIKey:               strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
+		AssemblyAIVoiceAgentEnabled: voiceAgentEnabled,
+		OpenAIAPIKey:                strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_API_KEY")),
+		OpenAIBaseURL:               strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_BASE_URL")),
+		AzureTTSKey:                 strings.TrimSpace(os.Getenv("AZURE_TTS_KEY")),
+		AzureTTSRegion:              strings.TrimSpace(os.Getenv("AZURE_TTS_REGION")),
+		AzureTTSURL:                 strings.TrimSpace(os.Getenv("AZURE_TTS_URL")),
+		AllowedOAuthHosts:           oauthHosts(environment, canonicalOrigin),
+		AdminEmails:                 adminEmails,
 	}, nil
 }
 
@@ -343,4 +351,16 @@ func envPort(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be a valid TCP port", name)
 	}
 	return port, nil
+}
+
+func envBool(name string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false", name)
+	}
+	return value, nil
 }
