@@ -43,6 +43,18 @@ const SAMPLE_RATE = 24_000;
 const MAX_AUDIO_BYTES = 16 * 1024;
 const CONNECTION_TIMEOUT_MS = 30_000;
 
+function getVoiceStartErrorMessage(cause: unknown): string {
+  if (
+    cause !== null &&
+    typeof cause === 'object' &&
+    'name' in cause &&
+    (cause.name === 'NotAllowedError' || cause.name === 'SecurityError')
+  ) {
+    return 'Your browser blocked microphone access. Allow it for this site, or open Askolo in a tab where microphone access is permitted, then try again.';
+  }
+  return cause instanceof Error ? cause.message : 'Live Mode could not start.';
+}
+
 export function useVoiceAgent() {
   const [status, setStatus] = useState<VoiceAgentStatus>('idle');
   const [error, setError] = useState('');
@@ -463,7 +475,7 @@ export function useVoiceAgent() {
       cleanupAudio();
       closeSocket();
       setStatus('idle');
-      setError(cause instanceof Error ? cause.message : 'Live Mode could not start.');
+      setError(getVoiceStartErrorMessage(cause));
     }
   }, [cleanupAudio, closeSocket, clearTimers, playAudio, recoverMetadata, startAudio, status, stop]);
 
