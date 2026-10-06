@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  AIPrivacyPreferencesUpdateAssemblyAiLiveVoice,
   getGetAIPrivacyPreferencesQueryKey,
   getGetTranscriptionPreferencesQueryKey,
   getGetVoiceOutputPreferencesQueryKey,
@@ -8,6 +9,7 @@ import {
   useGetVoiceOutputPreferences,
   useUpdateAIPrivacyPreferences,
   useUpdateVoiceOutputPreferences,
+  type AIPrivacyPreferencesUpdate,
 } from '@workspace/api-client-react';
 import { ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +18,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type ConsentPurpose = 'recorded-voice' | 'assistant-processing' | 'assemblyai-live' | 'azure-speech';
 
@@ -77,12 +86,7 @@ export function AIPrivacyCenter() {
     ]);
   };
 
-  const updatePrivacy = async (body: {
-    recordedVoiceInput?: boolean;
-    assistantProcessing?: boolean;
-    assemblyAiLive?: boolean;
-    redactionLocation?: 'app';
-  }) => {
+  const updatePrivacy = async (body: AIPrivacyPreferencesUpdate) => {
     await privacyMutation.mutateAsync({ data: body });
     await refresh();
   };
@@ -224,6 +228,41 @@ export function AIPrivacyCenter() {
                 </Badge>
               )}
             />
+            <div className="border-t pt-4">
+              <div className="max-w-md space-y-2">
+                <Label htmlFor="assemblyai-live-voice">Live Mode voice</Label>
+                <p className="text-sm text-muted-foreground">
+                  This saved voice is independent of your app language and Azure speech voice.
+                </p>
+                <Select
+                  value={privacy?.assemblyAiLiveVoice ?? 'michael'}
+                  onValueChange={(value) => {
+                    const voice = Object.values(AIPrivacyPreferencesUpdateAssemblyAiLiveVoice)
+                      .find((candidate) => candidate === value);
+                    if (voice) {
+                      void updatePrivacy({ assemblyAiLiveVoice: voice })
+                        .catch(() => setError('The Live Mode voice could not be saved. Please try again.'));
+                    }
+                  }}
+                  disabled={privacyQuery.isLoading || privacyMutation.isPending}
+                >
+                  <SelectTrigger id="assemblyai-live-voice" data-testid="select-assemblyai-live-voice">
+                    <SelectValue placeholder="Choose a voice" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="michael">US English — Michael</SelectItem>
+                    <SelectItem value="mary">US English — Mary</SelectItem>
+                    <SelectItem value="paul">UK English — Paul</SelectItem>
+                    <SelectItem value="vera">UK English — Vera</SelectItem>
+                    <SelectItem value="giovanni">Italian — Giovanni</SelectItem>
+                    <SelectItem value="lola">Spanish — Lola</SelectItem>
+                    <SelectItem value="juergen">German — Juergen</SelectItem>
+                    <SelectItem value="rafael">Portuguese — Rafael</SelectItem>
+                    <SelectItem value="estelle">French — Estelle</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="border-t pt-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">

@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"net/url"
 	"os"
@@ -41,6 +43,7 @@ type Config struct {
 	GitHub                        GitHubOAuthConfig
 	AssemblyAIKey                 string
 	AssemblyAIVoiceAgentEnabled   bool
+	AssemblyAIVoiceAgentIDs       map[string]string
 	OpenAIAPIKey                  string
 	OpenAIBaseURL                 string
 	AzureTTSKey                   string
@@ -131,6 +134,25 @@ func Load() (Config, error) {
 	}
 	if environment == "production" && explicitEnvironment == "" {
 		return Config{}, fmt.Errorf("ASKOLO_ENVIRONMENT is required in production")
+	}
+	voiceAgentIDs, err := parseAssemblyAIVoiceAgentIDs(os.Getenv("ASKOLO_ASSEMBLYAI_AGENT_IDS"))
+	if err != nil {
+		return Config{}, err
+	}
+	voiceAgentEnabled, disabledForIncompleteVoiceAgents := normalizeAssemblyAIVoiceAgentEnabled(
+		environment,
+		voiceAgentEnabled,
+		voiceAgentIDs,
+	)
+	if disabledForIncompleteVoiceAgents {
+		slog.Warn(
+			"AssemblyAI Live Mode disabled until all nine stored voice agents are configured",
+			"environment",
+			environment,
+		)
+	}
+	if err := validateAssemblyAIVoiceAgentConfiguration(environment, voiceAgentEnabled, voiceAgentIDs); err != nil {
+		return Config{}, err
 	}
 	encryptionKey, err := loadEncryptionKey(os.Getenv("GOOGLE_TOKEN_ENCRYPTION_KEY"))
 	if err != nil {
@@ -254,6 +276,7 @@ func Load() (Config, error) {
 		},
 		AssemblyAIKey:               strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY")),
 		AssemblyAIVoiceAgentEnabled: voiceAgentEnabled,
+		AssemblyAIVoiceAgentIDs:     voiceAgentIDs,
 		OpenAIAPIKey:                strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_API_KEY")),
 		OpenAIBaseURL:               strings.TrimSpace(os.Getenv("AI_INTEGRATIONS_OPENAI_BASE_URL")),
 		AzureTTSKey:                 strings.TrimSpace(os.Getenv("AZURE_TTS_KEY")),
@@ -262,6 +285,75 @@ func Load() (Config, error) {
 		AllowedOAuthHosts:           oauthHosts(environment, canonicalOrigin),
 		AdminEmails:                 adminEmails,
 	}, nil
+}
+
+var supportedAssemblyAIVoices = [...]string{
+	"michael", "mary", "paul", "vera", "giovanni", "lola", "juergen", "rafael", "estelle",
+}
+
+func normalizeAssemblyAIVoiceAgentEnabled(environment string, enabled bool, ids map[string]string) (bool, bool) {
+	if !enabled || environment != "development" {
+		return enabled, false
+	}
+	for _, voice := range supportedAssemblyAIVoices {
+		if strings.TrimSpace(ids[voice]) == "" {
+			return false, true
+		}
+	}
+	return enabled, false
+}
+
+func validateAssemblyAIVoiceAgentConfiguration(environment string, enabled bool, ids map[string]string) error {
+	if !enabled {
+		return nil
+	}
+	if environment != "development" {
+		return fmt.Errorf("AssemblyAI Live Mode can only be enabled in Development")
+	}
+	for _, voice := range supportedAssemblyAIVoices {
+		if strings.TrimSpace(ids[voice]) == "" {
+			return fmt.Errorf("AssemblyAI Live Mode requires all nine stored voice agents in Development")
+		}
+	}
+	return nil
+}
+
+func parseAssemblyAIVoiceAgentIDs(raw string) (map[string]string, error) {
+	ids := make(map[string]string)
+	if strings.TrimSpace(raw) == "" {
+		return ids, nil
+	}
+	if len(raw) > 8192 {
+		return nil, fmt.Errorf("ASKOLO_ASSEMBLYAI_AGENT_IDS is too large")
+	}
+	var configured map[string]string
+	if err := json.Unmarshal([]byte(raw), &configured); err != nil || configured == nil {
+		return nil, fmt.Errorf("ASKOLO_ASSEMBLYAI_AGENT_IDS must be a JSON object")
+	}
+	allowed := make(map[string]bool, len(supportedAssemblyAIVoices))
+	for _, voice := range supportedAssemblyAIVoices {
+		allowed[voice] = true
+	}
+	for voice, agentID := range configured {
+		if !allowed[voice] || !validProviderAgentID(agentID) {
+			return nil, fmt.Errorf("ASKOLO_ASSEMBLYAI_AGENT_IDS contains an unsupported voice or invalid agent id")
+		}
+		ids[voice] = agentID
+	}
+	return ids, nil
+}
+
+func validProviderAgentID(value string) bool {
+	if value == "" || len(value) > 200 || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') &&
+			!(r >= '0' && r <= '9') && !strings.ContainsRune("._:-", r) {
+			return false
+		}
+	}
+	return true
 }
 
 func oauthHosts(environment, canonicalOrigin string) map[string]struct{} {

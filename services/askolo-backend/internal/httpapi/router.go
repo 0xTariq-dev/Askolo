@@ -159,6 +159,16 @@ func New(
 	store *postgres.Store,
 	cleanupReadinessProviders ...EmailChallengeCleanupReadinessProvider,
 ) http.Handler {
+	handler, _ := NewWithShutdown(cfg, logger, store, cleanupReadinessProviders...)
+	return handler
+}
+
+func NewWithShutdown(
+	cfg config.Config,
+	logger *slog.Logger,
+	store *postgres.Store,
+	cleanupReadinessProviders ...EmailChallengeCleanupReadinessProvider,
+) (http.Handler, func(context.Context) error) {
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
 	authHandler := authmodule.NewHandler(cfg, store, logger)
@@ -295,7 +305,9 @@ func New(
 	authorizationHandler := authorizationmodule.NewHandler(store, logger, cfg.SessionCookieName)
 	mux.Handle("/internal/authz/", internalAuth.Wrap(authorizationHandler.Routes()))
 
+	googleHandler := googleoauth.NewHandler(cfg, store, logger)
 	productHandler := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName)
+	productHandler.SetAssistantActionExecutor(googleHandler)
 	websocketHandler := websocket.New(
 		logger, cfg.ServiceName, store, cfg.SessionCookieName,
 		cfg.CanonicalOrigin, cfg.AuthRateLimitHMACSecret, productHandler,
@@ -307,7 +319,7 @@ func New(
 	mux.Handle(PublishedWebhooksPath+"/", webhookHandler)
 	apiMux := http.NewServeMux()
 	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
-	googleRoutes := googleoauth.NewHandler(cfg, store, logger).Routes()
+	googleRoutes := googleHandler.Routes()
 	// Google login owns these public paths. Register them before the generic
 	// auth subtree so the native OAuth start and callback handlers receive the
 	// frontend's requests instead of the password-auth mux returning 404.
@@ -338,7 +350,7 @@ func New(
 	mux.Handle(PublishedAPIPath+"/", apiMux)
 	mux.HandleFunc("/", notFound)
 
-	return httpx.Middleware(logger, mux)
+	return httpx.Middleware(logger, mux), productHandler.ShutdownRealtimeSessions
 }
 
 func dependencyReadinessStatus(

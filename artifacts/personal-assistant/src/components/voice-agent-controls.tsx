@@ -10,13 +10,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { AIConsentDialog } from '@/components/settings/ai-privacy-center';
-import { useLocale } from '@/contexts/locale-context';
 import { useToast } from '@/hooks/use-toast';
 import { useVoiceAgent } from '@/hooks/use-voice-agent';
 import { formatUsdMicros } from '@/lib/credit-api';
 
 export function VoiceAgentControls() {
-  const { locale } = useLocale();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const conversationQuery = useGetAssistantConversation({
@@ -29,22 +27,33 @@ export function VoiceAgentControls() {
   const [consentSaving, setConsentSaving] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [startAfterConsent, setStartAfterConsent] = useState(false);
-  const englishOnly = !locale.toLowerCase().startsWith('en');
+  const liveVoiceLocales: Record<string, { locale: string; language: string }> = {
+    michael: { locale: 'en', language: 'US English' },
+    mary: { locale: 'en', language: 'US English' },
+    paul: { locale: 'en', language: 'UK English' },
+    vera: { locale: 'en', language: 'UK English' },
+    giovanni: { locale: 'it', language: 'Italian' },
+    lola: { locale: 'es', language: 'Spanish' },
+    juergen: { locale: 'de', language: 'German' },
+    rafael: { locale: 'pt', language: 'Portuguese' },
+    estelle: { locale: 'fr', language: 'French' },
+  };
+  const selectedVoice = privacyPreferences?.assemblyAiLiveVoice
+    ? liveVoiceLocales[privacyPreferences.assemblyAiLiveVoice]
+    : undefined;
+  const voiceUnavailable = !selectedVoice;
   const liveModeUnavailable = !privacyPreferences?.assemblyAiLiveAvailable;
-  const languageNotice = locale.toLowerCase().startsWith('ar')
-    ? 'يدعم الوضع المباشر التحدث باللغة الإنجليزية فقط حاليًا. غيّر لغة التطبيق إلى الإنجليزية لاستخدامه.'
-    : 'Live Mode currently supports English speech only. Switch the app language to English to use it.';
   const isBusy = voiceAgent.status !== 'idle';
 
   const startLiveMode = () => {
-    if (englishOnly || isBusy || liveModeUnavailable) return;
+    if (!selectedVoice || isBusy || liveModeUnavailable) return;
     if (!privacyPreferences?.assemblyAiLiveConsentGiven) {
       setConsentError('');
       setStartAfterConsent(true);
       setConsentOpen(true);
       return;
     }
-    void voiceAgent.start(conversationQuery.data?.conversationId);
+    void voiceAgent.start(conversationQuery.data?.conversationId, selectedVoice.locale);
   };
 
   const saveConsent = async () => {
@@ -56,7 +65,9 @@ export function VoiceAgentControls() {
       setConsentOpen(false);
       if (startAfterConsent) {
         setStartAfterConsent(false);
-        void voiceAgent.start(conversationQuery.data?.conversationId);
+        if (selectedVoice) {
+          void voiceAgent.start(conversationQuery.data?.conversationId, selectedVoice.locale);
+        }
       }
     } catch (error) {
       const message = 'Live Mode permission could not be saved. Please try again.';
@@ -84,17 +95,17 @@ export function VoiceAgentControls() {
             {voiceAgent.status === 'stopping' ? 'Ending Live Mode…' : 'End Live Mode'}
           </Button>
         ) : (
-          <Button type="button" variant="outline" size="sm" onClick={startLiveMode} disabled={englishOnly || liveModeUnavailable}>
+          <Button type="button" variant="outline" size="sm" onClick={startLiveMode} disabled={voiceUnavailable || liveModeUnavailable}>
             <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
             Start Live Mode
           </Button>
         )}
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-          {englishOnly
-            ? languageNotice
-            : liveModeUnavailable
-              ? 'Live Mode is currently unavailable in this environment.'
-              : 'Talk with Askolo. Workspace changes still require your confirmation.'}
+          {liveModeUnavailable
+            ? 'Live Mode is currently unavailable in this environment.'
+            : voiceUnavailable
+              ? 'Choose a supported Live Mode voice in Settings before starting.'
+              : `Speak in ${selectedVoice.language}. Your app language does not change this voice.`}
         </p>
       </div>
 

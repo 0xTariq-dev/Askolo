@@ -83,20 +83,71 @@ func simpleSpec(name, table string, fields []postgres.ProductField, defaults map
 }
 
 type Handler struct {
-	store               *postgres.Store
-	logger              *slog.Logger
-	sessionCookieName   string
-	canonicalOrigin     string
-	assemblyAI          assemblyAIProvider
-	speechOutput        azureSpeechProvider
-	adminEmails         map[string]struct{}
-	realtimeLimiter     *realtimeSessionLimiter
-	voiceAgentEnabled   bool
-	authRateLimitSecret string
-	realtimeIdleTimeout time.Duration
-	assistantPlanner    assistantPlanner
-	assistantTools      *assistantToolRegistry
-	realtimeMeters      sync.Map
+	store                   *postgres.Store
+	logger                  *slog.Logger
+	sessionCookieName       string
+	canonicalOrigin         string
+	assemblyAI              assemblyAIProvider
+	speechOutput            azureSpeechProvider
+	adminEmails             map[string]struct{}
+	realtimeLimiter         *realtimeSessionLimiter
+	voiceAgentEnabled       bool
+	voiceAgentIDs           map[string]string
+	authRateLimitSecret     string
+	realtimeIdleTimeout     time.Duration
+	assistantPlanner        assistantPlanner
+	assistantTools          *assistantToolRegistry
+	assistantActionExecutor AssistantActionExecutor
+	realtimeMeters          sync.Map
+	activeRealtimeSessions  sync.Map
+}
+
+func (h *Handler) registerRealtimeSession(key any, closeSession func()) func() {
+	if h == nil || key == nil || closeSession == nil {
+		return func() {}
+	}
+	h.activeRealtimeSessions.Store(key, closeSession)
+	var unregisterOnce sync.Once
+	return func() {
+		unregisterOnce.Do(func() {
+			h.activeRealtimeSessions.Delete(key)
+		})
+	}
+}
+
+func (h *Handler) ShutdownRealtimeSessions(ctx context.Context) error {
+	if h == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	closeFunctions := make([]func(), 0)
+	h.activeRealtimeSessions.Range(func(_, value any) bool {
+		if closeSession, ok := value.(func()); ok {
+			closeFunctions = append(closeFunctions, closeSession)
+		}
+		return true
+	})
+	var wait sync.WaitGroup
+	for _, closeSession := range closeFunctions {
+		wait.Add(1)
+		go func(closeSession func()) {
+			defer wait.Done()
+			closeSession()
+		}(closeSession)
+	}
+	done := make(chan struct{})
+	go func() {
+		wait.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type voiceCreditReservation struct {
@@ -161,6 +212,7 @@ func newHandler(
 		assistantPlanner:    assistantPlanner,
 		assistantTools:      assistantTools,
 		voiceAgentEnabled:   cfg.AssemblyAIVoiceAgentEnabled,
+		voiceAgentIDs:       cfg.AssemblyAIVoiceAgentIDs,
 	}
 }
 

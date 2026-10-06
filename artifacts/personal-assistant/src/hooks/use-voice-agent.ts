@@ -229,7 +229,7 @@ export function useVoiceAgent() {
     }, { once: true });
   }, []);
 
-  const start = useCallback(async (conversationId?: string) => {
+  const start = useCallback(async (conversationId?: string, locale = 'en') => {
     if (status !== 'idle' || socketRef.current || startingRef.current) return;
     startingRef.current = true;
     const attempt = attemptRef.current + 1;
@@ -334,7 +334,7 @@ export function useVoiceAgent() {
           if (socket.readyState !== WebSocket.OPEN) return;
           sendPublicWebSocketMessage(socket, clientSequenceRef.current, 'voice.agent.start', {
             conversationId,
-            locale: 'en',
+            locale,
             idempotencyKey: newCreditIdempotencyKey(),
             policyVersion: estimate.policyVersion,
             assistantPolicyVersion: estimate.policyVersion,

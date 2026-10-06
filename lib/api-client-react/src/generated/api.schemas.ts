@@ -806,6 +806,8 @@ export type AssistantIntentTool = typeof AssistantIntentTool[keyof typeof Assist
 
 export const AssistantIntentTool = {
   create_action_item: 'create_action_item',
+  send_gmail: 'send_gmail',
+  create_calendar_event: 'create_calendar_event',
 } as const;
 
 export interface AssistantIntent {
@@ -814,7 +816,28 @@ export interface AssistantIntent {
      * @minLength 1
      * @maxLength 120
      */
-  title: string;
+  title?: string;
+  /**
+     * @minLength 3
+     * @maxLength 254
+     */
+  to?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  subject?: string;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  body?: string;
+  start?: string;
+  end?: string;
+  connectionId?: string;
+  /** @maxLength 254 */
+  accountEmail?: string;
+  calendarId?: string;
 }
 
 export interface AssistantActionItemResult {
@@ -823,15 +846,25 @@ export interface AssistantActionItemResult {
   completed: boolean;
 }
 
+export interface AssistantExternalActionResult {
+  resourceId: string;
+  threadId?: string;
+  title?: string;
+  start?: string;
+  end?: string;
+}
+
 export type AssistantRunState = typeof AssistantRunState[keyof typeof AssistantRunState];
 
 
 export const AssistantRunState = {
   planning: 'planning',
   needs_confirmation: 'needs_confirmation',
+  executing: 'executing',
   completed: 'completed',
   cancelled: 'cancelled',
   failed: 'failed',
+  uncertain: 'uncertain',
   rejected: 'rejected',
 } as const;
 
@@ -864,7 +897,7 @@ export interface AssistantRun {
   requiresConfirmation: boolean;
   /** @nullable */
   confirmationExpiresAt?: string | null;
-  result?: AssistantActionItemResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult;
   message?: string;
   createdAt: string;
   updatedAt: string;
@@ -884,9 +917,11 @@ export type AssistantMessageState = typeof AssistantMessageState[keyof typeof As
 export const AssistantMessageState = {
   planning: 'planning',
   needs_confirmation: 'needs_confirmation',
+  executing: 'executing',
   completed: 'completed',
   cancelled: 'cancelled',
   failed: 'failed',
+  uncertain: 'uncertain',
   rejected: 'rejected',
 } as const;
 
@@ -901,7 +936,7 @@ export interface AssistantMessage {
   requiresConfirmation?: boolean;
   /** @nullable */
   confirmationExpiresAt?: string | null;
-  result?: AssistantActionItemResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult;
 }
 
 export interface AssistantConversation {
@@ -1072,6 +1107,21 @@ export interface VoiceOutputPreferencesUpdate {
   autoSpeakEnabled?: boolean;
 }
 
+export type AIPrivacyPreferencesAssemblyAiLiveVoice = typeof AIPrivacyPreferencesAssemblyAiLiveVoice[keyof typeof AIPrivacyPreferencesAssemblyAiLiveVoice];
+
+
+export const AIPrivacyPreferencesAssemblyAiLiveVoice = {
+  michael: 'michael',
+  mary: 'mary',
+  paul: 'paul',
+  vera: 'vera',
+  giovanni: 'giovanni',
+  lola: 'lola',
+  juergen: 'juergen',
+  rafael: 'rafael',
+  estelle: 'estelle',
+} as const;
+
 /**
  * @nullable
  */
@@ -1093,9 +1143,25 @@ export interface AIPrivacyPreferences {
   /** @nullable */
   assemblyAiLiveConsentVersion: string | null;
   assemblyAiLiveAvailable: boolean;
+  assemblyAiLiveVoice: AIPrivacyPreferencesAssemblyAiLiveVoice;
   /** @nullable */
   redactionLocation: AIPrivacyPreferencesRedactionLocation;
 }
+
+export type AIPrivacyPreferencesUpdateAssemblyAiLiveVoice = typeof AIPrivacyPreferencesUpdateAssemblyAiLiveVoice[keyof typeof AIPrivacyPreferencesUpdateAssemblyAiLiveVoice];
+
+
+export const AIPrivacyPreferencesUpdateAssemblyAiLiveVoice = {
+  michael: 'michael',
+  mary: 'mary',
+  paul: 'paul',
+  vera: 'vera',
+  giovanni: 'giovanni',
+  lola: 'lola',
+  juergen: 'juergen',
+  rafael: 'rafael',
+  estelle: 'estelle',
+} as const;
 
 export type AIPrivacyPreferencesUpdateRedactionLocation = typeof AIPrivacyPreferencesUpdateRedactionLocation[keyof typeof AIPrivacyPreferencesUpdateRedactionLocation];
 
@@ -1108,6 +1174,7 @@ export interface AIPrivacyPreferencesUpdate {
   recordedVoiceInput?: boolean;
   assistantProcessing?: boolean;
   assemblyAiLive?: boolean;
+  assemblyAiLiveVoice?: AIPrivacyPreferencesUpdateAssemblyAiLiveVoice;
   redactionLocation?: AIPrivacyPreferencesUpdateRedactionLocation;
 }
 

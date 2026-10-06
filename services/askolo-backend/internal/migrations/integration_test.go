@@ -136,8 +136,18 @@ func TestProductionSchemaCompatibilityDoesNotRequireMigrationLedger(t *testing.T
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "publish_compatibility")
-	if err := Run(ctx, pool); err != nil {
-		t.Fatalf("apply disposable migrations: %v", err)
+	migrations, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load published schema migrations: %v", err)
+	}
+	// Production still uses the reviewed 0000-0013 schema baseline. The
+	// following migrations are Development-only until a separate promotion.
+	const publishedSchemaMigrationCount = 14
+	if len(migrations) < publishedSchemaMigrationCount {
+		t.Fatalf("only %d migrations available for published baseline", len(migrations))
+	}
+	if err := run(ctx, pool, migrations[:publishedSchemaMigrationCount]); err != nil {
+		t.Fatalf("apply published schema migrations: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `DROP TABLE askolo_schema_migrations`); err != nil {
 		t.Fatalf("remove Go migration ledger: %v", err)

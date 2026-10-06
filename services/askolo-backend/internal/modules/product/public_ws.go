@@ -105,7 +105,9 @@ func (h *Handler) StartVoice(
 		releaseLimit()
 		return nil, nil, publicws.Failure(http.StatusInternalServerError, "VOICE_UNAVAILABLE", "Real-time transcription is temporarily unavailable.", err)
 	}
-	return &publicVoiceSession{provider: provider, handler: h, userID: userID, reservation: reservation, startedAt: time.Now(), releaseLimit: releaseLimit}, payload, nil
+	session := &publicVoiceSession{provider: provider, handler: h, userID: userID, reservation: reservation, startedAt: time.Now(), releaseLimit: releaseLimit}
+	session.unregister = h.registerRealtimeSession(session, func() { session.Close() })
+	return session, payload, nil
 }
 
 type publicVoiceSession struct {
@@ -121,6 +123,7 @@ type publicVoiceSession struct {
 	meterSource        string
 	releaseLimit       func()
 	closeOnce          sync.Once
+	unregister         func()
 }
 
 func (s *publicVoiceSession) SendPCMFrame(ctx context.Context, frame []byte) error {
@@ -219,6 +222,10 @@ func (s *publicVoiceSession) Close() {
 		if s.releaseLimit != nil {
 			s.releaseLimit()
 		}
+		if s.unregister != nil {
+			s.unregister()
+			s.unregister = nil
+		}
 	})
 }
 
@@ -259,9 +266,27 @@ func (h *Handler) RunAssistant(
 		h.logAssistantUnavailable("privacy_preflight", "privacy_preferences_unavailable", err)
 		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
 	}
-	if reason := assistantPlannerUnavailableReason(h.assistantPlanner); reason != "" {
-		h.logAssistantUnavailable("preflight", reason, nil)
-		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
+	var directToolOutcome *postgres.AssistantPlanOutcome
+	directToolName := ""
+	if input.ToolName != "" {
+		outcome := prepareAssistantPlanOutcome(assistantModelPlan{
+			Intent: input.ToolName, Arguments: input.ToolArguments,
+		}, h.toolRegistry())
+		if outcome.State != "needs_confirmation" {
+			return nil, publicws.Failure(http.StatusBadRequest, "INVALID_ASSISTANT_TOOL_CALL", "The requested workspace action is not available.", nil)
+		}
+		definition, _ := h.toolRegistry().lookup(input.ToolName)
+		if definition.external {
+			directToolName = input.ToolName
+		} else {
+			directToolOutcome = &outcome
+		}
+	}
+	if directToolOutcome == nil {
+		if reason := assistantPlannerUnavailableReason(h.assistantPlanner); reason != "" {
+			h.logAssistantUnavailable("preflight", reason, nil)
+			return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
+		}
 	}
 
 	run, _, created, err := h.store.StartAssistantRun(
@@ -315,6 +340,15 @@ func (h *Handler) RunAssistant(
 		return json.Marshal(current)
 	}
 
+	if directToolOutcome != nil {
+		h.bindAssistantActionTarget(ctx, userID, directToolOutcome)
+		finished, err := h.store.FinishAssistantPlanning(ctx, userID, run.ID, *directToolOutcome)
+		if err != nil {
+			return nil, h.assistantPublicErrorAt("finish_tool_run", err)
+		}
+		return json.Marshal(finished)
+	}
+
 	planCtx, cancel := context.WithTimeout(ctx, assistantPlannerTimeout)
 	plan, planErr := h.assistantPlanner.Plan(planCtx, transcript)
 	cancel()
@@ -349,6 +383,10 @@ func (h *Handler) RunAssistant(
 	}
 
 	outcome := prepareAssistantPlanOutcome(plan, h.toolRegistry())
+	if directToolName != "" && plan.Intent != directToolName {
+		outcome = rejectedAssistantPlanOutcome(outcome)
+	}
+	h.bindAssistantActionTarget(ctx, userID, &outcome)
 	finished, err := h.store.FinishAssistantPlanning(ctx, userID, run.ID, outcome)
 	if err != nil {
 		return nil, h.assistantPublicErrorAt("finish_run", err)

@@ -19,6 +19,21 @@ Each Repl serves the full landing page and application from one environment-spec
 
 **How to apply:** Treat missing or contradictory environment identity, host, tag provenance, secret set, database target, or integration target as a blocking error. Do not infer an environment only from the branch currently checked out or `REPLIT_ENVIRONMENT`. Before a database write, compare a read-only identity fingerprint from the active connection with the named Development and Production database connections; never print the connection string.
 
+For external provider provisioning and Live Mode activation, require the exact process to identify as Development in both `REPLIT_ENVIRONMENT` and `ASKOLO_ENVIRONMENT`. If one says production while the other says development, stop; do not override the runtime-managed Replit value to pass a guard. In particular, do not add Development agent IDs while a production-marked process shares an enabled feature flag.
+
+**Why:** A conflicting process identity can turn a Development-only provider setup into production exposure, even when the app-specific environment says development.
+
+**How to apply:** Check both identities in the process that will provision resources and in the API workflow that will consume them. Resume only from a confirmed Development runtime.
+
+Verified stable database fingerprints on 2026-10-06:
+
+- Development: PostgreSQL system identifier `7664629048854937619`, database `heliumdb`, user `postgres`.
+- Production read-only reference: PostgreSQL system identifier `7664651643364501372`, database `neondb`, user `neondb_owner`.
+
+**Why:** The active app connection must be distinguished from Production even when environment labels conflict.
+
+**How to apply:** Compare system identifier, database name, and user before Development database writes; do not rely on host or port, and never record the connection string.
+
 ## Standard feature release
 
 1. Break features into small structural micro-PRs and merge them sequentially into protected `main`.

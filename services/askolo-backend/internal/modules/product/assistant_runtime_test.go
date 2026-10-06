@@ -123,10 +123,15 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 	}
 }
 
-func TestAssistantToolRegistryKeepsOnlyTheExistingConfirmedAction(t *testing.T) {
+func TestAssistantToolRegistryKeepsBuiltInToolsAndPreparesConfirmedAction(t *testing.T) {
 	registry := newAssistantToolRegistry()
-	if got := strings.Join(registry.names(), ","); got != assistantToolCreateActionItem {
-		t.Fatalf("registered tools = %q, want only %q", got, assistantToolCreateActionItem)
+	wantTools := strings.Join([]string{
+		assistantToolCreateActionItem,
+		assistantToolCreateCalendar,
+		assistantToolSendGmail,
+	}, ",")
+	if got := strings.Join(registry.names(), ","); got != wantTools {
+		t.Fatalf("registered tools = %q, want %q", got, wantTools)
 	}
 	definition, prepared, err := registry.prepare(
 		assistantToolCreateActionItem,
@@ -167,7 +172,12 @@ func TestAssistantToolRegistryRejectsDuplicateAndNonStrictDefinitions(t *testing
 	if err := registry.Register(existing); err == nil {
 		t.Fatal("tool schema allowing arbitrary arguments was accepted")
 	}
-	if got := strings.Join(registry.names(), ","); got != assistantToolCreateActionItem {
+	wantTools := strings.Join([]string{
+		assistantToolCreateActionItem,
+		assistantToolCreateCalendar,
+		assistantToolSendGmail,
+	}, ",")
+	if got := strings.Join(registry.names(), ","); got != wantTools {
 		t.Fatalf("registered tools after rejected definitions = %q", got)
 	}
 }

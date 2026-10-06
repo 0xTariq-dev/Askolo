@@ -1604,6 +1604,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AssistantRun"
+        "202":
+          description: The action is already executing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantRun"
         "401":
           description: Unauthorized
           content:
@@ -3071,15 +3077,40 @@ components:
           pattern: "^[0-9a-f]{64}$"
     AssistantIntent:
       type: object
-      required: [tool, title]
+      required: [tool]
       properties:
         tool:
           type: string
-          enum: [create_action_item]
+          enum: [create_action_item, send_gmail, create_calendar_event]
         title:
           type: string
           minLength: 1
           maxLength: 120
+        to:
+          type: string
+          minLength: 3
+          maxLength: 254
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 200
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        connectionId:
+          type: string
+        accountEmail:
+          type: string
+          maxLength: 254
+        calendarId:
+          type: string
     AssistantActionItemResult:
       type: object
       required: [id, title, completed]
@@ -3091,6 +3122,22 @@ components:
           type: string
         completed:
           type: boolean
+    AssistantExternalActionResult:
+      type: object
+      required: [resourceId]
+      properties:
+        resourceId:
+          type: string
+        threadId:
+          type: string
+        title:
+          type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
     AssistantRun:
       type: object
       required:
@@ -3113,7 +3160,7 @@ components:
           type: string
         state:
           type: string
-          enum: [planning, needs_confirmation, completed, cancelled, failed, rejected]
+          enum: [planning, needs_confirmation, executing, completed, cancelled, failed, uncertain, rejected]
         transcriptSha256:
           type: string
           pattern: "^[0-9a-f]{64}$"
@@ -3145,7 +3192,9 @@ components:
           type: ["string", "null"]
           format: date-time
         result:
-          $ref: "#/components/schemas/AssistantActionItemResult"
+          oneOf:
+            - $ref: "#/components/schemas/AssistantActionItemResult"
+            - $ref: "#/components/schemas/AssistantExternalActionResult"
         message:
           type: string
         createdAt:
@@ -3169,7 +3218,7 @@ components:
           type: string
         state:
           type: string
-          enum: [planning, needs_confirmation, completed, cancelled, failed, rejected]
+          enum: [planning, needs_confirmation, executing, completed, cancelled, failed, uncertain, rejected]
         intent:
           $ref: "#/components/schemas/AssistantIntent"
         intentSha256:
@@ -3180,7 +3229,9 @@ components:
           type: ["string", "null"]
           format: date-time
         result:
-          $ref: "#/components/schemas/AssistantActionItemResult"
+          oneOf:
+            - $ref: "#/components/schemas/AssistantActionItemResult"
+            - $ref: "#/components/schemas/AssistantExternalActionResult"
     AssistantConversation:
       type: object
       required: [messages]
@@ -3381,6 +3432,7 @@ components:
         - assemblyAiLiveConsentGiven
         - assemblyAiLiveConsentVersion
         - assemblyAiLiveAvailable
+        - assemblyAiLiveVoice
         - redactionLocation
       properties:
         recordedVoiceInputConsentGiven:
@@ -3397,6 +3449,9 @@ components:
           type: ["string", "null"]
         assemblyAiLiveAvailable:
           type: boolean
+        assemblyAiLiveVoice:
+          type: string
+          enum: [michael, mary, paul, vera, giovanni, lola, juergen, rafael, estelle]
         redactionLocation:
           type: ["string", "null"]
           enum: [app, null]
@@ -3410,6 +3465,9 @@ components:
           type: boolean
         assemblyAiLive:
           type: boolean
+        assemblyAiLiveVoice:
+          type: string
+          enum: [michael, mary, paul, vera, giovanni, lola, juergen, rafael, estelle]
         redactionLocation:
           type: string
           enum: [app]

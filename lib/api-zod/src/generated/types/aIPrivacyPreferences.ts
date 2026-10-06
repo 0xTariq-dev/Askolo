@@ -5,6 +5,7 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { AIPrivacyPreferencesAssemblyAiLiveVoice } from './aIPrivacyPreferencesAssemblyAiLiveVoice';
 import type { AIPrivacyPreferencesRedactionLocation } from './aIPrivacyPreferencesRedactionLocation';
 
 export interface AIPrivacyPreferences {
@@ -18,6 +19,7 @@ export interface AIPrivacyPreferences {
   /** @nullable */
   assemblyAiLiveConsentVersion: string | null;
   assemblyAiLiveAvailable: boolean;
+  assemblyAiLiveVoice: AIPrivacyPreferencesAssemblyAiLiveVoice;
   /** @nullable */
   redactionLocation: AIPrivacyPreferencesRedactionLocation;
 }

@@ -5,11 +5,13 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { AIPrivacyPreferencesUpdateAssemblyAiLiveVoice } from './aIPrivacyPreferencesUpdateAssemblyAiLiveVoice';
 import type { AIPrivacyPreferencesUpdateRedactionLocation } from './aIPrivacyPreferencesUpdateRedactionLocation';
 
 export interface AIPrivacyPreferencesUpdate {
   recordedVoiceInput?: boolean;
   assistantProcessing?: boolean;
   assemblyAiLive?: boolean;
+  assemblyAiLiveVoice?: AIPrivacyPreferencesUpdateAssemblyAiLiveVoice;
   redactionLocation?: AIPrivacyPreferencesUpdateRedactionLocation;
 }

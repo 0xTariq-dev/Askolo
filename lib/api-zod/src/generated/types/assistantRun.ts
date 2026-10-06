@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantActionItemResult } from './assistantActionItemResult';
+import type { AssistantExternalActionResult } from './assistantExternalActionResult';
 import type { AssistantIntent } from './assistantIntent';
 import type { AssistantRunRiskLevel } from './assistantRunRiskLevel';
 import type { AssistantRunState } from './assistantRunState';
@@ -32,7 +33,7 @@ export interface AssistantRun {
   requiresConfirmation: boolean;
   /** @nullable */
   confirmationExpiresAt?: Date | null;
-  result?: AssistantActionItemResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult;
   message?: string;
   createdAt: Date;
   updatedAt: Date;

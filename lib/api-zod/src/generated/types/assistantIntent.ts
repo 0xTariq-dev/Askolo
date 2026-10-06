@@ -13,5 +13,26 @@ export interface AssistantIntent {
      * @minLength 1
      * @maxLength 120
      */
-  title: string;
+  title?: string;
+  /**
+     * @minLength 3
+     * @maxLength 254
+     */
+  to?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  subject?: string;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  body?: string;
+  start?: Date;
+  end?: Date;
+  connectionId?: string;
+  /** @maxLength 254 */
+  accountEmail?: string;
+  calendarId?: string;
 }

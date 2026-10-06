@@ -32,8 +32,16 @@ type assistantConfirmationInput struct {
 }
 
 type assistantIntent struct {
-	Tool  string `json:"tool"`
-	Title string `json:"title"`
+	Tool         string `json:"tool"`
+	Title        string `json:"title,omitempty"`
+	To           string `json:"to,omitempty"`
+	Subject      string `json:"subject,omitempty"`
+	Body         string `json:"body,omitempty"`
+	Start        string `json:"start,omitempty"`
+	End          string `json:"end,omitempty"`
+	ConnectionID string `json:"connectionId,omitempty"`
+	AccountEmail string `json:"accountEmail,omitempty"`
+	CalendarID   string `json:"calendarId,omitempty"`
 }
 
 func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +160,7 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	outcome := prepareAssistantPlanOutcome(plan, h.toolRegistry())
+	h.bindAssistantActionTarget(r.Context(), userID, &outcome)
 	finished, err := h.store.FinishAssistantPlanning(r.Context(), userID, run.ID, outcome)
 	if err != nil {
 		h.storeError(w, "assistant plan persistence failed", err)
@@ -232,6 +241,63 @@ func (h *Handler) confirmAssistantRun(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(r, userID, tool.ResourceType, "", tool.ResourcePermission, w) {
 		return
 	}
+	if tool.external {
+		if h.assistantActionExecutor == nil {
+			writeError(w, http.StatusServiceUnavailable, "ASSISTANT_TOOL_UNAVAILABLE", "Google actions are temporarily unavailable.")
+			return
+		}
+		run, claimed, err := h.store.ClaimAssistantExternalAction(
+			r.Context(), userID, runID, input.ExpectedIntentSHA256,
+		)
+		if err != nil {
+			if h.handleAssistantStoreError(w, err) {
+				return
+			}
+			h.storeError(w, "assistant external action claim failed", err)
+			return
+		}
+		if !claimed {
+			writeAssistantRun(w, run)
+			return
+		}
+		result, requestAttempted, executionErr := h.assistantActionExecutor.ExecuteAssistantAction(
+			r.Context(), userID, runID, toolName, run.Intent,
+		)
+		finishState := "completed"
+		message := "Google confirmed that the action was completed."
+		if executionErr != nil {
+			if requestAttempted {
+				finishState = "uncertain"
+				message = "I couldn't confirm whether Google completed this action. Check your Google account before trying again."
+			} else {
+				finishState = "failed"
+				message = "Google couldn't prepare this action, so no request was sent. Reconnect the account or review the details and try again."
+			}
+			h.logger.Warn("assistant external action failed",
+				"run_id", runID,
+				"request_attempted", requestAttempted,
+			)
+		} else if toolName == assistantToolSendGmail {
+			message = "Google confirmed that the email was sent."
+		} else if toolName == assistantToolCreateCalendar {
+			message = "Google confirmed that the calendar event was created."
+		}
+		finishContext := r.Context()
+		var cancel context.CancelFunc
+		if finishContext.Err() != nil {
+			finishContext, cancel = context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+		}
+		finished, finishErr := h.store.FinishAssistantExternalAction(
+			finishContext, userID, runID, finishState, result, message,
+		)
+		if finishErr != nil {
+			h.storeError(w, "assistant external action result could not be saved", finishErr)
+			return
+		}
+		writeAssistantRun(w, finished)
+		return
+	}
 	run, err := tool.confirm(r.Context(), h.store, userID, runID, input.ExpectedIntentSHA256)
 	if err != nil {
 		if h.handleAssistantStoreError(w, err) {
@@ -305,7 +371,7 @@ func finishAssistantPlanning(h *Handler, userID, runID string, outcome postgres.
 
 func writeAssistantRun(w http.ResponseWriter, run postgres.AssistantRunRecord) {
 	status := http.StatusOK
-	if run.State == "planning" {
+	if run.State == "planning" || run.State == "executing" {
 		status = http.StatusAccepted
 	}
 	writeJSON(w, status, run)

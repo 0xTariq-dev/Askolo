@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -32,6 +33,7 @@ type App struct {
 	configuredCleanupInterval time.Duration
 	environment               string
 	serviceName               string
+	shutdownRealtimeSessions  func(context.Context) error
 }
 
 func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
@@ -40,6 +42,7 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 	}
 
 	cleanupState := &emailChallengeCleanupState{}
+	handler, shutdownRealtimeSessions := httpapi.NewWithShutdown(cfg, logger, store, cleanupState.readiness)
 	return &App{
 		logger:                    logger,
 		store:                     store,
@@ -47,9 +50,10 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 		configuredCleanupInterval: cfg.EmailChallengeCleanupInterval,
 		environment:               cfg.Environment,
 		serviceName:               cfg.ServiceName,
+		shutdownRealtimeSessions:  shutdownRealtimeSessions,
 		server: &http.Server{
 			Addr:              cfg.Host + ":" + strconv.Itoa(cfg.Port),
-			Handler:           httpapi.New(cfg, logger, store, cleanupState.readiness),
+			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
 			ReadTimeout:       readTimeout,
 			WriteTimeout:      writeTimeout,
@@ -123,6 +127,9 @@ func (s *emailChallengeCleanupState) readiness() httpapi.EmailChallengeCleanupRe
 }
 
 func (a *App) Run(ctx context.Context) error {
+	if a.store != nil {
+		defer a.store.Close()
+	}
 	serverErrors := make(chan error, 1)
 	cleanupContext, cancelCleanup := context.WithCancel(ctx)
 	cleanupDone := make(chan struct{})
@@ -139,21 +146,37 @@ func (a *App) Run(ctx context.Context) error {
 
 	select {
 	case err := <-serverErrors:
+		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		shutdownErr := a.shutdown(shutdownContext)
 		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+			return shutdownErr
 		}
-		return err
+		return errors.Join(err, shutdownErr)
 	case <-ctx.Done():
 		cancelCleanup()
 		<-cleanupDone
 		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		if err := a.server.Shutdown(shutdownContext); err != nil {
-			return err
-		}
-		a.store.Close()
-		return nil
+		return a.shutdown(shutdownContext)
 	}
+}
+
+func (a *App) shutdown(ctx context.Context) error {
+	var shutdownErr error
+	if a.shutdownRealtimeSessions != nil {
+		if err := a.shutdownRealtimeSessions(ctx); err != nil {
+			a.logger.Error("realtime session shutdown did not finish cleanly", "error_type", fmt.Sprintf("%T", err))
+			shutdownErr = errors.Join(shutdownErr, err)
+		}
+	}
+	if a.server != nil {
+		if err := a.server.Shutdown(ctx); err != nil {
+			_ = a.server.Close()
+			shutdownErr = errors.Join(shutdownErr, err)
+		}
+	}
+	return shutdownErr
 }
 
 func (a *App) runEmailChallengeCleanup(ctx context.Context, done chan<- struct{}) {

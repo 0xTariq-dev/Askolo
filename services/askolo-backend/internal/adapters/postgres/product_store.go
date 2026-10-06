@@ -15,6 +15,12 @@ const VoiceConsentVersion = "voice-v7"
 const VoiceOutputConsentVersion = "azure-tts-v1"
 const AssistantProcessingConsentVersion = "assistant-processing-v1"
 const VoiceAgentConsentVersion = "assemblyai-live-v2"
+const DefaultAssemblyAILiveVoice = "michael"
+
+var assemblyAILiveVoices = map[string]struct{}{
+	"michael": {}, "mary": {}, "paul": {}, "vera": {}, "giovanni": {},
+	"lola": {}, "juergen": {}, "rafael": {}, "estelle": {},
+}
 
 var ErrVoiceOutputConsentRequired = errors.New("Azure speech consent is required before enabling spoken replies")
 var ErrAssistantRedactionLocationRequired = errors.New("app-side transcript redaction is required before enabling Assistant processing")
@@ -27,6 +33,7 @@ type AIPrivacyPreferences struct {
 	AssemblyAILiveConsentGiven        bool    `json:"assemblyAiLiveConsentGiven"`
 	AssemblyAILiveConsentVersion      *string `json:"assemblyAiLiveConsentVersion"`
 	AssemblyAILiveAvailable           bool    `json:"assemblyAiLiveAvailable"`
+	AssemblyAILiveVoice               string  `json:"assemblyAiLiveVoice"`
 	RedactionLocation                 *string `json:"redactionLocation"`
 }
 
@@ -34,7 +41,13 @@ type AIPrivacyPreferencesPatch struct {
 	RecordedVoiceInputConsent  *bool
 	AssistantProcessingConsent *bool
 	AssemblyAILiveConsent      *bool
+	AssemblyAILiveVoice        *string
 	RedactionLocation          *string
+}
+
+func ValidAssemblyAILiveVoice(voice string) bool {
+	_, ok := assemblyAILiveVoices[voice]
+	return ok
 }
 
 type VoiceOutputPreferences struct {
@@ -1018,12 +1031,13 @@ func (s *Store) AIPrivacyPreferences(ctx context.Context, userID string) (AIPriv
 	err := s.pool.QueryRow(ctx, `
 		SELECT consent_at, consent_version,
 		       assistant_processing_consent_at, assistant_processing_consent_version,
-		       live_agent_consent_at, live_agent_consent_version, redaction_location
+		       live_agent_consent_at, live_agent_consent_version, redaction_location, live_agent_voice
 		FROM voice_preferences WHERE user_id = $1
 	`, userID).Scan(
-		&recordedAt, &recordedVersion, &assistantAt, &assistantVersion, &liveAt, &liveVersion, &redactionLocation,
+		&recordedAt, &recordedVersion, &assistantAt, &assistantVersion, &liveAt, &liveVersion, &redactionLocation, &result.AssemblyAILiveVoice,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
+		result.AssemblyAILiveVoice = DefaultAssemblyAILiveVoice
 		return result, nil
 	}
 	if err != nil {
@@ -1036,6 +1050,9 @@ func (s *Store) AIPrivacyPreferences(ctx context.Context, userID string) (AIPriv
 	result.AssistantProcessingConsentVersion = assistantVersion
 	result.AssemblyAILiveConsentGiven = liveAt != nil && liveVersion != nil && *liveVersion == VoiceAgentConsentVersion
 	result.AssemblyAILiveConsentVersion = liveVersion
+	if result.AssemblyAILiveVoice == "" {
+		result.AssemblyAILiveVoice = DefaultAssemblyAILiveVoice
+	}
 	result.RedactionLocation = redactionLocation
 	return result, nil
 }
@@ -1050,11 +1067,14 @@ func (s *Store) UpdateAIPrivacyPreferences(
 		return empty, errors.New("database is not configured")
 	}
 	if patch.RecordedVoiceInputConsent == nil && patch.AssistantProcessingConsent == nil &&
-		patch.AssemblyAILiveConsent == nil && patch.RedactionLocation == nil {
+		patch.AssemblyAILiveConsent == nil && patch.AssemblyAILiveVoice == nil && patch.RedactionLocation == nil {
 		return empty, errors.New("an AI privacy preference is required")
 	}
 	if patch.RedactionLocation != nil && *patch.RedactionLocation != "app" {
 		return empty, errors.New("unsupported transcript redaction location")
+	}
+	if patch.AssemblyAILiveVoice != nil && !ValidAssemblyAILiveVoice(*patch.AssemblyAILiveVoice) {
+		return empty, errors.New("unsupported AssemblyAI Live Mode voice")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -1068,12 +1088,13 @@ func (s *Store) UpdateAIPrivacyPreferences(
 	}
 	var recordedAt, assistantAt, liveAt *time.Time
 	var recordedVersion, assistantVersion, liveVersion, redactionLocation *string
+	liveVoice := DefaultAssemblyAILiveVoice
 	err = tx.QueryRow(ctx, `
 		SELECT consent_at, consent_version,
 		       assistant_processing_consent_at, assistant_processing_consent_version,
-		       live_agent_consent_at, live_agent_consent_version, redaction_location
+		       live_agent_consent_at, live_agent_consent_version, redaction_location, live_agent_voice
 		FROM voice_preferences WHERE user_id = $1 FOR UPDATE
-	`, userID).Scan(&recordedAt, &recordedVersion, &assistantAt, &assistantVersion, &liveAt, &liveVersion, &redactionLocation)
+	`, userID).Scan(&recordedAt, &recordedVersion, &assistantAt, &assistantVersion, &liveAt, &liveVersion, &redactionLocation, &liveVoice)
 	if err != nil {
 		return empty, err
 	}
@@ -1096,6 +1117,9 @@ func (s *Store) UpdateAIPrivacyPreferences(
 		} else {
 			liveAt, liveVersion = nil, nil
 		}
+	}
+	if patch.AssemblyAILiveVoice != nil {
+		liveVoice = *patch.AssemblyAILiveVoice
 	}
 	redactionChanged := false
 	if patch.RedactionLocation != nil {
@@ -1123,9 +1147,9 @@ func (s *Store) UpdateAIPrivacyPreferences(
 			consent_at=$2, consent_version=$3,
 			assistant_processing_consent_at=$4, assistant_processing_consent_version=$5,
 			live_agent_consent_at=$6, live_agent_consent_version=$7,
-			redaction_location=$8, updated_at=NOW()
+			redaction_location=$8, live_agent_voice=$9, updated_at=NOW()
 		WHERE user_id=$1
-	`, userID, recordedAt, recordedVersion, assistantAt, assistantVersion, liveAt, liveVersion, redactionLocation)
+	`, userID, recordedAt, recordedVersion, assistantAt, assistantVersion, liveAt, liveVersion, redactionLocation, liveVoice)
 	if err != nil {
 		return empty, err
 	}

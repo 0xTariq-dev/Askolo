@@ -4,33 +4,59 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"askolo/backend/internal/platform/publicws"
 )
 
-func TestVoiceAgentSessionUpdateUsesClosedFlatToolSchema(t *testing.T) {
-	update := voiceAgentSessionUpdate()
-	session, ok := update["session"].(map[string]any)
+func TestVoiceAgentSessionUpdateBindsOnlyStoredAgentID(t *testing.T) {
+	update := voiceAgentSessionUpdate("agent_test_123")
+	session, ok := update["session"].(map[string]string)
 	if !ok {
 		t.Fatal("session.update has no session object")
 	}
-	tools, ok := session["tools"].([]any)
-	if !ok || len(tools) != 1 {
-		t.Fatalf("expected exactly one provider tool, got %#v", session["tools"])
+	if len(session) != 1 || session["agent_id"] != "agent_test_123" {
+		t.Fatalf("stored-agent handshake must include only agent_id, got %#v", session)
 	}
-	tool, ok := tools[0].(map[string]any)
-	if !ok || tool["type"] != "function" || tool["name"] != voiceAgentToolName {
-		t.Fatalf("provider tool is not flat or has an unexpected name: %#v", tools[0])
+}
+
+func TestAssemblyAIAgentProvisioningDefinitionsUseRegisteredClientTools(t *testing.T) {
+	definitions, err := AssemblyAIAgentProvisioningDefinitions()
+	if err != nil {
+		t.Fatal(err)
 	}
-	parameters, ok := tool["parameters"].(map[string]any)
-	if !ok || parameters["type"] != "object" || parameters["additionalProperties"] != false {
-		t.Fatalf("provider tool arguments are not closed-world: %#v", tool["parameters"])
+	expectedTools, err := newAssistantToolRegistry().assemblyAIAgentTools()
+	if err != nil {
+		t.Fatal(err)
 	}
-	properties, ok := parameters["properties"].(map[string]any)
-	if !ok || len(properties) != 0 {
-		t.Fatalf("provider tool must not define executable arguments: %#v", parameters["properties"])
+	if len(definitions) != 9 {
+		t.Fatalf("expected 9 stored voice agents, got %d", len(definitions))
+	}
+	for _, definition := range definitions {
+		tools, ok := definition.Payload["tools"].([]map[string]any)
+		if !ok || !reflect.DeepEqual(tools, expectedTools) {
+			t.Fatalf("%s must expose the exact registered client tools: %#v", definition.VoiceKey, definition.Payload["tools"])
+		}
+		for _, tool := range tools {
+			if _, hasType := tool["type"]; hasType {
+				t.Fatalf("%s stored-agent tools must not contain inline function type: %#v", definition.VoiceKey, tool)
+			}
+		}
+	}
+}
+
+func TestVoiceAgentToolArgumentsRejectMalformedObjects(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		nil,
+		json.RawMessage(`null`),
+		json.RawMessage(`[]`),
+		json.RawMessage(`{"title":"first","title":"second"}`),
+	} {
+		if isAssistantJSONObject(raw) {
+			t.Errorf("invalid tool arguments were accepted: %s", raw)
+		}
 	}
 }
 

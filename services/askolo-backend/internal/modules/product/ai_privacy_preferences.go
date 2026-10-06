@@ -40,14 +40,19 @@ func (h *Handler) updateAIPrivacyPreferences(w http.ResponseWriter, r *http.Requ
 		RecordedVoiceInputConsent  *bool   `json:"recordedVoiceInput"`
 		AssistantProcessingConsent *bool   `json:"assistantProcessing"`
 		AssemblyAILiveConsent      *bool   `json:"assemblyAiLive"`
+		AssemblyAILiveVoice        *string `json:"assemblyAiLiveVoice"`
 		RedactionLocation          *string `json:"redactionLocation"`
 	}
 	if !decodeBody(w, r, &input) {
 		return
 	}
 	if input.RecordedVoiceInputConsent == nil && input.AssistantProcessingConsent == nil &&
-		input.AssemblyAILiveConsent == nil && input.RedactionLocation == nil {
+		input.AssemblyAILiveConsent == nil && input.AssemblyAILiveVoice == nil && input.RedactionLocation == nil {
 		writeError(w, http.StatusBadRequest, "INVALID_AI_PRIVACY_PREFERENCES", "Choose at least one privacy setting to update.")
+		return
+	}
+	if input.AssemblyAILiveVoice != nil && !postgres.ValidAssemblyAILiveVoice(*input.AssemblyAILiveVoice) {
+		writeError(w, http.StatusBadRequest, "INVALID_LIVE_VOICE", "Choose one of the supported Live Mode voices.")
 		return
 	}
 	if input.RedactionLocation != nil && *input.RedactionLocation != "app" {
@@ -74,6 +79,7 @@ func (h *Handler) updateAIPrivacyPreferences(w http.ResponseWriter, r *http.Requ
 		RecordedVoiceInputConsent:  input.RecordedVoiceInputConsent,
 		AssistantProcessingConsent: input.AssistantProcessingConsent,
 		AssemblyAILiveConsent:      input.AssemblyAILiveConsent,
+		AssemblyAILiveVoice:        input.AssemblyAILiveVoice,
 		RedactionLocation:          input.RedactionLocation,
 	})
 	if err != nil {
@@ -89,7 +95,7 @@ func (h *Handler) updateAIPrivacyPreferences(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) assemblyAILiveAvailable(ctx context.Context) bool {
-	if h == nil || !h.voiceAgentEnabled || h.realtimeLimiter == nil || h.store == nil {
+	if h == nil || !h.voiceAgentEnabled || !h.hasAllVoiceAgentIDs() || h.realtimeLimiter == nil || h.store == nil {
 		return false
 	}
 	provider, ok := h.assemblyAI.(assemblyAIVoiceAgentProvider)

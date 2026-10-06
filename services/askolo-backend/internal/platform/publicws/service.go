@@ -37,6 +37,8 @@ type AssistantRequest struct {
 	Transcript     string
 	IdempotencyKey string
 	PolicyVersion  int
+	ToolName       string
+	ToolArguments  json.RawMessage
 }
 
 type Services interface {

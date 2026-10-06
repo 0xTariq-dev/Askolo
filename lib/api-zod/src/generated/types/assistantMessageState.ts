@@ -12,8 +12,10 @@ export type AssistantMessageState = typeof AssistantMessageState[keyof typeof As
 export const AssistantMessageState = {
   planning: 'planning',
   needs_confirmation: 'needs_confirmation',
+  executing: 'executing',
   completed: 'completed',
   cancelled: 'cancelled',
   failed: 'failed',
+  uncertain: 'uncertain',
   rejected: 'rejected',
 } as const;

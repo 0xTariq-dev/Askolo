@@ -1508,6 +1508,15 @@ export const AssistantChatResponse = zod.object({
  */
 export const getAssistantConversationResponseMessagesItemIntentTitleMax = 120;
 
+export const getAssistantConversationResponseMessagesItemIntentToMin = 3;
+export const getAssistantConversationResponseMessagesItemIntentToMax = 254;
+
+export const getAssistantConversationResponseMessagesItemIntentSubjectMax = 200;
+
+export const getAssistantConversationResponseMessagesItemIntentBodyMax = 4000;
+
+export const getAssistantConversationResponseMessagesItemIntentAccountEmailMax = 254;
+
 
 
 export const GetAssistantConversationResponse = zod.object({
@@ -1517,19 +1526,33 @@ export const GetAssistantConversationResponse = zod.object({
   "role": zod.enum(['user', 'assistant']),
   "content": zod.string(),
   "runId": zod.string().optional(),
-  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']).optional(),
+  "state": zod.enum(['planning', 'needs_confirmation', 'executing', 'completed', 'cancelled', 'failed', 'uncertain', 'rejected']).optional(),
   "intent": zod.object({
-  "tool": zod.enum(['create_action_item']),
-  "title": zod.string().min(1).max(getAssistantConversationResponseMessagesItemIntentTitleMax)
+  "tool": zod.enum(['create_action_item', 'send_gmail', 'create_calendar_event']),
+  "title": zod.string().min(1).max(getAssistantConversationResponseMessagesItemIntentTitleMax).optional(),
+  "to": zod.string().min(getAssistantConversationResponseMessagesItemIntentToMin).max(getAssistantConversationResponseMessagesItemIntentToMax).optional(),
+  "subject": zod.string().min(1).max(getAssistantConversationResponseMessagesItemIntentSubjectMax).optional(),
+  "body": zod.string().min(1).max(getAssistantConversationResponseMessagesItemIntentBodyMax).optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional(),
+  "connectionId": zod.string().optional(),
+  "accountEmail": zod.string().max(getAssistantConversationResponseMessagesItemIntentAccountEmailMax).optional(),
+  "calendarId": zod.string().optional()
 }).optional(),
   "intentSha256": zod.string().optional(),
   "requiresConfirmation": zod.boolean().optional(),
   "confirmationExpiresAt": zod.coerce.date().nullish(),
-  "result": zod.object({
+  "result": zod.union([zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
   "completed": zod.boolean()
-}).optional()
+}),zod.object({
+  "resourceId": zod.string(),
+  "threadId": zod.string().optional(),
+  "title": zod.string().optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional()
+})]).optional()
 }))
 })
 
@@ -1566,13 +1589,22 @@ export const createAssistantRunResponseSettledCreditsMin = 0;
 
 export const createAssistantRunResponseIntentTitleMax = 120;
 
+export const createAssistantRunResponseIntentToMin = 3;
+export const createAssistantRunResponseIntentToMax = 254;
+
+export const createAssistantRunResponseIntentSubjectMax = 200;
+
+export const createAssistantRunResponseIntentBodyMax = 4000;
+
+export const createAssistantRunResponseIntentAccountEmailMax = 254;
+
 export const createAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
 
 
 export const CreateAssistantRunResponse = zod.object({
   "id": zod.string(),
   "conversationId": zod.string(),
-  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "state": zod.enum(['planning', 'needs_confirmation', 'executing', 'completed', 'cancelled', 'failed', 'uncertain', 'rejected']),
   "transcriptSha256": zod.string().regex(createAssistantRunResponseTranscriptSha256RegExp),
   "reservationId": zod.string(),
   "baseCredits": zod.number().int().min(1),
@@ -1580,18 +1612,32 @@ export const CreateAssistantRunResponse = zod.object({
   "settledCredits": zod.number().int().min(createAssistantRunResponseSettledCreditsMin),
   "policyVersion": zod.number().int().min(1),
   "intent": zod.object({
-  "tool": zod.enum(['create_action_item']),
-  "title": zod.string().min(1).max(createAssistantRunResponseIntentTitleMax)
+  "tool": zod.enum(['create_action_item', 'send_gmail', 'create_calendar_event']),
+  "title": zod.string().min(1).max(createAssistantRunResponseIntentTitleMax).optional(),
+  "to": zod.string().min(createAssistantRunResponseIntentToMin).max(createAssistantRunResponseIntentToMax).optional(),
+  "subject": zod.string().min(1).max(createAssistantRunResponseIntentSubjectMax).optional(),
+  "body": zod.string().min(1).max(createAssistantRunResponseIntentBodyMax).optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional(),
+  "connectionId": zod.string().optional(),
+  "accountEmail": zod.string().max(createAssistantRunResponseIntentAccountEmailMax).optional(),
+  "calendarId": zod.string().optional()
 }).optional(),
   "intentSha256": zod.string().regex(createAssistantRunResponseIntentSha256RegExp).optional(),
   "riskLevel": zod.enum(['write']).optional(),
   "requiresConfirmation": zod.boolean(),
   "confirmationExpiresAt": zod.coerce.date().nullish(),
-  "result": zod.object({
+  "result": zod.union([zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
   "completed": zod.boolean()
-}).optional(),
+}),zod.object({
+  "resourceId": zod.string(),
+  "threadId": zod.string().optional(),
+  "title": zod.string().optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional()
+})]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1613,13 +1659,22 @@ export const getAssistantRunResponseSettledCreditsMin = 0;
 
 export const getAssistantRunResponseIntentTitleMax = 120;
 
+export const getAssistantRunResponseIntentToMin = 3;
+export const getAssistantRunResponseIntentToMax = 254;
+
+export const getAssistantRunResponseIntentSubjectMax = 200;
+
+export const getAssistantRunResponseIntentBodyMax = 4000;
+
+export const getAssistantRunResponseIntentAccountEmailMax = 254;
+
 export const getAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
 
 
 export const GetAssistantRunResponse = zod.object({
   "id": zod.string(),
   "conversationId": zod.string(),
-  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "state": zod.enum(['planning', 'needs_confirmation', 'executing', 'completed', 'cancelled', 'failed', 'uncertain', 'rejected']),
   "transcriptSha256": zod.string().regex(getAssistantRunResponseTranscriptSha256RegExp),
   "reservationId": zod.string(),
   "baseCredits": zod.number().int().min(1),
@@ -1627,18 +1682,32 @@ export const GetAssistantRunResponse = zod.object({
   "settledCredits": zod.number().int().min(getAssistantRunResponseSettledCreditsMin),
   "policyVersion": zod.number().int().min(1),
   "intent": zod.object({
-  "tool": zod.enum(['create_action_item']),
-  "title": zod.string().min(1).max(getAssistantRunResponseIntentTitleMax)
+  "tool": zod.enum(['create_action_item', 'send_gmail', 'create_calendar_event']),
+  "title": zod.string().min(1).max(getAssistantRunResponseIntentTitleMax).optional(),
+  "to": zod.string().min(getAssistantRunResponseIntentToMin).max(getAssistantRunResponseIntentToMax).optional(),
+  "subject": zod.string().min(1).max(getAssistantRunResponseIntentSubjectMax).optional(),
+  "body": zod.string().min(1).max(getAssistantRunResponseIntentBodyMax).optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional(),
+  "connectionId": zod.string().optional(),
+  "accountEmail": zod.string().max(getAssistantRunResponseIntentAccountEmailMax).optional(),
+  "calendarId": zod.string().optional()
 }).optional(),
   "intentSha256": zod.string().regex(getAssistantRunResponseIntentSha256RegExp).optional(),
   "riskLevel": zod.enum(['write']).optional(),
   "requiresConfirmation": zod.boolean(),
   "confirmationExpiresAt": zod.coerce.date().nullish(),
-  "result": zod.object({
+  "result": zod.union([zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
   "completed": zod.boolean()
-}).optional(),
+}),zod.object({
+  "resourceId": zod.string(),
+  "threadId": zod.string().optional(),
+  "title": zod.string().optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional()
+})]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1681,13 +1750,22 @@ export const confirmAssistantRunResponseSettledCreditsMin = 0;
 
 export const confirmAssistantRunResponseIntentTitleMax = 120;
 
+export const confirmAssistantRunResponseIntentToMin = 3;
+export const confirmAssistantRunResponseIntentToMax = 254;
+
+export const confirmAssistantRunResponseIntentSubjectMax = 200;
+
+export const confirmAssistantRunResponseIntentBodyMax = 4000;
+
+export const confirmAssistantRunResponseIntentAccountEmailMax = 254;
+
 export const confirmAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
 
 
 export const ConfirmAssistantRunResponse = zod.object({
   "id": zod.string(),
   "conversationId": zod.string(),
-  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "state": zod.enum(['planning', 'needs_confirmation', 'executing', 'completed', 'cancelled', 'failed', 'uncertain', 'rejected']),
   "transcriptSha256": zod.string().regex(confirmAssistantRunResponseTranscriptSha256RegExp),
   "reservationId": zod.string(),
   "baseCredits": zod.number().int().min(1),
@@ -1695,18 +1773,32 @@ export const ConfirmAssistantRunResponse = zod.object({
   "settledCredits": zod.number().int().min(confirmAssistantRunResponseSettledCreditsMin),
   "policyVersion": zod.number().int().min(1),
   "intent": zod.object({
-  "tool": zod.enum(['create_action_item']),
-  "title": zod.string().min(1).max(confirmAssistantRunResponseIntentTitleMax)
+  "tool": zod.enum(['create_action_item', 'send_gmail', 'create_calendar_event']),
+  "title": zod.string().min(1).max(confirmAssistantRunResponseIntentTitleMax).optional(),
+  "to": zod.string().min(confirmAssistantRunResponseIntentToMin).max(confirmAssistantRunResponseIntentToMax).optional(),
+  "subject": zod.string().min(1).max(confirmAssistantRunResponseIntentSubjectMax).optional(),
+  "body": zod.string().min(1).max(confirmAssistantRunResponseIntentBodyMax).optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional(),
+  "connectionId": zod.string().optional(),
+  "accountEmail": zod.string().max(confirmAssistantRunResponseIntentAccountEmailMax).optional(),
+  "calendarId": zod.string().optional()
 }).optional(),
   "intentSha256": zod.string().regex(confirmAssistantRunResponseIntentSha256RegExp).optional(),
   "riskLevel": zod.enum(['write']).optional(),
   "requiresConfirmation": zod.boolean(),
   "confirmationExpiresAt": zod.coerce.date().nullish(),
-  "result": zod.object({
+  "result": zod.union([zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
   "completed": zod.boolean()
-}).optional(),
+}),zod.object({
+  "resourceId": zod.string(),
+  "threadId": zod.string().optional(),
+  "title": zod.string().optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional()
+})]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1735,13 +1827,22 @@ export const cancelAssistantRunResponseSettledCreditsMin = 0;
 
 export const cancelAssistantRunResponseIntentTitleMax = 120;
 
+export const cancelAssistantRunResponseIntentToMin = 3;
+export const cancelAssistantRunResponseIntentToMax = 254;
+
+export const cancelAssistantRunResponseIntentSubjectMax = 200;
+
+export const cancelAssistantRunResponseIntentBodyMax = 4000;
+
+export const cancelAssistantRunResponseIntentAccountEmailMax = 254;
+
 export const cancelAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
 
 
 export const CancelAssistantRunResponse = zod.object({
   "id": zod.string(),
   "conversationId": zod.string(),
-  "state": zod.enum(['planning', 'needs_confirmation', 'completed', 'cancelled', 'failed', 'rejected']),
+  "state": zod.enum(['planning', 'needs_confirmation', 'executing', 'completed', 'cancelled', 'failed', 'uncertain', 'rejected']),
   "transcriptSha256": zod.string().regex(cancelAssistantRunResponseTranscriptSha256RegExp),
   "reservationId": zod.string(),
   "baseCredits": zod.number().int().min(1),
@@ -1749,18 +1850,32 @@ export const CancelAssistantRunResponse = zod.object({
   "settledCredits": zod.number().int().min(cancelAssistantRunResponseSettledCreditsMin),
   "policyVersion": zod.number().int().min(1),
   "intent": zod.object({
-  "tool": zod.enum(['create_action_item']),
-  "title": zod.string().min(1).max(cancelAssistantRunResponseIntentTitleMax)
+  "tool": zod.enum(['create_action_item', 'send_gmail', 'create_calendar_event']),
+  "title": zod.string().min(1).max(cancelAssistantRunResponseIntentTitleMax).optional(),
+  "to": zod.string().min(cancelAssistantRunResponseIntentToMin).max(cancelAssistantRunResponseIntentToMax).optional(),
+  "subject": zod.string().min(1).max(cancelAssistantRunResponseIntentSubjectMax).optional(),
+  "body": zod.string().min(1).max(cancelAssistantRunResponseIntentBodyMax).optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional(),
+  "connectionId": zod.string().optional(),
+  "accountEmail": zod.string().max(cancelAssistantRunResponseIntentAccountEmailMax).optional(),
+  "calendarId": zod.string().optional()
 }).optional(),
   "intentSha256": zod.string().regex(cancelAssistantRunResponseIntentSha256RegExp).optional(),
   "riskLevel": zod.enum(['write']).optional(),
   "requiresConfirmation": zod.boolean(),
   "confirmationExpiresAt": zod.coerce.date().nullish(),
-  "result": zod.object({
+  "result": zod.union([zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
   "completed": zod.boolean()
-}).optional(),
+}),zod.object({
+  "resourceId": zod.string(),
+  "threadId": zod.string().optional(),
+  "title": zod.string().optional(),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional()
+})]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1886,6 +2001,7 @@ export const GetAIPrivacyPreferencesResponse = zod.object({
   "assemblyAiLiveConsentGiven": zod.boolean(),
   "assemblyAiLiveConsentVersion": zod.string().nullable(),
   "assemblyAiLiveAvailable": zod.boolean(),
+  "assemblyAiLiveVoice": zod.enum(['michael', 'mary', 'paul', 'vera', 'giovanni', 'lola', 'juergen', 'rafael', 'estelle']),
   "redactionLocation": zod.union([zod.literal('app'),zod.literal(null)]).nullable()
 })
 
@@ -1897,6 +2013,7 @@ export const UpdateAIPrivacyPreferencesBody = zod.object({
   "recordedVoiceInput": zod.boolean().optional(),
   "assistantProcessing": zod.boolean().optional(),
   "assemblyAiLive": zod.boolean().optional(),
+  "assemblyAiLiveVoice": zod.enum(['michael', 'mary', 'paul', 'vera', 'giovanni', 'lola', 'juergen', 'rafael', 'estelle']).optional(),
   "redactionLocation": zod.enum(['app']).optional()
 })
 
@@ -1908,6 +2025,7 @@ export const UpdateAIPrivacyPreferencesResponse = zod.object({
   "assemblyAiLiveConsentGiven": zod.boolean(),
   "assemblyAiLiveConsentVersion": zod.string().nullable(),
   "assemblyAiLiveAvailable": zod.boolean(),
+  "assemblyAiLiveVoice": zod.enum(['michael', 'mary', 'paul', 'vera', 'giovanni', 'lola', 'juergen', 'rafael', 'estelle']),
   "redactionLocation": zod.union([zod.literal('app'),zod.literal(null)]).nullable()
 })
 

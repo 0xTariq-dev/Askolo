@@ -11,4 +11,6 @@ export type AssistantIntentTool = typeof AssistantIntentTool[keyof typeof Assist
 
 export const AssistantIntentTool = {
   create_action_item: 'create_action_item',
+  send_gmail: 'send_gmail',
+  create_calendar_event: 'create_calendar_event',
 } as const;

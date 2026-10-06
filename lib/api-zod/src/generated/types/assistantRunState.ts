@@ -12,8 +12,10 @@ export type AssistantRunState = typeof AssistantRunState[keyof typeof AssistantR
 export const AssistantRunState = {
   planning: 'planning',
   needs_confirmation: 'needs_confirmation',
+  executing: 'executing',
   completed: 'completed',
   cancelled: 'cancelled',
   failed: 'failed',
+  uncertain: 'uncertain',
   rejected: 'rejected',
 } as const;

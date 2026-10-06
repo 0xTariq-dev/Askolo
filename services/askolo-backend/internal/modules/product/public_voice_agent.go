@@ -23,7 +23,6 @@ const (
 	voiceAgentStopTimeout        = 4 * time.Second
 	voiceAgentSendTimeout        = 5 * time.Second
 	voiceAgentDeleteTimeout      = 5 * time.Second
-	voiceAgentToolName           = "askolo_request_action"
 	maxVoiceAgentToolCalls       = 3
 	maxVoiceAgentTranscriptBytes = 4096
 	maxVoiceAgentAudioBytes      = 16 * 1024
@@ -105,15 +104,15 @@ func (h *Handler) StartVoiceAgent(
 	if h.store == nil {
 		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_AGENT_UNAVAILABLE", "Live Mode is temporarily unavailable.", nil)
 	}
-	if request.Locale != "en" {
-		return nil, nil, publicws.Failure(http.StatusBadRequest, "VOICE_AGENT_LANGUAGE_UNSUPPORTED", "Live Mode currently supports English speech only.", nil)
-	}
 	if request.IdempotencyKey == "" || len(request.IdempotencyKey) > 200 ||
 		strings.TrimSpace(request.IdempotencyKey) != request.IdempotencyKey ||
 		request.PolicyVersion < 1 || request.AssistantPolicyVersion < 1 ||
 		len(request.ConversationID) > 128 ||
 		(request.ConversationID != "" && strings.TrimSpace(request.ConversationID) != request.ConversationID) {
 		return nil, nil, publicws.Failure(http.StatusBadRequest, "INVALID_VOICE_AGENT_REQUEST", "Refresh the estimates and try starting Live Mode again.", nil)
+	}
+	if !h.hasAllVoiceAgentIDs() {
+		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_AGENT_NOT_CONFIGURED", "Live Mode is not configured.", nil)
 	}
 
 	allowed, err := h.allowRealtimeConnectionStart(ctx, userID)
@@ -132,6 +131,19 @@ func (h *Handler) StartVoiceAgent(
 	}
 	if !consent || consentVersion != postgres.VoiceAgentConsentVersion {
 		return nil, nil, publicws.Failure(http.StatusForbidden, "VOICE_AGENT_CONSENT_REQUIRED", "Review and accept the AssemblyAI Live Mode privacy notice before starting.", nil)
+	}
+	preferences, err := h.store.AIPrivacyPreferences(ctx, userID)
+	if err != nil {
+		h.logger.Error("Voice Agent preference lookup failed", "error_type", fmt.Sprintf("%T", err))
+		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_AGENT_UNAVAILABLE", "Live Mode is temporarily unavailable.", err)
+	}
+	voice, supported := assemblyAILiveVoiceChoices[preferences.AssemblyAILiveVoice]
+	if !supported || request.Locale != voice.Locale {
+		return nil, nil, publicws.Failure(http.StatusBadRequest, "VOICE_AGENT_LANGUAGE_UNSUPPORTED", "The selected Live Mode voice and language do not match.", nil)
+	}
+	agentID, configured := h.voiceAgentID(preferences.AssemblyAILiveVoice)
+	if !configured {
+		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_AGENT_NOT_CONFIGURED", "Live Mode is not configured.", nil)
 	}
 
 	provider, ok := h.assemblyAI.(assemblyAIVoiceAgentProvider)
@@ -177,7 +189,7 @@ func (h *Handler) StartVoiceAgent(
 		}
 		return fail(publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "Live Mode could not connect. Try again later.", err))
 	}
-	if err := connection.SendEvent(setupCtx, voiceAgentSessionUpdate()); err != nil {
+	if err := connection.SendEvent(setupCtx, voiceAgentSessionUpdate(agentID)); err != nil {
 		connection.Close()
 		h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, 1, "server_elapsed")
 		h.releaseVoiceAgentLimit(release)
@@ -229,12 +241,12 @@ func (h *Handler) StartVoiceAgent(
 		provider: connection, providerService: provider, handler: h, userID: userID,
 		workspaceID: workspaceID, request: request, reservation: reservation,
 		providerSessionID: providerSessionID, startedAt: time.Now(), releaseLimit: release,
-		deletionStatus: "unconfirmed",
+		deletionStatus: "unconfirmed", voice: voice.Name,
 	}
 	readyPayload, err := json.Marshal(map[string]any{
 		"maxSessionDurationSeconds": assemblyAIVoiceAgentMaxSessionDurationSeconds,
-		"locale":                    request.Locale,
-		"voice":                     "michael",
+		"locale":                    voice.Locale,
+		"voice":                     voice.Name,
 		"creditReceipt": voiceCreditReceipt{
 			ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice",
 			Provider: "assemblyai", Mode: "voice_agent", Status: "claimed",
@@ -245,30 +257,14 @@ func (h *Handler) StartVoiceAgent(
 		outcome := session.Close()
 		return nil, nil, publicws.Failure(http.StatusInternalServerError, "VOICE_AGENT_UNAVAILABLE", "Live Mode is temporarily unavailable.", errors.New(outcome.DeletionStatus))
 	}
+	session.unregister = h.registerRealtimeSession(session, func() { session.Close() })
 	return session, readyPayload, nil
 }
 
-func voiceAgentSessionUpdate() map[string]any {
+func voiceAgentSessionUpdate(agentID string) map[string]any {
 	return map[string]any{
-		"type": "session.update",
-		"session": map[string]any{
-			"system_prompt": "You are Askolo's spoken assistant. Help the user think, plan, and discuss their Askolo workspace. Do not claim that an action has been completed. If the user requests a workspace change, call askolo_request_action once; Askolo will independently plan and validate the request, and the user must confirm every write in the app. Do not request, repeat, or expose passwords, verification codes, payment details, or other secrets.",
-			"greeting":      "Hello. What would you like to work on?",
-			"tools": []any{map[string]any{
-				"type": "function", "name": voiceAgentToolName,
-				"description": "Ask Askolo to prepare a workspace action for explicit user review and confirmation. Do not perform or claim the action yourself.",
-				"parameters": map[string]any{
-					"type": "object", "properties": map[string]any{}, "additionalProperties": false,
-				},
-			}},
-			"input": map[string]any{
-				"format":         map[string]string{"encoding": "audio/pcm"},
-				"turn_detection": map[string]any{"interrupt_response": true},
-			},
-			"output": map[string]any{
-				"voice": "michael", "format": map[string]string{"encoding": "audio/pcm"},
-			},
-		},
+		"type":    "session.update",
+		"session": map[string]string{"agent_id": agentID},
 	}
 }
 
@@ -287,8 +283,9 @@ func (h *Handler) releaseVoiceAgentLimit(release func()) {
 }
 
 type voiceAgentPendingTool struct {
-	callID string
-	name   string
+	callID    string
+	name      string
+	arguments json.RawMessage
 }
 
 type publicVoiceAgentSession struct {
@@ -301,6 +298,7 @@ type publicVoiceAgentSession struct {
 	reservation       voiceCreditReservation
 	providerSessionID string
 	startedAt         time.Time
+	voice             string
 
 	mu                    sync.Mutex
 	deleteMu              sync.Mutex
@@ -317,6 +315,7 @@ type publicVoiceAgentSession struct {
 	pendingProtocolEvents []agentProtocolEvent
 	releaseLimit          func()
 	closeOnce             sync.Once
+	unregister            func()
 }
 
 type agentProtocolEvent struct {
@@ -387,10 +386,12 @@ func (s *publicVoiceAgentSession) ReadProviderMessage(ctx context.Context) (stri
 			return "AskoloVoiceAgentEnded", ended, nil
 		case "tool.call":
 			var call struct {
-				CallID string `json:"call_id"`
-				Name   string `json:"name"`
+				CallID    string          `json:"call_id"`
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
 			}
-			if json.Unmarshal(payload, &call) != nil || !validVoiceAgentCallID(call.CallID) {
+			if json.Unmarshal(payload, &call) != nil || !validVoiceAgentCallID(call.CallID) ||
+				len(call.Arguments) > 8192 || !isAssistantJSONObject(call.Arguments) {
 				return "", nil, errAssemblyAIProviderFailure
 			}
 			s.mu.Lock()
@@ -398,7 +399,10 @@ func (s *publicVoiceAgentSession) ReadProviderMessage(ctx context.Context) (stri
 				s.mu.Unlock()
 				return "", nil, errAssemblyAIProviderFailure
 			}
-			s.pendingToolCalls = append(s.pendingToolCalls, voiceAgentPendingTool{callID: call.CallID, name: call.Name})
+			s.pendingToolCalls = append(s.pendingToolCalls, voiceAgentPendingTool{
+				callID: call.CallID, name: call.Name,
+				arguments: append(json.RawMessage(nil), call.Arguments...),
+			})
 			s.mu.Unlock()
 			continue
 		case "reply.done":
@@ -456,7 +460,7 @@ func (s *publicVoiceAgentSession) ReadProviderMessage(ctx context.Context) (stri
 }
 
 func (s *publicVoiceAgentSession) executeAssistantRequest(ctx context.Context, call voiceAgentPendingTool) (string, json.RawMessage, error) {
-	if call.name != voiceAgentToolName {
+	if _, ok := s.handler.toolRegistry().lookup(call.name); !ok {
 		s.sendToolResult(ctx, call.callID, map[string]any{"status": "not_allowed"}, true)
 		return "AskoloVoiceAgentActionRefused", voiceAgentJSON(map[string]string{"message": "That action is not available."}), nil
 	}
@@ -478,12 +482,17 @@ func (s *publicVoiceAgentSession) executeAssistantRequest(ctx context.Context, c
 		s.sendToolResult(ctx, call.callID, map[string]any{"status": "not_run"}, true)
 		return "AskoloVoiceAgentActionRefused", voiceAgentJSON(map[string]string{"message": "I could not prepare an action from that request."}), nil
 	}
-	keyDigest := sha256.Sum256([]byte(s.request.IdempotencyKey + "\x00" + call.callID))
+	keyDigest := sha256.Sum256(append(
+		append([]byte(s.request.IdempotencyKey+"\x00"+call.callID+"\x00"+call.name+"\x00"), call.arguments...),
+		0,
+	))
 	request := publicws.AssistantRequest{
 		ConversationID: s.request.ConversationID,
 		Transcript:     transcript,
 		IdempotencyKey: "voice-agent-" + hex.EncodeToString(keyDigest[:]),
 		PolicyVersion:  s.request.AssistantPolicyVersion,
+		ToolName:       call.name,
+		ToolArguments:  call.arguments,
 	}
 	run, err := s.handler.RunAssistant(ctx, s.userID, s.workspaceID, request, nil)
 	if err != nil {
@@ -499,13 +508,15 @@ func (s *publicVoiceAgentSession) executeAssistantRequest(ctx context.Context, c
 		State string `json:"state"`
 	}
 	_ = json.Unmarshal(run, &runState)
-	resultStatus := "confirmation_required"
-	if runState.State == "completed" {
+	resultStatus := "prepared"
+	if runState.State == "needs_confirmation" {
+		resultStatus = "confirmation_required"
+	} else if runState.State == "completed" {
 		resultStatus = "complete"
 	}
 	s.sendToolResult(ctx, call.callID, map[string]any{
 		"status":  resultStatus,
-		"message": "Askolo prepared the result. The user must review and confirm any workspace change in the app.",
+		"message": "Askolo prepared the result. The user must review and confirm any change in the app.",
 	}, false)
 	return "AskoloAssistantRun", run, nil
 }
@@ -560,6 +571,10 @@ func (s *publicVoiceAgentSession) Close() publicws.VoiceAgentOutcome {
 		if s.releaseLimit != nil {
 			s.releaseLimit()
 			s.releaseLimit = nil
+		}
+		if s.unregister != nil {
+			s.unregister()
+			s.unregister = nil
 		}
 	})
 	s.mu.Lock()

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantActionItemResult } from './assistantActionItemResult';
+import type { AssistantExternalActionResult } from './assistantExternalActionResult';
 import type { AssistantIntent } from './assistantIntent';
 import type { AssistantMessageRole } from './assistantMessageRole';
 import type { AssistantMessageState } from './assistantMessageState';
@@ -21,5 +22,5 @@ export interface AssistantMessage {
   requiresConfirmation?: boolean;
   /** @nullable */
   confirmationExpiresAt?: Date | null;
-  result?: AssistantActionItemResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult;
 }
