@@ -5,7 +5,13 @@ description: Environment identity, release promotion, and production-baseline ho
 
 ## Environment identity
 
-Askolo uses one central GitHub repository and three separate Replit projects. `main` is the only persistent source-of-truth branch.
+Askolo's intended release topology uses one central GitHub repository and three Replit projects. `main` is the only persistent source-of-truth branch.
+
+**Current status (2026-10-06):** The user stated that environment separation is not yet done. The only supplied public origin, `https://dev.askolo.app`, responds with `ASKOLO_ENVIRONMENT=production`; no separate staging Repl/origin was provided.
+
+**Why:** A hostname containing `dev` does not prove that a target is Development; using the supplied URL for staging validation would contact Production.
+
+**How to apply:** Treat the supplied host as Production until a separately configured Staging Repl and canonical HTTPS origin are confirmed. Preserve the production hold and use the current Development workspace for non-production checks.
 
 Before changing configuration, data, integrations, releases, callbacks, or infrastructure, determine which Repl is active and apply that environment's guardrails:
 
