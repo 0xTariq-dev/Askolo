@@ -64,9 +64,8 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	if strings.TrimSpace(os.Getenv("REPLIT_ENVIRONMENT")) != "development" ||
-		!strings.EqualFold(strings.TrimSpace(os.Getenv("ASKOLO_ENVIRONMENT")), "development") {
-		return errors.New("refusing to contact AssemblyAI: both REPLIT_ENVIRONMENT and ASKOLO_ENVIRONMENT must be development")
+	if err := requireDevelopmentRuntime(); err != nil {
+		return err
 	}
 	apiKey := strings.TrimSpace(os.Getenv("ASSEMBLY_AI_API_KEY"))
 	if apiKey == "" {
@@ -132,8 +131,20 @@ func run(ctx context.Context) error {
 	return nil
 }
 
+func requireDevelopmentRuntime() error {
+	if strings.TrimSpace(os.Getenv("REPLIT_DEPLOYMENT")) != "" ||
+		!strings.EqualFold(strings.TrimSpace(os.Getenv("ASKOLO_ENVIRONMENT")), "development") {
+		return errors.New("refusing to contact AssemblyAI: REPLIT_DEPLOYMENT must be unset and ASKOLO_ENVIRONMENT must be development")
+	}
+	return nil
+}
+
 func listAgents(ctx context.Context, client *http.Client, apiKey string) ([]listedAgent, error) {
-	response, err := request(ctx, client, apiKey, http.MethodGet, agentsEndpoint, nil)
+	return listAgentsFromEndpoint(ctx, client, apiKey, agentsEndpoint)
+}
+
+func listAgentsFromEndpoint(ctx context.Context, client *http.Client, apiKey, endpoint string) ([]listedAgent, error) {
+	response, err := request(ctx, client, apiKey, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -141,11 +152,34 @@ func listAgents(ctx context.Context, client *http.Client, apiKey string) ([]list
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("AssemblyAI agent list failed with HTTP %d", response.StatusCode)
 	}
-	var agents []listedAgent
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1024*1024)).Decode(&agents); err != nil {
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1024*1024))
+	if err != nil {
+		return nil, errors.New("AssemblyAI agent list response could not be read")
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
 		return nil, errors.New("AssemblyAI agent list response was invalid")
 	}
-	return agents, nil
+
+	var agents []listedAgent
+	if body[0] == '[' {
+		if err := json.Unmarshal(body, &agents); err != nil {
+			return nil, errors.New("AssemblyAI agent list response was invalid")
+		}
+		return agents, nil
+	}
+
+	var page struct {
+		Agents  *[]listedAgent `json:"agents"`
+		HasMore *bool          `json:"has_more"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil || page.Agents == nil || page.HasMore == nil {
+		return nil, errors.New("AssemblyAI agent list response was invalid")
+	}
+	if *page.HasMore {
+		return nil, errors.New("AssemblyAI agent list has more pages; refusing to provision from an incomplete listing")
+	}
+	return *page.Agents, nil
 }
 
 func getAgent(ctx context.Context, client *http.Client, apiKey, id string) (agentRecord, error) {

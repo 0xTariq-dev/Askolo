@@ -50,6 +50,7 @@ ASKOLO_ENVIRONMENT = "development"
 ASKOLO_COOKIE_NAMESPACE = "askolo_dev"
 ASKOLO_DATABASE_ID = "development-database"
 GOOGLE_REDIRECT_URI = "https://5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvhiesj.picard.replit.dev/api/google/gmail/callback"
+ASKOLO_ASSEMBLYAI_AGENT_IDS = "{\"estelle\":\"agent_f0a30404c31c43f0a6f671ff50a01d78\",\"giovanni\":\"agent_9ccdc114d07a430a974647e4c7d4e328\",\"juergen\":\"agent_0dfe38484c1249f6a8bc9557986cc99c\",\"lola\":\"agent_789321e9ce754a1bba2ecf13312a8f74\",\"mary\":\"agent_db156f6317784ae6bebd5985a58c4a9c\",\"michael\":\"agent_48773099b16a4dcc8a644862ec2394df\",\"paul\":\"agent_4fa1ed505caa486cb9746d231a65abcd\",\"rafael\":\"agent_b5438ef292c14f289d766e775638646e\",\"vera\":\"agent_f2227879cea74014914185a24d3b667e\"}"
 
 [userenv.production]
 ASKOLO_CANONICAL_ORIGIN = "https://dev.askolo.app"

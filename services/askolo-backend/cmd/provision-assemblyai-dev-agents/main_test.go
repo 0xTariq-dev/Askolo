@@ -13,25 +13,81 @@ import (
 
 func TestProvisioningRefusesNonDevelopmentEnvironmentBeforeNetworkAccess(t *testing.T) {
 	tests := []struct {
-		name      string
-		replitEnv string
-		askoloEnv string
+		name       string
+		deployment string
+		askoloEnv  string
 	}{
-		{name: "production Replit environment", replitEnv: "production", askoloEnv: "development"},
-		{name: "production Askolo environment", replitEnv: "development", askoloEnv: "production"},
-		{name: "missing Replit environment", askoloEnv: "development"},
-		{name: "missing Askolo environment", replitEnv: "development"},
+		{name: "published Replit deployment", deployment: "1", askoloEnv: "development"},
+		{name: "unknown nonempty deployment marker", deployment: "unexpected", askoloEnv: "development"},
+		{name: "production Askolo environment", deployment: "", askoloEnv: "production"},
+		{name: "missing Askolo environment", deployment: ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("REPLIT_ENVIRONMENT", test.replitEnv)
+			t.Setenv("REPLIT_DEPLOYMENT", test.deployment)
 			t.Setenv("ASKOLO_ENVIRONMENT", test.askoloEnv)
 			t.Setenv("ASSEMBLY_AI_API_KEY", "test-only-placeholder")
 			err := run(context.Background())
-			if err == nil || !strings.Contains(err.Error(), "both REPLIT_ENVIRONMENT and ASKOLO_ENVIRONMENT must be development") {
+			if err == nil || !strings.Contains(err.Error(), "REPLIT_DEPLOYMENT must be unset and ASKOLO_ENVIRONMENT must be development") {
 				t.Fatalf("expected environment guard to stop provisioning, got %v", err)
 			}
 		})
+	}
+}
+
+func TestProvisioningAcceptsProjectEditorDevelopmentRuntimeBeforeKeyValidation(t *testing.T) {
+	t.Setenv("REPLIT_DEPLOYMENT", "")
+	t.Setenv("ASKOLO_ENVIRONMENT", "development")
+	t.Setenv("ASSEMBLY_AI_API_KEY", "")
+
+	err := run(context.Background())
+	if err == nil || err.Error() != "ASSEMBLY_AI_API_KEY is not configured" {
+		t.Fatalf("expected Development runtime to pass the environment guard before key validation, got %v", err)
+	}
+}
+
+func TestListAgentsAcceptsCurrentPaginatedEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"agents":[{"id":"agent_dev_test","name":"Askolo Development - Test","deleted_at":null}],"has_more":false,"response_metadata":{"next_cursor":""}}`))
+	}))
+	defer server.Close()
+
+	agents, err := listAgentsFromEndpoint(context.Background(), server.Client(), "test-only-placeholder", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].Name != "Askolo Development - Test" {
+		t.Fatalf("unexpected agent list result: count=%d", len(agents))
+	}
+}
+
+func TestListAgentsRejectsIncompletePaginatedEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"agents":[],"has_more":true,"response_metadata":{"next_cursor":"redacted"}}`))
+	}))
+	defer server.Close()
+
+	_, err := listAgentsFromEndpoint(context.Background(), server.Client(), "test-only-placeholder", server.URL)
+	if err == nil || !strings.Contains(err.Error(), "more pages") {
+		t.Fatalf("expected incomplete list to stop provisioning, got %v", err)
+	}
+}
+
+func TestListAgentsAcceptsDocumentedArrayResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"agent_dev_test","name":"Askolo Development - Test","deleted_at":null}]`))
+	}))
+	defer server.Close()
+
+	agents, err := listAgentsFromEndpoint(context.Background(), server.Client(), "test-only-placeholder", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].ID != "agent_dev_test" {
+		t.Fatalf("unexpected agent list result: count=%d", len(agents))
 	}
 }
 

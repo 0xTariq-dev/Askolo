@@ -19,11 +19,11 @@ Each Repl serves the full landing page and application from one environment-spec
 
 **How to apply:** Treat missing or contradictory environment identity, host, tag provenance, secret set, database target, or integration target as a blocking error. Do not infer an environment only from the branch currently checked out or `REPLIT_ENVIRONMENT`. Before a database write, compare a read-only identity fingerprint from the active connection with the named Development and Production database connections; never print the connection string.
 
-For external provider provisioning and Live Mode activation, require the exact process to identify as Development in both `REPLIT_ENVIRONMENT` and `ASKOLO_ENVIRONMENT`. If one says production while the other says development, stop; do not override the runtime-managed Replit value to pass a guard. In particular, do not add Development agent IDs while a production-marked process shares an enabled feature flag.
+For external provider provisioning and Live Mode activation, require `ASKOLO_ENVIRONMENT=development` and an unset `REPLIT_DEPLOYMENT` in the exact process. Replit sets `REPLIT_DEPLOYMENT=1` for published apps and leaves it unset in the Project Editor. Treat any non-empty deployment marker as published and fail closed. Do not use or manually set `REPLIT_ENVIRONMENT` as the editor-versus-published detector.
 
-**Why:** A conflicting process identity can turn a Development-only provider setup into production exposure, even when the app-specific environment says development.
+**Why:** Replit's official runtime marker is `REPLIT_DEPLOYMENT`; `REPLIT_ENVIRONMENT` is not documented for this distinction and can report a misleading value.
 
-**How to apply:** Check both identities in the process that will provision resources and in the API workflow that will consume them. Resume only from a confirmed Development runtime.
+**How to apply:** Check `REPLIT_DEPLOYMENT` and `ASKOLO_ENVIRONMENT` in both the provisioning process and API workflow. Only provision or enable Development Live Mode when the deployment marker is unset and the app environment is Development.
 
 Verified stable database fingerprints on 2026-10-06:
 
