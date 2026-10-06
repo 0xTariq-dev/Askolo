@@ -5,6 +5,7 @@
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [Lingui localization in Vite](lingui-vite-macros.md) — configure the macro transform and verify runtime browser catalog loaders; Vite’s static glob expansion is not a runtime API.
+- [Vite client directive warnings](vite-client-directives.md) — this client-only app needs no Next.js `"use client"` markers; they trigger Rollup source-map location warnings.
 - [AI provider execution claims](ai-provider-execution-claims.md) — provider work must require a fresh atomic claim; reused or active reservations must never execute it.
 - [Replit OpenAI proxy URL](replit-openai-proxy-url.md) — the managed integration may use HTTP loopback on port 1106; allow only that endpoint, not arbitrary HTTP.
 - [Credit ledger idempotency ordering](credit-ledger-idempotency-ordering.md) — recheck reservations after the account lock and resolve refund replays before remaining-balance checks.
