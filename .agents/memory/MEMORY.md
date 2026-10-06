@@ -32,7 +32,7 @@
 - [Nested package removal](nested-workspace-package-removal.md) — verify artifact manifests and lock importers after package callbacks; nested dependencies may remain.
 - [Go security upgrades](go-security-upgrades.md) — auto-downloaded patched toolchains need an enabled checksum database; treat unused openpgp advisories as call-path findings.
 - [Go backend binary refresh](go-backend-binary-refresh.md) — the run script reuses an existing binary; rebuild before restarting after Go source changes.
-- [Release environment separation](three-repl-release-architecture.md) — staging is not configured; treat the supplied dev.askolo.app host as production.
+- [Release environment separation](three-repl-release-architecture.md) — treat the supplied host as Production; verify build provenance because the health endpoint's commit field may be static.
 - [Development schema application](dev-schema-apply.md) — Drizzle push behavior is historical development-only guidance, not the current migration path.
 - [Development DB SSL mode](development-database-ssl-mode.md) — the Development database URL explicitly disables SSL; do not infer Production settings from it.
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.

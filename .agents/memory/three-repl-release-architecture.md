@@ -25,6 +25,14 @@ Each Repl serves the full landing page and application from one environment-spec
 
 **How to apply:** Treat missing or contradictory environment identity, host, tag provenance, secret set, database target, or integration target as a blocking error. Do not infer an environment only from the branch currently checked out or `REPLIT_ENVIRONMENT`. Before a database write, compare a read-only identity fingerprint from the active connection with the named Development and Production database connections; never print the connection string.
 
+## Deployed source provenance
+
+The API health endpoint's reported commit is populated from a static workspace setting and may not identify the source revision used to build the deployed binary.
+
+**Why:** Production logs show readiness behavior that is absent from the commit reported by `/api/healthz`; that field is therefore not sufficient evidence for a hotfix base.
+
+**How to apply:** Verify the published build's source revision or an independently confirmed deployed tag before creating a Production hotfix. Stop if the deployed source cannot be proven; do not branch from the health endpoint's commit value alone.
+
 For external provider provisioning and Live Mode activation, require `ASKOLO_ENVIRONMENT=development` and an unset `REPLIT_DEPLOYMENT` in the exact process. Replit sets `REPLIT_DEPLOYMENT=1` for published apps and leaves it unset in the Project Editor. Treat any non-empty deployment marker as published and fail closed. Do not use or manually set `REPLIT_ENVIRONMENT` as the editor-versus-published detector.
 
 **Why:** Replit's official runtime marker is `REPLIT_DEPLOYMENT`; `REPLIT_ENVIRONMENT` is not documented for this distinction and can report a misleading value.
