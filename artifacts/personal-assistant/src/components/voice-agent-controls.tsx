@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, Mic, Square } from 'lucide-react';
 import {
   getGetAssistantConversationQueryKey,
@@ -27,6 +27,7 @@ export function VoiceAgentControls() {
   const [consentSaving, setConsentSaving] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [startAfterConsent, setStartAfterConsent] = useState(false);
+  const previousLiveConsentRef = useRef<boolean | null>(null);
   const liveVoiceLocales: Record<string, { locale: string; language: string }> = {
     michael: { locale: 'en', language: 'US English' },
     mary: { locale: 'en', language: 'US English' },
@@ -44,6 +45,26 @@ export function VoiceAgentControls() {
   const voiceUnavailable = !selectedVoice;
   const liveModeUnavailable = !privacyPreferences?.assemblyAiLiveAvailable;
   const isBusy = voiceAgent.status !== 'idle';
+
+  useEffect(() => {
+    const consentGiven = privacyPreferences?.assemblyAiLiveConsentGiven;
+    if (consentGiven === undefined) return;
+
+    const wasGranted = previousLiveConsentRef.current;
+    previousLiveConsentRef.current = consentGiven;
+    if (
+      wasGranted === true &&
+      !consentGiven &&
+      voiceAgent.status !== 'idle' &&
+      voiceAgent.status !== 'stopping'
+    ) {
+      voiceAgent.stop();
+      toast({
+        title: 'Live Mode ended',
+        description: 'Your AssemblyAI Live Mode permission was revoked.',
+      });
+    }
+  }, [privacyPreferences?.assemblyAiLiveConsentGiven, toast, voiceAgent.status, voiceAgent.stop]);
 
   const startLiveMode = () => {
     if (!selectedVoice || isBusy || liveModeUnavailable) return;

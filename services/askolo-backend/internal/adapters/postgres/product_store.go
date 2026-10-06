@@ -12,7 +12,7 @@ import (
 )
 
 const VoiceConsentVersion = "voice-v7"
-const VoiceOutputConsentVersion = "azure-tts-v1"
+const VoiceOutputConsentVersion = "azure-tts-v2"
 const AssistantProcessingConsentVersion = "assistant-processing-v1"
 const VoiceAgentConsentVersion = "assemblyai-live-v2"
 const DefaultAssemblyAILiveVoice = "michael"
@@ -1236,6 +1236,10 @@ func (s *Store) UpdateVoiceOutputPreferences(ctx context.Context, userID string,
 		FROM voice_output_preferences WHERE user_id = $1 FOR UPDATE
 	`, userID).Scan(&consentAt, &version, &currentAutoSpeak); err != nil {
 		return err
+	}
+	currentConsent := consentAt != nil && version != nil && *version == VoiceOutputConsentVersion
+	if !currentConsent {
+		currentAutoSpeak = false
 	}
 	if consent != nil {
 		if *consent {

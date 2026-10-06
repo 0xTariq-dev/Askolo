@@ -279,12 +279,38 @@ func TestVoiceOutputPreferencesRequireAuthenticationAndConsent(t *testing.T) {
 	var initial struct {
 		ConsentGiven   bool    `json:"consentGiven"`
 		ConsentVersion *string `json:"consentVersion"`
+		AutoSpeak      bool    `json:"autoSpeakEnabled"`
 	}
 	if err := json.Unmarshal(preferences.Body.Bytes(), &initial); err != nil {
 		t.Fatalf("decode initial preferences: %v", err)
 	}
 	if initial.ConsentGiven || initial.ConsentVersion != nil {
 		t.Fatalf("initial preferences = %+v, want consent disabled", initial)
+	}
+
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO voice_output_preferences(user_id, consent_at, consent_version, auto_speak_enabled)
+		 VALUES($1, NOW(), 'azure-tts-v1', TRUE)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   consent_at=EXCLUDED.consent_at,
+		   consent_version=EXCLUDED.consent_version,
+		   auto_speak_enabled=EXCLUDED.auto_speak_enabled`,
+		userID,
+	); err != nil {
+		t.Fatalf("seed an outdated Azure consent: %v", err)
+	}
+	stalePreferences := authenticatedRequest(http.MethodGet, "/api/ai/voice-output-preferences", "")
+	var stale struct {
+		ConsentGiven bool `json:"consentGiven"`
+		AutoSpeak    bool `json:"autoSpeakEnabled"`
+	}
+	if err := json.Unmarshal(stalePreferences.Body.Bytes(), &stale); err != nil {
+		t.Fatalf("decode outdated preferences: %v", err)
+	}
+	if stalePreferences.Code != http.StatusOK || stale.ConsentGiven || stale.AutoSpeak {
+		t.Fatalf("outdated preferences = status %d, %+v; want stale consent and auto-speak disabled",
+			stalePreferences.Code, stale)
 	}
 
 	speechPath := "/api/ai/assistant/runs/not-owned-by-this-user/speech"
@@ -307,12 +333,35 @@ func TestVoiceOutputPreferencesRequireAuthenticationAndConsent(t *testing.T) {
 	var granted struct {
 		ConsentGiven   bool   `json:"consentGiven"`
 		ConsentVersion string `json:"consentVersion"`
+		AutoSpeak      bool   `json:"autoSpeakEnabled"`
 	}
 	if err := json.Unmarshal(enabled.Body.Bytes(), &granted); err != nil {
 		t.Fatalf("decode granted preferences: %v", err)
 	}
 	if !granted.ConsentGiven || granted.ConsentVersion != postgres.VoiceOutputConsentVersion {
 		t.Fatalf("granted preferences = %+v, want current consent version", granted)
+	}
+	if granted.AutoSpeak {
+		t.Fatalf("re-consenting to Azure speech unexpectedly restored the old automatic-speech choice: %+v", granted)
+	}
+
+	autoSpeak := authenticatedRequest(
+		http.MethodPatch,
+		"/api/ai/voice-output-preferences",
+		`{"autoSpeakEnabled":true}`,
+	)
+	var autoSpeakPreferences struct {
+		ConsentGiven bool `json:"consentGiven"`
+		AutoSpeak    bool `json:"autoSpeakEnabled"`
+	}
+	if autoSpeak.Code != http.StatusOK {
+		t.Fatalf("enable automatic spoken replies status = %d: %s", autoSpeak.Code, autoSpeak.Body.String())
+	}
+	if err := json.Unmarshal(autoSpeak.Body.Bytes(), &autoSpeakPreferences); err != nil {
+		t.Fatalf("decode automatic-speech preferences: %v", err)
+	}
+	if !autoSpeakPreferences.ConsentGiven || !autoSpeakPreferences.AutoSpeak {
+		t.Fatalf("explicit automatic-speech choice = %+v, want consent and auto-speak enabled", autoSpeakPreferences)
 	}
 
 	ownerID := "speech-output-other-owner"

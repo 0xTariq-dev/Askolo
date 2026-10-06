@@ -25,6 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useLocale } from '@/contexts/locale-context';
+import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent';
 
 type ConsentPurpose = 'recorded-voice' | 'assistant-processing' | 'assemblyai-live' | 'azure-speech';
 
@@ -47,7 +49,30 @@ const purposeCopy: Record<ConsentPurpose, { title: string; description: string }
   'azure-speech': {
     title: 'Azure speech output',
     description:
-      'When you choose Listen, Assistant response text is sent to Microsoft Azure Speech and generated audio is streamed to your device, not saved in Askolo. Automatic spoken replies are a separate setting and are enabled only if you choose them.',
+      'When you choose Listen or separately enable automatic replies, Assistant response text is sent to Microsoft Azure Speech and generated audio is streamed to your device, not saved in Askolo. Microsoft may process the text under Azure Speech service terms; Askolo has not verified the processing location or retention for your Azure setup. If Azure or playback fails, the text remains available to read or retry; Askolo will not silently switch to browser speech.',
+  },
+};
+
+const purposeCopyArabic: Record<ConsentPurpose, { title: string; description: string }> = {
+  'recorded-voice': {
+    title: 'نسخ الصوت المسجّل',
+    description:
+      'يرسل AssemblyAI التسجيل الصوتي ويعيد النص الكامل القابل للتعديل دون تنقيح من جهة المزوّد. يطلب Askolo حذف نص المزوّد، لكن ذلك لا يؤكد حذف الصوت لدى المزوّد. يتطلب استخدام المساعد وLive Mode وAzure Speech موافقات منفصلة؛ وقد لا يكتشف التنقيح داخل التطبيق كل التفاصيل الحساسة.',
+  },
+  'assistant-processing': {
+    title: 'معالجة المساعد والتنقيح داخل التطبيق',
+    description:
+      'عند إرسال رسالة أو نص صوتي، يرسل Askolo المحتوى إلى مزوّد الذكاء الاصطناعي المهيأ. قبل الإرسال، يرشّح Askolo القيم الحساسة التي يكتشفها، مثل بيانات الاتصال والمال والحسابات والهوية الحكومية وبيانات الدخول وتواريخ الميلاد. تبقى الأسماء وأسماء المشاريع أو العملاء فقط بعد منح هذه الموافقة المنفصلة. قد لا يكتشف التنقيح كل التفاصيل الحساسة.',
+  },
+  'assemblyai-live': {
+    title: 'وضع AssemblyAI Live',
+    description:
+      'يعالج Voice Agent المُدار من AssemblyAI الصوت المباشر وينشئ ردودًا منطوقة. لم يتم التحقق من موقع المعالجة أو ضمان المعالجة داخل الاتحاد الأوروبي؛ كما لم يتم التحقق من إعداد منع تحسين النماذج على مستوى الحساب أو تغطية الاحتفاظ الخاصة بـVoice Agent. يطلب Askolo الحذف المنطقي لدى المزوّد عند انتهاء الجلسة، لكن ذلك لا يثبت الإزالة الفعلية. يمكن استخدام Live Mode في بيئة التطوير بموافقتك المنفصلة بينما تظل هذه الفحوص معلّقة.',
+  },
+  'azure-speech': {
+    title: 'الإخراج الصوتي عبر Azure',
+    description:
+      'عند اختيار «استمع» أو تفعيل الردود التلقائية بشكل منفصل، يُرسل نص رد المساعد إلى Microsoft Azure Speech ويُبث الصوت إلى جهازك، ولا يحفظ Askolo الصوت. قد تعالج Microsoft النص وفق شروط Azure Speech؛ ولم يتحقق Askolo من موقع المعالجة أو مدة الاحتفاظ لإعداد Azure لديك. إذا تعذر Azure أو تشغيل الصوت، يبقى النص متاحًا للقراءة أو إعادة المحاولة، ولن ينتقل Askolo تلقائيًا إلى نطق المتصفح.',
   },
 };
 
@@ -65,7 +90,9 @@ export function AIPrivacyCenter() {
 
   const privacy = privacyQuery.data;
   const output = outputQuery.data;
-  const outputConsentCurrent = Boolean(output?.consentGiven && output.consentVersion === 'azure-tts-v1');
+  const outputConsentCurrent = Boolean(
+    output?.consentGiven && output.consentVersion === CURRENT_VOICE_OUTPUT_CONSENT_VERSION,
+  );
   const openConsent = (nextPurpose: ConsentPurpose, autoSpeak = false) => {
     setError('');
     setRedactionConfirmed(false);
@@ -373,12 +400,18 @@ export function AIConsentDialog({
   onRedactionConfirmedChange?: (confirmed: boolean) => void;
   onConfirm: () => void;
 }) {
+  const { locale, direction } = useLocale();
+  const arabic = locale === 'ar';
+  const copy = purpose
+    ? arabic ? purposeCopyArabic[purpose] : purposeCopy[purpose]
+    : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent dir={direction}>
         <DialogHeader>
-          <DialogTitle>{purpose ? purposeCopy[purpose].title : 'Privacy permission'}</DialogTitle>
-          <DialogDescription>{purpose ? purposeCopy[purpose].description : ''}</DialogDescription>
+          <DialogTitle>{copy?.title ?? (arabic ? 'إذن الخصوصية' : 'Privacy permission')}</DialogTitle>
+          <DialogDescription>{copy?.description ?? ''}</DialogDescription>
         </DialogHeader>
         {purpose === 'assistant-processing' && (
           <div className="flex items-start gap-3 rounded-md border p-3">
@@ -388,24 +421,32 @@ export function AIConsentDialog({
               onCheckedChange={(checked) => onRedactionConfirmedChange?.(checked === true)}
             />
             <Label htmlFor="confirm-app-side-redaction" className="text-sm leading-relaxed">
-              Use app-side transcript redaction before sending content to the Assistant provider.
+              {arabic
+                ? 'استخدم تنقيح النص داخل التطبيق قبل إرسال المحتوى إلى مزوّد المساعد.'
+                : 'Use app-side transcript redaction before sending content to the Assistant provider.'}
             </Label>
           </div>
         )}
         {purpose === 'azure-speech' && autoSpeakAfterConsent && (
           <p className="text-sm font-medium">
-            You also chose to automatically send each completed Assistant reply to Azure for speech.
+            {arabic
+              ? 'اخترت أيضًا إرسال كل رد مكتمل من المساعد إلى Azure لتحويله إلى كلام تلقائيًا.'
+              : 'You also chose to automatically send each completed Assistant reply to Azure for speech.'}
           </p>
         )}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>Not now</Button>
+          <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+            {arabic ? 'ليس الآن' : 'Not now'}
+          </Button>
           <Button
             type="button"
             disabled={saving || (purpose === 'assistant-processing' && !redactionConfirmed)}
             onClick={onConfirm}
           >
-            {saving ? 'Saving…' : 'I understand and continue'}
+            {saving
+              ? arabic ? 'جارٍ الحفظ…' : 'Saving…'
+              : arabic ? 'أفهم وأتابع' : 'I understand and continue'}
           </Button>
         </DialogFooter>
       </DialogContent>

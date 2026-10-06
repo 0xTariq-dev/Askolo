@@ -57,7 +57,6 @@ import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { useLocale } from '@/contexts/locale-context';
 import { useAssistantSpeech } from '@/hooks/use-assistant-speech';
 import { AssistantSpeechControl } from '@/components/assistant-speech-control';
-import { VoiceOutputConsentDialog } from '@/components/voice-output-consent-dialog';
 import { AIConsentDialog } from '@/components/settings/ai-privacy-center';
 import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent';
 import { useToast } from '@/hooks/use-toast';
@@ -866,9 +865,11 @@ export function AssistantSidebar() {
         onRedactionConfirmedChange={setAssistantRedactionConfirmed}
         onConfirm={() => void saveAssistantProcessingConsent()}
       />
-      <VoiceOutputConsentDialog
+      <AIConsentDialog
+        purpose={voiceOutputConsentOpen ? 'azure-speech' : null}
         open={voiceOutputConsentOpen}
         onOpenChange={setVoiceOutputConsentOpen}
+        redactionConfirmed={true}
         onConfirm={() => void saveVoiceOutputConsent()}
         saving={voiceOutputConsentSaving}
         error={voiceOutputConsentError}

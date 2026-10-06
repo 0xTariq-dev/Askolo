@@ -206,12 +206,16 @@ export function VoiceCaptureFeedback({ voice }: { voice: FeedbackState }) {
       )}
 
       {voice.reviewSignals.length > 0 && (
-        <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-sm text-warning">
-          <p className="font-medium">Please verify these low-confidence details:</p>
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-md border border-warning/30 bg-warning/10 p-2 text-sm text-warning"
+        >
+          <p className="font-medium">Check these details against your recording:</p>
           <ul className="mt-1 list-disc ps-5">
             {voice.reviewSignals.map((signal) => (
               <li key={`${signal.startMs ?? 'unknown'}-${signal.text}`}>
-                {signal.text} ({Math.round(signal.confidence * 100)}% confidence)
+                <bdi dir="auto">{signal.text}</bdi>
               </li>
             ))}
           </ul>

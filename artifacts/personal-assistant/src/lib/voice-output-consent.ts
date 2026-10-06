@@ -1,1 +1,1 @@
-export const CURRENT_VOICE_OUTPUT_CONSENT_VERSION = 'azure-tts-v1';
+export const CURRENT_VOICE_OUTPUT_CONSENT_VERSION = 'azure-tts-v2';

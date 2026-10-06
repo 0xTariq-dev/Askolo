@@ -52,7 +52,7 @@ test('transcript review exposes the editable value and an explicit next action',
   assert.match(html, /Use transcript/);
 });
 
-test('shared voice feedback announces status, elapsed time, waveform, live preview, and uncertain words', () => {
+test('shared voice feedback announces status, elapsed time, waveform, live preview, and uncertain values without numeric confidence', () => {
   const html = renderToStaticMarkup(
     React.createElement(VoiceCaptureFeedback, {
       voice: {
@@ -72,7 +72,9 @@ test('shared voice feedback announces status, elapsed time, waveform, live previ
   assert.match(html, /00:08/);
   assert.match(html, /role="img" aria-label="Microphone audio level active"/);
   assert.match(html, /Preview words/);
-  assert.match(html, /Friday \(52% confidence\)/);
+  assert.match(html, /Check these details against your recording/);
+  assert.match(html, /<bdi dir="auto">Friday<\/bdi>/);
+  assert.doesNotMatch(html, /52%|confidence/);
 });
 
 test('voice transcript review is hidden before a completed transcript exists', () => {
