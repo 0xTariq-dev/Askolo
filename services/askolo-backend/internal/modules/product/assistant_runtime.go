@@ -50,6 +50,15 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_TRANSCRIPT", "Enter a short, valid assistant message and try again.")
 		return
 	}
+	transcript, err := h.assistantFacingTranscript(r.Context(), userID, transcript)
+	if errors.Is(err, errAssistantProcessingConsentRequired) {
+		writeError(w, http.StatusForbidden, "ASSISTANT_PROCESSING_CONSENT_REQUIRED", "Review the Assistant processing and app-side redaction settings before sending.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.")
+		return
+	}
 	if len(input.ConversationID) > 128 {
 		writeError(w, http.StatusBadRequest, "INVALID_CONVERSATION", "The conversation could not be loaded.")
 		return

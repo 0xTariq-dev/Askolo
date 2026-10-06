@@ -27,6 +27,9 @@ import {
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
   getGetTranscriptionPreferencesQueryKey,
+  getGetAIPrivacyPreferencesQueryKey,
+  useGetAIPrivacyPreferences,
+  useUpdateAIPrivacyPreferences,
   useGetVoiceOutputPreferences,
   useUpdateVoiceOutputPreferences,
   getGetVoiceOutputPreferencesQueryKey,
@@ -55,6 +58,7 @@ import { useLocale } from '@/contexts/locale-context';
 import { useAssistantSpeech } from '@/hooks/use-assistant-speech';
 import { AssistantSpeechControl } from '@/components/assistant-speech-control';
 import { VoiceOutputConsentDialog } from '@/components/voice-output-consent-dialog';
+import { AIConsentDialog } from '@/components/settings/ai-privacy-center';
 import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent';
 import { useToast } from '@/hooks/use-toast';
 import { VoiceAgentControls } from '@/components/voice-agent-controls';
@@ -91,12 +95,21 @@ export function AssistantSidebar() {
   const [voiceOutputConsentOpen, setVoiceOutputConsentOpen] = useState(false);
   const [voiceOutputConsentSaving, setVoiceOutputConsentSaving] = useState(false);
   const [voiceOutputConsentError, setVoiceOutputConsentError] = useState('');
+  const [assistantConsentOpen, setAssistantConsentOpen] = useState(false);
+  const [assistantConsentSaving, setAssistantConsentSaving] = useState(false);
+  const [assistantConsentError, setAssistantConsentError] = useState('');
+  const [assistantRedactionConfirmed, setAssistantRedactionConfirmed] = useState(false);
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
   const assistantVoiceAutoSendRef = useRef(false);
+  const assistantConsentApprovedRef = useRef(false);
+  const pendingAssistantTextRef = useRef<string | null>(null);
+  const autoSpokenRunIdsRef = useRef(new Set<string>());
   const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
+  const { data: aiPrivacyPreferences } = useGetAIPrivacyPreferences();
+  const updateAIPrivacyPreferences = useUpdateAIPrivacyPreferences();
   const { data: voiceOutputPreferences } = useGetVoiceOutputPreferences();
   const updateVoiceOutputPreferences = useUpdateVoiceOutputPreferences();
   const voice = useVoiceTranscription();
@@ -149,6 +162,11 @@ export function AssistantSidebar() {
 
   useEffect(() => {
     if (!conversationQuery.data) return;
+    autoSpokenRunIdsRef.current = new Set(
+      conversationQuery.data.messages
+        .filter((message) => message.role === 'assistant' && typeof message.runId === 'string')
+        .map((message) => message.runId as string),
+    );
     setMessages(
       conversationQuery.data.messages.length > 0
         ? conversationQuery.data.messages
@@ -159,6 +177,23 @@ export function AssistantSidebar() {
           }],
     );
   }, [conversationQuery.data, setMessages]);
+
+  useEffect(() => {
+    if (
+      !voiceOutputPreferences?.consentGiven ||
+      voiceOutputPreferences.consentVersion !== CURRENT_VOICE_OUTPUT_CONSENT_VERSION ||
+      !voiceOutputPreferences.autoSpeakEnabled
+    ) return;
+    const next = messages.find((message) =>
+      message.role === 'assistant' &&
+      !!message.runId &&
+      (message.state === 'completed' || message.state === 'needs_confirmation') &&
+      !autoSpokenRunIdsRef.current.has(message.runId),
+    );
+    if (!next?.runId) return;
+    autoSpokenRunIdsRef.current.add(next.runId);
+    void speechOutput.speak(next.id, next.content, { runId: next.runId, locale });
+  }, [locale, messages, speechOutput.speak, speechOutput.status, voiceOutputPreferences]);
 
   useEffect(() => {
     if (!draft) return;
@@ -216,6 +251,18 @@ export function AssistantSidebar() {
   const onSubmit = async (data: MessageForm) => {
     const text = data.text.trim();
     if (!text || isThinking || pendingActionId !== null || voice.isBusy) return;
+    const assistantConsentCurrent = Boolean(
+      aiPrivacyPreferences?.assistantProcessingConsentGiven &&
+      aiPrivacyPreferences.redactionLocation === 'app',
+    );
+    if (!assistantConsentCurrent && !assistantConsentApprovedRef.current) {
+      pendingAssistantTextRef.current = text;
+      setAssistantConsentError('');
+      setAssistantRedactionConfirmed(false);
+      setAssistantConsentOpen(true);
+      return;
+    }
+    assistantConsentApprovedRef.current = false;
 
     setMessages((previous) => [
       ...previous,
@@ -327,6 +374,26 @@ export function AssistantSidebar() {
       setVoiceConsentError(getVoiceConsentErrorMessage(error));
     } finally {
       setVoiceConsentSaving(false);
+    }
+  };
+
+  const saveAssistantProcessingConsent = async () => {
+    setAssistantConsentSaving(true);
+    setAssistantConsentError('');
+    try {
+      const updated = await updateAIPrivacyPreferences.mutateAsync({
+        data: { assistantProcessing: true, redactionLocation: 'app' },
+      });
+      queryClient.setQueryData(getGetAIPrivacyPreferencesQueryKey(), updated);
+      assistantConsentApprovedRef.current = true;
+      setAssistantConsentOpen(false);
+      const pendingText = pendingAssistantTextRef.current;
+      pendingAssistantTextRef.current = null;
+      if (pendingText) void onSubmitRef.current({ text: pendingText });
+    } catch {
+      setAssistantConsentError('Assistant processing permission could not be saved. Please try again.');
+    } finally {
+      setAssistantConsentSaving(false);
     }
   };
 
@@ -722,6 +789,19 @@ export function AssistantSidebar() {
         )}
       </AnimatePresence>
       <VoiceConsentDialog open={voiceConsentOpen} onOpenChange={setVoiceConsentOpen} onConfirm={() => void saveVoiceConsent()} saving={voiceConsentSaving} error={voiceConsentError} />
+      <AIConsentDialog
+        purpose={assistantConsentOpen ? 'assistant-processing' : null}
+        open={assistantConsentOpen}
+        redactionConfirmed={assistantRedactionConfirmed}
+        saving={assistantConsentSaving}
+        error={assistantConsentError}
+        onOpenChange={(open) => {
+          setAssistantConsentOpen(open);
+          if (!open) pendingAssistantTextRef.current = null;
+        }}
+        onRedactionConfirmedChange={setAssistantRedactionConfirmed}
+        onConfirm={() => void saveAssistantProcessingConsent()}
+      />
       <VoiceOutputConsentDialog
         open={voiceOutputConsentOpen}
         onOpenChange={setVoiceOutputConsentOpen}

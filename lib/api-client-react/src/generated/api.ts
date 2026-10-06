@@ -20,6 +20,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AIPrivacyPreferences,
+  AIPrivacyPreferencesUpdate,
   ActionItem,
   ActionItemInput,
   ActionItemUpdate,
@@ -6763,6 +6765,163 @@ export const useUpdateTranscriptionPreferences = <TError = ErrorType<ErrorEnvelo
         TContext
       > => {
       return useMutation(getUpdateTranscriptionPreferencesMutationOptions(options));
+    }
+
+export const getGetAIPrivacyPreferencesUrl = () => {
+
+
+
+
+  return `/api/ai/privacy-preferences`
+}
+
+/**
+ * @summary Get separate AI and voice consent choices
+ */
+export const getAIPrivacyPreferences = async ( options?: Parameters<typeof customFetch>[1]): Promise<AIPrivacyPreferences> => {
+
+  return customFetch<AIPrivacyPreferences>(getGetAIPrivacyPreferencesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAIPrivacyPreferencesQueryKey = () => {
+    return [
+    `/api/ai/privacy-preferences`
+    ] as const;
+    }
+
+
+export const getGetAIPrivacyPreferencesQueryOptions = <TData = Awaited<ReturnType<typeof getAIPrivacyPreferences>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAIPrivacyPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAIPrivacyPreferencesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAIPrivacyPreferences>>> = ({ signal }) => getAIPrivacyPreferences({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAIPrivacyPreferences>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAIPrivacyPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof getAIPrivacyPreferences>>>
+export type GetAIPrivacyPreferencesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get separate AI and voice consent choices
+ */
+
+export function useGetAIPrivacyPreferences<TData = Awaited<ReturnType<typeof getAIPrivacyPreferences>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAIPrivacyPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAIPrivacyPreferencesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAIPrivacyPreferencesUrl = () => {
+
+
+
+
+  return `/api/ai/privacy-preferences`
+}
+
+/**
+ * @summary Update one or more AI and voice consent choices
+ */
+export const updateAIPrivacyPreferences = async (aIPrivacyPreferencesUpdate: AIPrivacyPreferencesUpdate, options?: Parameters<typeof customFetch>[1]): Promise<AIPrivacyPreferences> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AIPrivacyPreferences>(getUpdateAIPrivacyPreferencesUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aIPrivacyPreferencesUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateAIPrivacyPreferencesMutationKey = () => ['updateAIPrivacyPreferences'] as const;
+
+export const getUpdateAIPrivacyPreferencesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAIPrivacyPreferences>>, TError,UpdateAIPrivacyPreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAIPrivacyPreferences>>, TError,UpdateAIPrivacyPreferencesMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAIPrivacyPreferencesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAIPrivacyPreferences>>, UpdateAIPrivacyPreferencesMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateAIPrivacyPreferences(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAIPrivacyPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof updateAIPrivacyPreferences>>>
+    export type UpdateAIPrivacyPreferencesMutationBody = BodyType<AIPrivacyPreferencesUpdate>
+    export type UpdateAIPrivacyPreferencesMutationError = ErrorType<ErrorEnvelope>
+    export type UpdateAIPrivacyPreferencesMutationVariables = {data: BodyType<AIPrivacyPreferencesUpdate>}
+
+    /**
+ * @summary Update one or more AI and voice consent choices
+ */
+export const useUpdateAIPrivacyPreferences = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAIPrivacyPreferences>>, TError,UpdateAIPrivacyPreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAIPrivacyPreferences>>,
+        TError,
+        UpdateAIPrivacyPreferencesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAIPrivacyPreferencesMutationOptions(options));
     }
 
 export const getGetVoiceOutputPreferencesUrl = () => {

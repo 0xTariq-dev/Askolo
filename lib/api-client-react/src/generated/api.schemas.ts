@@ -1064,10 +1064,51 @@ export interface VoiceOutputPreferences {
   consentGiven: boolean;
   /** @nullable */
   consentVersion?: string | null;
+  autoSpeakEnabled: boolean;
 }
 
 export interface VoiceOutputPreferencesUpdate {
-  consent: boolean;
+  consent?: boolean;
+  autoSpeakEnabled?: boolean;
+}
+
+/**
+ * @nullable
+ */
+export type AIPrivacyPreferencesRedactionLocation = typeof AIPrivacyPreferencesRedactionLocation[keyof typeof AIPrivacyPreferencesRedactionLocation] | null;
+
+
+export const AIPrivacyPreferencesRedactionLocation = {
+  app: 'app',
+} as const;
+
+export interface AIPrivacyPreferences {
+  recordedVoiceInputConsentGiven: boolean;
+  /** @nullable */
+  recordedVoiceInputConsentVersion: string | null;
+  assistantProcessingConsentGiven: boolean;
+  /** @nullable */
+  assistantProcessingConsentVersion: string | null;
+  assemblyAiLiveConsentGiven: boolean;
+  /** @nullable */
+  assemblyAiLiveConsentVersion: string | null;
+  assemblyAiLiveAvailable: boolean;
+  /** @nullable */
+  redactionLocation: AIPrivacyPreferencesRedactionLocation;
+}
+
+export type AIPrivacyPreferencesUpdateRedactionLocation = typeof AIPrivacyPreferencesUpdateRedactionLocation[keyof typeof AIPrivacyPreferencesUpdateRedactionLocation];
+
+
+export const AIPrivacyPreferencesUpdateRedactionLocation = {
+  app: 'app',
+} as const;
+
+export interface AIPrivacyPreferencesUpdate {
+  recordedVoiceInput?: boolean;
+  assistantProcessing?: boolean;
+  assemblyAiLive?: boolean;
+  redactionLocation?: AIPrivacyPreferencesUpdateRedactionLocation;
 }
 
 export interface MeetingExtractActionItem {

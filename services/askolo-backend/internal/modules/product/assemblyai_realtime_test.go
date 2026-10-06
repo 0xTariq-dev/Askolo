@@ -33,13 +33,12 @@ func TestBuildAssemblyAIRealtimeURLUsesCurrentEdgeContract(t *testing.T) {
 		"sample_rate":           "16000",
 		"speech_model":          "universal-3-5-pro",
 		"include_partial_turns": "true",
-		"redact_pii":            "true",
 	} {
 		if query.Get(key) != expected {
 			t.Errorf("query %q = %q, want %q", key, query.Get(key), expected)
 		}
 	}
-	if len(query) != 5 || query.Has("api_key") || query.Has("authorization") {
+	if query.Has("redact_pii") || len(query) != 4 || query.Has("api_key") || query.Has("authorization") {
 		t.Fatalf("provider query contains unexpected credentials or parameters: %#v", query)
 	}
 }
@@ -71,7 +70,7 @@ func TestAssemblyAIRealtimeSessionSendsBinaryPCMAndTermination(t *testing.T) {
 		query := r.URL.Query()
 		if r.URL.Path != "/v3/ws" || query.Get("token") != "synthetic-temporary-token" ||
 			query.Get("sample_rate") != "16000" || query.Get("speech_model") != assemblyAIRealtimeSpeechModel ||
-			query.Get("include_partial_turns") != "true" || query.Get("redact_pii") != "true" ||
+			query.Get("include_partial_turns") != "true" || query.Has("redact_pii") ||
 			query.Has("api_key") {
 			serverResult <- errors.New("unexpected provider URL contract")
 			return

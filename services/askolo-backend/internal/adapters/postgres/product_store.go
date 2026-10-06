@@ -11,8 +11,37 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const VoiceConsentVersion = "voice-v6"
+const VoiceConsentVersion = "voice-v7"
 const VoiceOutputConsentVersion = "azure-tts-v1"
+const AssistantProcessingConsentVersion = "assistant-processing-v1"
+const VoiceAgentConsentVersion = "assemblyai-live-v1"
+
+var ErrVoiceOutputConsentRequired = errors.New("Azure speech consent is required before enabling spoken replies")
+var ErrAssistantRedactionLocationRequired = errors.New("app-side transcript redaction is required before enabling Assistant processing")
+
+type AIPrivacyPreferences struct {
+	RecordedVoiceInputConsentGiven    bool    `json:"recordedVoiceInputConsentGiven"`
+	RecordedVoiceInputConsentVersion  *string `json:"recordedVoiceInputConsentVersion"`
+	AssistantProcessingConsentGiven   bool    `json:"assistantProcessingConsentGiven"`
+	AssistantProcessingConsentVersion *string `json:"assistantProcessingConsentVersion"`
+	AssemblyAILiveConsentGiven        bool    `json:"assemblyAiLiveConsentGiven"`
+	AssemblyAILiveConsentVersion      *string `json:"assemblyAiLiveConsentVersion"`
+	AssemblyAILiveAvailable           bool    `json:"assemblyAiLiveAvailable"`
+	RedactionLocation                 *string `json:"redactionLocation"`
+}
+
+type AIPrivacyPreferencesPatch struct {
+	RecordedVoiceInputConsent  *bool
+	AssistantProcessingConsent *bool
+	AssemblyAILiveConsent      *bool
+	RedactionLocation          *string
+}
+
+type VoiceOutputPreferences struct {
+	ConsentGiven     bool    `json:"consentGiven"`
+	ConsentVersion   *string `json:"consentVersion"`
+	AutoSpeakEnabled bool    `json:"autoSpeakEnabled"`
+}
 
 type AICreditPolicy struct {
 	Version              int            `json:"version"`
@@ -927,6 +956,185 @@ func (s *Store) SetVoiceConsent(ctx context.Context, userID string, enabled bool
 	return err
 }
 
+func (s *Store) AssistantProcessingConsent(ctx context.Context, userID string) (bool, string, error) {
+	if s == nil || s.pool == nil {
+		return false, "", errors.New("database is not configured")
+	}
+	var consentAt *time.Time
+	var version *string
+	var redactionLocation *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT assistant_processing_consent_at, assistant_processing_consent_version, redaction_location
+		FROM voice_preferences WHERE user_id = $1
+	`, userID).Scan(&consentAt, &version, &redactionLocation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
+	if consentAt == nil || version == nil || *version != AssistantProcessingConsentVersion ||
+		redactionLocation == nil || *redactionLocation != "app" {
+		if version == nil {
+			return false, "", nil
+		}
+		return false, *version, nil
+	}
+	return true, *version, nil
+}
+
+func (s *Store) VoiceAgentConsent(ctx context.Context, userID string) (bool, string, error) {
+	if s == nil || s.pool == nil {
+		return false, "", errors.New("database is not configured")
+	}
+	var consentAt *time.Time
+	var version *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT live_agent_consent_at, live_agent_consent_version
+		FROM voice_preferences WHERE user_id = $1
+	`, userID).Scan(&consentAt, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
+	if consentAt == nil || version == nil || *version != VoiceAgentConsentVersion {
+		if version == nil {
+			return false, "", nil
+		}
+		return false, *version, nil
+	}
+	return true, *version, nil
+}
+
+func (s *Store) AIPrivacyPreferences(ctx context.Context, userID string) (AIPrivacyPreferences, error) {
+	var result AIPrivacyPreferences
+	if s == nil || s.pool == nil {
+		return result, errors.New("database is not configured")
+	}
+	var recordedAt, assistantAt, liveAt *time.Time
+	var recordedVersion, assistantVersion, liveVersion, redactionLocation *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT consent_at, consent_version,
+		       assistant_processing_consent_at, assistant_processing_consent_version,
+		       live_agent_consent_at, live_agent_consent_version, redaction_location
+		FROM voice_preferences WHERE user_id = $1
+	`, userID).Scan(
+		&recordedAt, &recordedVersion, &assistantAt, &assistantVersion, &liveAt, &liveVersion, &redactionLocation,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, nil
+	}
+	if err != nil {
+		return result, err
+	}
+	result.RecordedVoiceInputConsentGiven = recordedAt != nil && recordedVersion != nil && *recordedVersion == VoiceConsentVersion
+	result.RecordedVoiceInputConsentVersion = recordedVersion
+	result.AssistantProcessingConsentGiven = assistantAt != nil && assistantVersion != nil &&
+		*assistantVersion == AssistantProcessingConsentVersion && redactionLocation != nil && *redactionLocation == "app"
+	result.AssistantProcessingConsentVersion = assistantVersion
+	result.AssemblyAILiveConsentGiven = liveAt != nil && liveVersion != nil && *liveVersion == VoiceAgentConsentVersion
+	result.AssemblyAILiveConsentVersion = liveVersion
+	result.RedactionLocation = redactionLocation
+	return result, nil
+}
+
+func (s *Store) UpdateAIPrivacyPreferences(
+	ctx context.Context,
+	userID string,
+	patch AIPrivacyPreferencesPatch,
+) (AIPrivacyPreferences, error) {
+	var empty AIPrivacyPreferences
+	if s == nil || s.pool == nil {
+		return empty, errors.New("database is not configured")
+	}
+	if patch.RecordedVoiceInputConsent == nil && patch.AssistantProcessingConsent == nil &&
+		patch.AssemblyAILiveConsent == nil && patch.RedactionLocation == nil {
+		return empty, errors.New("an AI privacy preference is required")
+	}
+	if patch.RedactionLocation != nil && *patch.RedactionLocation != "app" {
+		return empty, errors.New("unsupported transcript redaction location")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return empty, err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err = tx.Exec(ctx, `INSERT INTO voice_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, userID); err != nil {
+		return empty, err
+	}
+	var recordedAt, assistantAt, liveAt *time.Time
+	var recordedVersion, assistantVersion, liveVersion, redactionLocation *string
+	err = tx.QueryRow(ctx, `
+		SELECT consent_at, consent_version,
+		       assistant_processing_consent_at, assistant_processing_consent_version,
+		       live_agent_consent_at, live_agent_consent_version, redaction_location
+		FROM voice_preferences WHERE user_id = $1 FOR UPDATE
+	`, userID).Scan(&recordedAt, &recordedVersion, &assistantAt, &assistantVersion, &liveAt, &liveVersion, &redactionLocation)
+	if err != nil {
+		return empty, err
+	}
+
+	now := time.Now().UTC()
+	if patch.RecordedVoiceInputConsent != nil {
+		if *patch.RecordedVoiceInputConsent {
+			recordedAt = &now
+			version := VoiceConsentVersion
+			recordedVersion = &version
+		} else {
+			recordedAt, recordedVersion = nil, nil
+		}
+	}
+	if patch.AssemblyAILiveConsent != nil {
+		if *patch.AssemblyAILiveConsent {
+			liveAt = &now
+			version := VoiceAgentConsentVersion
+			liveVersion = &version
+		} else {
+			liveAt, liveVersion = nil, nil
+		}
+	}
+	redactionChanged := false
+	if patch.RedactionLocation != nil {
+		redactionChanged = redactionLocation == nil || *redactionLocation != *patch.RedactionLocation
+		value := *patch.RedactionLocation
+		redactionLocation = &value
+	}
+	if patch.AssistantProcessingConsent != nil {
+		if *patch.AssistantProcessingConsent {
+			if redactionLocation == nil || *redactionLocation != "app" {
+				return empty, ErrAssistantRedactionLocationRequired
+			}
+			assistantAt = &now
+			version := AssistantProcessingConsentVersion
+			assistantVersion = &version
+		} else {
+			assistantAt, assistantVersion = nil, nil
+		}
+	} else if redactionChanged {
+		assistantAt, assistantVersion = nil, nil
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE voice_preferences SET
+			consent_at=$2, consent_version=$3,
+			assistant_processing_consent_at=$4, assistant_processing_consent_version=$5,
+			live_agent_consent_at=$6, live_agent_consent_version=$7,
+			redaction_location=$8, updated_at=NOW()
+		WHERE user_id=$1
+	`, userID, recordedAt, recordedVersion, assistantAt, assistantVersion, liveAt, liveVersion, redactionLocation)
+	if err != nil {
+		return empty, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return empty, err
+	}
+	return s.AIPrivacyPreferences(ctx, userID)
+}
+
 func (s *Store) VoiceOutputConsent(ctx context.Context, userID string) (bool, string, error) {
 	if s == nil || s.pool == nil {
 		return false, "", errors.New("database is not configured")
@@ -952,23 +1160,85 @@ func (s *Store) VoiceOutputConsent(ctx context.Context, userID string) (bool, st
 }
 
 func (s *Store) SetVoiceOutputConsent(ctx context.Context, userID string, enabled bool) error {
+	return s.UpdateVoiceOutputPreferences(ctx, userID, &enabled, nil)
+}
+
+func (s *Store) VoiceOutputPreferences(ctx context.Context, userID string) (VoiceOutputPreferences, error) {
+	var result VoiceOutputPreferences
+	if s == nil || s.pool == nil {
+		return result, errors.New("database is not configured")
+	}
+	var consentAt *time.Time
+	var storedVersion *string
+	var autoSpeakEnabled bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT consent_at, consent_version, auto_speak_enabled
+		FROM voice_output_preferences WHERE user_id = $1
+	`, userID).Scan(&consentAt, &storedVersion, &autoSpeakEnabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, nil
+	}
+	if err != nil {
+		return result, err
+	}
+	result.ConsentGiven = consentAt != nil && storedVersion != nil && *storedVersion == VoiceOutputConsentVersion
+	if result.ConsentGiven {
+		result.ConsentVersion = storedVersion
+	}
+	result.AutoSpeakEnabled = result.ConsentGiven && autoSpeakEnabled
+	return result, nil
+}
+
+func (s *Store) UpdateVoiceOutputPreferences(ctx context.Context, userID string, consent, autoSpeak *bool) error {
 	if s == nil || s.pool == nil {
 		return errors.New("database is not configured")
 	}
-	var consentAt any
-	var consentVersion any
-	if enabled {
-		consentAt, consentVersion = time.Now().UTC(), VoiceOutputConsentVersion
+	if consent == nil && autoSpeak == nil {
+		return errors.New("an Azure speech preference is required")
 	}
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO voice_output_preferences (user_id, consent_at, consent_version)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id) DO UPDATE SET
-			consent_at = EXCLUDED.consent_at,
-			consent_version = EXCLUDED.consent_version,
-			updated_at = NOW()
-	`, userID, consentAt, consentVersion)
-	return err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO voice_output_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, userID); err != nil {
+		return err
+	}
+	var consentAt *time.Time
+	var version *string
+	var currentAutoSpeak bool
+	if err := tx.QueryRow(ctx, `
+		SELECT consent_at, consent_version, auto_speak_enabled
+		FROM voice_output_preferences WHERE user_id = $1 FOR UPDATE
+	`, userID).Scan(&consentAt, &version, &currentAutoSpeak); err != nil {
+		return err
+	}
+	if consent != nil {
+		if *consent {
+			now := time.Now().UTC()
+			consentAt = &now
+			value := VoiceOutputConsentVersion
+			version = &value
+		} else {
+			consentAt, version = nil, nil
+			currentAutoSpeak = false
+		}
+	}
+	if autoSpeak != nil {
+		if *autoSpeak && (consentAt == nil || version == nil || *version != VoiceOutputConsentVersion) {
+			return ErrVoiceOutputConsentRequired
+		}
+		currentAutoSpeak = *autoSpeak
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE voice_output_preferences SET consent_at=$2, consent_version=$3,
+			auto_speak_enabled=$4, updated_at=NOW()
+		WHERE user_id=$1
+	`, userID, consentAt, version, currentAutoSpeak)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) UpdateUserProfile(

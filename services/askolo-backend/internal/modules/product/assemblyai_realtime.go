@@ -65,7 +65,6 @@ func buildAssemblyAIRealtimeURL(endpoint, token string) (string, error) {
 	query.Set("sample_rate", "16000")
 	query.Set("speech_model", assemblyAIRealtimeSpeechModel)
 	query.Set("include_partial_turns", "true")
-	query.Set("redact_pii", "true")
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
 }

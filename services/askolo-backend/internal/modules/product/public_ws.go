@@ -246,6 +246,19 @@ func (h *Handler) RunAssistant(
 		h.logAssistantUnavailable("preflight", "store_unavailable", nil)
 		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
 	}
+	transcript, err := h.assistantFacingTranscript(ctx, userID, transcript)
+	if errors.Is(err, errAssistantProcessingConsentRequired) {
+		return nil, publicws.Failure(
+			http.StatusForbidden,
+			"ASSISTANT_PROCESSING_CONSENT_REQUIRED",
+			"Review the Assistant processing and app-side redaction settings before sending.",
+			nil,
+		)
+	}
+	if err != nil {
+		h.logAssistantUnavailable("privacy_preflight", "privacy_preferences_unavailable", err)
+		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
+	}
 	if reason := assistantPlannerUnavailableReason(h.assistantPlanner); reason != "" {
 		h.logAssistantUnavailable("preflight", reason, nil)
 		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)

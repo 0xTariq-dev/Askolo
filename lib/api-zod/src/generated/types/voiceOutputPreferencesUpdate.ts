@@ -7,5 +7,6 @@
  */
 
 export interface VoiceOutputPreferencesUpdate {
-  consent: boolean;
+  consent?: boolean;
+  autoSpeakEnabled?: boolean;
 }

@@ -1812,6 +1812,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /ai/privacy-preferences:
+    get:
+      operationId: getAIPrivacyPreferences
+      tags: [ai]
+      summary: Get separate AI and voice consent choices
+      responses:
+        "200":
+          description: Current independent consent and redaction choices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIPrivacyPreferences"
+    patch:
+      operationId: updateAIPrivacyPreferences
+      tags: [ai]
+      summary: Update one or more AI and voice consent choices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIPrivacyPreferencesUpdate"
+      responses:
+        "200":
+          description: Updated privacy choices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIPrivacyPreferences"
+        "400":
+          description: Invalid privacy preference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: User is not authorized to change AI preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /ai/voice-output-preferences:
     get:
       operationId: getVoiceOutputPreferences
@@ -3312,19 +3354,65 @@ components:
 
     VoiceOutputPreferences:
       type: object
-      required: [consentGiven]
+      required: [consentGiven, autoSpeakEnabled]
       properties:
         consentGiven:
           type: boolean
         consentVersion:
           type: ["string", "null"]
+        autoSpeakEnabled:
+          type: boolean
 
     VoiceOutputPreferencesUpdate:
       type: object
-      required: [consent]
       properties:
         consent:
           type: boolean
+        autoSpeakEnabled:
+          type: boolean
+
+    AIPrivacyPreferences:
+      type: object
+      required:
+        - recordedVoiceInputConsentGiven
+        - recordedVoiceInputConsentVersion
+        - assistantProcessingConsentGiven
+        - assistantProcessingConsentVersion
+        - assemblyAiLiveConsentGiven
+        - assemblyAiLiveConsentVersion
+        - assemblyAiLiveAvailable
+        - redactionLocation
+      properties:
+        recordedVoiceInputConsentGiven:
+          type: boolean
+        recordedVoiceInputConsentVersion:
+          type: ["string", "null"]
+        assistantProcessingConsentGiven:
+          type: boolean
+        assistantProcessingConsentVersion:
+          type: ["string", "null"]
+        assemblyAiLiveConsentGiven:
+          type: boolean
+        assemblyAiLiveConsentVersion:
+          type: ["string", "null"]
+        assemblyAiLiveAvailable:
+          type: boolean
+        redactionLocation:
+          type: ["string", "null"]
+          enum: [app, null]
+
+    AIPrivacyPreferencesUpdate:
+      type: object
+      properties:
+        recordedVoiceInput:
+          type: boolean
+        assistantProcessing:
+          type: boolean
+        assemblyAiLive:
+          type: boolean
+        redactionLocation:
+          type: string
+          enum: [app]
 
 
 

@@ -70,37 +70,9 @@ func TestTranscribeAssemblyAIRedactsReturnsReviewSignalsAndDeletes(t *testing.T)
 	if string(uploadBody) != string([]byte{1, 2, 3}) {
 		t.Fatalf("uploaded bytes = %v, want original transient audio bytes", uploadBody)
 	}
-	if transcriptRequest["redact_pii"] != true || transcriptRequest["redact_pii_sub"] != "hash" {
-		t.Fatalf("provider request did not enable PII redaction: %#v", transcriptRequest)
-	}
-	policies, ok := transcriptRequest["redact_pii_policies"].([]any)
-	if !ok || len(policies) != 51 {
-		t.Fatalf("redact_pii_policies = %#v, want all 51 documented PII policies", transcriptRequest["redact_pii_policies"])
-	}
-	policySet := make(map[string]struct{}, len(policies))
-	for _, policy := range policies {
-		name, ok := policy.(string)
-		if !ok {
-			t.Fatalf("redact_pii_policies contains a non-string item: %#v", policy)
-		}
-		if _, duplicate := policySet[name]; duplicate {
-			t.Fatalf("redact_pii_policies contains duplicate %q", name)
-		}
-		policySet[name] = struct{}{}
-	}
-	for _, required := range []string{
-		"account_number",
-		"credit_card_number",
-		"email_address",
-		"location",
-		"medical_condition",
-		"password",
-		"person_name",
-		"phone_number",
-		"us_social_security_number",
-	} {
-		if _, exists := policySet[required]; !exists {
-			t.Errorf("redact_pii_policies is missing %q", required)
+	for _, key := range []string{"redact_pii", "redact_pii_sub", "redact_pii_policies"} {
+		if _, exists := transcriptRequest[key]; exists {
+			t.Fatalf("app-side mode must preserve the full provider transcript; unexpected %s request field: %#v", key, transcriptRequest[key])
 		}
 	}
 	models, ok := transcriptRequest["speech_models"].([]any)

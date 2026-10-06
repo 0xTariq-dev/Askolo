@@ -1876,11 +1876,49 @@ export const UpdateTranscriptionPreferencesResponse = zod.object({
 
 
 /**
+ * @summary Get separate AI and voice consent choices
+ */
+export const GetAIPrivacyPreferencesResponse = zod.object({
+  "recordedVoiceInputConsentGiven": zod.boolean(),
+  "recordedVoiceInputConsentVersion": zod.string().nullable(),
+  "assistantProcessingConsentGiven": zod.boolean(),
+  "assistantProcessingConsentVersion": zod.string().nullable(),
+  "assemblyAiLiveConsentGiven": zod.boolean(),
+  "assemblyAiLiveConsentVersion": zod.string().nullable(),
+  "assemblyAiLiveAvailable": zod.boolean(),
+  "redactionLocation": zod.union([zod.literal('app'),zod.literal(null)]).nullable()
+})
+
+
+/**
+ * @summary Update one or more AI and voice consent choices
+ */
+export const UpdateAIPrivacyPreferencesBody = zod.object({
+  "recordedVoiceInput": zod.boolean().optional(),
+  "assistantProcessing": zod.boolean().optional(),
+  "assemblyAiLive": zod.boolean().optional(),
+  "redactionLocation": zod.enum(['app']).optional()
+})
+
+export const UpdateAIPrivacyPreferencesResponse = zod.object({
+  "recordedVoiceInputConsentGiven": zod.boolean(),
+  "recordedVoiceInputConsentVersion": zod.string().nullable(),
+  "assistantProcessingConsentGiven": zod.boolean(),
+  "assistantProcessingConsentVersion": zod.string().nullable(),
+  "assemblyAiLiveConsentGiven": zod.boolean(),
+  "assemblyAiLiveConsentVersion": zod.string().nullable(),
+  "assemblyAiLiveAvailable": zod.boolean(),
+  "redactionLocation": zod.union([zod.literal('app'),zod.literal(null)]).nullable()
+})
+
+
+/**
  * @summary Get Azure speech output consent
  */
 export const GetVoiceOutputPreferencesResponse = zod.object({
   "consentGiven": zod.boolean(),
-  "consentVersion": zod.string().nullish()
+  "consentVersion": zod.string().nullish(),
+  "autoSpeakEnabled": zod.boolean()
 })
 
 
@@ -1888,12 +1926,14 @@ export const GetVoiceOutputPreferencesResponse = zod.object({
  * @summary Update Azure speech output consent
  */
 export const UpdateVoiceOutputPreferencesBody = zod.object({
-  "consent": zod.boolean()
+  "consent": zod.boolean().optional(),
+  "autoSpeakEnabled": zod.boolean().optional()
 })
 
 export const UpdateVoiceOutputPreferencesResponse = zod.object({
   "consentGiven": zod.boolean(),
-  "consentVersion": zod.string().nullish()
+  "consentVersion": zod.string().nullish(),
+  "autoSpeakEnabled": zod.boolean()
 })
 
 

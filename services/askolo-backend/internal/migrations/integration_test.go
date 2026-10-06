@@ -146,19 +146,19 @@ func TestProductionSchemaCompatibilityDoesNotRequireMigrationLedger(t *testing.T
 		t.Fatalf("production schema check with no Go ledger: %v", err)
 	}
 
-if _, err := pool.Exec(ctx, `CREATE INDEX publish_compatibility_drift_idx ON users (email)`); err != nil {
-t.Fatalf("induce production schema drift: %v", err)
-}
-if err := ValidateProductionSchemaCompatibility(ctx, pool); err == nil ||
-!strings.Contains(err.Error(), "managed production schema inventory mismatch") {
-t.Fatalf("production schema drift error = %v, want inventory mismatch", err)
-}
-if _, err := pool.Exec(ctx, `DROP INDEX publish_compatibility_drift_idx`); err != nil {
-t.Fatalf("remove production schema drift: %v", err)
-}
-if err := ValidateProductionSchemaCompatibility(ctx, pool); err != nil {
-t.Fatalf("production schema check after removing drift: %v", err)
-}
+	if _, err := pool.Exec(ctx, `CREATE INDEX publish_compatibility_drift_idx ON users (email)`); err != nil {
+		t.Fatalf("induce production schema drift: %v", err)
+	}
+	if err := ValidateProductionSchemaCompatibility(ctx, pool); err == nil ||
+		!strings.Contains(err.Error(), "managed production schema inventory mismatch") {
+		t.Fatalf("production schema drift error = %v, want inventory mismatch", err)
+	}
+	if _, err := pool.Exec(ctx, `DROP INDEX publish_compatibility_drift_idx`); err != nil {
+		t.Fatalf("remove production schema drift: %v", err)
+	}
+	if err := ValidateProductionSchemaCompatibility(ctx, pool); err != nil {
+		t.Fatalf("production schema check after removing drift: %v", err)
+	}
 
 	if _, err := pool.Exec(ctx, `UPDATE ai_credit_policy_versions
 		SET operation_weights = '{"assistant":1}'::jsonb WHERE version = 1`); err != nil {

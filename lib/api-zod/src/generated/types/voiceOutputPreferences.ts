@@ -10,4 +10,5 @@ export interface VoiceOutputPreferences {
   consentGiven: boolean;
   /** @nullable */
   consentVersion?: string | null;
+  autoSpeakEnabled: boolean;
 }

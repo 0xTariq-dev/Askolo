@@ -193,16 +193,12 @@ func (h *Handler) voiceOutputPreferences(w http.ResponseWriter, r *http.Request)
 	if !h.authorize(r, userID, "ai", "", policy.ActionAIExecute, w) {
 		return
 	}
-	consent, version, err := h.store.VoiceOutputConsent(r.Context(), userID)
+	preferences, err := h.store.VoiceOutputPreferences(r.Context(), userID)
 	if err != nil {
 		h.storeError(w, "voice output preference lookup failed", err)
 		return
 	}
-	versionValue := any(nil)
-	if consent {
-		versionValue = version
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"consentGiven": consent, "consentVersion": versionValue})
+	writeJSON(w, http.StatusOK, preferences)
 }
 
 func (h *Handler) updateVoiceOutputPreferences(w http.ResponseWriter, r *http.Request) {
@@ -215,21 +211,30 @@ func (h *Handler) updateVoiceOutputPreferences(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var input struct {
-		Consent *bool `json:"consent"`
+		Consent          *bool `json:"consent"`
+		AutoSpeakEnabled *bool `json:"autoSpeakEnabled"`
 	}
-	if !decodeBody(w, r, &input) || input.Consent == nil {
-		writeError(w, http.StatusBadRequest, "INVALID_CONSENT", "A consent decision is required.")
+	if !decodeBody(w, r, &input) {
 		return
 	}
-	if err := h.store.SetVoiceOutputConsent(r.Context(), userID, *input.Consent); err != nil {
+	if input.Consent == nil && input.AutoSpeakEnabled == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_VOICE_OUTPUT_PREFERENCES", "Choose at least one Azure speech setting to update.")
+		return
+	}
+	if err := h.store.UpdateVoiceOutputPreferences(r.Context(), userID, input.Consent, input.AutoSpeakEnabled); err != nil {
+		if errors.Is(err, postgres.ErrVoiceOutputConsentRequired) {
+			writeError(w, http.StatusForbidden, "VOICE_OUTPUT_CONSENT_REQUIRED", "Accept the Azure speech notice before enabling automatic spoken replies.")
+			return
+		}
 		h.storeError(w, "voice output preference update failed", err)
 		return
 	}
-	version := any(nil)
-	if *input.Consent {
-		version = postgres.VoiceOutputConsentVersion
+	preferences, err := h.store.VoiceOutputPreferences(r.Context(), userID)
+	if err != nil {
+		h.storeError(w, "voice output preference lookup failed", err)
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"consentGiven": *input.Consent, "consentVersion": version})
+	writeJSON(w, http.StatusOK, preferences)
 }
 
 func (h *Handler) assistantRunSpeech(w http.ResponseWriter, r *http.Request) {

@@ -413,6 +413,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/ai-credit-usage/{userId}", h.adminCreditUsage)
 	mux.HandleFunc("GET /api/ai/transcription-preferences", h.transcriptionPreferences)
 	mux.HandleFunc("PATCH /api/ai/transcription-preferences", h.updateTranscriptionPreferences)
+	mux.HandleFunc("GET /api/ai/privacy-preferences", h.aiPrivacyPreferences)
+	mux.HandleFunc("PATCH /api/ai/privacy-preferences", h.updateAIPrivacyPreferences)
 	mux.HandleFunc("GET /api/ai/voice-output-preferences", h.voiceOutputPreferences)
 	mux.HandleFunc("PATCH /api/ai/voice-output-preferences", h.updateVoiceOutputPreferences)
 	mux.HandleFunc("POST /api/ai/coaching", h.coaching)

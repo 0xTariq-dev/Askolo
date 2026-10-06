@@ -9,7 +9,35 @@ import {
 } from '@/lib/public-websocket';
 
 type VoiceAgentStatus = 'idle' | 'connecting' | 'live' | 'stopping';
-type VoiceAgentTranscript = { role: 'user' | 'assistant'; text: string };
+type VoiceAgentTranscript = {
+  key: string;
+  role: 'user' | 'assistant';
+  text: string;
+  interrupted?: boolean;
+};
+
+function upsertVoiceTranscript(
+  current: VoiceAgentTranscript[],
+  next: VoiceAgentTranscript,
+  mode: 'replace' | 'append',
+) {
+  const index = current.findIndex((turn) => turn.key === next.key);
+  if (index < 0) return [...current, next].slice(-12);
+  const updated = [...current];
+  const previous = current[index];
+  const needsWordSpace =
+    mode === 'append' &&
+    previous.text.length > 0 &&
+    /[A-Za-z0-9]$/.test(previous.text) &&
+    /^[A-Za-z0-9]/.test(next.text);
+  updated[index] = {
+    ...previous,
+    ...next,
+    text: mode === 'append' ? previous.text + (needsWordSpace ? ' ' : '') + next.text : next.text,
+    interrupted: Boolean(next.interrupted || previous.interrupted),
+  };
+  return updated;
+}
 
 const SAMPLE_RATE = 24_000;
 const MAX_AUDIO_BYTES = 16 * 1024;
@@ -317,15 +345,49 @@ export function useVoiceAgent() {
         }
         if (envelope.type === 'voice.agent.transcript' && typeof payload.text === 'string') {
           const role: VoiceAgentTranscript['role'] = payload.type === 'transcript.user' ? 'user' : 'assistant';
-          setTranscripts((current) => [...current, { role, text: payload.text as string }].slice(-12));
+          const turnId = role === 'user' ? payload.item_id : payload.reply_id;
+          if (typeof turnId !== 'string' || !turnId) return;
+          setTranscripts((current) => upsertVoiceTranscript(current, {
+            key: `${role}:${turnId}`,
+            role,
+            text: payload.text as string,
+            interrupted: payload.interrupted === true,
+          }, 'replace'));
           return;
         }
-        if (envelope.type === 'voice.agent.transcript.delta') {
+        if (envelope.type === 'voice.agent.transcript.delta' && payload.type === 'transcript.user.delta') {
+          if (typeof payload.item_id !== 'string' || typeof payload.text !== 'string') return;
+          setTranscripts((current) => upsertVoiceTranscript(current, {
+            key: `user:${payload.item_id}`,
+            role: 'user',
+            text: payload.text as string,
+          }, 'replace'));
+          return;
+        }
+        if (envelope.type === 'voice.agent.transcript.delta' && payload.type === 'transcript.agent.delta') {
+          if (typeof payload.reply_id !== 'string' || typeof payload.delta !== 'string') return;
+          setTranscripts((current) => upsertVoiceTranscript(current, {
+            key: `assistant:${payload.reply_id}`,
+            role: 'assistant',
+            text: payload.delta as string,
+          }, 'append'));
           return;
         }
         if (envelope.type === 'voice.agent.activity' && typeof payload.type === 'string') {
           if (payload.type === 'reply.started') setNotice('Askolo is speaking.');
-          else if (payload.type === 'reply.interrupted' || payload.type === 'input.speech.started') setNotice('Listening.');
+          else if (payload.type === 'reply.interrupted' || payload.type === 'input.speech.started') {
+            setNotice('Listening.');
+            if (payload.type === 'reply.interrupted') {
+              setTranscripts((current) => {
+                const lastAssistant = [...current].reverse().findIndex((turn) => turn.role === 'assistant');
+                if (lastAssistant < 0) return current;
+                const index = current.length - 1 - lastAssistant;
+                const updated = [...current];
+                updated[index] = { ...updated[index], interrupted: true };
+                return updated;
+              });
+            }
+          }
           return;
         }
         if (envelope.type === 'voice.agent.action_proposed') {

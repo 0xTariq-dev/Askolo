@@ -15,18 +15,13 @@ import {
   Trash2,
   PlugZap,
   Unplug,
-  ShieldCheck,
   Monitor,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   useGetGoogleStatus,
-  useGetTranscriptionPreferences,
-  useUpdateTranscriptionPreferences,
-  getGetTranscriptionPreferencesQueryKey,
-  useGetVoiceOutputPreferences,
-  useUpdateVoiceOutputPreferences,
-  getGetVoiceOutputPreferencesQueryKey,
 } from '@workspace/api-client-react';
+import { AIPrivacyCenter } from '@/components/settings/ai-privacy-center';
 import { PageTransition } from '@/components/ui/page-transition';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -92,10 +87,6 @@ export function ProfilePage() {
 
   const { data: googleStatus, refetch: refetchGoogle, isFetching: checkingGoogle } =
     useGetGoogleStatus();
-  const { data: voicePreferences } = useGetTranscriptionPreferences();
-  const updateVoiceConsent = useUpdateTranscriptionPreferences();
-  const { data: voiceOutputPreferences } = useGetVoiceOutputPreferences();
-  const updateVoiceOutputConsent = useUpdateVoiceOutputPreferences();
 
   // Identity edit state
   const [firstName, setFirstName] = useState('');
@@ -454,30 +445,6 @@ export function ProfilePage() {
       toast({ title: 'Failed to delete account', variant: 'destructive' });
       setDeletingAccount(false);
     }
-  };
-
-  const revokeVoiceConsent = () => {
-    updateVoiceConsent.mutate(
-      { data: { consent: false } },
-      {
-        onSuccess: (updated) => {
-          toast({ title: 'Voice consent revoked' });
-          queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
-        },
-      },
-    );
-  };
-
-  const revokeVoiceOutputConsent = () => {
-    updateVoiceOutputConsent.mutate(
-      { data: { consent: false } },
-      {
-        onSuccess: (updated) => {
-          toast({ title: 'Azure speech output consent revoked' });
-          queryClient.setQueryData(getGetVoiceOutputPreferencesQueryKey(), updated);
-        },
-      },
-    );
   };
 
   const calendarConnected = googleStatus?.calendarConnected ?? false;
@@ -1089,59 +1056,7 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* ── Voice & AI privacy ─────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldCheck className="h-4 w-4 text-primary" /> Voice &amp; AI privacy
-          </CardTitle>
-          <CardDescription>Review or revoke permission for voice transcription.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">
-                {voicePreferences?.consentGiven ? 'Voice transcription is enabled' : 'Voice transcription is not enabled'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Recordings are deleted after transcription, are not used to train models, and PII is redacted from AI interactions.
-              </p>
-            </div>
-            {voicePreferences?.consentGiven && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={revokeVoiceConsent}
-                disabled={updateVoiceConsent.isPending}
-                className="shrink-0"
-              >
-                {updateVoiceConsent.isPending ? 'Updating…' : 'Revoke consent'}
-              </Button>
-            )}
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t pt-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">
-                {voiceOutputPreferences?.consentGiven ? 'Azure speech output is enabled' : 'Azure speech output is not enabled'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Assistant response text is sent to Microsoft Azure Speech when you choose Listen. Generated audio is not saved in Askolo. Browser speech is used only if Azure synthesis or playback fails.
-              </p>
-            </div>
-            {voiceOutputPreferences?.consentGiven && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={revokeVoiceOutputConsent}
-                disabled={updateVoiceOutputConsent.isPending}
-                className="shrink-0"
-              >
-                {updateVoiceOutputConsent.isPending ? 'Updating…' : 'Revoke consent'}
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <AIPrivacyCenter />
 
       {/* ── Data & Account ─────────────────────────────────────────────────── */}
       <Card className="border-destructive/30">

@@ -413,12 +413,9 @@ func transcribeAssemblyAI(
 	}
 
 	submitPayload := map[string]any{
-		"audio_url":           uploaded.URL,
-		"speech_models":       []string{"universal-3-5-pro", "universal-2"},
-		"speaker_labels":      false,
-		"redact_pii":          true,
-		"redact_pii_policies": assemblyAIPiiRedactionPolicies,
-		"redact_pii_sub":      "hash",
+		"audio_url":      uploaded.URL,
+		"speech_models":  []string{"universal-3-5-pro", "universal-2"},
+		"speaker_labels": false,
 	}
 	if normalizedLanguage != "" {
 		submitPayload["language_code"] = normalizedLanguage

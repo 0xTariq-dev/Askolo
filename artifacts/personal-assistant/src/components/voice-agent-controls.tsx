@@ -2,19 +2,17 @@ import { useState } from 'react';
 import { Loader2, Mic, Square } from 'lucide-react';
 import {
   getGetAssistantConversationQueryKey,
-  getGetTranscriptionPreferencesQueryKey,
+  getGetAIPrivacyPreferencesQueryKey,
   useGetAssistantConversation,
-  useGetTranscriptionPreferences,
-  useUpdateTranscriptionPreferences,
+  useGetAIPrivacyPreferences,
+  useUpdateAIPrivacyPreferences,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
+import { AIConsentDialog } from '@/components/settings/ai-privacy-center';
 import { useLocale } from '@/contexts/locale-context';
 import { useToast } from '@/hooks/use-toast';
 import { useVoiceAgent } from '@/hooks/use-voice-agent';
-import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
-import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { formatUsdMicros } from '@/lib/credit-api';
 
 export function VoiceAgentControls() {
@@ -24,25 +22,23 @@ export function VoiceAgentControls() {
   const conversationQuery = useGetAssistantConversation({
     query: { queryKey: getGetAssistantConversationQueryKey() },
   });
-  const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
-  const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
+  const { data: privacyPreferences } = useGetAIPrivacyPreferences();
+  const updatePrivacyPreferences = useUpdateAIPrivacyPreferences();
   const voiceAgent = useVoiceAgent();
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentSaving, setConsentSaving] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [startAfterConsent, setStartAfterConsent] = useState(false);
   const englishOnly = !locale.toLowerCase().startsWith('en');
+  const liveModeUnavailable = !privacyPreferences?.assemblyAiLiveAvailable;
   const languageNotice = locale.toLowerCase().startsWith('ar')
     ? 'يدعم الوضع المباشر التحدث باللغة الإنجليزية فقط حاليًا. غيّر لغة التطبيق إلى الإنجليزية لاستخدامه.'
     : 'Live Mode currently supports English speech only. Switch the app language to English to use it.';
   const isBusy = voiceAgent.status !== 'idle';
 
   const startLiveMode = () => {
-    if (englishOnly || isBusy) return;
-    if (
-      !transcriptionPreferences?.consentGiven ||
-      transcriptionPreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION
-    ) {
+    if (englishOnly || isBusy || liveModeUnavailable) return;
+    if (!privacyPreferences?.assemblyAiLiveConsentGiven) {
       setConsentError('');
       setStartAfterConsent(true);
       setConsentOpen(true);
@@ -55,16 +51,17 @@ export function VoiceAgentControls() {
     setConsentSaving(true);
     setConsentError('');
     try {
-      const updated = await updateTranscriptionPreferences.mutateAsync({ data: { consent: true } });
-      queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+      const updated = await updatePrivacyPreferences.mutateAsync({ data: { assemblyAiLive: true } });
+      queryClient.setQueryData(getGetAIPrivacyPreferencesQueryKey(), updated);
       setConsentOpen(false);
       if (startAfterConsent) {
         setStartAfterConsent(false);
         void voiceAgent.start(conversationQuery.data?.conversationId);
       }
     } catch (error) {
-      setConsentError(getVoiceConsentErrorMessage(error));
-      toast({ title: 'Voice consent could not be saved', description: getVoiceConsentErrorMessage(error), variant: 'destructive' });
+      const message = 'Live Mode permission could not be saved. Please try again.';
+      setConsentError(message);
+      toast({ title: 'Live Mode permission could not be saved', description: message, variant: 'destructive' });
     } finally {
       setConsentSaving(false);
     }
@@ -87,7 +84,7 @@ export function VoiceAgentControls() {
             {voiceAgent.status === 'stopping' ? 'Ending Live Mode…' : 'End Live Mode'}
           </Button>
         ) : (
-          <Button type="button" variant="outline" size="sm" onClick={startLiveMode} disabled={englishOnly}>
+          <Button type="button" variant="outline" size="sm" onClick={startLiveMode} disabled={englishOnly || liveModeUnavailable}>
             <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
             Start Live Mode
           </Button>
@@ -95,13 +92,18 @@ export function VoiceAgentControls() {
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
           {englishOnly
             ? languageNotice
-            : 'Talk with Askolo. Workspace changes still require your confirmation.'}
+            : liveModeUnavailable
+              ? 'Live Mode is unavailable until provider privacy settings and credit-rate configuration are verified.'
+              : 'Talk with Askolo. Workspace changes still require your confirmation.'}
         </p>
       </div>
 
       {statusText && <p className="mt-2 text-xs text-muted-foreground" role="status" aria-live="polite">{statusText}</p>}
       {voiceAgent.error && <p className="mt-2 text-xs text-destructive" role="alert">{voiceAgent.error}</p>}
       {voiceAgent.notice && voiceAgent.status !== 'live' && <p className="mt-2 text-xs text-muted-foreground" role="status">{voiceAgent.notice}</p>}
+      <p className="mt-2 text-xs text-muted-foreground">
+        AssemblyAI’s processing location and EU-only processing have not been verified.
+      </p>
 
       {voiceAgent.voiceEstimate && (
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -117,17 +119,20 @@ export function VoiceAgentControls() {
 
       {voiceAgent.transcripts.length > 0 && (
         <ol className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-lg bg-muted/40 p-2 text-sm" aria-label="Live conversation transcript" aria-live="polite">
-          {voiceAgent.transcripts.map((transcript, index) => (
-            <li key={`${index}-${transcript.role}`} className="break-words">
+          {voiceAgent.transcripts.map((transcript) => (
+            <li key={transcript.key} className="break-words">
               <span className="font-medium">{transcript.role === 'user' ? 'You' : 'Askolo'}:</span>{' '}
               <span>{transcript.text}</span>
+              {transcript.interrupted && <span className="ms-2 text-xs text-muted-foreground">(interrupted)</span>}
             </li>
           ))}
         </ol>
       )}
 
-      <VoiceConsentDialog
+      <AIConsentDialog
+        purpose={consentOpen ? 'assemblyai-live' : null}
         open={consentOpen}
+        redactionConfirmed={true}
         onOpenChange={(open) => {
           setConsentOpen(open);
           if (!open) setStartAfterConsent(false);

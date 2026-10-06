@@ -102,8 +102,8 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// Keep managed Voice Agent disabled until provider-side privacy and
-	// retention settings have been verified for this account.
+	// Keep managed Voice Agent disabled until provider privacy controls and
+	// the account's live-session credit rate have been verified.
 	voiceAgentEnabled, err := envBool("ASKOLO_ASSEMBLYAI_VOICE_AGENT_ENABLED", false)
 	if err != nil {
 		return Config{}, err

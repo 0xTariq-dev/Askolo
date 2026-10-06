@@ -40,7 +40,7 @@ timeoutMs = 20000
 [userenv.shared]
 AUTH_EMAIL_FROM = "noreply@mail.askolo.app"
 GOSUMDB = "sum.golang.org"
-ASKOLO_ASSEMBLYAI_VOICE_AGENT_ENABLED = "true"
+ASKOLO_ASSEMBLYAI_VOICE_AGENT_ENABLED = "false"
 ASKOLO_ADMIN_EMAILS = "tariqmohsen222@gmail.com"
 
 # This workspace is the development Repl. Staging and production use separate

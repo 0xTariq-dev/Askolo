@@ -48,6 +48,7 @@ class FakeSpeechSynthesis {
 
 async function mountSpeechControl(options: {
   supported?: boolean;
+  audioSupported?: boolean;
   language?: string;
   azureStatus?: number;
   azurePlaybackFails?: boolean;
@@ -109,7 +110,7 @@ async function mountSpeechControl(options: {
     removeAttribute(name: string) { if (name === 'src') this.src = ''; }
     load() {}
   }
-  setGlobal('Audio', FakeAudio);
+  setGlobal('Audio', options.audioSupported === false ? undefined : FakeAudio);
   const NativeURL = URL;
   class TestURL extends NativeURL {}
   Object.defineProperty(TestURL, 'createObjectURL', { value: () => 'blob:test-audio', configurable: true });
@@ -192,54 +193,55 @@ async function mountSpeechControl(options: {
   };
 }
 
-test('assistant speech playback uses a matching voice and supports pause, resume, and stop', async () => {
-  const harness = await mountSpeechControl({ language: 'en-US' });
+test('assistant Azure speech playback supports pause, resume, and stop', async () => {
+  const harness = await mountSpeechControl({ language: 'en-US', azureStatus: 200 });
   try {
     await harness.click('Listen to response');
     assert.equal(harness.output.status, 'speaking');
-    assert.equal(harness.synthesis.spoken.length, 1);
-    assert.equal(harness.synthesis.spoken[0].text, 'Your team review is scheduled for Friday.');
-    assert.equal(harness.synthesis.spoken[0].lang, 'en-US');
-    assert.equal(harness.synthesis.spoken[0].voice?.lang, 'en-US');
+    assert.equal(harness.audioInstances.length, 1);
+    assert.equal(harness.audioInstances[0].playCalls, 1);
+    assert.equal(harness.synthesis.spoken.length, 0);
 
     await harness.click('Pause response playback');
     assert.equal(harness.output.status, 'paused');
-    assert.equal(harness.synthesis.pauseCalls, 1);
+    assert.equal(harness.audioInstances[0].pauseCalls, 1);
 
     await harness.click('Resume response playback');
     assert.equal(harness.output.status, 'speaking');
-    assert.equal(harness.synthesis.resumeCalls, 1);
+    assert.equal(harness.audioInstances[0].playCalls, 2);
 
     await harness.click('Stop response playback');
     assert.equal(harness.output.status, 'idle');
     assert.equal(harness.output.activeMessageId, null);
-    assert.equal(harness.synthesis.cancelCalls, 1);
+    assert.equal(harness.audioInstances[0].pauseCalls, 2);
+    assert.equal(harness.synthesis.spoken.length, 0);
   } finally {
     await harness.cleanup();
   }
 });
 
-test('Arabic assistant responses select an Arabic browser voice when available', async () => {
-  const harness = await mountSpeechControl({ language: 'ar-EG' });
+test('Arabic assistant responses use Azure playback without browser speech fallback', async () => {
+  const harness = await mountSpeechControl({ language: 'ar-EG', azureStatus: 200 });
   try {
     await act(async () => {
       await harness.output.speak('assistant-test', 'تم تحديد موعد الاجتماع يوم الجمعة.', { runId: 'run-test' });
     });
 
     assert.equal(harness.output.status, 'speaking');
-    assert.equal(harness.synthesis.spoken[0].lang, 'ar');
-    assert.equal(harness.synthesis.spoken[0].voice?.lang, 'ar-EG');
+    assert.equal(harness.audioInstances.length, 1);
+    assert.equal(harness.synthesis.spoken.length, 0);
+    assert.equal(String(harness.lastRequest?.input), '/api/ai/assistant/runs/run-test/speech');
   } finally {
     await harness.cleanup();
   }
 });
 
-test('missing browser speech support and oversized text produce accessible feedback', async () => {
-  const unsupported = await mountSpeechControl({ supported: false });
+test('missing Azure audio playback and oversized text produce accessible feedback', async () => {
+  const unsupported = await mountSpeechControl({ audioSupported: false, azureStatus: 200 });
   try {
     await unsupported.click('Listen to response');
     assert.equal(unsupported.output.status, 'unsupported');
-    assert.equal(unsupported.container.querySelector('[role="status"]')?.textContent, 'Azure speech failed and device speech is unavailable.');
+    assert.equal(unsupported.output.error, 'Azure speech playback is unavailable on this device.');
     assert.equal(unsupported.synthesis.spoken.length, 0);
   } finally {
     await unsupported.cleanup();
@@ -273,12 +275,12 @@ test('Azure audio is primary and does not use browser speech on success', async 
   }
 });
 
-test('Azure synthesis or playback failure falls back to device speech once', async () => {
+test('Azure synthesis or playback failure does not start device speech', async () => {
   const synthesisFailure = await mountSpeechControl({ azureStatus: 502 });
   try {
     await synthesisFailure.click('Listen to response');
-    assert.equal(synthesisFailure.output.status, 'speaking');
-    assert.equal(synthesisFailure.synthesis.spoken.length, 1);
+    assert.equal(synthesisFailure.output.status, 'error');
+    assert.equal(synthesisFailure.synthesis.spoken.length, 0);
   } finally {
     await synthesisFailure.cleanup();
   }
@@ -286,8 +288,8 @@ test('Azure synthesis or playback failure falls back to device speech once', asy
   const playbackFailure = await mountSpeechControl({ azureStatus: 200, azurePlaybackFails: true });
   try {
     await playbackFailure.click('Listen to response');
-    assert.equal(playbackFailure.output.status, 'speaking');
-    assert.equal(playbackFailure.synthesis.spoken.length, 1);
+    assert.equal(playbackFailure.output.status, 'error');
+    assert.equal(playbackFailure.synthesis.spoken.length, 0);
   } finally {
     await playbackFailure.cleanup();
   }
@@ -315,11 +317,13 @@ test('authorization failures do not trigger device speech, and Stop cancels pend
   }
 });
 
-test('unmounting the assistant stops an active speech utterance', async () => {
-  const harness = await mountSpeechControl();
+test('unmounting the assistant stops active Azure audio playback', async () => {
+  const harness = await mountSpeechControl({ azureStatus: 200 });
   await harness.click('Listen to response');
   assert.equal(harness.output.status, 'speaking');
 
   await harness.cleanup();
-  assert.equal(harness.synthesis.cancelCalls, 1);
+  assert.equal(harness.audioInstances[0].pauseCalls, 1);
+  assert.equal(harness.audioInstances[0].src, '');
+  assert.equal(harness.synthesis.spoken.length, 0);
 });

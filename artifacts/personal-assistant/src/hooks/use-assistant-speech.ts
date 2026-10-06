@@ -5,31 +5,15 @@ import { goApi } from '@/lib/go-api';
 export type AssistantSpeechStatus = 'idle' | 'loading' | 'speaking' | 'paused' | 'error' | 'unsupported';
 
 const MAX_SPOKEN_CHARACTERS = 12_000;
-const ARABIC_SCRIPT = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]/u;
-
-function speechLanguage(text: string, locale?: string): string {
-  if (locale === 'ar') return 'ar-EG';
-  if (locale === 'en') return 'en-US';
-  if (ARABIC_SCRIPT.test(text)) return 'ar';
-  if (typeof navigator !== 'undefined' && navigator.language) return navigator.language;
-  return 'en-US';
-}
-
-function getSpeechSynthesis(): SpeechSynthesis | null {
-  if (typeof window === 'undefined') return null;
-  return window.speechSynthesis ?? null;
-}
 
 export function useAssistantSpeech() {
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [status, setStatus] = useState<AssistantSpeechStatus>('idle');
   const [error, setError] = useState('');
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const generationRef = useRef(0);
-  const fallbackRef = useRef<(() => void) | null>(null);
 
   const releaseAudio = useCallback(() => {
     const audio = audioRef.current;
@@ -53,11 +37,7 @@ export function useAssistantSpeech() {
   const cancelPlayback = useCallback(() => {
     requestRef.current?.abort();
     requestRef.current = null;
-    fallbackRef.current = null;
     releaseAudio();
-    const utterance = utteranceRef.current;
-    utteranceRef.current = null;
-    if (utterance) getSpeechSynthesis()?.cancel();
   }, [releaseAudio]);
 
   const stop = useCallback(() => {
@@ -104,87 +84,14 @@ export function useAssistantSpeech() {
     setStatus('loading');
     setError('');
 
-    let fallbackStarted = false;
     const isCurrent = () => generation === generationRef.current && !controller.signal.aborted;
-    const startDeviceFallback = () => {
-      if (fallbackStarted || !isCurrent()) return;
-      fallbackStarted = true;
-      fallbackRef.current = null;
-      requestRef.current = null;
-      releaseAudio();
-
-      const synthesis = getSpeechSynthesis();
-      if (!synthesis || typeof SpeechSynthesisUtterance === 'undefined') {
-        setStatus('unsupported');
-        setError('Azure speech failed and device speech is unavailable.');
-        return;
-      }
-      try {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = speechLanguage(text, options.locale);
-        const voices = synthesis.getVoices();
-        const languageTag = utterance.lang.toLowerCase();
-        const language = languageTag.split('-')[0];
-        const selectedVoice =
-          voices.find((voice) => voice.lang.toLowerCase() === languageTag) ??
-          voices.find((voice) => voice.lang.toLowerCase().split('-')[0] === language);
-        if (selectedVoice) utterance.voice = selectedVoice;
-
-        utterance.onend = () => {
-          if (generationRef.current !== generation || utteranceRef.current !== utterance) return;
-          utteranceRef.current = null;
-          fallbackRef.current = null;
-          setActiveMessageId(null);
-          setStatus('idle');
-          setError('');
-        };
-        utterance.onerror = () => {
-          if (generationRef.current !== generation || utteranceRef.current !== utterance) return;
-          utteranceRef.current = null;
-          fallbackRef.current = null;
-          setActiveMessageId(messageId);
-          setStatus('error');
-          setError('Speech playback could not be completed.');
-        };
-
-        utteranceRef.current = utterance;
-        setStatus('speaking');
-        setError('');
-        synthesis.speak(utterance);
-      } catch {
-        utteranceRef.current = null;
-        fallbackRef.current = null;
-        setStatus('error');
-        setError('Speech playback could not be started.');
-      }
-    };
-    fallbackRef.current = startDeviceFallback;
-
     const finishAzurePlayback = () => {
       if (!isCurrent()) return;
-      fallbackRef.current = null;
       requestRef.current = null;
       releaseAudio();
       setActiveMessageId(null);
       setStatus('idle');
       setError('');
-    };
-
-    const allowDeviceFallback = (failure: unknown) => {
-      if (!isCurrent()) return;
-      const httpStatus = (failure as { status?: unknown } | null)?.status;
-      if (typeof httpStatus === 'number' && httpStatus >= 400 && httpStatus < 500) {
-        fallbackRef.current = null;
-        requestRef.current = null;
-        setStatus('error');
-        setError(
-          httpStatus === 403
-            ? 'Azure speech output requires your consent. Review the permission and try again.'
-            : 'Speech output could not be started. Try again later.',
-        );
-        return;
-      }
-      startDeviceFallback();
     };
 
     try {
@@ -196,11 +103,15 @@ export function useAssistantSpeech() {
         audioBlob.size > 4 * 1024 * 1024 ||
         audioBlob.type.toLowerCase() !== 'audio/mpeg'
       ) {
-        startDeviceFallback();
+        requestRef.current = null;
+        setStatus('error');
+        setError('Azure speech output could not be completed. Please try again.');
         return;
       }
       if (typeof Audio === 'undefined' || typeof URL.createObjectURL !== 'function') {
-        startDeviceFallback();
+        requestRef.current = null;
+        setStatus('unsupported');
+        setError('Azure speech playback is unavailable on this device.');
         return;
       }
 
@@ -209,26 +120,35 @@ export function useAssistantSpeech() {
       const audio = new Audio(objectUrl);
       audioRef.current = audio;
       audio.onended = finishAzurePlayback;
-      audio.onerror = () => startDeviceFallback();
+      audio.onerror = () => {
+        if (!isCurrent()) return;
+        requestRef.current = null;
+        setStatus('error');
+        setError('Azure speech playback could not be completed. Please try again.');
+        releaseAudio();
+      };
       requestRef.current = null;
       setStatus('speaking');
       const playResult = audio.play();
       if (playResult) await playResult;
     } catch (failure) {
-      allowDeviceFallback(failure);
+      if (!isCurrent()) return;
+      const httpStatus = (failure as { status?: unknown } | null)?.status;
+      requestRef.current = null;
+      setStatus('error');
+      setError(
+        httpStatus === 403
+          ? 'Azure speech output requires your consent. Review the permission and try again.'
+          : 'Azure speech output could not be completed. Please try again.',
+      );
     }
   }, [cancelPlayback, releaseAudio]);
 
   const pause = useCallback((messageId: string) => {
     if (activeMessageId !== messageId || status !== 'speaking') return;
     try {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      } else {
-        const synthesis = getSpeechSynthesis();
-        if (!synthesis) return;
-        synthesis.pause();
-      }
+      if (!audioRef.current) return;
+      audioRef.current.pause();
       setStatus('paused');
       setError('');
     } catch {
@@ -247,19 +167,9 @@ export function useAssistantSpeech() {
           setError('');
         }
       }).catch(() => {
-        fallbackRef.current?.();
+        setStatus('error');
+        setError('Azure speech playback could not be resumed. Please try again.');
       });
-      return;
-    }
-    const synthesis = getSpeechSynthesis();
-    if (!synthesis) return;
-    try {
-      synthesis.resume();
-      setStatus('speaking');
-      setError('');
-    } catch {
-      setStatus('error');
-      setError('Speech playback could not be resumed.');
     }
   }, [activeMessageId, status]);
 

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,19 +29,66 @@ const (
 	maxVoiceAgentAudioBytes      = 16 * 1024
 )
 
-var (
-	voiceAgentEmailPattern      = regexp.MustCompile(`(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`)
-	voiceAgentIBANPattern       = regexp.MustCompile(`(?i)\b[A-Z]{2}[0-9]{2}(?:[ ]?[A-Z0-9]){11,30}\b`)
-	voiceAgentCardPattern       = regexp.MustCompile(`\b(?:[0-9][ -]?){13,19}\b`)
-	voiceAgentIDPattern         = regexp.MustCompile(`\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b`)
-	voiceAgentPhonePattern      = regexp.MustCompile(`(?:\+|00)?[0-9][0-9(). -]{7,}[0-9]`)
-	voiceAgentCredentialPattern = regexp.MustCompile(
-		`(?i)\b(password|passcode|pin|verification code|access token|api key|secret)\b\s*(?:is|:|=)?\s*["']?[^\s,;]+`,
-	)
-	voiceAgentBirthDatePattern = regexp.MustCompile(
-		`(?i)\b(date of birth|birth date|birthday|dob)\b\s*(?:is|:|=)?\s*[A-Z0-9./ -]{4,20}`,
-	)
-)
+func normalizeVoiceAgentTranscriptEvent(eventType string, payload []byte) (json.RawMessage, string, bool) {
+	switch eventType {
+	case "transcript.user":
+		var event struct {
+			Text   string `json:"text"`
+			ItemID string `json:"item_id"`
+		}
+		if json.Unmarshal(payload, &event) != nil || !validAssemblyAIVoiceAgentSessionID(event.ItemID) ||
+			!utf8.ValidString(event.Text) || len(event.Text) > maxVoiceAgentTranscriptBytes {
+			return nil, "", false
+		}
+		normalized, err := json.Marshal(map[string]any{"type": eventType, "text": event.Text, "item_id": event.ItemID})
+		return normalized, event.Text, err == nil
+	case "transcript.user.delta":
+		var event struct {
+			Text   string `json:"text"`
+			ItemID string `json:"item_id"`
+		}
+		if json.Unmarshal(payload, &event) != nil || !validAssemblyAIVoiceAgentSessionID(event.ItemID) ||
+			!utf8.ValidString(event.Text) || len(event.Text) > maxVoiceAgentTranscriptBytes {
+			return nil, "", false
+		}
+		normalized, err := json.Marshal(map[string]any{"type": eventType, "text": event.Text, "item_id": event.ItemID})
+		return normalized, "", err == nil
+	case "transcript.agent.delta":
+		var event struct {
+			Delta   string `json:"delta"`
+			ItemID  string `json:"item_id"`
+			ReplyID string `json:"reply_id"`
+		}
+		if json.Unmarshal(payload, &event) != nil || !validAssemblyAIVoiceAgentSessionID(event.ItemID) ||
+			!validAssemblyAIVoiceAgentSessionID(event.ReplyID) || !utf8.ValidString(event.Delta) ||
+			len(event.Delta) > maxVoiceAgentTranscriptBytes {
+			return nil, "", false
+		}
+		normalized, err := json.Marshal(map[string]any{
+			"type": eventType, "delta": event.Delta, "item_id": event.ItemID, "reply_id": event.ReplyID,
+		})
+		return normalized, "", err == nil
+	case "transcript.agent":
+		var event struct {
+			Text        string `json:"text"`
+			ItemID      string `json:"item_id"`
+			ReplyID     string `json:"reply_id"`
+			Interrupted bool   `json:"interrupted"`
+		}
+		if json.Unmarshal(payload, &event) != nil || !validAssemblyAIVoiceAgentSessionID(event.ItemID) ||
+			!validAssemblyAIVoiceAgentSessionID(event.ReplyID) || !utf8.ValidString(event.Text) ||
+			len(event.Text) > maxVoiceAgentTranscriptBytes {
+			return nil, "", false
+		}
+		normalized, err := json.Marshal(map[string]any{
+			"type": eventType, "text": event.Text, "item_id": event.ItemID,
+			"reply_id": event.ReplyID, "interrupted": event.Interrupted,
+		})
+		return normalized, "", err == nil
+	default:
+		return nil, "", false
+	}
+}
 
 func (h *Handler) StartVoiceAgent(
 	ctx context.Context,
@@ -53,7 +99,7 @@ func (h *Handler) StartVoiceAgent(
 	if !h.voiceAgentEnabled {
 		return nil, nil, publicws.Failure(
 			http.StatusServiceUnavailable, "VOICE_AGENT_NOT_ENABLED",
-			"Live Mode is not available until provider privacy settings are verified.", nil,
+			"Live Mode is not available until provider privacy settings and its credit rate are verified.", nil,
 		)
 	}
 	if h.store == nil {
@@ -79,13 +125,13 @@ func (h *Handler) StartVoiceAgent(
 		return nil, nil, publicws.Failure(http.StatusTooManyRequests, "VOICE_START_RATE_LIMIT", "Too many live voice sessions were requested.", nil)
 	}
 
-	consent, consentVersion, err := h.store.VoiceConsent(ctx, userID)
+	consent, consentVersion, err := h.store.VoiceAgentConsent(ctx, userID)
 	if err != nil {
 		h.logger.Error("Voice Agent consent lookup failed", "error_type", fmt.Sprintf("%T", err))
 		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_AGENT_UNAVAILABLE", "Live Mode is temporarily unavailable.", err)
 	}
-	if !consent || consentVersion != postgres.VoiceConsentVersion {
-		return nil, nil, publicws.Failure(http.StatusForbidden, "VOICE_CONSENT_REQUIRED", "Review and accept the current voice privacy notice before using Live Mode.", nil)
+	if !consent || consentVersion != postgres.VoiceAgentConsentVersion {
+		return nil, nil, publicws.Failure(http.StatusForbidden, "VOICE_AGENT_CONSENT_REQUIRED", "Review and accept the AssemblyAI Live Mode privacy notice before starting.", nil)
 	}
 
 	provider, ok := h.assemblyAI.(assemblyAIVoiceAgentProvider)
@@ -377,26 +423,17 @@ func (s *publicVoiceAgentSession) ReadProviderMessage(ctx context.Context) (stri
 				s.enqueue(agentProtocolEvent{eventType: eventType, payload: eventPayload})
 			}
 			continue
-		case "transcript.user":
-			var event struct {
-				Text string `json:"text"`
-			}
-			if json.Unmarshal(payload, &event) != nil {
+		case "transcript.user", "transcript.user.delta", "transcript.agent.delta", "transcript.agent":
+			normalized, finalUserText, ok := normalizeVoiceAgentTranscriptEvent(eventType, payload)
+			if !ok {
 				continue
 			}
-			s.mu.Lock()
-			if utf8.ValidString(event.Text) && len(event.Text) <= maxVoiceAgentTranscriptBytes {
-				s.lastUserTranscript = event.Text
-			} else {
-				s.lastUserTranscript = ""
+			if eventType == "transcript.user" {
+				s.mu.Lock()
+				s.lastUserTranscript = finalUserText
+				s.mu.Unlock()
 			}
-			s.mu.Unlock()
-			return eventType, payload, nil
-		case "transcript.user.delta":
-			if len(payload) > maxVoiceAgentTranscriptBytes+256 {
-				continue
-			}
-			return eventType, payload, nil
+			return eventType, normalized, nil
 		case "reply.audio":
 			var event struct {
 				Data string `json:"data"`
@@ -408,8 +445,7 @@ func (s *publicVoiceAgentSession) ReadProviderMessage(ctx context.Context) (stri
 				continue
 			}
 			return eventType, payload, nil
-		case "input.speech.started", "input.speech.stopped",
-			"transcript.agent", "transcript.agent.delta", "reply.started", "reply.interrupted":
+		case "input.speech.started", "input.speech.stopped", "reply.started", "reply.interrupted":
 			return eventType, payload, nil
 		default:
 			// Do not forward unknown provider events that might include session
@@ -438,15 +474,14 @@ func (s *publicVoiceAgentSession) executeAssistantRequest(ctx context.Context, c
 		}), nil
 	}
 
-	redacted := redactVoiceAgentAssistantTranscript(transcript)
-	if strings.TrimSpace(redacted) == "" {
+	if strings.TrimSpace(transcript) == "" {
 		s.sendToolResult(ctx, call.callID, map[string]any{"status": "not_run"}, true)
 		return "AskoloVoiceAgentActionRefused", voiceAgentJSON(map[string]string{"message": "I could not prepare an action from that request."}), nil
 	}
 	keyDigest := sha256.Sum256([]byte(s.request.IdempotencyKey + "\x00" + call.callID))
 	request := publicws.AssistantRequest{
 		ConversationID: s.request.ConversationID,
-		Transcript:     redacted,
+		Transcript:     transcript,
 		IdempotencyKey: "voice-agent-" + hex.EncodeToString(keyDigest[:]),
 		PolicyVersion:  s.request.AssistantPolicyVersion,
 	}
@@ -657,39 +692,6 @@ func decodeVoiceAgentAudio(encoded string) ([]byte, error) {
 		return nil, errAssemblyAIInvalidPCMFrame
 	}
 	return data, nil
-}
-
-func redactVoiceAgentAssistantTranscript(input string) string {
-	input = voiceAgentCredentialPattern.ReplaceAllString(input, "$1 [REDACTED]")
-	input = voiceAgentBirthDatePattern.ReplaceAllString(input, "$1 [REDACTED]")
-	input = voiceAgentEmailPattern.ReplaceAllString(input, "[REDACTED_EMAIL]")
-	input = voiceAgentIBANPattern.ReplaceAllString(input, "[REDACTED_FINANCIAL_ID]")
-	input = voiceAgentCardPattern.ReplaceAllStringFunc(input, func(value string) string {
-		digits := 0
-		for _, character := range value {
-			if character >= '0' && character <= '9' {
-				digits++
-			}
-		}
-		if digits >= 13 && digits <= 19 {
-			return "[REDACTED_FINANCIAL_ID]"
-		}
-		return value
-	})
-	input = voiceAgentIDPattern.ReplaceAllString(input, "[REDACTED_GOVERNMENT_ID]")
-	input = voiceAgentPhonePattern.ReplaceAllStringFunc(input, func(value string) string {
-		digits := 0
-		for _, character := range value {
-			if character >= '0' && character <= '9' {
-				digits++
-			}
-		}
-		if digits >= 9 {
-			return "[REDACTED_PHONE]"
-		}
-		return value
-	})
-	return input
 }
 
 func voiceAgentJSON(value any) json.RawMessage {
