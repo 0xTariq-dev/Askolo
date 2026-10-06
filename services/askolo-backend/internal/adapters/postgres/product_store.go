@@ -14,7 +14,7 @@ import (
 const VoiceConsentVersion = "voice-v7"
 const VoiceOutputConsentVersion = "azure-tts-v1"
 const AssistantProcessingConsentVersion = "assistant-processing-v1"
-const VoiceAgentConsentVersion = "assemblyai-live-v1"
+const VoiceAgentConsentVersion = "assemblyai-live-v2"
 
 var ErrVoiceOutputConsentRequired = errors.New("Azure speech consent is required before enabling spoken replies")
 var ErrAssistantRedactionLocationRequired = errors.New("app-side transcript redaction is required before enabling Assistant processing")

@@ -99,7 +99,7 @@ func (h *Handler) StartVoiceAgent(
 	if !h.voiceAgentEnabled {
 		return nil, nil, publicws.Failure(
 			http.StatusServiceUnavailable, "VOICE_AGENT_NOT_ENABLED",
-			"Live Mode is not available until provider privacy settings and its credit rate are verified.", nil,
+			"Live Mode is not enabled in this environment.", nil,
 		)
 	}
 	if h.store == nil {

@@ -93,7 +93,7 @@ export function VoiceAgentControls() {
           {englishOnly
             ? languageNotice
             : liveModeUnavailable
-              ? 'Live Mode is unavailable until provider privacy settings and credit-rate configuration are verified.'
+              ? 'Live Mode is currently unavailable in this environment.'
               : 'Talk with Askolo. Workspace changes still require your confirmation.'}
         </p>
       </div>

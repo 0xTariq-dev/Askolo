@@ -33,7 +33,7 @@ const purposeCopy: Record<ConsentPurpose, { title: string; description: string }
   'assemblyai-live': {
     title: 'AssemblyAI Live Mode',
     description:
-      'AssemblyAI’s managed Voice Agent processes live audio and produces spoken replies. The processing location and EU-only processing are unverified; account-wide model-improvement opt-out and Voice Agent retention coverage have not been verified. Askolo requests provider soft-delete when a session ends, but that does not prove physical erasure. Live Mode remains unavailable until privacy settings and its credit rate are confirmed.',
+      'AssemblyAI’s managed Voice Agent processes live audio and produces spoken replies. The processing location and EU-only processing are unverified; account-wide model-improvement opt-out and Voice Agent retention coverage have not been verified. Askolo requests provider soft-delete when a session ends, but that does not prove physical erasure. Development Live Mode may proceed with your separate permission while these provider checks remain pending.',
   },
   'azure-speech': {
     title: 'Azure speech output',
@@ -211,7 +211,7 @@ export function AIPrivacyCenter() {
             </div>
             <PreferenceRow
               title="AssemblyAI Live Mode"
-              description="Separate permission for live microphone audio and managed spoken responses. Live Mode is currently disabled pending provider privacy verification and credit-rate configuration."
+              description="Separate permission for live microphone audio and managed spoken responses. Development Live Mode may proceed while provider privacy checks remain pending; your separate permission is still required."
               enabled={Boolean(privacy?.assemblyAiLiveConsentGiven)}
               onEnable={() => openConsent('assemblyai-live')}
               onRevoke={() => void revokePrivacy('assemblyAiLive')}
