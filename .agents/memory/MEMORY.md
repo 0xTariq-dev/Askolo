@@ -34,6 +34,7 @@
 - [Go backend binary refresh](go-backend-binary-refresh.md) — the run script reuses an existing binary; rebuild before restarting after Go source changes.
 - [Release environment separation](three-repl-release-architecture.md) — staging is not configured; treat the supplied dev.askolo.app host as production.
 - [Development schema application](dev-schema-apply.md) — Drizzle push behavior is historical development-only guidance, not the current migration path.
+- [Development DB SSL mode](development-database-ssl-mode.md) — the Development database URL explicitly disables SSL; do not infer Production settings from it.
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Replit artifact and canvas separation](replit-artifact-cleanup.md) — artifact files, Library registrations, and canvas frames are separate; inspect frame provenance before changing active service configuration.
@@ -46,7 +47,7 @@
 - [Workspace migration provenance](workspace-migration-provenance.md) — preserve reviewed baselines and checksums; scope catalog guards to the target relation.
 - [Auth email delivery retry safety](auth-email-delivery-retry.md) — release challenges only for retry-safe failures; retain uncertain handoffs so cooldowns prevent duplicates.
 - [Password recovery verification](password-recovery-verification.md) — active unverified accounts can confirm the primary email and set a first password via one atomic reset.
-- [Deployment health probes](deployment-health-probes.md) — use a cold-start-safe health endpoint for publishing startup probes, not transient operational readiness.
+- [Deployment health probes](deployment-health-probes.md) — use a cold-start-safe startup probe and isolate slow schema-readiness timeouts from quick database checks.
 - [Bare remote test fixtures](bare-remote-test-fixtures.md) — clone temporary bare remotes with an explicit branch because the first push may not set symbolic HEAD.
 - [Publish path smoke isolation](publish-path-smoke-isolation.md) — release smoke checks must choose their own ports and never stop the managed preview API.
 - [Native auth validation timing](native-email-auth-validation.md) — the synthetic cleanup harness can race on fake PostgreSQL pid handoff; distinguish it from backend failures.

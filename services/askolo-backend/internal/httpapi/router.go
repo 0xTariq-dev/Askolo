@@ -30,6 +30,8 @@ const EmailChallengeCleanupPersistentFailureThreshold = 3
 const (
 	schemaReadinessModeMigrationLedger = "go_migration_ledger"
 	schemaReadinessModePublishCheck    = "replit_publish_compatibility"
+	readinessProbeTimeout              = 2 * time.Second
+	schemaReadinessProbeTimeout        = 4 * time.Second
 )
 
 func schemaReadinessModeForEnvironment(environment string) string {
@@ -144,6 +146,16 @@ func (o *migrationReadinessObserver) observe(
 	)
 }
 
+func checkMigrationSchemaReadiness(
+	ctx context.Context,
+	observer *migrationReadinessObserver,
+	probe func(context.Context) (bool, error),
+) (bool, error) {
+	probeContext, cancel := context.WithTimeout(ctx, schemaReadinessProbeTimeout)
+	defer cancel()
+	return observer.check(probeContext, probe)
+}
+
 type EmailChallengeCleanupDashboard struct {
 	Environment                  string                         `json:"environment"`
 	Service                      string                         `json:"service"`
@@ -235,25 +247,38 @@ func NewWithShutdown(
 			WindowMinutes: 15,
 		}
 		if store != nil {
-			pingContext, cancel := context.WithTimeout(r.Context(), 750*time.Millisecond)
+			pingContext, cancelPing := context.WithTimeout(r.Context(), readinessProbeTimeout)
 			databaseReachable = store.Ping(pingContext) == nil
+			cancelPing()
 			if databaseReachable {
-				authorizationStorageReady = store.AuthorizationSchemaReady(pingContext)
+				authorizationContext, cancelAuthorization := context.WithTimeout(
+					r.Context(),
+					readinessProbeTimeout,
+				)
+				authorizationStorageReady = store.AuthorizationSchemaReady(authorizationContext)
+				cancelAuthorization()
+
 				schemaProbe := store.MigrationSchemaReady
 				if schemaReadinessMode == schemaReadinessModePublishCheck {
 					schemaProbe = store.ProductionSchemaCompatible
 				}
-				migrationSchemaReady, schemaReadinessErr = migrationReadinessObserver.check(pingContext, schemaProbe)
+				migrationSchemaReady, schemaReadinessErr = checkMigrationSchemaReadiness(
+					r.Context(),
+					migrationReadinessObserver,
+					schemaProbe,
+				)
 				if schemaReadinessMode == schemaReadinessModePublishCheck {
 					managedProductionSchemaCompatible = migrationSchemaReady
 				} else {
 					migrationLedgerReady = migrationSchemaReady
 				}
-				mfaSecurityReadiness = authHandler.MFASecurityReadiness(pingContext)
+
+				mfaContext, cancelMFA := context.WithTimeout(r.Context(), readinessProbeTimeout)
+				mfaSecurityReadiness = authHandler.MFASecurityReadiness(mfaContext)
+				cancelMFA()
 			} else {
 				schemaReadinessErr = errors.New("database is not reachable")
 			}
-			cancel()
 		}
 		migrationReadinessObserver.observe(
 			logger,

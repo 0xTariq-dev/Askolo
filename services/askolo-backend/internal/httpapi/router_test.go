@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"askolo/backend/internal/config"
 )
@@ -57,6 +59,40 @@ func TestMigrationReadinessProbeCoalescesAndCachesChecks(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("probe ran %d times, want one coalesced and cached check", got)
+	}
+}
+
+func TestMigrationSchemaReadinessHasIndependentBudget(t *testing.T) {
+	observer := &migrationReadinessObserver{}
+	ready, err := checkMigrationSchemaReadiness(
+		context.Background(),
+		observer,
+		func(ctx context.Context) (bool, error) {
+			timer := time.NewTimer(900 * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				return true, nil
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		},
+	)
+	if err != nil || !ready {
+		t.Fatalf("schema readiness result = %t, %v; want ready under its dedicated budget", ready, err)
+	}
+}
+
+func TestMigrationSchemaReadinessHonorsRequestCancellation(t *testing.T) {
+	observer := &migrationReadinessObserver{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ready, err := checkMigrationSchemaReadiness(ctx, observer, func(ctx context.Context) (bool, error) {
+		<-ctx.Done()
+		return false, ctx.Err()
+	})
+	if ready || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled schema readiness result = %t, %v; want context cancellation", ready, err)
 	}
 }
 
