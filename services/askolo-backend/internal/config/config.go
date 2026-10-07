@@ -30,6 +30,8 @@ type Config struct {
 	DatabaseIdentity              string
 	SessionSecret                 string
 	AuthRateLimitHMACSecret       string
+	TurnstileSecret               string
+	TurnstileAllowedHostnames     map[string]struct{}
 	CanonicalOrigin               string
 	SessionCookieName             string
 	BuildCommit                   string
@@ -164,6 +166,10 @@ func Load() (Config, error) {
 	if len([]byte(authRateLimitHMACSecret)) < 32 {
 		return Config{}, fmt.Errorf("AUTH_RATE_LIMIT_HMAC_SECRET must contain at least 32 bytes")
 	}
+	turnstileSecret := strings.TrimSpace(os.Getenv("TURNSTILE_SECRET_KEY"))
+	if turnstileSecret == "" {
+		return Config{}, fmt.Errorf("TURNSTILE_SECRET_KEY is required")
+	}
 	if internalAuthToken == "" && environment != "production" && sessionSecret != "" {
 		derived := sha256.Sum256([]byte("askolo-internal-auth:" + sessionSecret))
 		internalAuthToken = hex.EncodeToString(derived[:])
@@ -234,22 +240,24 @@ func Load() (Config, error) {
 		}
 	}
 	return Config{
-		ServiceName:             "askolo-backend",
-		Environment:             environment,
-		Host:                    host,
-		Port:                    port,
-		InternalAuthToken:       internalAuthToken,
-		DatabaseURL:             strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		DatabaseIdentity:        databaseIdentity,
-		SessionSecret:           sessionSecret,
-		AuthRateLimitHMACSecret: authRateLimitHMACSecret,
-		CanonicalOrigin:         canonicalOrigin,
-		SessionCookieName:       cookieNamespace + "_sid",
-		BuildCommit:             buildCommit,
-		ReleaseTag:              releaseTag,
-		ReleaseMode:             releaseMode,
-		ParentReleaseTag:        parentReleaseTag,
-		TOTPEncryptionKey:       totpEncryptionKey,
+		ServiceName:               "askolo-backend",
+		Environment:               environment,
+		Host:                      host,
+		Port:                      port,
+		InternalAuthToken:         internalAuthToken,
+		DatabaseURL:               strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DatabaseIdentity:          databaseIdentity,
+		SessionSecret:             sessionSecret,
+		AuthRateLimitHMACSecret:   authRateLimitHMACSecret,
+		TurnstileSecret:           turnstileSecret,
+		TurnstileAllowedHostnames: turnstileAllowedHostnames(environment),
+		CanonicalOrigin:           canonicalOrigin,
+		SessionCookieName:         cookieNamespace + "_sid",
+		BuildCommit:               buildCommit,
+		ReleaseTag:                releaseTag,
+		ReleaseMode:               releaseMode,
+		ParentReleaseTag:          parentReleaseTag,
+		TOTPEncryptionKey:         totpEncryptionKey,
 		Email: EmailConfig{
 			ResendAPIKey:    strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
 			FromAddress:     strings.TrimSpace(os.Getenv("AUTH_EMAIL_FROM")),

@@ -125,11 +125,12 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/PasswordLoginResponse' } } }
         '400': { description: Invalid credentials, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '401': { description: Invalid credentials, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
-        '403': { description: Account unavailable or email verification required, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: "Account unavailable, email verification required, or security verification failed", content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '429':
           description: Too many attempts
           headers: { Retry-After: { schema: { type: integer } } }
           content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+        '503': { description: Authentication or security verification unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 
   /auth/password/signup:
     post:
@@ -141,11 +142,12 @@ paths:
       responses:
         '202': { description: Verification required, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
         '400': { description: Invalid signup, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Security verification failed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '429':
           description: Too many requests
           headers: { Retry-After: { schema: { type: integer } } }
           content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
-        '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: Authentication or security verification unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 
   /auth/password/set:
     post:
@@ -178,14 +180,16 @@ paths:
       operationId: resendEmailVerification
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/EmailInput' } } }
+        content: { application/json: { schema: { $ref: '#/components/schemas/EmailVerificationResendInput' } } }
       responses:
         '202': { description: Verification request accepted, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
         '400': { description: Invalid email, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Security verification failed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '429':
           description: Rate limited
           headers: { Retry-After: { schema: { type: integer } } }
           content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+        '503': { description: Security verification unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 
   /auth/recovery/email/enroll:
     post:
@@ -223,6 +227,7 @@ paths:
       responses:
         '202': { description: Recovery accepted without revealing account existence, content: { application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } } } }
         '400': { description: Invalid request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Security verification failed, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '503': { description: Authentication unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 
@@ -2242,12 +2247,19 @@ components:
       required: [email]
       properties:
         email: { type: string }
+    EmailVerificationResendInput:
+      type: object
+      required: [email, turnstileToken]
+      properties:
+        email: { type: string }
+        turnstileToken: { type: string, minLength: 1, maxLength: 2048 }
     PasswordLoginInput:
       type: object
-      required: [email, password]
+      required: [email, password, turnstileToken]
       properties:
         email: { type: string }
         password: { type: string }
+        turnstileToken: { type: string, minLength: 1, maxLength: 2048 }
     PasswordLoginResponse:
       type: object
       required: [status]
@@ -2286,10 +2298,11 @@ components:
         totpCode: { type: string }
     PasswordRecoveryRequestInput:
       type: object
-      required: [email, method]
+      required: [email, method, turnstileToken]
       properties:
         email: { type: string }
         method: { type: string, enum: [primary_email, recovery_email] }
+        turnstileToken: { type: string, minLength: 1, maxLength: 2048 }
     PasswordRecoveryVerificationInput:
       type: object
       required: [email, method, code]
@@ -2312,10 +2325,11 @@ components:
         enabled: { type: boolean }
     MFARecoveryRequestInput:
       type: object
-      required: [email, currentPassword]
+      required: [email, currentPassword, turnstileToken]
       properties:
         email: { type: string }
         currentPassword: { type: string }
+        turnstileToken: { type: string, minLength: 1, maxLength: 2048 }
     MFARecoveryVerificationInput:
       type: object
       required: [email, currentPassword, code]

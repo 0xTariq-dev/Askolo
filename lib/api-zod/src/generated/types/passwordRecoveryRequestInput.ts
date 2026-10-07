@@ -10,4 +10,9 @@ import type { PasswordRecoveryRequestInputMethod } from './passwordRecoveryReque
 export interface PasswordRecoveryRequestInput {
   email: string;
   method: PasswordRecoveryRequestInputMethod;
+  /**
+     * @minLength 1
+     * @maxLength 2048
+     */
+  turnstileToken: string;
 }

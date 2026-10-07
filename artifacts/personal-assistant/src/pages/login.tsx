@@ -15,7 +15,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Eye, EyeOff, UserPlus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@workspace/api-client-react';
 import { useAppAuth } from '@/contexts/auth-context';
 import {
@@ -28,6 +28,8 @@ import { CCard12AuthCard } from '@/components/examples/c-card-12';
 import { CButton60SocialAuthButtons } from '@/components/examples/c-button-60';
 import { CInputOtp6 } from '@/components/examples/c-input-otp-6';
 import { CInput23PasswordFields } from '@/components/examples/c-input-23';
+import { TurnstileWidget } from '@/components/auth/turnstile-widget';
+import { turnstileActionForMode, type TurnstileAction } from '@/lib/auth-turnstile';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 import logoUrl from '/logo.png';
@@ -113,7 +115,41 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [resendSeconds, setResendSeconds] = useState(0);
+  const turnstileAction = turnstileActionForMode(mode);
+  const turnstileActionRef = useRef(turnstileAction);
+  turnstileActionRef.current = turnstileAction;
+  const [turnstileCredential, setTurnstileCredential] = useState<{
+    action: TurnstileAction;
+    token: string;
+  } | null>(null);
+  const turnstileCredentialRef = useRef<typeof turnstileCredential>(null);
+  const [turnstileGeneration, setTurnstileGeneration] = useState(0);
   const providerIntent = mode === 'signup' ? 'signup' : 'signin';
+
+  const receiveTurnstileToken = useCallback((action: TurnstileAction, token: string | null) => {
+    if (turnstileActionRef.current !== action) return;
+    const credential = token ? { action, token } : null;
+    turnstileCredentialRef.current = credential;
+    setTurnstileCredential(credential);
+  }, []);
+
+  const resetTurnstile = useCallback(() => {
+    turnstileCredentialRef.current = null;
+    setTurnstileCredential(null);
+    setTurnstileGeneration((generation) => generation + 1);
+  }, []);
+
+  const requiredTurnstileToken = useCallback((action: TurnstileAction) => {
+    const credential = turnstileCredentialRef.current;
+    if (!credential || credential.action !== action) {
+      throw new Error('Complete the security check before continuing.');
+    }
+    return credential.token;
+  }, []);
+
+  useEffect(() => {
+    resetTurnstile();
+  }, [resetTurnstile, turnstileAction]);
 
   const startResendCooldown = (seconds = resendCooldownSeconds) => {
     setResendAvailableAt(Date.now() + seconds * 1000);
@@ -142,6 +178,7 @@ export function LoginPage() {
   }, [resendAvailableAt]);
 
   const changeMode = (nextMode: PasswordMode) => {
+    resetTurnstile();
     setMode(nextMode);
     setPasswordVisible(false);
     setError(null);
@@ -169,9 +206,12 @@ export function LoginPage() {
     setError(null);
     setNotice(null);
     setSubmitting(true);
+    let turnstileSubmitted = false;
     try {
       if (mode === 'signin') {
-        const payload = await postAuth(() => goApi.passwordLogin({ email, password }));
+        const turnstileToken = requiredTurnstileToken('login');
+        turnstileSubmitted = true;
+        const payload = await postAuth(() => goApi.passwordLogin({ email, password, turnstileToken }));
         if (payload.status === 'mfa_required') {
           setMode('mfa');
           setMfaUsingRecoveryCode(false);
@@ -185,7 +225,9 @@ export function LoginPage() {
         if (password !== confirmPassword) {
           throw new Error('The passwords do not match.');
         }
-        await postAuth(() => goApi.passwordSignup({ email, password }));
+        const turnstileToken = requiredTurnstileToken('signup');
+        turnstileSubmitted = true;
+        await postAuth(() => goApi.passwordSignup({ email, password, turnstileToken }));
         setPassword('');
         setConfirmPassword('');
         setCode('');
@@ -200,13 +242,25 @@ export function LoginPage() {
         setResendAvailableAt(null);
         setNotice('Your email is verified. You can sign in now.');
       } else if (mode === 'recovery-request') {
-        await postAuth(() => goApi.requestPasswordRecovery({ email, method: 'primary_email' }));
+        const turnstileToken = requiredTurnstileToken('password_recovery');
+        turnstileSubmitted = true;
+        await postAuth(() => goApi.requestPasswordRecovery({
+          email,
+          method: 'primary_email',
+          turnstileToken,
+        }));
         setRecoveryMethod('primary_email');
         setMode('recovery-verify');
         startResendCooldown();
         setNotice('If your account is eligible, a password-reset code is on its way. You do not need your current password to choose a new one.');
       } else if (mode === 'recovery-method') {
-        await postAuth(() => goApi.requestPasswordRecovery({ email, method: recoveryMethod }));
+        const turnstileToken = requiredTurnstileToken('password_recovery');
+        turnstileSubmitted = true;
+        await postAuth(() => goApi.requestPasswordRecovery({
+          email,
+          method: recoveryMethod,
+          turnstileToken,
+        }));
         setMode('recovery-verify');
         startResendCooldown();
         setNotice('If an eligible recovery method matches, a reset code is on its way.');
@@ -218,9 +272,12 @@ export function LoginPage() {
         setResendAvailableAt(null);
         setNotice('Code verified. Choose a new password for your Askolo account.');
       } else if (mode === 'mfa-recovery-request') {
+        const turnstileToken = requiredTurnstileToken('mfa_recovery');
+        turnstileSubmitted = true;
         await postAuth(() => goApi.requestMFARecovery({
           email,
           currentPassword: password,
+          turnstileToken,
         }));
         setMode('mfa-recovery-verify');
         startResendCooldown();
@@ -268,6 +325,7 @@ export function LoginPage() {
             : 'Unable to complete that request right now.',
       );
     } finally {
+      if (turnstileSubmitted) resetTurnstile();
       setSubmitting(false);
     }
   };
@@ -277,14 +335,18 @@ export function LoginPage() {
     setError(null);
     setNotice(null);
     setSubmitting(true);
+    let turnstileSubmitted = false;
     try {
-      await postAuth(() => goApi.resendEmailVerification({ email }));
+      const turnstileToken = requiredTurnstileToken('email_resend');
+      turnstileSubmitted = true;
+      await postAuth(() => goApi.resendEmailVerification({ email, turnstileToken }));
       startResendCooldown();
       setNotice('If this account is eligible for verification, a new code should arrive. Delivery may be delayed; check spam or try again after the timer.');
     } catch (err) {
       applyRetryAfter(err);
       setError(err instanceof Error ? err.message : 'Unable to resend the verification code.');
     } finally {
+      if (turnstileSubmitted) resetTurnstile();
       setSubmitting(false);
     }
   };
@@ -294,14 +356,22 @@ export function LoginPage() {
     setError(null);
     setNotice(null);
     setSubmitting(true);
+    let turnstileSubmitted = false;
     try {
-      await postAuth(() => goApi.requestPasswordRecovery({ email, method: recoveryMethod }));
+      const turnstileToken = requiredTurnstileToken('password_recovery');
+      turnstileSubmitted = true;
+      await postAuth(() => goApi.requestPasswordRecovery({
+        email,
+        method: recoveryMethod,
+        turnstileToken,
+      }));
       startResendCooldown();
       setNotice('If an eligible recovery method matches, a new reset code is on its way.');
     } catch (err) {
       applyRetryAfter(err);
       setError(err instanceof Error ? err.message : 'Unable to resend the recovery code.');
     } finally {
+      if (turnstileSubmitted) resetTurnstile();
       setSubmitting(false);
     }
   };
@@ -311,10 +381,14 @@ export function LoginPage() {
     setError(null);
     setNotice(null);
     setSubmitting(true);
+    let turnstileSubmitted = false;
     try {
+      const turnstileToken = requiredTurnstileToken('mfa_recovery');
+      turnstileSubmitted = true;
       await postAuth(() => goApi.requestMFARecovery({
         email,
         currentPassword: password,
+        turnstileToken,
       }));
       startResendCooldown();
       setNotice('If this account is eligible, a new recovery code is on its way.');
@@ -324,6 +398,7 @@ export function LoginPage() {
         'The recovery request could not be completed. Check your details and try again.',
       );
     } finally {
+      if (turnstileSubmitted) resetTurnstile();
       setSubmitting(false);
     }
   };
@@ -491,6 +566,14 @@ export function LoginPage() {
                   </Field>
                 )}
               </FieldGroup>
+              {turnstileAction && (
+                <TurnstileWidget
+                  key={`${turnstileAction}-${turnstileGeneration}`}
+                  action={turnstileAction}
+                  tokenReady={turnstileCredential?.action === turnstileAction}
+                  onToken={receiveTurnstileToken}
+                />
+              )}
               {error && <p id="auth-form-error" className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
               <div className="flex justify-center">
@@ -605,7 +688,10 @@ export function LoginPage() {
                       name="recovery-method"
                       value="primary_email"
                       checked={recoveryMethod === 'primary_email'}
-                      onChange={() => setRecoveryMethod('primary_email')}
+                      onChange={() => {
+                        setRecoveryMethod('primary_email');
+                        resetTurnstile();
+                      }}
                       className="mt-1 accent-primary"
                     />
                     <span>
@@ -638,7 +724,10 @@ export function LoginPage() {
                           name="recovery-method"
                           value="recovery_email"
                           checked={recoveryMethod === 'recovery_email'}
-                          onChange={() => setRecoveryMethod('recovery_email')}
+                          onChange={() => {
+                            setRecoveryMethod('recovery_email');
+                            resetTurnstile();
+                          }}
                           className="mt-1 accent-primary"
                         />
                         <span>
@@ -736,6 +825,17 @@ export function LoginPage() {
                   errorDescribedBy={error ? 'auth-form-error' : undefined}
                 />
               )}
+              {(mode === 'recovery-request' ||
+                mode === 'recovery-method' ||
+                mode === 'mfa-recovery-request') &&
+                turnstileAction && (
+                <TurnstileWidget
+                  key={`${turnstileAction}-${turnstileGeneration}`}
+                  action={turnstileAction}
+                  tokenReady={turnstileCredential?.action === turnstileAction}
+                  onToken={receiveTurnstileToken}
+                />
+              )}
               {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
               <Button
@@ -765,6 +865,15 @@ export function LoginPage() {
                             : 'Set new password'}
               </Button>
             </form>
+            {(mode === 'verify' || mode === 'recovery-verify' || mode === 'mfa-recovery-verify') &&
+              turnstileAction && (
+                <TurnstileWidget
+                  key={`${turnstileAction}-${turnstileGeneration}`}
+                  action={turnstileAction}
+                  tokenReady={turnstileCredential?.action === turnstileAction}
+                  onToken={receiveTurnstileToken}
+                />
+              )}
             {mode === 'recovery-request' && (
               <Button
                 type="button"

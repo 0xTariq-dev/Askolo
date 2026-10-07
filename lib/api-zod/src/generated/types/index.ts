@@ -66,6 +66,7 @@ export * from './disconnectGoogleParams';
 export * from './disconnectGoogleScope';
 export * from './emailInput';
 export * from './emailVerificationInput';
+export * from './emailVerificationResendInput';
 export * from './errorEnvelope';
 export * from './event';
 export * from './eventInput';

@@ -61,16 +61,19 @@ const (
 )
 
 type Handler struct {
-	cfg            config.Config
-	store          *postgres.Store
-	logger         *slog.Logger
-	limiter        *rateLimiter
-	emailSender    EmailSender
-	emailMonitor   *EmailDeliveryMonitor
-	mfaAlertMu     sync.Mutex
-	mfaAlertKey    string
-	mfaAlertAt     time.Time
-	mfaAlertActive bool
+	cfg               config.Config
+	store             *postgres.Store
+	logger            *slog.Logger
+	limiter           *rateLimiter
+	emailSender       EmailSender
+	emailMonitor      *EmailDeliveryMonitor
+	turnstileClient   *http.Client
+	turnstileEndpoint string
+	turnstileVerifier func(context.Context, string) (turnstileSiteverifyResponse, error)
+	mfaAlertMu        sync.Mutex
+	mfaAlertKey       string
+	mfaAlertAt        time.Time
+	mfaAlertActive    bool
 }
 
 type rateLimiter struct {
@@ -114,12 +117,14 @@ func NewHandlerWithEmailSenderAndMonitor(
 		emailMonitor = NewEmailDeliveryMonitor()
 	}
 	return &Handler{
-		cfg:          cfg,
-		store:        store,
-		logger:       logger,
-		limiter:      &rateLimiter{entries: make(map[string]rateEntry)},
-		emailSender:  emailSender,
-		emailMonitor: emailMonitor,
+		cfg:               cfg,
+		store:             store,
+		logger:            logger,
+		limiter:           &rateLimiter{entries: make(map[string]rateEntry)},
+		emailSender:       emailSender,
+		emailMonitor:      emailMonitor,
+		turnstileClient:   &http.Client{Timeout: turnstileRequestTimeout},
+		turnstileEndpoint: turnstileSiteverifyURL,
 	}
 }
 
@@ -398,8 +403,9 @@ func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email          string `json:"email"`
+		Password       string `json:"password"`
+		TurnstileToken string `json:"turnstileToken"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) || len(input.Password) > 256 {
 		writeError(w, http.StatusBadRequest, "INVALID_CREDENTIALS", "Email and password are required.")
@@ -416,6 +422,9 @@ func (h *Handler) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	if !accountAllowed {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many authentication attempts.")
+		return
+	}
+	if !h.requireTurnstile(w, r, input.TurnstileToken, "login", "password_login") {
 		return
 	}
 	user, err := h.store.FindUserByEmail(r.Context(), email)
@@ -479,8 +488,9 @@ func (h *Handler) passwordSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email          string `json:"email"`
+		Password       string `json:"password"`
+		TurnstileToken string `json:"turnstileToken"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) {
 		writeError(w, http.StatusBadRequest, "INVALID_SIGNUP", "A valid email and password are required.")
@@ -488,6 +498,9 @@ func (h *Handler) passwordSignup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ValidatePassword(input.Password); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_PASSWORD", "Password does not meet the security requirements.")
+		return
+	}
+	if !h.requireTurnstile(w, r, input.TurnstileToken, "signup", "password_signup") {
 		return
 	}
 	if err := h.challengeConfiguration(); err != nil {
@@ -601,10 +614,14 @@ func (h *Handler) resendEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Email string `json:"email"`
+		Email          string `json:"email"`
+		TurnstileToken string `json:"turnstileToken"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "A valid email is required.")
+		return
+	}
+	if !h.requireTurnstile(w, r, input.TurnstileToken, "email_resend", "email_verification_resend") {
 		return
 	}
 	email := normalizeEmail(input.Email)
@@ -797,8 +814,9 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var input struct {
-		Email  string `json:"email"`
-		Method string `json:"method"`
+		Email          string `json:"email"`
+		Method         string `json:"method"`
+		TurnstileToken string `json:"turnstileToken"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil || !validEmail(input.Email) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "A valid email is required.")
@@ -819,6 +837,9 @@ func (h *Handler) requestPasswordRecovery(w http.ResponseWriter, r *http.Request
 	}
 	if !accountAllowed {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "recovery_if_available"})
+		return
+	}
+	if !h.requireTurnstile(w, r, input.TurnstileToken, "password_recovery", "password_recovery_request") {
 		return
 	}
 	user, deliveryEmail, err := h.passwordRecoveryTarget(r.Context(), email, method)

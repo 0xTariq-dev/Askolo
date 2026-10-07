@@ -47,6 +47,7 @@ import type {
   DisconnectGoogleParams,
   EmailInput,
   EmailVerificationInput,
+  EmailVerificationResendInput,
   ErrorEnvelope,
   Event,
   EventInput,
@@ -844,7 +845,7 @@ export const getResendEmailVerificationUrl = () => {
   return `/api/auth/email/resend`
 }
 
-export const resendEmailVerification = async (emailInput: EmailInput, options?: Parameters<typeof customFetch>[1]): Promise<StatusResponse> => {
+export const resendEmailVerification = async (emailVerificationResendInput: EmailVerificationResendInput, options?: Parameters<typeof customFetch>[1]): Promise<StatusResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -857,7 +858,7 @@ return customFetch<StatusResponse>(getResendEmailVerificationUrl(),
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(emailInput)
+    body: JSON.stringify(emailVerificationResendInput)
   }
 );}
 
@@ -895,9 +896,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ResendEmailVerificationMutationResult = NonNullable<Awaited<ReturnType<typeof resendEmailVerification>>>
-    export type ResendEmailVerificationMutationBody = BodyType<EmailInput>
+    export type ResendEmailVerificationMutationBody = BodyType<EmailVerificationResendInput>
     export type ResendEmailVerificationMutationError = ErrorType<ErrorEnvelope>
-    export type ResendEmailVerificationMutationVariables = {data: BodyType<EmailInput>}
+    export type ResendEmailVerificationMutationVariables = {data: BodyType<EmailVerificationResendInput>}
 
     export const useResendEmailVerification = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendEmailVerification>>, TError,ResendEmailVerificationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

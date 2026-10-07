@@ -33,6 +33,7 @@ func (h *Handler) requestMFARecovery(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Email           string `json:"email"`
 		CurrentPassword string `json:"currentPassword"`
+		TurnstileToken  string `json:"turnstileToken"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil ||
 		!validEmail(input.Email) || input.CurrentPassword == "" || len(input.CurrentPassword) > 256 {
@@ -51,6 +52,9 @@ func (h *Handler) requestMFARecovery(w http.ResponseWriter, r *http.Request) {
 		h.recordSecurityEvent(r, "", "mfa_recovery_rate_limited", map[string]any{"stage": "request", "reason": "account"})
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many recovery requests. Try again later.")
+		return
+	}
+	if !h.requireTurnstile(w, r, input.TurnstileToken, "mfa_recovery", "mfa_recovery_request") {
 		return
 	}
 

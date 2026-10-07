@@ -82,9 +82,14 @@ export const LogoutPasswordSessionHeader = zod.object({
 export const LogoutPasswordSessionResponse = zod.void()
 
 
+export const passwordLoginBodyTurnstileTokenMax = 2048;
+
+
+
 export const PasswordLoginBody = zod.object({
   "email": zod.string(),
-  "password": zod.string()
+  "password": zod.string(),
+  "turnstileToken": zod.string().min(1).max(passwordLoginBodyTurnstileTokenMax)
 })
 
 export const PasswordLoginResponse = zod.object({
@@ -93,9 +98,14 @@ export const PasswordLoginResponse = zod.object({
 })
 
 
+export const passwordSignupBodyTurnstileTokenMax = 2048;
+
+
+
 export const PasswordSignupBody = zod.object({
   "email": zod.string(),
-  "password": zod.string()
+  "password": zod.string(),
+  "turnstileToken": zod.string().min(1).max(passwordSignupBodyTurnstileTokenMax)
 })
 
 export const PasswordSignupResponse = zod.object({
@@ -122,8 +132,13 @@ export const VerifyEmailResponse = zod.object({
 })
 
 
+export const resendEmailVerificationBodyTurnstileTokenMax = 2048;
+
+
+
 export const ResendEmailVerificationBody = zod.object({
-  "email": zod.string()
+  "email": zod.string(),
+  "turnstileToken": zod.string().min(1).max(resendEmailVerificationBodyTurnstileTokenMax)
 })
 
 export const ResendEmailVerificationResponse = zod.object({
@@ -152,9 +167,14 @@ export const VerifyRecoveryEmailResponse = zod.object({
 })
 
 
+export const requestPasswordRecoveryBodyTurnstileTokenMax = 2048;
+
+
+
 export const RequestPasswordRecoveryBody = zod.object({
   "email": zod.string(),
-  "method": zod.enum(['primary_email', 'recovery_email'])
+  "method": zod.enum(['primary_email', 'recovery_email']),
+  "turnstileToken": zod.string().min(1).max(requestPasswordRecoveryBodyTurnstileTokenMax)
 })
 
 export const RequestPasswordRecoveryResponse = zod.object({
@@ -209,9 +229,14 @@ export const GetMFAStatusResponse = zod.object({
 })
 
 
+export const requestMFARecoveryBodyTurnstileTokenMax = 2048;
+
+
+
 export const RequestMFARecoveryBody = zod.object({
   "email": zod.string(),
-  "currentPassword": zod.string()
+  "currentPassword": zod.string(),
+  "turnstileToken": zod.string().min(1).max(requestMFARecoveryBodyTurnstileTokenMax)
 })
 
 export const RequestMFARecoveryResponse = zod.object({

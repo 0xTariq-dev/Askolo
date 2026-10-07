@@ -34,6 +34,7 @@ import type {
   CoachingInput,
   DisconnectGoogleScope,
   EmailInput,
+  EmailVerificationResendInput,
   EmailVerificationInput,
   GeneratePlanInput,
   MFAFreshCodeInput,
@@ -112,7 +113,7 @@ export const goApi = {
     passwordSignupRequest(input, sessionRequestOptions()),
   verifyEmail: (input: EmailVerificationInput) =>
     verifyEmailRequest(input, sessionRequestOptions()),
-  resendEmailVerification: (input: EmailInput) =>
+  resendEmailVerification: (input: EmailVerificationResendInput) =>
     resendEmailVerificationRequest(input, sessionRequestOptions()),
   requestPasswordRecovery: (input: PasswordRecoveryRequestInput) =>
     requestPasswordRecoveryRequest(input, sessionRequestOptions()),

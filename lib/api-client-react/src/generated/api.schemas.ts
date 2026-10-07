@@ -71,9 +71,23 @@ export interface EmailInput {
   email: string;
 }
 
+export interface EmailVerificationResendInput {
+  email: string;
+  /**
+     * @minLength 1
+     * @maxLength 2048
+     */
+  turnstileToken: string;
+}
+
 export interface PasswordLoginInput {
   email: string;
   password: string;
+  /**
+     * @minLength 1
+     * @maxLength 2048
+     */
+  turnstileToken: string;
 }
 
 export type PasswordLoginResponseStatus = typeof PasswordLoginResponseStatus[keyof typeof PasswordLoginResponseStatus];
@@ -132,6 +146,11 @@ export const PasswordRecoveryRequestInputMethod = {
 export interface PasswordRecoveryRequestInput {
   email: string;
   method: PasswordRecoveryRequestInputMethod;
+  /**
+     * @minLength 1
+     * @maxLength 2048
+     */
+  turnstileToken: string;
 }
 
 export type PasswordRecoveryVerificationInputMethod = typeof PasswordRecoveryVerificationInputMethod[keyof typeof PasswordRecoveryVerificationInputMethod];
@@ -170,6 +189,11 @@ export interface MFAStatus {
 export interface MFARecoveryRequestInput {
   email: string;
   currentPassword: string;
+  /**
+     * @minLength 1
+     * @maxLength 2048
+     */
+  turnstileToken: string;
 }
 
 export interface MFARecoveryVerificationInput {

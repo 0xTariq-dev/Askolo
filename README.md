@@ -383,6 +383,12 @@ provider's protected environment configuration.
 | `DATABASE_URL`   | Go API                       | PostgreSQL connection string; required for database work   |
 | `SESSION_SECRET` | Google OAuth/session helpers | Keep private; used to protect signed redirect/session state |
 
+### Authentication verification
+
+| Variable               | Used by | Notes                                                                                   |
+| ---------------------- | ------- | --------------------------------------------------------------------------------------- |
+| `TURNSTILE_SECRET_KEY` | Go API  | Required server-side secret for Cloudflare Siteverify; keep it in Replit Shared Secrets |
+
 ### Historical database schema archive
 
 The historical Drizzle migrations and schema snapshots are preserved in the

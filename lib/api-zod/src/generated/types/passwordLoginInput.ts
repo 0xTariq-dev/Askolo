@@ -9,4 +9,9 @@
 export interface PasswordLoginInput {
   email: string;
   password: string;
+  /**
+     * @minLength 1
+     * @maxLength 2048
+     */
+  turnstileToken: string;
 }

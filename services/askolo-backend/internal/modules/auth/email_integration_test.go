@@ -157,6 +157,10 @@ func newEmailAuthFixture(t *testing.T) *emailAuthFixture {
 			Environment:             "test",
 			SessionCookieName:       "askolo.sid",
 			AuthRateLimitHMACSecret: "integration-only-auth-rate-limit-hmac-secret-at-least-32-bytes",
+			TurnstileSecret:         "integration-only-turnstile-secret",
+			TurnstileAllowedHostnames: map[string]struct{}{
+				"web.askolo.app": {},
+			},
 			Email: config.EmailConfig{
 				ChallengeSecret: "integration-only-challenge-secret",
 			},
@@ -311,7 +315,32 @@ CREATE TABLE %sai_credit_grants (
 }
 
 func testAuthHandler(fixture *emailAuthFixture, sender EmailSender, logger *slog.Logger) http.Handler {
-	return NewHandlerWithEmailSender(fixture.authConfig, fixture.store, logger, sender).Routes()
+	return testAuthHandlerWithMonitor(
+		fixture.authConfig,
+		fixture.store,
+		logger,
+		sender,
+		NewEmailDeliveryMonitor(),
+	).Routes()
+}
+
+func testAuthHandlerWithMonitor(
+	cfg config.Config,
+	store *postgres.Store,
+	logger *slog.Logger,
+	sender EmailSender,
+	monitor *EmailDeliveryMonitor,
+) *Handler {
+	handler := NewHandlerWithEmailSenderAndMonitor(cfg, store, logger, sender, monitor)
+	handler.turnstileVerifier = func(_ context.Context, token string) (turnstileSiteverifyResponse, error) {
+		action, ok := strings.CutPrefix(token, "test-turnstile:")
+		return turnstileSiteverifyResponse{
+			Success:  ok,
+			Action:   action,
+			Hostname: "web.askolo.app",
+		}, nil
+	}
+	return handler
 }
 
 func testProductHandler(fixture *emailAuthFixture) http.Handler {
@@ -320,6 +349,12 @@ func testProductHandler(fixture *emailAuthFixture) http.Handler {
 
 func jsonRequest(t *testing.T, handler http.Handler, method, path string, input map[string]string, cookie *http.Cookie, remote string) *httptest.ResponseRecorder {
 	t.Helper()
+	if action := testTurnstileAction(path); action != "" {
+		if input == nil {
+			input = make(map[string]string)
+		}
+		input["turnstileToken"] = "test-turnstile:" + action
+	}
 	body, err := json.Marshal(input)
 	if err != nil {
 		t.Fatalf("encode request: %v", err)
@@ -333,6 +368,23 @@ func jsonRequest(t *testing.T, handler http.Handler, method, path string, input 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+func testTurnstileAction(path string) string {
+	switch path {
+	case "/api/auth/password/signup":
+		return "signup"
+	case "/api/auth/password/login":
+		return "login"
+	case "/api/auth/password/recovery/request":
+		return "password_recovery"
+	case "/api/auth/email/resend":
+		return "email_resend"
+	case "/api/auth/mfa/recovery/request":
+		return "mfa_recovery"
+	default:
+		return ""
+	}
 }
 
 func plainRequest(handler http.Handler, method, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
@@ -1015,6 +1067,10 @@ func TestMFARecoveryRateLimitProcessHelper(t *testing.T) {
 			Environment:             "test",
 			SessionCookieName:       "askolo.sid",
 			AuthRateLimitHMACSecret: "integration-only-auth-rate-limit-hmac-secret-at-least-32-bytes",
+			TurnstileSecret:         "integration-only-turnstile-secret",
+			TurnstileAllowedHostnames: map[string]struct{}{
+				"web.askolo.app": {},
+			},
 			Email: config.EmailConfig{
 				ChallengeSecret: "integration-only-challenge-secret",
 			},
@@ -1310,7 +1366,7 @@ func TestNativeEmailSignupAndExplicitVerificationResendInvokeSenderOnce(t *testi
 	fixture := newEmailAuthFixture(t)
 	sender := &captureEmailSender{}
 	monitor := NewEmailDeliveryMonitor()
-	handler := NewHandlerWithEmailSenderAndMonitor(
+	handler := testAuthHandlerWithMonitor(
 		fixture.authConfig,
 		fixture.store,
 		slog.Default(),

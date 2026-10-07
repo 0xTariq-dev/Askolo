@@ -6,9 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface MFARecoveryRequestInput {
+export interface EmailVerificationResendInput {
   email: string;
-  currentPassword: string;
   /**
      * @minLength 1
      * @maxLength 2048
