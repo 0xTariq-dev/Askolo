@@ -199,42 +199,15 @@ func (h *Handler) StartVoiceAgent(
 		return nil, nil, publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "Live Mode could not be initialized. Try again later.", err)
 	}
 
-	var providerSessionID string
-	for providerSessionID == "" {
-		eventType, payload, readErr := connection.ReadProviderMessage(setupCtx)
-		if readErr != nil {
-			connection.Close()
-			h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, 1, "server_elapsed")
-			h.releaseVoiceAgentLimit(release)
-			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
-			}
-			return nil, nil, publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "Live Mode could not be initialized. Try again later.", readErr)
+	providerSessionID, readErr := waitForVoiceAgentSessionID(setupCtx, connection)
+	if readErr != nil {
+		connection.Close()
+		h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, 1, "server_elapsed")
+		h.releaseVoiceAgentLimit(release)
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
 		}
-		switch eventType {
-		case "session.ready":
-			var ready struct {
-				SessionID string `json:"session_id"`
-			}
-			if json.Unmarshal(payload, &ready) != nil || !validAssemblyAIVoiceAgentSessionID(ready.SessionID) {
-				connection.Close()
-				h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, 1, "server_elapsed")
-				h.releaseVoiceAgentLimit(release)
-				return nil, nil, publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "Live Mode could not be initialized. Try again later.", nil)
-			}
-			providerSessionID = ready.SessionID
-		case "session.error":
-			connection.Close()
-			h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, 1, "server_elapsed")
-			h.releaseVoiceAgentLimit(release)
-			return nil, nil, publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "Live Mode could not be initialized. Try again later.", nil)
-		default:
-			// The provider must acknowledge session.update before audio is sent.
-			connection.Close()
-			h.settleVoiceProviderCreditRecordWithUsage(userID, reservation, 1, "server_elapsed")
-			h.releaseVoiceAgentLimit(release)
-			return nil, nil, publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "Live Mode could not be initialized. Try again later.", nil)
-		}
+		return nil, nil, publicws.Failure(http.StatusBadGateway, "VOICE_AGENT_PROVIDER_FAILED", "Live Mode could not be initialized. Try again later.", readErr)
 	}
 
 	session := &publicVoiceAgentSession{
@@ -265,6 +238,37 @@ func voiceAgentSessionUpdate(agentID string) map[string]any {
 	return map[string]any{
 		"type":    "session.update",
 		"session": map[string]string{"agent_id": agentID},
+	}
+}
+
+func waitForVoiceAgentSessionID(
+	ctx context.Context,
+	connection assemblyAIVoiceAgentConnection,
+) (string, error) {
+	for {
+		eventType, payload, err := connection.ReadProviderMessage(ctx)
+		if err != nil {
+			return "", err
+		}
+		switch eventType {
+		case "session.updated":
+			// The provider may acknowledge the initial update before it emits
+			// session.ready. Do not expose the session or send audio yet.
+			continue
+		case "session.ready":
+			var ready struct {
+				SessionID string `json:"session_id"`
+			}
+			if json.Unmarshal(payload, &ready) != nil ||
+				!validAssemblyAIVoiceAgentSessionID(ready.SessionID) {
+				return "", errors.New("provider returned session.ready without a valid session ID")
+			}
+			return ready.SessionID, nil
+		case "session.error":
+			return "", errors.New("provider returned session.error during initialization")
+		default:
+			return "", errors.New("unexpected provider event during initialization")
+		}
 	}
 }
 

@@ -40,4 +40,4 @@ build = ["env", "-u", "DATABASE_URL", "-u", "ASKOLO_TEST_DATABASE_URL", "bash", 
 run = "for binary in services/askolo-backend/bin/askolo-backend ../services/askolo-backend/bin/askolo-backend ../../services/askolo-backend/bin/askolo-backend ../../../services/askolo-backend/bin/askolo-backend; do if [ -x \"$binary\" ]; then exec \"$binary\"; fi; done; echo 'Askolo backend binary not found from deployment working directory' >&2; exit 127"
 
 [services.production.health.startup]
-path = "/healthz"
+path = "/api/healthz"

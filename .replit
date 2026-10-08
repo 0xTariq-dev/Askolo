@@ -59,7 +59,6 @@ ASKOLO_COOKIE_NAMESPACE = "askolo_prod"
 ASKOLO_DATABASE_ID = "production-database"
 ASKOLO_ENVIRONMENT = "production"
 ASKOLO_RELEASE_MODE = "normal"
-ASKOLO_RELEASE_TAG = "1317b8f"
 
 [nix]
 channel = "stable-25_05"

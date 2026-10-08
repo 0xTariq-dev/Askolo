@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -100,6 +101,47 @@ type GitHubOAuthConfig struct {
 	TokenURL     string
 	UserURL      string
 	EmailsURL    string
+}
+
+func currentBuildVCSMetadata() (revision string, modified bool) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil {
+		return "", false
+	}
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = strings.TrimSpace(setting.Value)
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	return revision, modified
+}
+
+func resolveReleaseMetadata(
+	configuredCommit string,
+	configuredTag string,
+	vcsRevision string,
+	vcsModified bool,
+	deriveMissingTag bool,
+) (buildCommit string, releaseTag string) {
+	buildCommit = strings.TrimSpace(configuredCommit)
+	vcsRevision = strings.TrimSpace(vcsRevision)
+	if vcsRevision != "" {
+		// Deployment environment values persist between builds, so embedded
+		// source metadata must win over a potentially stale configured SHA.
+		buildCommit = vcsRevision
+	}
+
+	releaseTag = strings.TrimSpace(configuredTag)
+	if releaseTag == "" && deriveMissingTag && vcsRevision != "" {
+		releaseTag = "commit-" + vcsRevision
+		if vcsModified {
+			releaseTag += "-dirty"
+		}
+	}
+	return buildCommit, releaseTag
 }
 
 func Load() (Config, error) {
@@ -216,8 +258,14 @@ func Load() (Config, error) {
 	if releaseMode == "" && environment == "development" {
 		releaseMode = "development"
 	}
-	buildCommit := strings.TrimSpace(os.Getenv("ASKOLO_COMMIT_SHA"))
-	releaseTag := strings.TrimSpace(os.Getenv("ASKOLO_RELEASE_TAG"))
+	vcsRevision, vcsModified := currentBuildVCSMetadata()
+	buildCommit, releaseTag := resolveReleaseMetadata(
+		os.Getenv("ASKOLO_COMMIT_SHA"),
+		os.Getenv("ASKOLO_RELEASE_TAG"),
+		vcsRevision,
+		vcsModified,
+		environment != "development",
+	)
 	parentReleaseTag := strings.TrimSpace(os.Getenv("ASKO_PARENT_PRODUCTION_TAG"))
 	adminEmails, adminErr := parseAdminEmails(os.Getenv("ASKOLO_ADMIN_EMAILS"))
 	if adminErr != nil {
@@ -225,12 +273,17 @@ func Load() (Config, error) {
 	}
 	if environment != "development" {
 		for name, value := range map[string]string{
-			"ASKOLO_DATABASE_ID": databaseIdentity, "ASKOLO_COMMIT_SHA": buildCommit,
-			"ASKOLO_RELEASE_TAG": releaseTag, "ASKOLO_INTERNAL_TOKEN": internalAuthToken,
+			"ASKOLO_DATABASE_ID": databaseIdentity, "ASKOLO_INTERNAL_TOKEN": internalAuthToken,
 		} {
 			if value == "" {
 				return Config{}, fmt.Errorf("%s is required outside development", name)
 			}
+		}
+		if buildCommit == "" {
+			return Config{}, fmt.Errorf("ASKOLO_COMMIT_SHA or embedded VCS revision is required outside development")
+		}
+		if releaseTag == "" {
+			return Config{}, fmt.Errorf("ASKOLO_RELEASE_TAG or embedded VCS revision is required outside development")
 		}
 		if releaseMode != "normal" && releaseMode != "hotfix" {
 			return Config{}, fmt.Errorf("ASKOLO_RELEASE_MODE must be normal or hotfix outside development")

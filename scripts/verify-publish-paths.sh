@@ -169,9 +169,9 @@ line_number() {
 script_dir_line="$(line_number 'script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"')"
 service_root_line="$(line_number 'service_root="$(cd -- "$script_dir/.." && pwd)"')"
 cd_root_line="$(line_number 'cd -- "$service_root"')"
-go_test_line="$(line_number 'go test ./...')"
+go_test_line="$(line_number 'go test -buildvcs=true ./...')"
 go_vet_line="$(line_number 'go vet ./...')"
-go_build_line="$(line_number 'go build -trimpath -o "$tmp_binary" ./cmd/askolo-backend')"
+go_build_line="$(line_number 'go build -buildvcs=true -trimpath -o "$tmp_binary" ./cmd/askolo-backend')"
 
 (( script_dir_line < service_root_line )) ||
   die "API build script must resolve script_dir before service_root"
