@@ -364,6 +364,20 @@ func validProviderAgentID(value string) bool {
 	return true
 }
 
+func turnstileAllowedHostnames(environment string) map[string]struct{} {
+	hosts := map[string]struct{}{
+		"dev.askolo.app":     {},
+		"web.askolo.app":     {},
+		"staging.askolo.app": {},
+		"5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvhiesj.picard.replit.dev": {},
+	}
+	if environment == "development" {
+		hosts["localhost"] = struct{}{}
+		hosts["127.0.0.1"] = struct{}{}
+	}
+	return hosts
+}
+
 func oauthHosts(environment, canonicalOrigin string) map[string]struct{} {
 	hosts := map[string]struct{}{}
 	if parsed, err := url.Parse(canonicalOrigin); err == nil && parsed.Hostname() != "" {

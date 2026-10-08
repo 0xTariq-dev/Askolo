@@ -21,6 +21,78 @@ func TestParseAdminEmailsFailClosedAndNormalizes(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
+	for key, value := range map[string]string{
+		"ASKOLO_ENVIRONMENT":                    "development",
+		"ASKOLO_ASSEMBLYAI_VOICE_AGENT_ENABLED": "false",
+		"ASKOLO_ASSEMBLYAI_AGENT_IDS":           "",
+		"ASKOLO_CANONICAL_ORIGIN":               "",
+		"ASKOLO_COOKIE_NAMESPACE":               "askolo_test",
+		"ASKOLO_RELEASE_MODE":                   "",
+		"ASKOLO_COMMIT_SHA":                     "",
+		"ASKOLO_RELEASE_TAG":                    "",
+		"ASKO_PARENT_PRODUCTION_TAG":            "",
+		"ASKOLO_INTERNAL_TOKEN":                 "",
+		"ASKOLO_ADMIN_EMAILS":                   "",
+		"SESSION_SECRET":                        "session-secret-for-tests-123456789",
+		"AUTH_CHALLENGE_SECRET":                 "",
+		"AUTH_RATE_LIMIT_HMAC_SECRET":           "rate-limit-hmac-secret-for-tests-123456789",
+		"GOOGLE_TOKEN_ENCRYPTION_KEY":           "",
+		"AUTH_TOTP_ENCRYPTION_KEY":              "",
+		"TURNSTILE_SECRET_KEY":                  "",
+	} {
+		t.Setenv(key, value)
+	}
+
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "TURNSTILE_SECRET_KEY") {
+		t.Fatalf("Load() error = %v, want a missing Turnstile secret error", err)
+	}
+
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-turnstile-secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with Turnstile secret: %v", err)
+	}
+	if cfg.TurnstileSecret != "test-turnstile-secret" {
+		t.Fatalf("TurnstileSecret = %q, want configured value", cfg.TurnstileSecret)
+	}
+	if _, ok := cfg.TurnstileAllowedHostnames["localhost"]; !ok {
+		t.Fatal("development Turnstile hostname allowlist must include localhost")
+	}
+}
+
+func TestTurnstileAllowedHostnamesAreExactAndEnvironmentScoped(t *testing.T) {
+	production := turnstileAllowedHostnames("production")
+	if len(production) != 4 {
+		t.Fatalf("production hostname allowlist has %d entries, want exactly four", len(production))
+	}
+	for _, hostname := range []string{
+		"dev.askolo.app",
+		"web.askolo.app",
+		"staging.askolo.app",
+		"5b8af2fa-e65c-4295-8e4b-b5f0d0c10891-00-2sb81pwvhiesj.picard.replit.dev",
+	} {
+		if _, ok := production[hostname]; !ok {
+			t.Fatalf("production hostname %q is missing", hostname)
+		}
+	}
+	for _, hostname := range []string{"localhost", "127.0.0.1", "*.askolo.app"} {
+		if _, ok := production[hostname]; ok {
+			t.Fatalf("production hostname allowlist unexpectedly contains %q", hostname)
+		}
+	}
+
+	development := turnstileAllowedHostnames("development")
+	if len(development) != 6 {
+		t.Fatalf("development hostname allowlist has %d entries, want exactly six", len(development))
+	}
+	for _, hostname := range []string{"localhost", "127.0.0.1"} {
+		if _, ok := development[hostname]; !ok {
+			t.Fatalf("development hostname allowlist is missing %q", hostname)
+		}
+	}
+}
+
 func TestResendConfigurationStatus(t *testing.T) {
 	tests := []struct {
 		name string
