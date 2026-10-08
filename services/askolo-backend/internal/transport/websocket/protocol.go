@@ -63,11 +63,13 @@ type assistantRunPayload struct {
 	Transcript     string `json:"transcript"`
 	IdempotencyKey string `json:"idempotencyKey"`
 	PolicyVersion  int    `json:"policyVersion"`
+	VoiceChat      bool   `json:"voiceChat,omitempty"`
 }
 
 type voiceStartPayload struct {
 	IdempotencyKey string `json:"idempotencyKey"`
 	PolicyVersion  int    `json:"policyVersion"`
+	VoiceChat      bool   `json:"voiceChat,omitempty"`
 }
 
 type voiceAgentStartPayload struct {
@@ -137,6 +139,7 @@ type protocolState struct {
 	voiceAgentAudioBytes  int
 	voiceAgentAudioFrames int
 	assistant             bool
+	assistantCancel       context.CancelFunc
 	terminal              string
 }
 
@@ -373,6 +376,10 @@ func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, 
 
 		case result := <-assistantResults:
 			state.assistant = false
+			if state.assistantCancel != nil {
+				state.assistantCancel()
+				state.assistantCancel = nil
+			}
 			event := queuedEvent{correlationID: result.correlationID, assistantRunID: result.runID}
 			if result.err != nil {
 				event.eventType = "assistant.run.failed"
@@ -705,30 +712,57 @@ func (h *Handler) dispatchMessage(
 		request := publicws.AssistantRequest{
 			ConversationID: input.ConversationID, Transcript: input.Transcript,
 			IdempotencyKey: input.IdempotencyKey, PolicyVersion: input.PolicyVersion,
+			VoiceChat: input.VoiceChat,
+		}
+		assistantCtx, assistantCancel := context.WithCancel(state.ctx)
+		state.assistantCancel = assistantCancel
+		sendAssistantEvent := func(eventType, runID string, payload json.RawMessage) error {
+			sent := make(chan error, 1)
+			event := queuedEvent{
+				eventType: eventType, correlationID: message.CorrelationID, payload: payload,
+				assistantRunID: runID, sent: sent,
+			}
+			select {
+			case moduleEvents <- event:
+			case <-assistantCtx.Done():
+				return assistantCtx.Err()
+			}
+			select {
+			case err := <-sent:
+				return err
+			case <-assistantCtx.Done():
+				return assistantCtx.Err()
+			}
+		}
+		callbacks := publicws.AssistantCallbacks{
+			Started: func(runID string, startedPayload json.RawMessage) error {
+				return sendAssistantEvent("assistant.run.started", runID, startedPayload)
+			},
+			ReplyDelta: func(runID, delta string) error {
+				return sendAssistantEvent("assistant.run.reply.delta", runID, mustJSON(map[string]string{
+					"runId": runID, "delta": delta,
+				}))
+			},
+			SpeechChunk: func(runID string, audio []byte) error {
+				return sendAssistantEvent("assistant.run.speech.chunk", runID, mustJSON(map[string]string{
+					"runId": runID, "mediaType": "audio/mpeg", "data": base64.StdEncoding.EncodeToString(audio),
+				}))
+			},
+			SpeechError: func(runID string) error {
+				return sendAssistantEvent("assistant.run.speech.error", runID, mustJSON(map[string]string{
+					"runId": runID, "code": "VOICE_SYNTHESIS_FAILED",
+					"message": "Speech output could not be generated. Your reply is saved.",
+				}))
+			},
 		}
 		go func(correlationID string) {
-			payload, err := h.services.RunAssistant(state.ctx, state.userID, state.workspaceID, request, func(runID string, startedPayload json.RawMessage) error {
-				sent := make(chan error, 1)
-				event := queuedEvent{
-					eventType: "assistant.run.started", correlationID: correlationID,
-					payload: startedPayload, assistantRunID: runID, sent: sent,
-				}
-				select {
-				case moduleEvents <- event:
-				case <-state.ctx.Done():
-					return state.ctx.Err()
-				}
-				select {
-				case err := <-sent:
-					return err
-				case <-state.ctx.Done():
-					return state.ctx.Err()
-				}
-			})
+			payload, err := h.services.RunAssistant(assistantCtx, state.userID, state.workspaceID, request, callbacks)
 			runID, _ := assistantRunMetadata(payload)
 			select {
 			case assistantResults <- assistantResult{correlationID: correlationID, runID: runID, payload: payload, err: err}:
+				assistantCancel()
 			case <-state.ctx.Done():
+				assistantCancel()
 			}
 		}(message.CorrelationID)
 		return nil
@@ -749,7 +783,7 @@ func (h *Handler) dispatchMessage(
 		if h.services == nil {
 			return publicws.Failure(http.StatusServiceUnavailable, "VOICE_UNAVAILABLE", "Real-time transcription is temporarily unavailable.", nil)
 		}
-		voice, readyPayload, err := h.services.StartVoice(state.ctx, state.userID, state.workspaceID, input.IdempotencyKey, input.PolicyVersion)
+		voice, readyPayload, err := h.services.StartVoice(state.ctx, state.userID, state.workspaceID, input.IdempotencyKey, input.PolicyVersion, input.VoiceChat)
 		if err != nil {
 			return err
 		}
@@ -934,6 +968,10 @@ func (h *Handler) dispatchMessage(
 		terminal := input.Reason
 		if terminal == "" {
 			terminal = "cancelled"
+		}
+		if state.assistantCancel != nil {
+			state.assistantCancel()
+			state.assistantCancel = nil
 		}
 		if err := h.sendEvent(state, queuedEvent{eventType: "session.closed", terminalState: terminal, payload: mustJSON(map[string]string{"reason": terminal})}); err != nil {
 			return err
@@ -1244,6 +1282,10 @@ func (state *protocolState) stopVoiceAgent(sendTermination bool) publicws.VoiceA
 }
 
 func (state *protocolState) finish() {
+	if state.assistantCancel != nil {
+		state.assistantCancel()
+		state.assistantCancel = nil
+	}
 	state.stopVoice(true)
 	state.stopVoiceAgent(true)
 	if state.session.ID == "" || state.session.Status != "active" {

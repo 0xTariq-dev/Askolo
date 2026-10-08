@@ -498,7 +498,7 @@ func (s *publicVoiceAgentSession) executeAssistantRequest(ctx context.Context, c
 		ToolName:       call.name,
 		ToolArguments:  call.arguments,
 	}
-	run, err := s.handler.RunAssistant(ctx, s.userID, s.workspaceID, request, nil)
+	run, err := s.handler.RunAssistant(ctx, s.userID, s.workspaceID, request, publicws.AssistantCallbacks{})
 	if err != nil {
 		s.sendToolResult(ctx, call.callID, map[string]any{"status": "unavailable"}, true)
 		message := "Askolo could not prepare an action. You can continue speaking or try again."

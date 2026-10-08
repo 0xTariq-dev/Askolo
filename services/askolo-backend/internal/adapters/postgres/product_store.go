@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const VoiceConsentVersion = "voice-v7"
-const VoiceOutputConsentVersion = "azure-tts-v2"
+const VoiceConsentVersion = "voice-v8"
+const VoiceOutputConsentVersion = "azure-tts-v3"
 const AssistantProcessingConsentVersion = "assistant-processing-v1"
 const VoiceAgentConsentVersion = "assemblyai-live-v2"
 const DefaultAssemblyAILiveVoice = "michael"

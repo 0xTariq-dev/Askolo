@@ -11,6 +11,13 @@ export interface AssistantRunWebSocketInput {
   transcript: string;
   idempotencyKey: string;
   policyVersion: number;
+  voiceChat?: boolean;
+}
+
+export interface AssistantRunWebSocketCallbacks {
+  onReplyDelta?: (runId: string, delta: string) => void;
+  onSpeechChunk?: (runId: string, mediaType: string, data: string) => void;
+  onSpeechError?: (runId: string, message: string) => void;
 }
 
 const CONNECTION_TIMEOUT_MS = 45_000;
@@ -19,6 +26,7 @@ const SESSION_CLOSE_TIMEOUT_MS = 3_500;
 export function createAssistantRunOverWebSocket(
   input: AssistantRunWebSocketInput,
   signal?: AbortSignal,
+  callbacks: AssistantRunWebSocketCallbacks = {},
 ): Promise<AssistantRun> {
   if (signal?.aborted) {
     return Promise.reject(new Error('Request stopped. No action was taken.'));
@@ -142,7 +150,48 @@ export function createAssistantRunOverWebSocket(
           transcript: input.transcript,
           idempotencyKey: input.idempotencyKey,
           policyVersion: input.policyVersion,
+          voiceChat: input.voiceChat,
         });
+        return;
+      }
+      if (envelope.type === 'assistant.run.reply.delta') {
+        const runId = envelope.payload?.runId;
+        const delta = envelope.payload?.delta;
+        if (typeof runId !== 'string' || typeof delta !== 'string' || delta.length > 8_000) {
+          fail('The assistant returned an invalid reply update.');
+          return;
+        }
+        callbacks.onReplyDelta?.(runId, delta);
+        return;
+      }
+      if (envelope.type === 'assistant.run.speech.chunk') {
+        const runId = envelope.payload?.runId;
+        const mediaType = envelope.payload?.mediaType;
+        const data = envelope.payload?.data;
+        if (
+          typeof runId !== 'string' ||
+          mediaType !== 'audio/mpeg' ||
+          typeof data !== 'string' ||
+          data.length > 60_000 ||
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)
+        ) {
+          fail('The assistant returned an invalid audio update.');
+          return;
+        }
+        callbacks.onSpeechChunk?.(runId, mediaType, data);
+        return;
+      }
+      if (envelope.type === 'assistant.run.speech.error') {
+        const runId = envelope.payload?.runId;
+        const message = envelope.payload?.message;
+        if (typeof runId !== 'string') {
+          fail('The assistant returned an invalid audio status.');
+          return;
+        }
+        callbacks.onSpeechError?.(
+          runId,
+          typeof message === 'string' ? message : 'Speech output could not be generated. Your reply is saved.',
+        );
         return;
       }
       if (envelope.type === 'assistant.run.pending' || envelope.type === 'assistant.run.completed') {

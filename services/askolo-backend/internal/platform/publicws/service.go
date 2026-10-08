@@ -37,8 +37,16 @@ type AssistantRequest struct {
 	Transcript     string
 	IdempotencyKey string
 	PolicyVersion  int
+	VoiceChat      bool
 	ToolName       string
 	ToolArguments  json.RawMessage
+}
+
+type AssistantCallbacks struct {
+	Started     func(runID string, payload json.RawMessage) error
+	ReplyDelta  func(runID, delta string) error
+	SpeechChunk func(runID string, audio []byte) error
+	SpeechError func(runID string) error
 }
 
 type Services interface {
@@ -47,7 +55,7 @@ type Services interface {
 		string,
 		string,
 		AssistantRequest,
-		func(runID string, payload json.RawMessage) error,
+		AssistantCallbacks,
 	) (json.RawMessage, error)
 	StartVoice(
 		context.Context,
@@ -55,6 +63,7 @@ type Services interface {
 		string,
 		string,
 		int,
+		bool,
 	) (VoiceSession, json.RawMessage, error)
 }
 

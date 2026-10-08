@@ -14,7 +14,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useVoiceAgent } from '@/hooks/use-voice-agent';
 import { formatUsdMicros } from '@/lib/credit-api';
 
-export function VoiceAgentControls() {
+export function VoiceAgentControls({
+  voiceChatSelected = false,
+  onActiveChange,
+}: {
+  voiceChatSelected?: boolean;
+  onActiveChange?: (active: boolean) => void;
+}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const conversationQuery = useGetAssistantConversation({
@@ -47,6 +53,10 @@ export function VoiceAgentControls() {
   const isBusy = voiceAgent.status !== 'idle';
 
   useEffect(() => {
+    onActiveChange?.(isBusy);
+  }, [isBusy, onActiveChange]);
+
+  useEffect(() => {
     const consentGiven = privacyPreferences?.assemblyAiLiveConsentGiven;
     if (consentGiven === undefined) return;
 
@@ -67,7 +77,7 @@ export function VoiceAgentControls() {
   }, [privacyPreferences?.assemblyAiLiveConsentGiven, toast, voiceAgent.status, voiceAgent.stop]);
 
   const startLiveMode = () => {
-    if (!selectedVoice || isBusy || liveModeUnavailable) return;
+    if (voiceChatSelected || !selectedVoice || isBusy || liveModeUnavailable) return;
     if (!privacyPreferences?.assemblyAiLiveConsentGiven) {
       setConsentError('');
       setStartAfterConsent(true);
@@ -86,6 +96,13 @@ export function VoiceAgentControls() {
       setConsentOpen(false);
       if (startAfterConsent) {
         setStartAfterConsent(false);
+        if (voiceChatSelected) {
+          toast({
+            title: 'Switch modes to start Live Mode',
+            description: 'Switch back to Normal Chat before starting Live Mode.',
+          });
+          return;
+        }
         if (selectedVoice) {
           void voiceAgent.start(conversationQuery.data?.conversationId, selectedVoice.locale);
         }
@@ -116,13 +133,21 @@ export function VoiceAgentControls() {
             {voiceAgent.status === 'stopping' ? 'Ending Live Mode…' : 'End Live Mode'}
           </Button>
         ) : (
-          <Button type="button" variant="outline" size="sm" onClick={startLiveMode} disabled={voiceUnavailable || liveModeUnavailable}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={startLiveMode}
+            disabled={voiceUnavailable || liveModeUnavailable || voiceChatSelected}
+          >
             <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
             Start Live Mode
           </Button>
         )}
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-          {liveModeUnavailable
+          {voiceChatSelected
+            ? 'End Voice Chat if it is active, then switch to Normal Chat before starting Live Mode.'
+            : liveModeUnavailable
             ? 'Live Mode is currently unavailable in this environment.'
             : voiceUnavailable
               ? 'Choose a supported Live Mode voice in Settings before starting.'

@@ -70,29 +70,30 @@ func TestValidAssistantActionTitle(t *testing.T) {
 
 func TestDecodeAssistantModelPlan(t *testing.T) {
 	tests := []struct {
-		name       string
-		content    string
-		wantIntent string
-		wantTitle  string
-		wantErr    bool
+		name        string
+		content     string
+		wantIntent  string
+		wantTitle   string
+		wantMessage string
+		wantErr     bool
 	}{
-		{name: "ordinary request", content: `{"intent":"none","arguments":{}}`, wantIntent: "none"},
-		{name: "clarification", content: `{"intent":"clarify","arguments":{}}`, wantIntent: "clarify"},
-		{name: "allow-listed action", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk"}}`, wantIntent: "create_action_item", wantTitle: "Buy milk"},
-		{name: "unknown tool", content: `{"intent":"send_email","arguments":{"title":"Hello"}}`, wantErr: true},
-		{name: "extra field", content: `{"intent":"none","arguments":{},"risk":"low"}`, wantErr: true},
-		{name: "duplicate field", content: `{"intent":"none","intent":"create_action_item","arguments":{}}`, wantErr: true},
-		{name: "missing field", content: `{"intent":"none"}`, wantErr: true},
-		{name: "wrong value type", content: `{"intent":[],"arguments":{}}`, wantErr: true},
-		{name: "arguments on non-action", content: `{"intent":"none","arguments":{"title":"Buy milk"}}`, wantErr: true},
-		{name: "wrong action arguments type", content: `{"intent":"create_action_item","arguments":[]}`, wantErr: true},
-		{name: "empty action title", content: `{"intent":"create_action_item","arguments":{"title":""}}`, wantErr: true},
-		{name: "oversized action title", content: `{"intent":"create_action_item","arguments":{"title":"` + strings.Repeat("a", 121) + `"}}`, wantErr: true},
-		{name: "unknown action argument", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk","dueDate":"tomorrow"}}`, wantErr: true},
-		{name: "duplicate argument", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk","title":"Buy eggs"}}`, wantErr: true},
-		{name: "control character in action title", content: "{\"intent\":\"create_action_item\",\"arguments\":{\"title\":\"Buy\\nmilk\"}}", wantErr: true},
-		{name: "trailing JSON", content: `{"intent":"none","arguments":{}} {}`, wantErr: true},
-		{name: "markdown wrapper", content: "```json\n{\"intent\":\"none\",\"arguments\":{}}\n```", wantErr: true},
+		{name: "ordinary request", content: `{"intent":"none","arguments":{},"message":"I can help with that."}`, wantIntent: "none", wantMessage: "I can help with that."},
+		{name: "clarification", content: `{"intent":"clarify","arguments":{},"message":"What should I clarify?"}`, wantIntent: "clarify", wantMessage: "What should I clarify?"},
+		{name: "allow-listed action", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"I'll prepare that action item."}`, wantIntent: "create_action_item", wantTitle: "Buy milk", wantMessage: "I'll prepare that action item."},
+		{name: "unknown tool", content: `{"intent":"send_email","arguments":{"title":"Hello"},"message":"I can't do that."}`, wantErr: true},
+		{name: "extra field", content: `{"intent":"none","arguments":{},"message":"I can help.","risk":"low"}`, wantErr: true},
+		{name: "duplicate field", content: `{"intent":"none","intent":"create_action_item","arguments":{},"message":"I can help."}`, wantErr: true},
+		{name: "missing field", content: `{"intent":"none","arguments":{}}`, wantErr: true},
+		{name: "wrong value type", content: `{"intent":[],"arguments":{},"message":"I can help."}`, wantErr: true},
+		{name: "arguments on non-action", content: `{"intent":"none","arguments":{"title":"Buy milk"},"message":"I can help."}`, wantErr: true},
+		{name: "wrong action arguments type", content: `{"intent":"create_action_item","arguments":[],"message":"I'll prepare that action item."}`, wantErr: true},
+		{name: "empty action title", content: `{"intent":"create_action_item","arguments":{"title":""},"message":"I'll prepare that action item."}`, wantErr: true},
+		{name: "oversized action title", content: `{"intent":"create_action_item","arguments":{"title":"` + strings.Repeat("a", 121) + `"},"message":"I'll prepare that action item."}`, wantErr: true},
+		{name: "unknown action argument", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk","dueDate":"tomorrow"},"message":"I'll prepare that action item."}`, wantErr: true},
+		{name: "duplicate argument", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk","title":"Buy eggs"},"message":"I'll prepare that action item."}`, wantErr: true},
+		{name: "control character in action title", content: "{\"intent\":\"create_action_item\",\"arguments\":{\"title\":\"Buy\\nmilk\"},\"message\":\"I'll prepare that action item.\"}", wantErr: true},
+		{name: "trailing JSON", content: `{"intent":"none","arguments":{},"message":"I can help."} {}`, wantErr: true},
+		{name: "markdown wrapper", content: "```json\n{\"intent\":\"none\",\"arguments\":{},\"message\":\"I can help.\"}\n```", wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -104,6 +105,9 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 			if err == nil {
 				if plan.Intent != test.wantIntent {
 					t.Fatalf("plan intent = %q, want %q", plan.Intent, test.wantIntent)
+				}
+				if plan.Message != test.wantMessage {
+					t.Fatalf("plan message = %q, want %q", plan.Message, test.wantMessage)
 				}
 				var arguments map[string]json.RawMessage
 				if unmarshalErr := json.Unmarshal(plan.Arguments, &arguments); unmarshalErr != nil {
@@ -248,7 +252,7 @@ func TestRunAssistantUnavailableGateLogsOnlySanitizedMetadata(t *testing.T) {
 			IdempotencyKey: idempotencyKey,
 			PolicyVersion:  1,
 		},
-		nil,
+		publicws.AssistantCallbacks{},
 	)
 	var operationError *publicws.Error
 	if !errors.As(err, &operationError) {
@@ -331,7 +335,7 @@ func TestOpenAIAssistantPlannerPostsConstrainedRequestAndReturnsUsage(t *testing
 		_, _ = w.Write([]byte(assistantPlannerProviderEnvelope(
 			assistantPlannerModel,
 			"planner-request-test",
-			[]string{`{"intent":"create_action_item","arguments":{"title":"Buy milk"}}`},
+			[]string{`{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"I'll prepare that action item."}`},
 			31,
 			8,
 		)))
@@ -356,7 +360,7 @@ func TestOpenAIAssistantPlannerPostsConstrainedRequestAndReturnsUsage(t *testing
 	if err := json.Unmarshal(plan.Arguments, &planArguments); err != nil {
 		t.Fatalf("decode plan arguments: %v", err)
 	}
-	if plan.Intent != assistantToolCreateActionItem || planArguments.Title != "Buy milk" {
+	if plan.Intent != assistantToolCreateActionItem || planArguments.Title != "Buy milk" || plan.Message != "I'll prepare that action item." {
 		t.Fatalf("plan = %#v, want create_action_item / Buy milk", plan)
 	}
 	if plan.ProviderModel != assistantPlannerModel || plan.ProviderRequestID != "planner-request-test" {
@@ -383,19 +387,19 @@ func TestOpenAIAssistantPlannerRejectsInvalidProviderResults(t *testing.T) {
 		{
 			name:          "unexpected model",
 			status:        http.StatusOK,
-			body:          assistantPlannerProviderEnvelope("unexpected-model", "request-1", []string{`{"intent":"none","arguments":{}}`}, 10, 2),
+			body:          assistantPlannerProviderEnvelope("unexpected-model", "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help."}`}, 10, 2),
 			wantErrorText: "model mismatch",
 		},
 		{
 			name:          "missing token usage",
 			status:        http.StatusOK,
-			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{}}`}, 0, 2),
+			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help."}`}, 0, 2),
 			wantErrorText: "usage was missing",
 		},
 		{
 			name:          "multiple choices",
 			status:        http.StatusOK,
-			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{}}`, `{"intent":"none","arguments":{}}`}, 10, 2),
+			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help."}`, `{"intent":"none","arguments":{},"message":"I can help."}`}, 10, 2),
 			wantErrorText: "usable plan",
 		},
 		{

@@ -20,12 +20,16 @@ func (h *Handler) StartVoice(
 	workspaceID string,
 	idempotencyKey string,
 	policyVersion int,
+	voiceChat bool,
 ) (publicws.VoiceSession, json.RawMessage, error) {
 	_ = workspaceID // Workspace authorization is performed by the shared transport.
 	if h.store == nil {
 		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_UNAVAILABLE", "Real-time transcription is temporarily unavailable.", nil)
 	}
 	allowed, err := h.allowRealtimeConnectionStart(ctx, userID)
+	if voiceChat {
+		allowed, err = h.allowRealtimeVoiceChatStart(ctx, userID)
+	}
 	if err != nil {
 		h.logger.Error("realtime session start rate limit failed", "error", err)
 		return nil, nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_UNAVAILABLE", "Real-time transcription is temporarily unavailable.", err)
@@ -234,7 +238,7 @@ func (h *Handler) RunAssistant(
 	userID string,
 	workspaceID string,
 	input publicws.AssistantRequest,
-	onStarted func(runID string, payload json.RawMessage) error,
+	callbacks publicws.AssistantCallbacks,
 ) (json.RawMessage, error) {
 	transcript, ok := preflightAssistantTranscript(input.Transcript)
 	if !ok {
@@ -253,6 +257,9 @@ func (h *Handler) RunAssistant(
 		h.logAssistantUnavailable("preflight", "store_unavailable", nil)
 		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
 	}
+	if input.VoiceChat && (callbacks.SpeechChunk == nil || callbacks.SpeechError == nil) {
+		return nil, publicws.Failure(http.StatusServiceUnavailable, "VOICE_CHAT_UNAVAILABLE", "Voice Chat audio output is temporarily unavailable.", nil)
+	}
 	transcript, err := h.assistantFacingTranscript(ctx, userID, transcript)
 	if errors.Is(err, errAssistantProcessingConsentRequired) {
 		return nil, publicws.Failure(
@@ -265,6 +272,21 @@ func (h *Handler) RunAssistant(
 	if err != nil {
 		h.logAssistantUnavailable("privacy_preflight", "privacy_preferences_unavailable", err)
 		return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
+	}
+	if input.VoiceChat {
+		consent, version, consentErr := h.store.VoiceOutputConsent(ctx, userID)
+		if consentErr != nil {
+			h.logAssistantUnavailable("voice_output_consent", "preference_lookup_failed", consentErr)
+			return nil, publicws.Failure(http.StatusServiceUnavailable, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", nil)
+		}
+		if !consent || version != postgres.VoiceOutputConsentVersion {
+			return nil, publicws.Failure(
+				http.StatusForbidden,
+				"VOICE_OUTPUT_CONSENT_REQUIRED",
+				"Review the Azure speech output permission before starting Voice Chat.",
+				nil,
+			)
+		}
 	}
 	var directToolOutcome *postgres.AssistantPlanOutcome
 	directToolName := ""
@@ -306,8 +328,29 @@ func (h *Handler) RunAssistant(
 		h.logAssistantUnavailable("serialize_run", "serialization_failure", err)
 		return nil, publicws.Failure(http.StatusInternalServerError, "ASSISTANT_UNAVAILABLE", "The assistant is temporarily unavailable.", err)
 	}
-	if onStarted != nil {
-		if err := onStarted(run.ID, startedPayload); err != nil {
+	var history []assistantConversationMessage
+	if created && directToolOutcome == nil {
+		conversation, historyErr := h.store.GetAssistantConversation(ctx, userID, workspaceID)
+		if historyErr != nil {
+			outcome := postgres.AssistantPlanOutcome{
+				State: "failed", Message: "I couldn't load the conversation. Please try again.",
+				AuditEvent: "history_load_failed",
+			}
+			if _, finishErr := h.store.FinishAssistantPlanning(context.Background(), userID, run.ID, outcome); finishErr != nil {
+				return nil, h.assistantPublicErrorAt("finish_history_failure", finishErr)
+			}
+			return nil, h.assistantPublicErrorAt("load_history", historyErr)
+		}
+		history = make([]assistantConversationMessage, 0, len(conversation.Messages))
+		for _, message := range conversation.Messages {
+			if message.RunID == run.ID || (message.Role != "user" && message.Role != "assistant") {
+				continue
+			}
+			history = append(history, assistantConversationMessage{Role: message.Role, Content: message.Content})
+		}
+	}
+	if callbacks.Started != nil {
+		if err := callbacks.Started(run.ID, startedPayload); err != nil {
 			if created {
 				finishAssistantPlanning(h, userID, run.ID, postgres.AssistantPlanOutcome{
 					State: "cancelled", Message: "I stopped this request. No action was taken.",
@@ -346,13 +389,56 @@ func (h *Handler) RunAssistant(
 		if err != nil {
 			return nil, h.assistantPublicErrorAt("finish_tool_run", err)
 		}
+		if err := h.emitAssistantReply(ctx, userID, run.ID, finished.AssistantMessage, input.VoiceChat, callbacks); err != nil {
+			return nil, err
+		}
 		return json.Marshal(finished)
 	}
 
+	var speech *assistantVoiceStreamer
+	if input.VoiceChat {
+		speech = h.newAssistantVoiceStreamer(ctx, userID, run.ID, callbacks)
+	}
+	speechClosed := false
+	if speech != nil {
+		defer func() {
+			if !speechClosed {
+				speech.Abort()
+			}
+		}()
+	}
+	replyStreamed := false
+	streamReply := func(delta string) error {
+		if delta == "" {
+			return nil
+		}
+		if callbacks.ReplyDelta != nil {
+			if err := callbacks.ReplyDelta(run.ID, delta); err != nil {
+				return err
+			}
+			replyStreamed = true
+		}
+		if speech != nil {
+			return speech.Write(delta)
+		}
+		return nil
+	}
 	planCtx, cancel := context.WithTimeout(ctx, assistantPlannerTimeout)
-	plan, planErr := h.assistantPlanner.Plan(planCtx, transcript)
+	var plan assistantModelPlan
+	var planErr error
+	if planner, ok := h.assistantPlanner.(assistantStreamingPlanner); ok && callbacks.ReplyDelta != nil {
+		plan, planErr = planner.PlanStream(planCtx, history, transcript, streamReply)
+	} else if planner, ok := h.assistantPlanner.(assistantHistoryPlanner); ok {
+		plan, planErr = planner.PlanWithHistory(planCtx, history, transcript)
+	} else {
+		plan, planErr = h.assistantPlanner.Plan(planCtx, transcript)
+	}
 	cancel()
 	if ctx.Err() != nil {
+		if speech != nil {
+			speech.Abort()
+			speechClosed = true
+		}
 		outcome := postgres.AssistantPlanOutcome{
 			State: "cancelled", Message: "I stopped this request. No action was taken.",
 			AuditEvent: "run_cancelled",
@@ -368,6 +454,10 @@ func (h *Handler) RunAssistant(
 		return nil, ctx.Err()
 	}
 	if planErr != nil {
+		if speech != nil {
+			speech.Abort()
+			speechClosed = true
+		}
 		h.logger.Warn("assistant provider operation failed", "run_id", run.ID, "error_type", fmt.Sprintf("%T", planErr))
 		outcome := postgres.AssistantPlanOutcome{
 			State: "failed", Message: "I couldn't complete that request. Please try again.",
@@ -387,11 +477,68 @@ func (h *Handler) RunAssistant(
 		outcome = rejectedAssistantPlanOutcome(outcome)
 	}
 	h.bindAssistantActionTarget(ctx, userID, &outcome)
+	if !replyStreamed {
+		if outcome.Message != "" && callbacks.ReplyDelta != nil {
+			if err := callbacks.ReplyDelta(run.ID, outcome.Message); err != nil {
+				if speech != nil {
+					speech.Abort()
+					speechClosed = true
+				}
+				finishAssistantPlanning(h, userID, run.ID, postgres.AssistantPlanOutcome{
+					State: "cancelled", Message: "I stopped this request. No action was taken.",
+					AuditEvent: "run_cancelled",
+				})
+				return nil, err
+			}
+		}
+		if speech != nil {
+			if err := speech.Write(outcome.Message); err != nil {
+				speech.Abort()
+				speechClosed = true
+				return nil, err
+			}
+		}
+	}
 	finished, err := h.store.FinishAssistantPlanning(ctx, userID, run.ID, outcome)
 	if err != nil {
 		return nil, h.assistantPublicErrorAt("finish_run", err)
 	}
+	if speech != nil {
+		speech.Close()
+		speechClosed = true
+	}
 	return json.Marshal(finished)
+}
+
+func (h *Handler) emitAssistantReply(
+	ctx context.Context,
+	userID string,
+	runID string,
+	message string,
+	voiceChat bool,
+	callbacks publicws.AssistantCallbacks,
+) error {
+	if message == "" {
+		return nil
+	}
+	if callbacks.ReplyDelta != nil {
+		if err := callbacks.ReplyDelta(runID, message); err != nil {
+			return err
+		}
+	}
+	if !voiceChat {
+		return nil
+	}
+	speech := h.newAssistantVoiceStreamer(ctx, userID, runID, callbacks)
+	if speech == nil {
+		return publicws.Failure(http.StatusServiceUnavailable, "VOICE_CHAT_UNAVAILABLE", "Voice Chat audio output is temporarily unavailable.", nil)
+	}
+	if err := speech.Write(message); err != nil {
+		speech.Abort()
+		return err
+	}
+	speech.Close()
+	return nil
 }
 
 func (h *Handler) logAssistantUnavailable(stage, reason string, err error) {

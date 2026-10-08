@@ -32,14 +32,14 @@ type ConsentPurpose = 'recorded-voice' | 'assistant-processing' | 'assemblyai-li
 
 const purposeCopy: Record<ConsentPurpose, { title: string; description: string }> = {
   'recorded-voice': {
-    title: 'Recorded voice transcription',
+    title: 'AssemblyAI voice input',
     description:
-      'AssemblyAI receives recorded audio and returns the complete, editable transcript without provider-side redaction. Askolo requests deletion of the provider transcript, but that does not confirm provider audio deletion. Assistant processing, Live Mode, and Azure speech each require separate permission; app-side redaction can miss sensitive details.',
+      'AssemblyAI receives recorded dictation and live Voice Chat audio only after on-device speech detection. In Voice Chat, each provider session closes at the utterance boundary; recognized text is submitted to the shared Assistant conversation without a review step. Askolo does not persist or replay live audio or provider transcripts during connection recovery. Assistant’s separate app-side redaction runs before text reaches its AI provider. AssemblyAI’s processing region and retention for live transcription are unverified. Assistant processing, Azure output, and Live Mode each require separate permission; redaction can miss sensitive details.',
   },
   'assistant-processing': {
     title: 'Assistant processing and app-side redaction',
     description:
-      'When you submit a message or voice transcript, Askolo sends it to its configured AI provider. Before sending, Askolo filters detected contact, financial and account, government-ID, credential, birth-date, and other high-risk values in the app. Names and project or client labels remain only after you grant this separate consent. Redaction can miss sensitive details.',
+      'When you submit text or start Voice Chat, Askolo sends your message or recognized utterance to its configured AI provider. Voice Chat submits each transcript without a review step. Before sending, Askolo filters detected contact, financial and account, government-ID, credential, birth-date, and other high-risk values in the app. Names and project or client labels remain only after you grant this separate consent. Redaction can miss sensitive details.',
   },
   'assemblyai-live': {
     title: 'AssemblyAI Live Mode',
@@ -49,20 +49,20 @@ const purposeCopy: Record<ConsentPurpose, { title: string; description: string }
   'azure-speech': {
     title: 'Azure speech output',
     description:
-      'When you choose Listen or separately enable automatic replies, Assistant response text is sent to Microsoft Azure Speech and generated audio is streamed to your device, not saved in Askolo. Microsoft may process the text under Azure Speech service terms; Askolo has not verified the processing location or retention for your Azure setup. If Azure or playback fails, the text remains available to read or retry; Askolo will not silently switch to browser speech.',
+      'Voice Chat sends Assistant reply text to Microsoft Azure Speech in sentence-sized chunks and streams audio to your device; Askolo does not save that audio. Azure output requires this separate permission, alongside separate AssemblyAI microphone and Assistant-processing permissions. Microsoft may process text under Azure Speech terms; Askolo has not verified the processing location or retention for your Azure setup. If Azure or playback fails, the full text remains available to read or retry; Askolo will not silently switch to browser speech.',
   },
 };
 
 const purposeCopyArabic: Record<ConsentPurpose, { title: string; description: string }> = {
   'recorded-voice': {
-    title: 'نسخ الصوت المسجّل',
+    title: 'مدخلات الصوت عبر AssemblyAI',
     description:
-      'يرسل AssemblyAI التسجيل الصوتي ويعيد النص الكامل القابل للتعديل دون تنقيح من جهة المزوّد. يطلب Askolo حذف نص المزوّد، لكن ذلك لا يؤكد حذف الصوت لدى المزوّد. يتطلب استخدام المساعد وLive Mode وAzure Speech موافقات منفصلة؛ وقد لا يكتشف التنقيح داخل التطبيق كل التفاصيل الحساسة.',
+      'يستقبل AssemblyAI صوت الإملاء المسجّل وصوت Voice Chat المباشر فقط بعد اكتشاف الكلام على الجهاز. في Voice Chat، يُغلق اتصال المزوّد عند نهاية كل جملة ويُرسل النص المتعرّف عليه إلى محادثة المساعد المشتركة دون خطوة للمراجعة. لا يحفظ Askolo الصوت المباشر ولا يعيد تشغيله أو يعيد نص المزوّد أثناء استعادة الاتصال. يعمل تنقيح المساعد المنفصل داخل التطبيق قبل إرسال النص إلى مزوّد الذكاء الاصطناعي. لم يتم التحقق من موقع المعالجة أو مدة الاحتفاظ لدى AssemblyAI في النسخ المباشر. تتطلب معالجة المساعد وإخراج Azure وLive Mode موافقات منفصلة؛ وقد لا يكتشف التنقيح كل التفاصيل الحساسة.',
   },
   'assistant-processing': {
     title: 'معالجة المساعد والتنقيح داخل التطبيق',
     description:
-      'عند إرسال رسالة أو نص صوتي، يرسل Askolo المحتوى إلى مزوّد الذكاء الاصطناعي المهيأ. قبل الإرسال، يرشّح Askolo القيم الحساسة التي يكتشفها، مثل بيانات الاتصال والمال والحسابات والهوية الحكومية وبيانات الدخول وتواريخ الميلاد. تبقى الأسماء وأسماء المشاريع أو العملاء فقط بعد منح هذه الموافقة المنفصلة. قد لا يكتشف التنقيح كل التفاصيل الحساسة.',
+      'عند إرسال نص أو بدء Voice Chat، يرسل Askolo رسالتك أو النص المتعرّف عليه إلى مزوّد الذكاء الاصطناعي المهيأ. يرسل Voice Chat كل نص إلى المحادثة دون خطوة للمراجعة. قبل الإرسال، يرشّح Askolo القيم الحساسة التي يكتشفها، مثل بيانات الاتصال والمال والحسابات والهوية الحكومية وبيانات الدخول وتواريخ الميلاد. تبقى الأسماء وأسماء المشاريع أو العملاء فقط بعد منح هذه الموافقة المنفصلة. قد لا يكتشف التنقيح كل التفاصيل الحساسة.',
   },
   'assemblyai-live': {
     title: 'وضع AssemblyAI Live',
@@ -72,7 +72,7 @@ const purposeCopyArabic: Record<ConsentPurpose, { title: string; description: st
   'azure-speech': {
     title: 'الإخراج الصوتي عبر Azure',
     description:
-      'عند اختيار «استمع» أو تفعيل الردود التلقائية بشكل منفصل، يُرسل نص رد المساعد إلى Microsoft Azure Speech ويُبث الصوت إلى جهازك، ولا يحفظ Askolo الصوت. قد تعالج Microsoft النص وفق شروط Azure Speech؛ ولم يتحقق Askolo من موقع المعالجة أو مدة الاحتفاظ لإعداد Azure لديك. إذا تعذر Azure أو تشغيل الصوت، يبقى النص متاحًا للقراءة أو إعادة المحاولة، ولن ينتقل Askolo تلقائيًا إلى نطق المتصفح.',
+      'يرسل وضع المحادثة الصوتية نص رد المساعد إلى Microsoft Azure Speech على دفعات بحجم جملة، ويبث الصوت إلى جهازك؛ ولا يحفظ Askolo هذا الصوت. يتطلب إخراج Azure هذه الموافقة المنفصلة، إلى جانب موافقتين منفصلتين على ميكروفون AssemblyAI ومعالجة المساعد. قد تعالج Microsoft النص وفق شروط Azure Speech؛ ولم يتحقق Askolo من موقع المعالجة أو مدة الاحتفاظ لإعداد Azure لديك. إذا تعذر Azure أو التشغيل، يبقى النص الكامل متاحًا للقراءة أو إعادة المحاولة، ولن ينتقل Askolo تلقائيًا إلى نطق المتصفح.',
   },
 };
 
@@ -84,7 +84,6 @@ export function AIPrivacyCenter() {
   const outputMutation = useUpdateVoiceOutputPreferences();
   const [purpose, setPurpose] = useState<ConsentPurpose | null>(null);
   const [redactionConfirmed, setRedactionConfirmed] = useState(false);
-  const [autoSpeakAfterConsent, setAutoSpeakAfterConsent] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -93,16 +92,14 @@ export function AIPrivacyCenter() {
   const outputConsentCurrent = Boolean(
     output?.consentGiven && output.consentVersion === CURRENT_VOICE_OUTPUT_CONSENT_VERSION,
   );
-  const openConsent = (nextPurpose: ConsentPurpose, autoSpeak = false) => {
+  const openConsent = (nextPurpose: ConsentPurpose) => {
     setError('');
     setRedactionConfirmed(false);
-    setAutoSpeakAfterConsent(autoSpeak);
     setPurpose(nextPurpose);
   };
   const closeConsent = (open: boolean) => {
     if (!open && !saving) {
       setPurpose(null);
-      setAutoSpeakAfterConsent(false);
     }
   };
   const refresh = async () => {
@@ -134,10 +131,9 @@ export function AIPrivacyCenter() {
       } else if (purpose === 'assemblyai-live') {
         await updatePrivacy({ assemblyAiLive: true });
       } else {
-        await updateOutput({ consent: true, ...(autoSpeakAfterConsent ? { autoSpeakEnabled: true } : {}) });
+        await updateOutput({ consent: true, autoSpeakEnabled: false });
       }
       setPurpose(null);
-      setAutoSpeakAfterConsent(false);
     } catch {
       setError('Your privacy setting could not be saved. Please try again.');
     } finally {
@@ -151,18 +147,6 @@ export function AIPrivacyCenter() {
       await updatePrivacy({ [key]: false });
     } catch {
       setError('Your privacy setting could not be updated. Please try again.');
-    }
-  };
-  const toggleAutoSpeak = async () => {
-    if (!outputConsentCurrent) {
-      openConsent('azure-speech', true);
-      return;
-    }
-    setError('');
-    try {
-      await updateOutput({ autoSpeakEnabled: !output?.autoSpeakEnabled });
-    } catch {
-      setError('Automatic spoken replies could not be updated. Please try again.');
     }
   };
   const toggleOutputConsent = async () => {
@@ -199,8 +183,8 @@ export function AIPrivacyCenter() {
           )}
           <section className="space-y-4" aria-label="AI and voice permissions">
             <PreferenceRow
-              title="Recorded voice transcription"
-              description="Allows AssemblyAI to transcribe voice input in Assistant, Planning, Notes, and uploads."
+              title="AssemblyAI voice input"
+              description="Allows AssemblyAI to transcribe recorded voice input in Assistant, Planning, Notes, and uploads, plus utterance-scoped Voice Chat audio after on-device speech detection. Assistant processing and Azure output are separate permissions."
               enabled={Boolean(privacy?.recordedVoiceInputConsentGiven)}
               onEnable={() => openConsent('recorded-voice')}
               onRevoke={() => void revokePrivacy('recordedVoiceInput')}
@@ -209,7 +193,7 @@ export function AIPrivacyCenter() {
             />
             <PreferenceRow
               title="Assistant processing"
-              description="Allows user-submitted text and approved voice transcripts to reach Askolo’s AI provider. Workspace changes still require separate confirmation."
+              description="Allows submitted text and Voice Chat transcripts to reach Askolo’s AI provider after app-side redaction; Voice Chat submits transcripts without review. Workspace changes still require separate confirmation."
               enabled={Boolean(privacy?.assistantProcessingConsentGiven)}
               onEnable={() => openConsent('assistant-processing')}
               onRevoke={() => void revokePrivacy('assistantProcessing')}
@@ -298,7 +282,7 @@ export function AIPrivacyCenter() {
                     {statusBadge(outputConsentCurrent)}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Sends Assistant replies to Azure when you choose Listen. Automatic spoken replies are a separate opt-in.
+                    Azure speech is used only in Voice Chat. Normal Chat remains text-only.
                   </p>
                   <Button
                     type="button"
@@ -311,20 +295,7 @@ export function AIPrivacyCenter() {
                     {outputConsentCurrent ? 'Revoke Azure speech consent' : 'Review Azure speech consent'}
                   </Button>
                 </div>
-                <div className="flex items-center gap-3">
-                  <Label htmlFor="assistant-auto-speak" className="text-sm">Speak completed replies automatically</Label>
-                  <Checkbox
-                    id="assistant-auto-speak"
-                    checked={Boolean(output?.autoSpeakEnabled)}
-                    disabled={outputMutation.isPending || outputQuery.isLoading}
-                    onCheckedChange={() => void toggleAutoSpeak()}
-                    aria-describedby="assistant-auto-speak-help"
-                  />
-                </div>
               </div>
-              <p id="assistant-auto-speak-help" className="mt-2 text-xs text-muted-foreground">
-                Turn this off to stop automatic playback. You can still choose Listen for individual replies.
-              </p>
             </div>
           </section>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -335,7 +306,6 @@ export function AIPrivacyCenter() {
         purpose={purpose}
         open={purpose !== null}
         redactionConfirmed={redactionConfirmed}
-        autoSpeakAfterConsent={autoSpeakAfterConsent}
         saving={saving}
         error={error}
         onOpenChange={closeConsent}
@@ -383,7 +353,6 @@ export function AIConsentDialog({
   purpose,
   open,
   redactionConfirmed,
-  autoSpeakAfterConsent,
   saving,
   error,
   onOpenChange,
@@ -393,7 +362,6 @@ export function AIConsentDialog({
   purpose: ConsentPurpose | null;
   open: boolean;
   redactionConfirmed: boolean;
-  autoSpeakAfterConsent?: boolean;
   saving: boolean;
   error?: string;
   onOpenChange: (open: boolean) => void;
@@ -426,13 +394,6 @@ export function AIConsentDialog({
                 : 'Use app-side transcript redaction before sending content to the Assistant provider.'}
             </Label>
           </div>
-        )}
-        {purpose === 'azure-speech' && autoSpeakAfterConsent && (
-          <p className="text-sm font-medium">
-            {arabic
-              ? 'اخترت أيضًا إرسال كل رد مكتمل من المساعد إلى Azure لتحويله إلى كلام تلقائيًا.'
-              : 'You also chose to automatically send each completed Assistant reply to Azure for speech.'}
-          </p>
         )}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <DialogFooter>

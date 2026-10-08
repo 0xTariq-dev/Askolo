@@ -36,6 +36,13 @@ export interface CompletedVoiceRecording {
   transcript: string;
 }
 
+export interface VoiceRealtimeStartOptions {
+  voiceChat?: boolean;
+  stream?: MediaStream;
+  preRollPcm?: Int16Array;
+  takeBufferedPcm?: () => { samples: Int16Array; overflow: boolean };
+}
+
 export interface VoiceDeletionStatus {
   rawAudio: 'not_stored';
   providerTranscript: 'deleted' | 'deletion_failed';
@@ -56,7 +63,7 @@ export interface VoiceTranscriptionResult {
   recording: CompletedVoiceRecording | null;
   isBusy: boolean;
   isListening: boolean;
-  start: () => Promise<void>;
+  start: (options?: VoiceRealtimeStartOptions) => Promise<void>;
   stop: () => void;
   cancel: () => void;
   reset: () => void;
@@ -321,6 +328,7 @@ export function useVoiceTranscription({
   const recordingStartedAtRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaStreamOwnedRef = useRef(true);
   const audioChunksRef = useRef<Blob[]>([]);
   const realtimeRef = useRef<WebSocket | null>(null);
   const realtimeClientSequenceRef = useRef(0);
@@ -330,6 +338,7 @@ export function useVoiceTranscription({
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioSilentGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const visualizerFrameRef = useRef<number | null>(null);
   const finalTurnsRef = useRef<Map<number, string>>(new Map());
@@ -354,10 +363,15 @@ export function useVoiceTranscription({
     analyserRef.current = null;
     audioProcessorRef.current?.disconnect();
     audioSourceRef.current?.disconnect();
+    audioSilentGainRef.current?.disconnect();
     audioProcessorRef.current = null;
     audioSourceRef.current = null;
-    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    audioSilentGainRef.current = null;
+    if (mediaStreamOwnedRef.current) {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    }
     mediaStreamRef.current = null;
+    mediaStreamOwnedRef.current = true;
     mediaRecorderRef.current = null;
     recordingStartedAtRef.current = null;
     audioChunksRef.current = [];
@@ -649,10 +663,23 @@ export function useVoiceTranscription({
     if (socket.readyState !== WebSocket.CLOSED) socket.close();
   };
 
-  const startRealtimeSession = async (sessionId: number) => {
-    if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined') {
+  const startRealtimeSession = async (
+    sessionId: number,
+    startOptions?: VoiceRealtimeStartOptions,
+  ) => {
+    const AudioContextCtor = window.AudioContext ??
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if ((!startOptions?.stream && !navigator.mediaDevices?.getUserMedia) || !AudioContextCtor) {
       updateState('error');
       setError('Real-time transcription is not supported in this browser. Use recorded transcription instead.');
+      return;
+    }
+    if (
+      startOptions?.preRollPcm &&
+      (startOptions.preRollPcm.length > 16_000 || startOptions.preRollPcm.length === 0)
+    ) {
+      updateState('error');
+      setError('The captured voice segment could not be started. Try again.');
       return;
     }
     updateMode('live');
@@ -665,12 +692,16 @@ export function useVoiceTranscription({
     try {
       const creditRequest = await prepareVoiceCreditRequest('voice.realtime', DEFAULT_REALTIME_MAX_SESSION_SECONDS);
        setStatus(`Estimate: ${formatUsdMicros(creditRequest.estimate.estimatedUsdMicros)}; maximum ${formatUsdMicros(creditRequest.estimate.hardCapUsdMicros)}. Requesting microphone permission…`);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      const ownsStream = !startOptions?.stream;
+      const stream = startOptions?.stream ??
+        await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
+        if (ownsStream) stream.getTracks().forEach((track) => track.stop());
+        startOptions?.takeBufferedPcm?.();
         return;
       }
       mediaStreamRef.current = stream;
+      mediaStreamOwnedRef.current = ownsStream;
       setStatus('Starting the secure live session…');
       const socket = new WebSocket(publicWebSocketURL());
       realtimeRef.current = socket;
@@ -731,6 +762,7 @@ export function useVoiceTranscription({
             sendPublicWebSocketMessage(socket, realtimeClientSequenceRef, 'voice.start', {
               idempotencyKey: creditRequest.headers['Idempotency-Key'],
               policyVersion: Number(creditRequest.headers['X-AI-Credit-Policy-Version']),
+              voiceChat: startOptions?.voiceChat === true,
             });
           } catch {
             failRealtime('The secure live session could not start. Try again.');
@@ -840,7 +872,8 @@ export function useVoiceTranscription({
       });
       await waitForWebSocketOpen(socket);
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
+        if (mediaStreamOwnedRef.current) stream.getTracks().forEach((track) => track.stop());
+        startOptions?.takeBufferedPcm?.();
         socket.close();
         return;
       }
@@ -848,7 +881,8 @@ export function useVoiceTranscription({
       sendPublicWebSocketMessage(socket, realtimeClientSequenceRef, 'session.start');
       await ready;
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
+        if (mediaStreamOwnedRef.current) stream.getTracks().forEach((track) => track.stop());
+        startOptions?.takeBufferedPcm?.();
         await closeRealtime(false);
         return;
       }
@@ -857,12 +891,23 @@ export function useVoiceTranscription({
         sendPublicWebSocketMessage(socket, realtimeClientSequenceRef, 'session.heartbeat');
       }, 15_000);
 
-      const AudioContextCtor = window.AudioContext ??
-        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextCtor) throw new Error('A Web Audio context is required.');
       const context = new AudioContextCtor();
+      audioContextRef.current = context;
+      await context.resume();
       const source = context.createMediaStreamSource(stream);
       const processor = context.createScriptProcessor(4096, 1, 1);
+      const silentGain = context.createGain();
+      silentGain.gain.value = 0;
+      let initialAudioReady = false;
+      let initialAudio = new Int16Array(0);
+      const appendInitialAudio = (pcm: Int16Array) => {
+        if (pcm.length === 0) return;
+        const combined = new Int16Array(initialAudio.length + pcm.length);
+        combined.set(initialAudio);
+        combined.set(pcm, initialAudio.length);
+        initialAudio = combined;
+      };
+      let sendLiveAudio = (_pcm: Int16Array) => undefined;
       processor.onaudioprocess = (event) => {
         if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
         const input = event.inputBuffer.getChannelData(0);
@@ -870,7 +915,37 @@ export function useVoiceTranscription({
         for (const sample of input) sumSquares += sample ** 2;
         setAudioLevel(Math.min(1, Math.sqrt(sumSquares / Math.max(1, input.length)) * 5));
         const pcm = downsampleToPcm16(input, context.sampleRate);
-        if (pcm.length === 0 || socket.readyState !== WebSocket.OPEN) return;
+        if (pcm.length === 0) return;
+        if (!initialAudioReady) {
+          appendInitialAudio(pcm);
+          return;
+        }
+        sendLiveAudio(pcm);
+      };
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(context.destination);
+      audioSourceRef.current = source;
+      audioProcessorRef.current = processor;
+      audioSilentGainRef.current = silentGain;
+
+      const bufferedAtStartup = startOptions?.takeBufferedPcm?.();
+      if (bufferedAtStartup?.overflow) {
+        throw new Error('Voice Chat took too long to connect. Try speaking again.');
+      }
+      appendInitialAudio(bufferedAtStartup?.samples ?? startOptions?.preRollPcm ?? new Int16Array(0));
+      if (socket.bufferedAmount > 512 * 1024) {
+        throw new Error('The live audio connection is too slow. Try again.');
+      }
+      for (let offset = 0; offset < initialAudio.length; offset += 1_600) {
+        const frame = new Int16Array(1_600);
+        frame.set(initialAudio.subarray(offset, Math.min(offset + frame.length, initialAudio.length)));
+        sendPublicWebSocketAudio(socket, realtimeClientSequenceRef, frame.buffer);
+      }
+      initialAudio = new Int16Array(0);
+      initialAudioReady = true;
+      sendLiveAudio = (pcm) => {
+        if (socket.readyState !== WebSocket.OPEN) return;
         if (socket.bufferedAmount > 512 * 1024) {
           pendingRealtimePcmRef.current = new Int16Array(0);
           failRealtime('The live audio connection is too slow. Try again or use recorded transcription.');
@@ -887,14 +962,16 @@ export function useVoiceTranscription({
         }
         pendingRealtimePcmRef.current = combined.slice(sendLength);
       };
-      source.connect(processor);
-      processor.connect(context.destination);
-      audioContextRef.current = context;
-      audioSourceRef.current = source;
-      audioProcessorRef.current = processor;
+      if (stopRequestedRef.current) {
+        updateState('processing');
+        await closeRealtime(true);
+        await finishReview(sessionId);
+        return;
+      }
       updateState('listening');
       setStatus(`${postflight} Live transcription is active for up to ${realtimeMaxSessionSecondsRef.current} seconds. Review the final text before submitting it.`);
     } catch (captureError) {
+      startOptions?.takeBufferedPcm?.();
       await closeRealtime(false);
       if (realtimeReadyTimeout !== null) window.clearTimeout(realtimeReadyTimeout);
       if (sessionRef.current !== sessionId || cancelRequestedRef.current) return;
@@ -906,7 +983,7 @@ export function useVoiceTranscription({
     }
   };
 
-  const start = async () => {
+  const start = async (startOptions?: VoiceRealtimeStartOptions) => {
     if (stateRef.current === 'starting' || stateRef.current === 'listening' || stateRef.current === 'processing') return;
     const sessionId = sessionRef.current + 1;
     sessionRef.current = sessionId;
@@ -928,8 +1005,8 @@ export function useVoiceTranscription({
     setRecording(null);
     setError('');
     setStatus('');
-    if (realtime) {
-      await startRealtimeSession(sessionId);
+    if (realtime || startOptions) {
+      await startRealtimeSession(sessionId, startOptions);
     } else {
       await startRecordedSession(sessionId);
     }

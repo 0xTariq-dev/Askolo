@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -27,9 +28,28 @@ type assistantPlanner interface {
 	Plan(context.Context, string) (assistantModelPlan, error)
 }
 
+type assistantConversationMessage struct {
+	Role    string
+	Content string
+}
+
+type assistantHistoryPlanner interface {
+	PlanWithHistory(context.Context, []assistantConversationMessage, string) (assistantModelPlan, error)
+}
+
+type assistantStreamingPlanner interface {
+	PlanStream(
+		context.Context,
+		[]assistantConversationMessage,
+		string,
+		func(string) error,
+	) (assistantModelPlan, error)
+}
+
 type assistantModelPlan struct {
 	Intent            string          `json:"intent"`
 	Arguments         json.RawMessage `json:"arguments"`
+	Message           string          `json:"message"`
 	ProviderModel     string          `json:"-"`
 	ProviderRequestID string          `json:"-"`
 	InputTokens       int64           `json:"-"`
@@ -101,6 +121,32 @@ func assistantPlannerUnavailableReason(planner assistantPlanner) string {
 }
 
 func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (assistantModelPlan, error) {
+	return p.PlanWithHistory(ctx, nil, transcript)
+}
+
+func (p *openAIAssistantPlanner) PlanWithHistory(
+	ctx context.Context,
+	history []assistantConversationMessage,
+	transcript string,
+) (assistantModelPlan, error) {
+	return p.plan(ctx, history, transcript, nil)
+}
+
+func (p *openAIAssistantPlanner) PlanStream(
+	ctx context.Context,
+	history []assistantConversationMessage,
+	transcript string,
+	onDelta func(string) error,
+) (assistantModelPlan, error) {
+	return p.plan(ctx, history, transcript, onDelta)
+}
+
+func (p *openAIAssistantPlanner) plan(
+	ctx context.Context,
+	history []assistantConversationMessage,
+	transcript string,
+	onDelta func(string) error,
+) (assistantModelPlan, error) {
 	if !p.Available() {
 		return assistantModelPlan{}, errors.New("assistant provider is not configured")
 	}
@@ -119,28 +165,39 @@ func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (a
 	base.Path = strings.TrimRight(base.Path, "/") + "/chat/completions"
 	base.RawPath = ""
 
+	type chatMessage struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	requestMessages := make([]chatMessage, 0, len(history)+2)
+	requestMessages = append(requestMessages, chatMessage{Role: "system", Content: systemPrompt})
+	if len(history) > 12 {
+		history = history[len(history)-12:]
+	}
+	for _, message := range history {
+		if (message.Role != "user" && message.Role != "assistant") ||
+			!utf8.ValidString(message.Content) || len([]byte(message.Content)) > 4096 {
+			continue
+		}
+		requestMessages = append(requestMessages, chatMessage{Role: message.Role, Content: message.Content})
+	}
+	requestMessages = append(requestMessages, chatMessage{Role: "user", Content: transcript})
 	requestBody := struct {
-		Model    string `json:"model"`
-		Messages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"messages"`
+		Model               string            `json:"model"`
+		Messages            []chatMessage     `json:"messages"`
 		ResponseFormat      map[string]string `json:"response_format"`
 		MaxCompletionTokens int               `json:"max_completion_tokens"`
+		Stream              bool              `json:"stream,omitempty"`
+		StreamOptions       map[string]bool   `json:"stream_options,omitempty"`
 	}{
-		Model: assistantPlannerModel,
-		Messages: []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		}{
-			{
-				Role:    "system",
-				Content: systemPrompt,
-			},
-			{Role: "user", Content: transcript},
-		},
+		Model:               assistantPlannerModel,
+		Messages:            requestMessages,
 		ResponseFormat:      map[string]string{"type": "json_object"},
 		MaxCompletionTokens: int(assistantPlannerOutputTokenReservationCap),
+		Stream:              onDelta != nil,
+	}
+	if onDelta != nil {
+		requestBody.StreamOptions = map[string]bool{"include_usage": true}
 	}
 	encoded, err := json.Marshal(requestBody)
 	if err != nil {
@@ -153,12 +210,21 @@ func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (a
 	request.Header.Set("Authorization", "Bearer "+p.apiKey)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
+	if onDelta != nil {
+		request.Header.Set("Accept", "text/event-stream")
+	}
 
 	response, err := p.client.Do(request)
 	if err != nil {
 		return assistantModelPlan{}, fmt.Errorf("assistant provider request failed: %w", err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return assistantModelPlan{}, fmt.Errorf("assistant provider returned status %d", response.StatusCode)
+	}
+	if onDelta != nil {
+		return readAssistantPlannerStream(response.Body, tools, onDelta)
+	}
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, assistantMaxOutputBytes+1))
 	if err != nil {
 		return assistantModelPlan{}, errors.New("assistant provider response could not be read")
@@ -166,10 +232,6 @@ func (p *openAIAssistantPlanner) Plan(ctx context.Context, transcript string) (a
 	if len(responseBytes) > assistantMaxOutputBytes {
 		return assistantModelPlan{}, errors.New("assistant provider response exceeded the size limit")
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return assistantModelPlan{}, fmt.Errorf("assistant provider returned status %d", response.StatusCode)
-	}
-
 	var envelope struct {
 		Model string `json:"model"`
 		ID    string `json:"id"`
@@ -222,7 +284,7 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 	if err != nil || token != json.Delim('{') {
 		return assistantModelPlan{}, errors.New("assistant intent response is invalid")
 	}
-	seen := make(map[string]bool, 2)
+	seen := make(map[string]bool, 3)
 	for decoder.More() {
 		keyToken, keyErr := decoder.Token()
 		key, ok := keyToken.(string)
@@ -235,6 +297,8 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 			err = decoder.Decode(&plan.Intent)
 		case "arguments":
 			err = decoder.Decode(&plan.Arguments)
+		case "message":
+			err = decoder.Decode(&plan.Message)
 		default:
 			return assistantModelPlan{}, errors.New("assistant intent response has an unknown field")
 		}
@@ -242,7 +306,8 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 			return assistantModelPlan{}, errors.New("assistant intent response is invalid")
 		}
 	}
-	if _, err := decoder.Token(); err != nil || len(seen) != 2 || !seen["intent"] || !seen["arguments"] {
+	if _, err := decoder.Token(); err != nil ||
+		len(seen) != 3 || !seen["intent"] || !seen["arguments"] || !seen["message"] {
 		return assistantModelPlan{}, errors.New("assistant intent response is invalid")
 	}
 	var trailing any
@@ -250,6 +315,9 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 		return assistantModelPlan{}, errors.New("assistant intent response has trailing data")
 	}
 	plan.Intent = strings.TrimSpace(plan.Intent)
+	if !validAssistantReply(plan.Message, true) {
+		return assistantModelPlan{}, errors.New("assistant reply message is invalid")
+	}
 	switch plan.Intent {
 	case assistantIntentNone, assistantIntentClarify:
 		if !assistantArgumentsEmpty(plan.Arguments) {

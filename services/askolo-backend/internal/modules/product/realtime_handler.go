@@ -21,16 +21,17 @@ import (
 )
 
 const (
-	realtimeStartTimeout       = 10 * time.Second
-	realtimeProviderSetupLimit = 20 * time.Second
-	realtimeTerminationTimeout = 3 * time.Second
-	realtimeWriteDeadlineExtra = 60 * time.Second
-	realtimeClientIdleTimeout  = 45 * time.Second
-	realtimeStartRateLimit     = 5
-	realtimeHeartbeatInterval  = 15 * time.Second
-	realtimeMaxActiveSessions  = 128
-	realtimeMaxSessionsPerUser = 2
-	maxRealtimeStartMessage    = 4096
+	realtimeStartTimeout            = 10 * time.Second
+	realtimeProviderSetupLimit      = 20 * time.Second
+	realtimeTerminationTimeout      = 3 * time.Second
+	realtimeWriteDeadlineExtra      = 60 * time.Second
+	realtimeClientIdleTimeout       = 45 * time.Second
+	realtimeStartRateLimit          = 5
+	realtimeVoiceChatStartRateLimit = 15
+	realtimeHeartbeatInterval       = 15 * time.Second
+	realtimeMaxActiveSessions       = 128
+	realtimeMaxSessionsPerUser      = 2
+	maxRealtimeStartMessage         = 4096
 )
 
 var errRealtimeClientProtocol = errors.New("invalid realtime client protocol")
@@ -108,16 +109,30 @@ const (
 )
 
 func (h *Handler) allowRealtimeConnectionStart(ctx context.Context, userID string) (bool, error) {
+	return h.allowRealtimeConnectionStartForMode(ctx, userID, false)
+}
+
+func (h *Handler) allowRealtimeVoiceChatStart(ctx context.Context, userID string) (bool, error) {
+	return h.allowRealtimeConnectionStartForMode(ctx, userID, true)
+}
+
+func (h *Handler) allowRealtimeConnectionStartForMode(ctx context.Context, userID string, voiceChat bool) (bool, error) {
 	secret := strings.TrimSpace(h.authRateLimitSecret)
 	if len([]byte(secret)) < 32 {
 		return false, errors.New("realtime start rate-limit secret is not configured")
 	}
+	bucketKey := "askolo:realtime-start:v1\x00" + userID
+	limit := realtimeStartRateLimit
+	if voiceChat {
+		bucketKey = "askolo:realtime-start:voice-chat:v1\x00" + userID
+		limit = realtimeVoiceChatStartRateLimit
+	}
 	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte("askolo:realtime-start:v1\x00" + userID))
+	_, _ = mac.Write([]byte(bucketKey))
 	return h.store.AllowAuthRateLimitBucket(
 		ctx,
 		hex.EncodeToString(mac.Sum(nil)),
-		realtimeStartRateLimit,
+		limit,
 		time.Minute,
 	)
 }

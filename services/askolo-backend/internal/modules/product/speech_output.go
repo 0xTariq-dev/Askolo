@@ -153,6 +153,20 @@ func azureSpeechVoice(locale string) (voice, speechLocale string) {
 }
 
 func (h *Handler) allowAssistantSpeech(ctx context.Context, userID string) (bool, string, error) {
+	return h.allowAssistantSpeechWithLimits(ctx, userID, "", 10, 100)
+}
+
+func (h *Handler) allowAssistantVoiceChatSpeech(ctx context.Context, userID string) (bool, string, error) {
+	return h.allowAssistantSpeechWithLimits(ctx, userID, "voice-chat-", 20, 100)
+}
+
+func (h *Handler) allowAssistantSpeechWithLimits(
+	ctx context.Context,
+	userID string,
+	bucketPrefix string,
+	minuteLimit int,
+	dailyLimit int,
+) (bool, string, error) {
 	secret := strings.TrimSpace(h.authRateLimitSecret)
 	if len([]byte(secret)) < 32 {
 		return false, "", errors.New("assistant speech rate-limit secret is not configured")
@@ -163,11 +177,11 @@ func (h *Handler) allowAssistantSpeech(ctx context.Context, userID string) (bool
 		window time.Duration
 		retry  string
 	}{
-		{name: "minute", max: 10, window: time.Minute, retry: "60"},
-		{name: "day", max: 100, window: 24 * time.Hour, retry: "86400"},
+		{name: "minute", max: minuteLimit, window: time.Minute, retry: "60"},
+		{name: "day", max: dailyLimit, window: 24 * time.Hour, retry: "86400"},
 	} {
 		mac := hmac.New(sha256.New, []byte(secret))
-		_, _ = mac.Write([]byte("askolo:assistant-speech:v1\x00" + bucket.name + "\x00" + userID))
+		_, _ = mac.Write([]byte("askolo:assistant-speech:v1\x00" + bucketPrefix + bucket.name + "\x00" + userID))
 		allowed, err := h.store.AllowAuthRateLimitBucket(
 			ctx,
 			hex.EncodeToString(mac.Sum(nil)),

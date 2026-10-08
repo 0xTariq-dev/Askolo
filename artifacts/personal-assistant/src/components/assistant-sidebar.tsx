@@ -42,6 +42,7 @@ import { useAssistantState, type ChatMessage } from '@/contexts/assistant-contex
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
+import { useLocalVoiceActivity } from '@/hooks/use-local-voice-activity';
 import {
   VoiceCaptureButton,
   VoiceCaptureFeedback,
@@ -56,11 +57,11 @@ import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { useLocale } from '@/contexts/locale-context';
 import { useAssistantSpeech } from '@/hooks/use-assistant-speech';
-import { AssistantSpeechControl } from '@/components/assistant-speech-control';
 import { AIConsentDialog } from '@/components/settings/ai-privacy-center';
 import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent';
 import { useToast } from '@/hooks/use-toast';
 import { VoiceAgentControls } from '@/components/voice-agent-controls';
+import { VoiceChatControls } from '@/components/assistant/voice-chat-controls';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -100,10 +101,36 @@ export function AssistantSidebar() {
   const [assistantRedactionConfirmed, setAssistantRedactionConfirmed] = useState(false);
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
+  const [assistantMode, setAssistantMode] = useState<'chat' | 'voice-chat'>('chat');
+  const [liveCallActive, setLiveCallActive] = useState(false);
+  const [voiceChatError, setVoiceChatError] = useState('');
+  const [voiceChatStatus, setVoiceChatStatus] = useState('');
+  const [voiceChatSpeaking, setVoiceChatSpeaking] = useState(false);
+  const [voiceChatSpeechError, setVoiceChatSpeechError] = useState(false);
   const assistantVoiceAutoSendRef = useRef(false);
   const assistantConsentApprovedRef = useRef(false);
   const pendingAssistantTextRef = useRef<string | null>(null);
-  const autoSpokenRunIdsRef = useRef(new Set<string>());
+  const pendingAssistantVoiceChatRef = useRef(false);
+  const pendingVoiceChatStartRef = useRef(false);
+  const pendingVoiceChatTranscriptsRef = useRef<string[]>([]);
+  const voiceChatTurnRef = useRef(false);
+  const assistantModeRef = useRef(assistantMode);
+  assistantModeRef.current = assistantMode;
+  const voiceChatActiveRef = useRef(false);
+  const voiceChatCurrentRunIdRef = useRef('');
+  const voiceChatIgnoredSpeechRunIdsRef = useRef(new Set<string>());
+  const voiceChatAudioQueueRef = useRef<Array<{ runId: string; mediaType: string; data: string }>>([]);
+  const voiceChatAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceChatAudioUrlRef = useRef<string | null>(null);
+  const voiceChatSpeakingRef = useRef(false);
+  const playNextVoiceChatAudioRef = useRef<() => void>(() => undefined);
+  const voiceActivityStartRef = useRef<(
+    stream: MediaStream,
+    preRollPcm: Int16Array,
+    takeBufferedPcm: () => { samples: Int16Array; overflow: boolean },
+  ) => void>(() => undefined);
+  const voiceActivityEndRef = useRef<() => void>(() => undefined);
+  const cleanupVoiceChatOnCloseRef = useRef<() => void>(() => undefined);
   const speechOutput = useAssistantSpeech();
   const { data: voicePreferences } = useGetTranscriptionPreferences();
   const updateVoicePreferences = useUpdateTranscriptionPreferences();
@@ -112,6 +139,114 @@ export function AssistantSidebar() {
   const { data: voiceOutputPreferences } = useGetVoiceOutputPreferences();
   const updateVoiceOutputPreferences = useUpdateVoiceOutputPreferences();
   const voice = useVoiceTranscription();
+  const localVoiceActivity = useLocalVoiceActivity({
+    onSpeechStart: (stream, preRollPcm, takeBufferedPcm) =>
+      voiceActivityStartRef.current(stream, preRollPcm, takeBufferedPcm),
+    onSpeechEnd: () => voiceActivityEndRef.current(),
+  });
+  voiceChatActiveRef.current = localVoiceActivity.active;
+
+  const clearVoiceChatAudio = () => {
+    voiceChatAudioQueueRef.current = [];
+    const audio = voiceChatAudioRef.current;
+    voiceChatAudioRef.current = null;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    if (voiceChatAudioUrlRef.current) {
+      URL.revokeObjectURL(voiceChatAudioUrlRef.current);
+      voiceChatAudioUrlRef.current = null;
+    }
+    voiceChatSpeakingRef.current = false;
+    setVoiceChatSpeaking(false);
+  };
+
+  const playNextVoiceChatAudio = () => {
+    if (voiceChatAudioRef.current) return;
+    const next = voiceChatAudioQueueRef.current.shift();
+    if (!next || assistantModeRef.current !== 'voice-chat' || !voiceChatActiveRef.current) {
+      if (!next) {
+        voiceChatSpeakingRef.current = false;
+        setVoiceChatSpeaking(false);
+      }
+      return;
+    }
+    if (voiceChatIgnoredSpeechRunIdsRef.current.has(next.runId)) {
+      playNextVoiceChatAudioRef.current();
+      return;
+    }
+    try {
+      const binary = window.atob(next.data);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      const url = URL.createObjectURL(new Blob([bytes], { type: next.mediaType }));
+      const audio = new Audio(url);
+      audio.preload = 'auto';
+      voiceChatAudioRef.current = audio;
+      voiceChatAudioUrlRef.current = url;
+      voiceChatCurrentRunIdRef.current = next.runId;
+      voiceChatSpeakingRef.current = true;
+      setVoiceChatSpeaking(true);
+      const completeChunk = () => {
+        if (voiceChatAudioRef.current !== audio) return;
+        voiceChatAudioRef.current = null;
+        if (voiceChatAudioUrlRef.current === url) {
+          URL.revokeObjectURL(url);
+          voiceChatAudioUrlRef.current = null;
+        }
+        if (voiceChatAudioQueueRef.current.length > 0) {
+          playNextVoiceChatAudioRef.current();
+        } else {
+          voiceChatSpeakingRef.current = false;
+          setVoiceChatSpeaking(false);
+          setVoiceChatStatus('');
+        }
+      };
+      audio.onended = completeChunk;
+      audio.onerror = () => {
+        if (voiceChatAudioRef.current !== audio) return;
+        clearVoiceChatAudio();
+        setVoiceChatSpeechError(true);
+        setVoiceChatStatus('Spoken reply playback failed. The full reply is available to read or retry.');
+      };
+      void audio.play().catch(() => {
+        if (voiceChatAudioRef.current !== audio) return;
+        clearVoiceChatAudio();
+        setVoiceChatSpeechError(true);
+        setVoiceChatStatus('Spoken reply playback failed. The full reply is available to read or retry.');
+      });
+    } catch {
+      setVoiceChatSpeechError(true);
+      setVoiceChatStatus('Spoken reply playback failed. The full reply is available to read or retry.');
+    }
+  };
+  playNextVoiceChatAudioRef.current = playNextVoiceChatAudio;
+
+  const enqueueVoiceChatAudio = (runId: string, mediaType: string, data: string) => {
+    if (
+      assistantModeRef.current !== 'voice-chat' ||
+      !voiceChatActiveRef.current ||
+      voiceChatIgnoredSpeechRunIdsRef.current.has(runId)
+    ) return;
+    voiceChatCurrentRunIdRef.current = runId;
+    voiceChatAudioQueueRef.current.push({ runId, mediaType, data });
+    setVoiceChatSpeechError(false);
+    playNextVoiceChatAudioRef.current();
+  };
+
+  const interruptVoiceChatSpeech = () => {
+    const runId = voiceChatCurrentRunIdRef.current;
+    if (runId) voiceChatIgnoredSpeechRunIdsRef.current.add(runId);
+    clearVoiceChatAudio();
+    speechOutput.stop();
+    setVoiceChatStatus('Spoken reply interrupted. Continue speaking when ready.');
+  };
   const conversationQuery = useGetAssistantConversation({
     query: {
       queryKey: getGetAssistantConversationQueryKey(),
@@ -147,7 +282,10 @@ export function AssistantSidebar() {
   }, [isOpen, speechOutput.stop]);
 
   useEffect(() => {
-    if (!isOpen && voice.state !== 'idle') voice.reset();
+    if (!isOpen) {
+      cleanupVoiceChatOnCloseRef.current();
+      if (voice.state !== 'idle') voice.reset();
+    }
   }, [isOpen, voice.state]);
 
   useEffect(() => {
@@ -161,11 +299,6 @@ export function AssistantSidebar() {
 
   useEffect(() => {
     if (!conversationQuery.data) return;
-    autoSpokenRunIdsRef.current = new Set(
-      conversationQuery.data.messages
-        .filter((message) => message.role === 'assistant' && typeof message.runId === 'string')
-        .map((message) => message.runId as string),
-    );
     setMessages(
       conversationQuery.data.messages.length > 0
         ? conversationQuery.data.messages
@@ -176,23 +309,6 @@ export function AssistantSidebar() {
           }],
     );
   }, [conversationQuery.data, setMessages]);
-
-  useEffect(() => {
-    if (
-      !voiceOutputPreferences?.consentGiven ||
-      voiceOutputPreferences.consentVersion !== CURRENT_VOICE_OUTPUT_CONSENT_VERSION ||
-      !voiceOutputPreferences.autoSpeakEnabled
-    ) return;
-    const next = messages.find((message) =>
-      message.role === 'assistant' &&
-      !!message.runId &&
-      (message.state === 'completed' || message.state === 'needs_confirmation') &&
-      !autoSpokenRunIdsRef.current.has(message.runId),
-    );
-    if (!next?.runId) return;
-    autoSpokenRunIdsRef.current.add(next.runId);
-    void speechOutput.speak(next.id, next.content, { runId: next.runId, locale });
-  }, [locale, messages, speechOutput.speak, speechOutput.status, voiceOutputPreferences]);
 
   useEffect(() => {
     if (!draft) return;
@@ -206,6 +322,7 @@ export function AssistantSidebar() {
         message.runId === run.id
           ? {
               ...message,
+              content: run.message || message.content,
               state: run.state,
               intent: run.intent ?? message.intent,
               intentSha256: run.intentSha256 ?? message.intentSha256,
@@ -247,7 +364,7 @@ export function AssistantSidebar() {
     return () => window.removeEventListener('askolo:voice-agent-action', onVoiceAgentAction);
   }, [incorporateRun, isOpen, toggle]);
 
-  const onSubmit = async (data: MessageForm) => {
+  const onSubmit = async (data: MessageForm, options?: { voiceChat?: boolean }) => {
     const text = data.text.trim();
     if (!text || isThinking || pendingActionId !== null || voice.isBusy) return;
     const assistantConsentCurrent = Boolean(
@@ -256,6 +373,7 @@ export function AssistantSidebar() {
     );
     if (!assistantConsentCurrent && !assistantConsentApprovedRef.current) {
       pendingAssistantTextRef.current = text;
+      pendingAssistantVoiceChatRef.current = options?.voiceChat === true;
       setAssistantConsentError('');
       setAssistantRedactionConfirmed(false);
       setAssistantConsentOpen(true);
@@ -289,7 +407,32 @@ export function AssistantSidebar() {
         transcript: text,
         idempotencyKey: newCreditIdempotencyKey(),
         policyVersion: estimate.policyVersion,
-      }, controller.signal);
+        voiceChat: options?.voiceChat,
+      }, controller.signal, {
+        onReplyDelta: (runId, delta) => {
+          voiceChatCurrentRunIdRef.current = runId;
+          setMessages((previous) => {
+            const index = previous.findIndex((message) => message.runId === runId);
+            if (index < 0) {
+              return [
+                ...previous,
+                { id: `stream-${runId}`, role: 'assistant', content: delta, runId },
+              ];
+            }
+            return previous.map((message, messageIndex) => messageIndex === index
+              ? { ...message, content: message.content + delta }
+              : message);
+          });
+        },
+        onSpeechChunk: options?.voiceChat ? enqueueVoiceChatAudio : undefined,
+        onSpeechError: options?.voiceChat
+          ? (runId) => {
+              if (voiceChatIgnoredSpeechRunIdsRef.current.has(runId)) return;
+              setVoiceChatSpeechError(true);
+              setVoiceChatStatus('Spoken reply could not be generated. The full reply is available to read or retry.');
+            }
+          : undefined,
+      });
       incorporateRun(run);
       await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
     } catch (error) {
@@ -313,6 +456,127 @@ export function AssistantSidebar() {
   const resetVoiceRef = useRef(voice.reset);
   resetVoiceRef.current = voice.reset;
 
+  const continueVoiceChatStart = (accepted?: {
+    voiceInput?: boolean;
+    assistantProcessing?: boolean;
+    azureOutput?: boolean;
+  }) => {
+    if (!pendingVoiceChatStartRef.current) return;
+    const hasVoiceInputConsent = accepted?.voiceInput === true || Boolean(
+      voicePreferences?.consentGiven &&
+      voicePreferences.consentVersion === CURRENT_VOICE_CONSENT_VERSION,
+    );
+    if (!hasVoiceInputConsent) {
+      setVoiceConsentError('');
+      setVoiceConsentOpen(true);
+      return;
+    }
+    const hasAssistantProcessingConsent = accepted?.assistantProcessing === true || Boolean(
+      aiPrivacyPreferences?.assistantProcessingConsentGiven &&
+      aiPrivacyPreferences.redactionLocation === 'app',
+    );
+    if (!hasAssistantProcessingConsent) {
+      setAssistantConsentError('');
+      setAssistantRedactionConfirmed(false);
+      setAssistantConsentOpen(true);
+      return;
+    }
+    const hasAzureConsent = accepted?.azureOutput === true || Boolean(
+      voiceOutputPreferences?.consentGiven &&
+      voiceOutputPreferences.consentVersion === CURRENT_VOICE_OUTPUT_CONSENT_VERSION,
+    );
+    if (!hasAzureConsent) {
+      setVoiceOutputConsentError('');
+      setVoiceOutputConsentOpen(true);
+      return;
+    }
+    pendingVoiceChatStartRef.current = false;
+    setVoiceChatError('');
+    setVoiceChatSpeechError(false);
+    setVoiceChatStatus('Requesting microphone permission…');
+    void localVoiceActivity.start();
+  };
+
+  const startVoiceChat = () => {
+    if (liveCallActive) {
+      setVoiceChatError('End Live Mode before starting Voice Chat.');
+      return;
+    }
+    if (voice.isBusy || voice.state === 'review') {
+      setVoiceChatError('Finish or cancel the current Normal Chat voice transcription before starting Voice Chat.');
+      return;
+    }
+    if (localVoiceActivity.active || localVoiceActivity.starting) return;
+    setAssistantMode('voice-chat');
+    setVoiceChatError('');
+    setVoiceChatSpeechError(false);
+    pendingVoiceChatStartRef.current = true;
+    continueVoiceChatStart();
+  };
+
+  const takeQueuedVoiceMessages = () => {
+    const pending = pendingVoiceChatTranscriptsRef.current.splice(0);
+    if (pending.length === 0) return;
+    const current = form.getValues('text');
+    form.setValue('text', [current.trim(), ...pending].filter(Boolean).join('\n'), {
+      shouldValidate: true,
+    });
+  };
+
+  const endVoiceChat = () => {
+    pendingVoiceChatStartRef.current = false;
+    voiceChatActiveRef.current = false;
+    takeQueuedVoiceMessages();
+    localVoiceActivity.stop();
+    if (voice.state !== 'idle') voice.cancel();
+    voiceChatTurnRef.current = false;
+    clearVoiceChatAudio();
+    speechOutput.stop();
+    setVoiceChatStatus('Voice Chat ended.');
+  };
+
+  const switchToNormalChat = () => {
+    endVoiceChat();
+    assistantModeRef.current = 'chat';
+    setAssistantMode('chat');
+    setVoiceChatError('');
+    setVoiceChatSpeechError(false);
+  };
+  cleanupVoiceChatOnCloseRef.current = () => {
+    pendingVoiceChatStartRef.current = false;
+    voiceChatActiveRef.current = false;
+    takeQueuedVoiceMessages();
+    localVoiceActivity.stop();
+    voiceChatTurnRef.current = false;
+    clearVoiceChatAudio();
+    speechOutput.stop();
+    assistantModeRef.current = 'chat';
+    setAssistantMode('chat');
+  };
+
+  voiceActivityStartRef.current = (stream, preRollPcm, takeBufferedPcm) => {
+    if (assistantModeRef.current !== 'voice-chat') return;
+    if (voiceChatSpeakingRef.current || speechOutput.status === 'speaking') {
+      interruptVoiceChatSpeech();
+    }
+    if (voice.state === 'starting' || voice.state === 'listening' || voice.state === 'processing') return;
+    setVoiceChatError('');
+    setVoiceChatSpeechError(false);
+    voiceChatTurnRef.current = true;
+    setVoiceChatStatus('Speech detected. Connecting to AssemblyAI for this utterance…');
+    void voice.start({
+      voiceChat: true,
+      stream,
+      preRollPcm,
+      takeBufferedPcm,
+    });
+  };
+  voiceActivityEndRef.current = () => {
+    if (voice.state === 'starting' || voice.state === 'listening') {
+      voice.stop();
+    }
+  };
+
   const startAssistantVoice = async () => {
     if (!voicePreferences?.consentGiven || voicePreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION) {
       setVoiceConsentError('');
@@ -330,7 +594,34 @@ export function AssistantSidebar() {
       assistantVoiceAutoSendRef.current = false;
       return;
     }
+    if (voice.state === 'error' && voiceChatTurnRef.current) {
+      voiceChatTurnRef.current = false;
+      setVoiceChatError(voice.error || 'Voice input could not be transcribed. Try again or switch to Normal Chat.');
+      return;
+    }
     if (voice.state !== 'review' || !voice.transcript) return;
+
+    if (voiceChatTurnRef.current) {
+      voiceChatTurnRef.current = false;
+      const transcript = voice.transcript.trim();
+      resetVoiceRef.current();
+      if (!transcript) {
+        setVoiceChatError('No speech was detected. Try again or switch to Normal Chat.');
+        return;
+      }
+      if (isThinking || pendingActionId !== null) {
+        if (pendingVoiceChatTranscriptsRef.current.length >= 3) {
+          setVoiceChatError('Voice Chat can hold three spoken messages while Askolo is busy. Wait for a reply before speaking again.');
+          return;
+        }
+        pendingVoiceChatTranscriptsRef.current.push(transcript);
+        setVoiceChatStatus('Your spoken message is queued until Askolo finishes the current reply.');
+        return;
+      }
+      setVoiceChatError('');
+      void onSubmitRef.current({ text: transcript }, { voiceChat: true });
+      return;
+    }
 
     setVoiceReviewText(voice.transcript);
     setVoiceApplied(false);
@@ -346,7 +637,22 @@ export function AssistantSidebar() {
     const transcript = voice.transcript;
     resetVoiceRef.current();
     void onSubmitRef.current({ text: transcript });
-  }, [voice.state, voice.transcript, voice.reviewSignals]);
+  }, [isThinking, pendingActionId, voice.error, voice.reviewSignals, voice.state, voice.transcript]);
+
+  useEffect(() => {
+    if (
+      assistantMode !== 'voice-chat' ||
+      !localVoiceActivity.active ||
+      isThinking ||
+      voiceChatSpeaking ||
+      voiceChatAudioQueueRef.current.length > 0 ||
+      pendingActionId !== null
+    ) return;
+    const next = pendingVoiceChatTranscriptsRef.current.shift();
+    if (!next) return;
+    setVoiceChatStatus('Sending your queued voice message…');
+    void onSubmitRef.current({ text: next }, { voiceChat: true });
+  }, [assistantMode, isThinking, localVoiceActivity.active, pendingActionId, voiceChatSpeaking]);
 
   const applyAssistantTranscript = () => {
     if (!voiceReviewText.trim() || voiceApplied) return;
@@ -369,6 +675,7 @@ export function AssistantSidebar() {
       const updated = await updateVoicePreferences.mutateAsync({ data: { consent: true } });
       queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
       setVoiceConsentOpen(false);
+      continueVoiceChatStart({ voiceInput: true });
     } catch (error) {
       setVoiceConsentError(getVoiceConsentErrorMessage(error));
     } finally {
@@ -386,9 +693,17 @@ export function AssistantSidebar() {
       queryClient.setQueryData(getGetAIPrivacyPreferencesQueryKey(), updated);
       assistantConsentApprovedRef.current = true;
       setAssistantConsentOpen(false);
+      if (pendingVoiceChatStartRef.current) {
+        continueVoiceChatStart({ assistantProcessing: true });
+        return;
+      }
       const pendingText = pendingAssistantTextRef.current;
+      const pendingVoiceChat = pendingAssistantVoiceChatRef.current;
       pendingAssistantTextRef.current = null;
-      if (pendingText) void onSubmitRef.current({ text: pendingText });
+      pendingAssistantVoiceChatRef.current = false;
+      if (pendingText) {
+        void onSubmitRef.current({ text: pendingText }, pendingVoiceChat ? { voiceChat: true } : undefined);
+      }
     } catch {
       setAssistantConsentError('Assistant processing permission could not be saved. Please try again.');
     } finally {
@@ -412,14 +727,20 @@ export function AssistantSidebar() {
   const saveVoiceOutputConsent = async () => {
     setVoiceOutputConsentSaving(true);
     try {
-      const updated = await updateVoiceOutputPreferences.mutateAsync({ data: { consent: true } });
+      const updated = await updateVoiceOutputPreferences.mutateAsync({
+        data: { consent: true, autoSpeakEnabled: false },
+      });
       queryClient.setQueryData(getGetVoiceOutputPreferencesQueryKey(), updated);
       setVoiceOutputConsentOpen(false);
+      if (pendingVoiceChatStartRef.current) {
+        continueVoiceChatStart({ azureOutput: true });
+        return;
+      }
       toast({
         title: locale === 'ar' ? 'تم حفظ موافقة الإخراج الصوتي' : 'Speech output permission saved',
         description: locale === 'ar'
-          ? 'اختر «استمع» مرة أخرى لبدء التشغيل.'
-          : 'Choose Listen again to start playback.',
+          ? 'اختر «إعادة المحاولة» مرة أخرى لبدء التشغيل.'
+          : 'Choose Retry speech again to start playback.',
       });
     } catch (error) {
       setVoiceOutputConsentError(getVoiceConsentErrorMessage(error));
@@ -592,18 +913,6 @@ export function AssistantSidebar() {
                   >
                     <p dir="auto">{msg.content}</p>
                     {msg.role === 'assistant' &&
-                      !!msg.runId &&
-                      (msg.state === 'completed' || msg.state === 'needs_confirmation') && (
-                      <AssistantSpeechControl
-                        status={speechOutput.activeMessageId === msg.id ? speechOutput.status : 'idle'}
-                        error={speechOutput.activeMessageId === msg.id ? speechOutput.error : ''}
-                        onSpeak={() => handleSpeechRequest(msg)}
-                        onPause={() => speechOutput.pause(msg.id)}
-                        onResume={() => speechOutput.resume(msg.id)}
-                        onStop={speechOutput.stop}
-                      />
-                    )}
-                    {msg.role === 'assistant' &&
                       msg.state === 'needs_confirmation' &&
                       ['create_action_item', 'send_gmail', 'create_calendar_event'].includes(
                         msg.intent?.tool ?? '',
@@ -748,8 +1057,85 @@ export function AssistantSidebar() {
 
             {/* Input */}
             <div className="p-3 border-t border-border bg-card/50 shrink-0">
+              <div role="group" aria-label="Assistant mode" className="mb-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={assistantMode === 'chat' ? 'default' : 'outline'}
+                  aria-pressed={assistantMode === 'chat'}
+                  onClick={() => {
+                    if (assistantMode !== 'chat') switchToNormalChat();
+                  }}
+                >
+                  Normal Chat
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={assistantMode === 'voice-chat' ? 'default' : 'outline'}
+                  aria-pressed={assistantMode === 'voice-chat'}
+                  disabled={voice.isBusy || voice.state === 'review' || liveCallActive}
+                  onClick={() => {
+                    setVoiceChatError('');
+                    setVoiceChatStatus('');
+                    setAssistantMode('voice-chat');
+                  }}
+                >
+                  Voice Chat
+                </Button>
+              </div>
+              {liveCallActive && assistantMode !== 'voice-chat' && (
+                <p className="mb-3 px-1 text-xs text-muted-foreground" role="status">
+                  End Live Mode before starting Voice Chat.
+                </p>
+              )}
+              {assistantMode === 'voice-chat' && (
+                <div className="mb-3">
+                  <VoiceChatControls
+                    active={localVoiceActivity.active}
+                    starting={localVoiceActivity.starting}
+                    muted={localVoiceActivity.muted}
+                    status={
+                      voice.state === 'starting'
+                        ? 'Connecting to AssemblyAI for this utterance…'
+                        : voice.state === 'listening'
+                          ? 'Transcribing this utterance…'
+                          : voice.state === 'processing'
+                            ? 'Finishing the transcript…'
+                            : voiceChatSpeaking || speechOutput.status === 'speaking'
+                              ? 'Askolo is speaking'
+                              : isThinking
+                                ? 'Askolo is preparing a reply…'
+                                : voiceChatStatus
+                    }
+                    error={voiceChatError || localVoiceActivity.error || (voice.state === 'error' ? voice.error : '')}
+                    speechError={voiceChatSpeechError || speechOutput.status === 'error'}
+                    speaking={voiceChatSpeaking || speechOutput.status === 'speaking'}
+                    onStart={startVoiceChat}
+                    onEnd={endVoiceChat}
+                    onToggleMute={() => localVoiceActivity.setMuted(!localVoiceActivity.muted)}
+                    onInterrupt={interruptVoiceChatSpeech}
+                    onRetrySpeech={() => {
+                      const lastAssistantMessage = [...messages].reverse().find((message) =>
+                        message.role === 'assistant' &&
+                        (message.state === 'completed' || message.state === 'needs_confirmation') &&
+                        Boolean(message.runId) &&
+                        Boolean(message.content.trim()),
+                      );
+                      if (!lastAssistantMessage) {
+                        setVoiceChatSpeechError(true);
+                        setVoiceChatStatus('There is no completed reply to retry yet.');
+                        return;
+                      }
+                      setVoiceChatSpeechError(false);
+                      handleSpeechRequest(lastAssistantMessage);
+                    }}
+                    onSwitchToChat={switchToNormalChat}
+                  />
+                </div>
+              )}
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-wrap gap-2">
+                <form onSubmit={form.handleSubmit((data) => onSubmit(data))} className="flex flex-wrap gap-2">
                   <FormField
                     control={form.control}
                     name="text"
@@ -765,7 +1151,7 @@ export function AssistantSidebar() {
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
-                                form.handleSubmit(onSubmit)();
+                                form.handleSubmit((data) => onSubmit(data))();
                               }
                             }}
                           />
@@ -773,18 +1159,20 @@ export function AssistantSidebar() {
                       </FormItem>
                     )}
                   />
-                  <VoiceCaptureButton
-                    voice={voice}
-                    onStart={startAssistantVoice}
-                    startText="Press and hold or activate to record voice input"
-                    stopText="Recording voice input; release or activate to stop"
-                    variant="outline"
-                    size="icon"
-                    iconOnly
-                    className="h-10 w-10 shrink-0"
-                    disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking || pendingActionId !== null}
-                    data-testid="button-assistant-voice"
-                  />
+                  {assistantMode === 'chat' && (
+                    <VoiceCaptureButton
+                      voice={voice}
+                      onStart={startAssistantVoice}
+                      startText="Press and hold or activate to record voice input"
+                      stopText="Recording voice input; release or activate to stop"
+                      variant="outline"
+                      size="icon"
+                      iconOnly
+                      className="h-10 w-10 shrink-0"
+                      disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking || pendingActionId !== null}
+                      data-testid="button-assistant-voice"
+                    />
+                  )}
                   <Button
                     type="submit"
                     size="icon"
@@ -797,9 +1185,12 @@ export function AssistantSidebar() {
                 </form>
               </Form>
               <div className="mt-3 px-1">
-                <VoiceAgentControls />
+                <VoiceAgentControls
+                  voiceChatSelected={assistantMode === 'voice-chat'}
+                  onActiveChange={setLiveCallActive}
+                />
               </div>
-              {(voice.state !== 'idle' || voice.status || voice.error || voice.recording) && (
+              {assistantMode === 'chat' && (voice.state !== 'idle' || voice.status || voice.error || voice.recording) && (
                 <div className="mt-2 space-y-2 px-1">
                   <VoiceCaptureFeedback voice={voice} />
                   <VoiceTranscriptReview
@@ -851,7 +1242,19 @@ export function AssistantSidebar() {
           </motion.aside>
         )}
       </AnimatePresence>
-      <VoiceConsentDialog open={voiceConsentOpen} onOpenChange={setVoiceConsentOpen} onConfirm={() => void saveVoiceConsent()} saving={voiceConsentSaving} error={voiceConsentError} />
+      <VoiceConsentDialog
+        open={voiceConsentOpen}
+        onOpenChange={(open) => {
+          setVoiceConsentOpen(open);
+          if (!open && pendingVoiceChatStartRef.current) {
+            pendingVoiceChatStartRef.current = false;
+            setVoiceChatError('AssemblyAI microphone permission is required for Voice Chat. You can switch to Normal Chat instead.');
+          }
+        }}
+        onConfirm={() => void saveVoiceConsent()}
+        saving={voiceConsentSaving}
+        error={voiceConsentError}
+      />
       <AIConsentDialog
         purpose={assistantConsentOpen ? 'assistant-processing' : null}
         open={assistantConsentOpen}
@@ -860,7 +1263,14 @@ export function AssistantSidebar() {
         error={assistantConsentError}
         onOpenChange={(open) => {
           setAssistantConsentOpen(open);
-          if (!open) pendingAssistantTextRef.current = null;
+          if (!open) {
+            pendingAssistantTextRef.current = null;
+            pendingAssistantVoiceChatRef.current = false;
+            if (pendingVoiceChatStartRef.current) {
+              pendingVoiceChatStartRef.current = false;
+              setVoiceChatError('Assistant processing permission is required for Voice Chat. You can switch to Normal Chat instead.');
+            }
+          }
         }}
         onRedactionConfirmedChange={setAssistantRedactionConfirmed}
         onConfirm={() => void saveAssistantProcessingConsent()}
@@ -868,7 +1278,13 @@ export function AssistantSidebar() {
       <AIConsentDialog
         purpose={voiceOutputConsentOpen ? 'azure-speech' : null}
         open={voiceOutputConsentOpen}
-        onOpenChange={setVoiceOutputConsentOpen}
+        onOpenChange={(open) => {
+          setVoiceOutputConsentOpen(open);
+          if (!open && pendingVoiceChatStartRef.current) {
+            pendingVoiceChatStartRef.current = false;
+            setVoiceChatError('Azure speech permission was not granted. Voice Chat did not start; switch to Normal Chat to keep using text.');
+          }
+        }}
         redactionConfirmed={true}
         onConfirm={() => void saveVoiceOutputConsent()}
         saving={voiceOutputConsentSaving}
