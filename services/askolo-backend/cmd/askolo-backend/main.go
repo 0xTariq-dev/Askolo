@@ -27,7 +27,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	store, err := postgres.New(ctx, cfg.DatabaseURL)
+	store, err := postgres.NewForEnvironment(ctx, cfg.DatabaseURL, cfg.Environment)
 	if err != nil {
 		logger.Error("database initialization failed", "error", err)
 		os.Exit(1)

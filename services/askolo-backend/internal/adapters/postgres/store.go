@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -138,12 +139,24 @@ type ProviderIdentity struct {
 }
 
 func New(ctx context.Context, databaseURL string) (*Store, error) {
+	return NewForEnvironment(ctx, databaseURL, "development")
+}
+
+// NewForEnvironment applies production-only database connection safeguards
+// while preserving the existing development/test constructor behavior.
+func NewForEnvironment(ctx context.Context, databaseURL, environment string) (*Store, error) {
 	if strings.TrimSpace(databaseURL) == "" {
 		return nil, nil
 	}
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse database configuration: %w", err)
+	}
+	production := strings.EqualFold(strings.TrimSpace(environment), "production")
+	if production {
+		if err := validateProductionTLSConfig(config); err != nil {
+			return nil, err
+		}
 	}
 	config.MaxConns = 8
 	config.MinConns = 1
@@ -157,7 +170,38 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
+	if production {
+		if err := verifyProductionTLSConnection(pingContext, pool); err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
 	return &Store{pool: pool}, nil
+}
+
+func validateProductionTLSConfig(config *pgxpool.Config) error {
+	if config == nil || config.ConnConfig == nil || config.ConnConfig.TLSConfig == nil {
+		return errors.New("production database connection must require TLS")
+	}
+	for _, fallback := range config.ConnConfig.Fallbacks {
+		if fallback == nil || fallback.TLSConfig == nil {
+			return errors.New("production database connection must not allow plaintext TLS fallback")
+		}
+	}
+	return nil
+}
+
+func verifyProductionTLSConnection(ctx context.Context, pool *pgxpool.Pool) error {
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		return errors.New("could not verify production database TLS connection")
+	}
+	defer connection.Release()
+	tlsConnection, ok := connection.Conn().PgConn().Conn().(*tls.Conn)
+	if !ok || !tlsConnection.ConnectionState().HandshakeComplete {
+		return errors.New("production database connection did not negotiate TLS")
+	}
+	return nil
 }
 
 func (s *Store) Close() {
