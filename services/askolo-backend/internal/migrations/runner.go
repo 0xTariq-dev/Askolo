@@ -148,17 +148,8 @@ func run(ctx context.Context, pool *pgxpool.Pool, migrations []Migration) error 
 		}
 	}
 	if len(applied) > 0 && storedFingerprint != "" {
-		var current string
-		if strings.HasPrefix(storedFingerprint, fingerprintPrefix) {
-			current, err = fingerprint(ctx, tx)
-		} else if strings.HasPrefix(storedFingerprint, "inventory-") {
-			return fmt.Errorf("unsupported schema fingerprint version %q", strings.SplitN(storedFingerprint, ":", 2)[0])
-		} else {
-			// Histories created before inventory-v1 used the legacy,
-			// narrower columns/constraints/indexes fingerprint. It remains
-			// only to let those histories advance; adoption never trusts it.
-			current, err = legacyFingerprint(ctx, tx)
-		}
+		current, fingerprintErr := fingerprintForStoredVersion(ctx, tx, storedFingerprint)
+		err = fingerprintErr
 		if err != nil {
 			return err
 		}
@@ -242,6 +233,9 @@ var archivedWorkspaceBaselineContract = workspaceBaselineContract{
 const fingerprintPrefix = "inventory-v1:"
 const logicalFingerprintPrefix = "inventory-v2:"
 const workspaceFingerprintPrefix = "workspace-inventory-v1:"
+const askoloV2FingerprintPrefix = "askolo-schema-set-v1:"
+const askoloV2MigrationVersion = 16
+const askoloV2SchemaToken = "@ASKOLO_V2_SCHEMA@"
 
 func ValidateBaseline(ctx context.Context, tx pgx.Tx) error {
 	if archiveBaselineContract.Fingerprint == "" {
@@ -382,6 +376,16 @@ func runOne(ctx context.Context, conn *pgxpool.Conn, m Migration) error {
 	// Keep production behavior unchanged while allowing schema-isolated
 	// disposable tests (and restores) to use their own search_path.
 	sqlText := strings.ReplaceAll(m.SQL, `REFERENCES "public".`, `REFERENCES `)
+	if strings.Contains(sqlText, askoloV2SchemaToken) {
+		var sourceSchema string
+		if err := tx.QueryRow(ctx, `SELECT current_schema()`).Scan(&sourceSchema); err != nil {
+			return fmt.Errorf("resolve target schema for migration %04d: %w", m.Version, err)
+		}
+		sqlText = strings.ReplaceAll(sqlText, askoloV2SchemaToken, quoteIdentifier(askoloV2SchemaName(sourceSchema)))
+		if strings.Contains(sqlText, askoloV2SchemaToken) {
+			return fmt.Errorf("migration %04d has an unresolved schema token", m.Version)
+		}
+	}
 	if m.Name == "0002_ai_credit_contract" {
 		// The migration source is checksum-protected history. Its constraint
 		// guards query pg_constraint by name alone, but constraint names can
@@ -404,7 +408,29 @@ func runOne(ctx context.Context, conn *pgxpool.Conn, m Migration) error {
 			return fmt.Errorf("migration %04d workspace schema differs from pinned contract (rolled back): got %s", m.Version, actualWorkspace)
 		}
 	}
-	fp, err := fingerprint(ctx, tx)
+	var fp string
+	useAskoloV2Fingerprint := false
+	if m.Version >= askoloV2MigrationVersion {
+		var sourceSchema string
+		if err := tx.QueryRow(ctx, `SELECT current_schema()`).Scan(&sourceSchema); err != nil {
+			return fmt.Errorf("resolve fingerprint source schema: %w", err)
+		}
+		var targetExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pg_namespace WHERE nspname = $1
+		)`, askoloV2SchemaName(sourceSchema)).Scan(&targetExists); err != nil {
+			return fmt.Errorf("check public_v2 target schema: %w", err)
+		}
+		useAskoloV2Fingerprint = targetExists
+		if strings.Contains(m.SQL, askoloV2SchemaToken) && !targetExists {
+			return fmt.Errorf("migration %04d did not create its target schema", m.Version)
+		}
+	}
+	if useAskoloV2Fingerprint {
+		fp, err = askoloV2Fingerprint(ctx, tx)
+	} else {
+		fp, err = fingerprint(ctx, tx)
+	}
 	if err != nil {
 		return err
 	}
@@ -463,6 +489,79 @@ func fingerprint(ctx context.Context, tx pgx.Tx) (string, error) {
 	return inventoryFingerprint(ctx, tx, true, false, nil, fingerprintPrefix)
 }
 
+func fingerprintForStoredVersion(ctx context.Context, tx pgx.Tx, stored string) (string, error) {
+	switch {
+	case strings.HasPrefix(stored, askoloV2FingerprintPrefix):
+		return askoloV2Fingerprint(ctx, tx)
+	case strings.HasPrefix(stored, fingerprintPrefix):
+		return fingerprint(ctx, tx)
+	case strings.HasPrefix(stored, "inventory-"):
+		return "", fmt.Errorf("unsupported schema fingerprint version %q", strings.SplitN(stored, ":", 2)[0])
+	default:
+		// Histories created before inventory-v1 used the legacy, narrower
+		// columns/constraints/indexes fingerprint. It remains only to let
+		// those histories advance; adoption never trusts it.
+		return legacyFingerprint(ctx, tx)
+	}
+}
+
+func askoloV2Fingerprint(ctx context.Context, tx pgx.Tx) (string, error) {
+	var sourceSchema string
+	var originalSearchPath string
+	if err := tx.QueryRow(ctx, `SELECT current_schema(), current_setting('search_path')`).
+		Scan(&sourceSchema, &originalSearchPath); err != nil {
+		return "", err
+	}
+	targetSchema := askoloV2SchemaName(sourceSchema)
+	var targetExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_namespace WHERE nspname = $1
+	)`, targetSchema).Scan(&targetExists); err != nil {
+		return "", err
+	}
+	if !targetExists {
+		return "", fmt.Errorf("target schema %q is missing", targetSchema)
+	}
+	sourceInventory, err := inventoryFingerprintForSchema(ctx, tx, sourceSchema, true, false, nil, "")
+	if err != nil {
+		return "", fmt.Errorf("fingerprint source schema: %w", err)
+	}
+	targetInventory, err := inventoryFingerprintForSchema(ctx, tx, targetSchema, true, false, nil, "")
+	if err != nil {
+		return "", fmt.Errorf("fingerprint public_v2 schema: %w", err)
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "source\x00%s\npublic_v2\x00%s\n", sourceInventory, targetInventory)
+	if _, err := tx.Exec(ctx, `SELECT set_config('search_path', $1, true)`, originalSearchPath); err != nil {
+		return "", fmt.Errorf("restore source search_path after schema fingerprint: %w", err)
+	}
+	return askoloV2FingerprintPrefix + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func askoloV2SchemaName(sourceSchema string) string {
+	if sourceSchema == "public" {
+		return "public_v2"
+	}
+	const suffix = "_public_v2"
+	const maxIdentifierBytes = 63
+	if len(sourceSchema)+len(suffix) <= maxIdentifierBytes {
+		return sourceSchema + suffix
+	}
+	sum := sha256.Sum256([]byte(sourceSchema))
+	hash := hex.EncodeToString(sum[:4])
+	prefixLimit := maxIdentifierBytes - len(suffix) - len(hash) - 1
+	prefix := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			return r
+		}
+		return '_'
+	}, sourceSchema)
+	if len(prefix) > prefixLimit {
+		prefix = prefix[:prefixLimit]
+	}
+	return prefix + "_" + hash + suffix
+}
+
 // logicalFingerprint is used only to verify archived schema adoption. It
 // compares columns by table and name while retaining every other inventory
 // property. Persisted runner fingerprints remain inventory-v1 and
@@ -486,6 +585,13 @@ func inventoryFingerprint(ctx context.Context, tx pgx.Tx, includeColumnOrdinal, 
 	}
 	if schema == "" {
 		return "", errors.New("cannot fingerprint schema: no current schema is selected")
+	}
+	return inventoryFingerprintForSchema(ctx, tx, schema, includeColumnOrdinal, filterWorkspace, workspaceTables, prefix)
+}
+
+func inventoryFingerprintForSchema(ctx context.Context, tx pgx.Tx, schema string, includeColumnOrdinal, filterWorkspace bool, workspaceTables []string, prefix string) (string, error) {
+	if schema == "" {
+		return "", errors.New("cannot fingerprint schema: no schema was selected")
 	}
 	// Deparser output depends on search_path. Pin it to the target schema for
 	// the duration of this transaction so the digest is stable across callers

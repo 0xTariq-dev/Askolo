@@ -54,13 +54,33 @@ encoded_socket_dir="${socket_dir//\//%2F}"
 database_url="postgresql://$db_user@/postgres?host=$encoded_socket_dir&port=5432"
 
 # Never let the normal application database URL become an integration-test
-# target. The test suite receives only this script's disposable local URL.
+# target. Run the complete database-backed Go suite against this disposable
+# local PostgreSQL instance so its schema fixtures cannot persist elsewhere.
 env -u DATABASE_URL ASKOLO_TEST_DATABASE_URL="$database_url" \
-  go test ./internal/migrations -count=1
+  go test -buildvcs=true -p 1 -count=1 ./...
 
 # Exercise explicit target selection, including the restore gate, against this
-# disposable database only.
-if output="$(env -u ASKOLO_MIGRATION_APPROVED DATABASE_URL="$database_url" \
+# disposable database only. The CLI uses a dedicated URL, never DATABASE_URL.
+if output="$(env ASKOLO_MIGRATION_DATABASE_URL="$database_url" DATABASE_URL= \
+  go run ./cmd/askolo-migrate -target production 2>&1)"; then
+  echo "production target unexpectedly ran" >&2
+  exit 1
+elif [[ "$output" != *"invalid migration target"* ]]; then
+  echo "$output" >&2
+  echo "production-target refusal failed for an unexpected reason" >&2
+  exit 1
+fi
+if output="$(env ASKOLO_MIGRATION_DATABASE_URL="$database_url" DATABASE_URL="$database_url" \
+  go run ./cmd/askolo-migrate -target development 2>&1)"; then
+  echo "application DATABASE_URL unexpectedly ran migrations" >&2
+  exit 1
+elif [[ "$output" != *"refusing to run migrations against the application DATABASE_URL"* ]]; then
+  echo "$output" >&2
+  echo "application DATABASE_URL refusal failed for an unexpected reason" >&2
+  exit 1
+fi
+if output="$(env -u ASKOLO_MIGRATION_APPROVED \
+  ASKOLO_MIGRATION_DATABASE_URL="$database_url" DATABASE_URL= \
   go run ./cmd/askolo-migrate -target restore 2>&1)"; then
   echo "restore target unexpectedly ran without explicit approval" >&2
   exit 1
@@ -70,8 +90,9 @@ elif [[ "$output" != *"refusing restore target without ASKOLO_MIGRATION_APPROVED
   exit 1
 fi
 
-env DATABASE_URL="$database_url" go run ./cmd/askolo-migrate -target development
-env DATABASE_URL="$database_url" ASKOLO_MIGRATION_APPROVED=yes \
+env ASKOLO_MIGRATION_DATABASE_URL="$database_url" DATABASE_URL= \
+  go run ./cmd/askolo-migrate -target development
+env ASKOLO_MIGRATION_DATABASE_URL="$database_url" DATABASE_URL= ASKOLO_MIGRATION_APPROVED=yes \
   go run ./cmd/askolo-migrate -target restore
 
 echo "Disposable PostgreSQL migration and restore-target checks passed"

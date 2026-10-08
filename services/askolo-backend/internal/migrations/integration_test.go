@@ -33,7 +33,7 @@ func TestRunDisposableDatabase(t *testing.T) {
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(schema)+` CASCADE`)
+	defer dropMigrationTestSchemas(admin, schema)
 
 	testURL := migrationSchemaURL(t, baseURL, schema)
 	pool, err := pgxpool.New(ctx, testURL)
@@ -80,6 +80,47 @@ ON CONFLICT (bucket_hash) DO NOTHING
 		t.Fatalf("shared auth rate-limit bucket is not unique: rows=%d err=%v", secondRateLimitInsert.RowsAffected(), err)
 	}
 	assertCurrentMigrationVersions(t, ctx, pool)
+	v2Schema := askoloV2SchemaName(schema)
+	var v2TableCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM information_schema.tables
+		WHERE table_schema = $1
+		  AND table_name IN (
+		    'workspaces', 'workspace_memberships', 'plan_catalog',
+		    'workspace_subscriptions', 'workspace_subscription_seats',
+		    'workspace_member_credit_limits', 'ai_credit_accounts',
+		    'ai_credit_grants', 'ai_credit_grant_balances',
+		    'ai_credit_reservation_allocations', 'integration_connections'
+		  )`, v2Schema).Scan(&v2TableCount); err != nil {
+		t.Fatalf("inspect versioned workspace schema: %v", err)
+	}
+	if v2TableCount != 11 {
+		t.Fatalf("public_v2 required table count = %d, want 11", v2TableCount)
+	}
+	var seededPlanCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+quoteMigrationIdentifier(v2Schema)+`.plan_catalog`).Scan(&seededPlanCount); err != nil {
+		t.Fatalf("check that plan allowances remain unseeded: %v", err)
+	}
+	if seededPlanCount != 0 {
+		t.Fatalf("plan catalog contains %d rows; schema design must not invent prices or allowances", seededPlanCount)
+	}
+	var accountMemberColumns, connectionWorkspaceColumns, privateScopeColumns int
+	if err := pool.QueryRow(ctx, `
+		SELECT
+		  count(*) FILTER (WHERE table_name='ai_credit_accounts' AND column_name='member_user_id'),
+		  count(*) FILTER (WHERE table_name='integration_connections' AND column_name='workspace_id'),
+		  count(*) FILTER (WHERE table_name='integration_connections' AND column_name='availability_scope')
+		FROM information_schema.columns
+		WHERE table_schema=$1
+		  AND table_name IN ('ai_credit_accounts', 'integration_connections')`,
+		v2Schema).Scan(&accountMemberColumns, &connectionWorkspaceColumns, &privateScopeColumns); err != nil {
+		t.Fatalf("inspect shared credit and private integration ownership: %v", err)
+	}
+	if accountMemberColumns != 0 || connectionWorkspaceColumns != 0 || privateScopeColumns != 1 {
+		t.Fatalf("v2 ownership columns: account-member=%d connection-workspace=%d private-scope=%d",
+			accountMemberColumns, connectionWorkspaceColumns, privateScopeColumns)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('sentinel', 'sentinel@example.test')`); err != nil {
 		t.Fatalf("insert sentinel user: %v", err)
 	}
@@ -125,6 +166,19 @@ ON CONFLICT (bucket_hash) DO NOTHING
 	}
 	if err := ValidateReady(ctx, pool); err == nil || !strings.Contains(err.Error(), "schema drift") {
 		t.Fatalf("drift readiness error = %v, want schema drift", err)
+	}
+	if _, err := pool.Exec(ctx, `DROP INDEX migration_drift_idx`); err != nil {
+		t.Fatalf("remove source-schema drift index: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE INDEX `+quoteMigrationIdentifier("v2_drift_idx")+
+		` ON `+quoteMigrationIdentifier(v2Schema)+`.plan_catalog (plan_code)`); err != nil {
+		t.Fatalf("induce public_v2 index drift: %v", err)
+	}
+	if err := Run(ctx, pool); err == nil || !strings.Contains(err.Error(), "schema drift") {
+		t.Fatalf("public_v2 drift run error = %v, want schema drift", err)
+	}
+	if err := ValidateReady(ctx, pool); err == nil || !strings.Contains(err.Error(), "schema drift") {
+		t.Fatalf("public_v2 drift readiness error = %v, want schema drift", err)
 	}
 }
 
@@ -185,6 +239,40 @@ func TestProductionSchemaCompatibilityDoesNotRequireMigrationLedger(t *testing.T
 	}
 }
 
+func TestOperationalReadinessExcludesTheStagedPublicV2Migration(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "operational_readiness")
+	migrations, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if len(migrations) < askoloV2MigrationVersion {
+		t.Fatalf("migration list has %d entries, need the active pre-v2 prefix of %d",
+			len(migrations), askoloV2MigrationVersion)
+	}
+	if err := run(ctx, pool, migrations[:askoloV2MigrationVersion]); err != nil {
+		t.Fatalf("apply active API migration prefix: %v", err)
+	}
+	if err := ValidateOperationalReady(ctx, pool); err != nil {
+		t.Fatalf("operational readiness for active schema: %v", err)
+	}
+	if err := ValidateReady(ctx, pool); err == nil ||
+		!strings.Contains(err.Error(), "migration history is incomplete") {
+		t.Fatalf("full migration readiness = %v, want staged v2 migration to remain unapplied", err)
+	}
+	if err := run(ctx, pool, migrations); err != nil {
+		t.Fatalf("apply staged public_v2 migration: %v", err)
+	}
+	if err := ValidateOperationalReady(ctx, pool); err != nil {
+		t.Fatalf("operational readiness after public_v2 migration: %v", err)
+	}
+	if err := ValidateReady(ctx, pool); err != nil {
+		t.Fatalf("full readiness after public_v2 migration: %v", err)
+	}
+}
+
 func TestRunScopesConstraintLookupsToTheTargetSchema(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
 	if baseURL == "" {
@@ -204,7 +292,7 @@ func TestRunScopesConstraintLookupsToTheTargetSchema(t *testing.T) {
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(targetSchema)); err != nil {
 		t.Fatalf("create target schema: %v", err)
 	}
-	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(targetSchema)+` CASCADE`)
+	defer dropMigrationTestSchemas(admin, targetSchema)
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(shadowSchema)); err != nil {
 		t.Fatalf("create shadow schema: %v", err)
 	}
@@ -261,7 +349,7 @@ func TestRunRejectsTamperedHistoryBeforeWrites(t *testing.T) {
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(schema)+` CASCADE`)
+	defer dropMigrationTestSchemas(admin, schema)
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
 		t.Fatalf("open schema pool: %v", err)
@@ -297,7 +385,7 @@ func TestRunOneRollsBackFailedSQLAndCanRetry(t *testing.T) {
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(schema)+` CASCADE`)
+	defer dropMigrationTestSchemas(admin, schema)
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
 		t.Fatalf("open schema pool: %v", err)
@@ -347,7 +435,7 @@ func TestRunConcurrentCallsSerialize(t *testing.T) {
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(schema)+` CASCADE`)
+	defer dropMigrationTestSchemas(admin, schema)
 	testURL := migrationSchemaURL(t, baseURL, schema)
 	first, err := pgxpool.New(ctx, testURL)
 	if err != nil {
@@ -433,6 +521,13 @@ func TestRunAndReadinessAsLeastPrivilegedSchemaOwner(t *testing.T) {
 		_, _ = admin.Exec(context.Background(), `DROP OWNED BY `+quoteMigrationIdentifier(role))
 		_, _ = admin.Exec(context.Background(), `DROP ROLE `+quoteMigrationIdentifier(role))
 	}()
+	var databaseName string
+	if err := admin.QueryRow(ctx, `SELECT current_database()`).Scan(&databaseName); err != nil {
+		t.Fatalf("read disposable test database name: %v", err)
+	}
+	if _, err := admin.Exec(ctx, `GRANT CREATE ON DATABASE `+quoteMigrationIdentifier(databaseName)+` TO `+quoteMigrationIdentifier(role)); err != nil {
+		t.Skipf("test database cannot grant the schema-creation privilege required by the v2 migration: %v", err)
+	}
 	if _, err := admin.Exec(ctx, `GRANT USAGE, CREATE ON SCHEMA `+quoteMigrationIdentifier(schema)+` TO `+quoteMigrationIdentifier(role)); err != nil {
 		t.Fatalf("grant schema-only migration privileges: %v", err)
 	}
@@ -583,7 +678,7 @@ func TestLedgerMigrationAddsMissingCounterAndEnforcesContract(t *testing.T) {
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(schema)+` CASCADE`)
+	defer dropMigrationTestSchemas(admin, schema)
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
 		t.Fatalf("open schema pool: %v", err)
@@ -1095,8 +1190,8 @@ func TestRunAdvancesLegacyFingerprintHistory(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT schema_fingerprint FROM askolo_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&stored); err != nil {
 		t.Fatalf("read new versioned fingerprint: %v", err)
 	}
-	if !strings.HasPrefix(stored, fingerprintPrefix) {
-		t.Fatalf("new migration stored fingerprint %q, want prefix %q", stored, fingerprintPrefix)
+	if !strings.HasPrefix(stored, askoloV2FingerprintPrefix) {
+		t.Fatalf("new migration stored fingerprint %q, want prefix %q", stored, askoloV2FingerprintPrefix)
 	}
 }
 
@@ -1122,16 +1217,22 @@ func openMigrationTestSchema(t *testing.T, ctx context.Context, baseURL, purpose
 	}
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
-		_, _ = admin.Exec(ctx, `DROP SCHEMA `+quoteMigrationIdentifier(schema)+` CASCADE`)
+		dropMigrationTestSchemas(admin, schema)
 		admin.Close()
 		t.Fatalf("open schema-isolated pool: %v", err)
 	}
 	t.Cleanup(func() {
 		pool.Close()
-		_, _ = admin.Exec(context.Background(), `DROP SCHEMA `+quoteMigrationIdentifier(schema)+` CASCADE`)
+		dropMigrationTestSchemas(admin, schema)
 		admin.Close()
 	})
 	return admin, pool, schema
+}
+
+func dropMigrationTestSchemas(admin *pgxpool.Pool, sourceSchema string) {
+	ctx := context.Background()
+	_, _ = admin.Exec(ctx, `DROP SCHEMA IF EXISTS `+quoteMigrationIdentifier(askoloV2SchemaName(sourceSchema))+` CASCADE`)
+	_, _ = admin.Exec(ctx, `DROP SCHEMA IF EXISTS `+quoteMigrationIdentifier(sourceSchema)+` CASCADE`)
 }
 
 func applyUntrackedBaseline(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

@@ -10,6 +10,8 @@ import (
 
 type V2Workspace struct {
 	ID            string
+	OwnerUserID   string
+	OwnerRole     string
 	Name          string
 	Status        string
 	IsPersonal    bool
@@ -20,16 +22,16 @@ type V2Workspace struct {
 }
 
 type V2WorkspaceMembership struct {
-	ID             string
-	WorkspaceID    string
-	UserID         string
-	Role           string
-	Status         string
-	InvitedByUser  *string
-	JoinedAt       *time.Time
-	RevokedAt      *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID            string
+	WorkspaceID   string
+	UserID        string
+	Role          string
+	Status        string
+	InvitedByUser *string
+	JoinedAt      *time.Time
+	RevokedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type V2WorkspaceMemberPermission struct {
@@ -40,6 +42,64 @@ type V2WorkspaceMemberPermission struct {
 	UpdatedAt     time.Time
 }
 
+type V2PlanCatalog struct {
+	ID                string
+	BillingModel      string
+	PlanCode          string
+	IncludedCredits   int64
+	PriceCurrency     string
+	PriceMicros       int64
+	BillingPeriodDays int16
+	EffectiveFrom     time.Time
+	EffectiveUntil    *time.Time
+	CreatedAt         time.Time
+}
+
+type V2WorkspaceSubscription struct {
+	ID                 string
+	WorkspaceID        string
+	BillingOwnerUserID string
+	BillingModel       string
+	Status             string
+	BillingPeriodStart time.Time
+	BillingPeriodEnd   time.Time
+	CancelAtPeriodEnd  bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type V2WorkspaceSubscriptionSeat struct {
+	ID                      string
+	WorkspaceID             string
+	SubscriptionID          string
+	MembershipID            string
+	BillingModel            string
+	PlanID                  string
+	SeatSource              string
+	Status                  string
+	IncludedCreditsSnapshot int64
+	PriceMicrosSnapshot     int64
+	TrialStartedAt          *time.Time
+	TrialEndsAt             *time.Time
+	BillingPeriodStart      time.Time
+	BillingPeriodEnd        time.Time
+	PaidThroughAt           time.Time
+	EndedAt                 *time.Time
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
+type V2WorkspaceMemberCreditLimit struct {
+	WorkspaceID          string
+	UserID               string
+	PeriodStart          time.Time
+	PeriodEnd            time.Time
+	SpendingLimitCredits int64
+	ChangedByUserID      string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
 type V2MemberPreferences struct {
 	UserID          string
 	PreferredLocale *string
@@ -48,20 +108,20 @@ type V2MemberPreferences struct {
 }
 
 type V2MemberAIPreferences struct {
-	UserID                          string
-	Retention                       string
-	RecordedVoiceInputConsentAt     *time.Time
-	RecordedVoiceInputConsentVersion *string
-	AssistantProcessingConsentAt    *time.Time
+	UserID                            string
+	Retention                         string
+	ConsentAt                         *time.Time
+	ConsentVersion                    *string
+	AssistantProcessingConsentAt      *time.Time
 	AssistantProcessingConsentVersion *string
-	LiveVoiceConsentAt              *time.Time
-	LiveVoiceConsentVersion         *string
-	LiveVoiceName                   string
-	RedactionLocation               *string
-	SpokenReplyConsentAt            *time.Time
-	SpokenReplyConsentVersion       *string
-	AutoSpeakEnabled                bool
-	UpdatedAt                       time.Time
+	LiveAgentConsentAt                *time.Time
+	LiveAgentConsentVersion           *string
+	LiveAgentVoice                    string
+	RedactionLocation                 *string
+	VoiceOutputConsentAt              *time.Time
+	VoiceOutputConsentVersion         *string
+	AutoSpeakEnabled                  bool
+	UpdatedAt                         time.Time
 }
 
 type V2Habit struct {
@@ -204,13 +264,13 @@ type V2AssistantConversation struct {
 }
 
 type V2AssistantMessage struct {
-	ID           string
-	WorkspaceID  string
+	ID             string
+	WorkspaceID    string
 	ConversationID string
-	SenderUserID *string
-	Role         string
-	Content      string
-	CreatedAt    time.Time
+	SenderUserID   *string
+	Role           string
+	Content        string
+	CreatedAt      time.Time
 }
 
 type V2AssistantRun struct {
@@ -245,114 +305,127 @@ type V2AssistantRun struct {
 }
 
 type V2AssistantAuditEvent struct {
-	ID                string
-	WorkspaceID       string
-	RunID             string
-	MemberUserID      string
-	EventType         string
-	TranscriptSHA256  *string
-	IntentSHA256      *string
-	ToolName          *string
-	ToolArgsSHA256    *string
-	ResultResourceID  *string
-	CreatedAt         time.Time
+	ID               string
+	WorkspaceID      string
+	RunID            string
+	MemberUserID     string
+	EventType        string
+	TranscriptSHA256 *string
+	IntentSHA256     *string
+	ToolName         *string
+	ToolArgsSHA256   *string
+	ResultResourceID *string
+	CreatedAt        time.Time
 }
 
 type V2AICreditPolicyVersion struct {
-	Version                int
-	OperationWeights       json.RawMessage
-	RateCards              json.RawMessage
-	MonthlyGrantCredits    int64
-	RolloverCapCredits     int64
-	RolloverExpiryDays     int
-	OverrunMarginPercent   int
-	MonthlyGrantUSDMicros  int64
-	RolloverCapUSDMicros   int64
-	CreatedByUserID        *string
-	ChangeReason           string
-	CreatedAt              time.Time
+	Version              int
+	OperationWeights     json.RawMessage
+	RateCards            json.RawMessage
+	OverrunMarginPercent int
+	CreatedByUserID      *string
+	ChangeReason         string
+	CreatedAt            time.Time
 }
 
 type V2AICreditAccount struct {
-	WorkspaceID           string
-	MemberUserID          string
-	GrantedCredits        int64
-	AdjustmentCredits     int64
-	ReservedCredits       int64
-	SpentCredits          int64
-	RefundedCredits       int64
-	GrantedUSDMicros      int64
-	AdjustmentUSDMicros   int64
-	ReservedUSDMicros     int64
-	SpentUSDMicros        int64
-	RefundedUSDMicros     int64
-	UpdatedAt             time.Time
+	WorkspaceID       string
+	GrantedCredits    int64
+	AdjustmentCredits int64
+	ReservedCredits   int64
+	SpentCredits      int64
+	RefundedCredits   int64
+	ReservedUSDMicros int64
+	SpentUSDMicros    int64
+	RefundedUSDMicros int64
+	UpdatedAt         time.Time
 }
 
 type V2AICreditGrant struct {
-	ID                  string
-	WorkspaceID         string
-	MemberUserID        string
-	ActorUserID         *string
-	SourceType          string
-	AmountCredits       int64
-	AmountUSDMicros     int64
-	Currency            string
-	EntitlementKey      *string
-	IdempotencyKeyHash  string
-	Metadata            json.RawMessage
-	CreatedAt           time.Time
+	ID                 string
+	WorkspaceID        string
+	SubscriptionSeatID *string
+	ActorUserID        *string
+	SourceType         string
+	AmountCredits      int64
+	EntitlementKey     *string
+	ExpiresAt          *time.Time
+	IdempotencyKeyHash string
+	Metadata           json.RawMessage
+	CreatedAt          time.Time
+}
+
+type V2AICreditGrantBalance struct {
+	WorkspaceID      string
+	GrantID          string
+	AvailableCredits int64
+	ReservedCredits  int64
+	SpentCredits     int64
+	RefundedCredits  int64
+	ExpiredCredits   int64
+	UpdatedAt        time.Time
 }
 
 type V2AICreditAdjustment struct {
-	ID                    string
-	WorkspaceID           string
-	MemberUserID          string
-	ActorUserID           string
-	AmountCredits         int64
-	AmountUSDMicros       int64
-	Currency              string
-	Reason                string
-	IdempotencyKeyHash    string
-	ReversalOfID          *string
-	ReversalOfGrantID     *string
-	Metadata              json.RawMessage
-	CreatedAt             time.Time
+	ID                 string
+	WorkspaceID        string
+	ActorUserID        string
+	AmountCredits      int64
+	Reason             string
+	IdempotencyKeyHash string
+	ReversalOfID       *string
+	ReversalOfGrantID  *string
+	Metadata           json.RawMessage
+	CreatedAt          time.Time
 }
 
 type V2AICreditReservation struct {
-	ID                    string
-	WorkspaceID           string
-	MemberUserID          string
-	OperationType         string
-	Provider              string
-	Mode                  string
-	Model                 *string
-	Status                string
-	IdempotencyKeyHash    string
-	RequestFingerprint    *string
-	Currency              string
-	ReservedCredits       int64
-	SettledCredits        int64
-	RefundedCredits       int64
-	ReservedUSDMicros     int64
-	SettledUSDMicros      int64
-	RefundedUSDMicros     int64
-	MaxCredits            *int64
-	MaxUSDMicros          *int64
-	UnitRate              int64
-	DurationSeconds       *int64
-	ConnectedDurationMS   *int64
-	PolicyVersion         int
-	RateSnapshot          json.RawMessage
-	ExpiresAt             *time.Time
-	ProviderTokenHash     *string
-	ProviderTokenUsedAt   *time.Time
-	Metadata              json.RawMessage
-	StartedAt             time.Time
-	ClosedAt              *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                     string
+	WorkspaceID            string
+	MemberUserID           string
+	OperationType          string
+	Provider               string
+	Mode                   string
+	Model                  *string
+	Status                 string
+	IdempotencyKeyHash     string
+	RequestFingerprint     *string
+	Currency               string
+	CreditLimitPeriodStart *time.Time
+	ReservedCredits        int64
+	SettledCredits         int64
+	RefundedCredits        int64
+	ReservedUSDMicros      int64
+	SettledUSDMicros       int64
+	RefundedUSDMicros      int64
+	MaxCredits             *int64
+	MaxUSDMicros           *int64
+	UnitRate               int64
+	DurationSeconds        *int64
+	ConnectedDurationMS    *int64
+	PolicyVersion          int
+	RateSnapshot           json.RawMessage
+	ExpiresAt              *time.Time
+	ProviderTokenHash      *string
+	ProviderTokenUsedAt    *time.Time
+	Metadata               json.RawMessage
+	StartedAt              time.Time
+	ClosedAt               *time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+type V2AICreditReservationAllocation struct {
+	ID              string
+	WorkspaceID     string
+	MemberUserID    string
+	ReservationID   string
+	GrantID         string
+	ReservedCredits int64
+	SettledCredits  int64
+	RefundedCredits int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type V2AICreditReservationEvent struct {
@@ -391,36 +464,36 @@ type V2AIProviderUsageEvidence struct {
 }
 
 type V2IntegrationConnection struct {
-	ID                 string
-	WorkspaceID        string
-	ConnectedByUserID  string
-	Provider           string
-	AccountLabel       *string
-	Status             string
-	GrantedScopes      []string
-	Capabilities       []string
-	CredentialRefID    *string
-	RevokedAt          *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                string
+	OwnerUserID       string
+	Provider          string
+	AccountLabel      *string
+	Status            string
+	GrantedScopes     []string
+	Capabilities      []string
+	AvailabilityScope string
+	CredentialRefID   *string
+	RevokedAt         *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type V2IntegrationDefault struct {
-	WorkspaceID  string
+	UserID       string
 	Service      string
 	ConnectionID string
 	UpdatedAt    time.Time
 }
 
 type V2IntegrationSyncState struct {
-	WorkspaceID  string
-	ConnectionID string
-	Service      string
-	SyncCursor   *string
-	LastSyncAt   *time.Time
-	Status       string
+	UserID        string
+	ConnectionID  string
+	Service       string
+	SyncCursor    *string
+	LastSyncAt    *time.Time
+	Status        string
 	LastErrorCode *string
-	UpdatedAt    time.Time
+	UpdatedAt     time.Time
 }
 
 type V2AgendaItem struct {
@@ -437,10 +510,10 @@ type V2AgendaItem struct {
 }
 
 type V2WorkspaceOverview struct {
-	WorkspaceID      string
-	ActiveHabits     int64
-	ActiveGoals      int64
-	UpcomingEvents   int64
-	OpenChores       int64
-	OpenActionItems  int64
+	WorkspaceID     string
+	ActiveHabits    int64
+	ActiveGoals     int64
+	UpcomingEvents  int64
+	OpenChores      int64
+	OpenActionItems int64
 }

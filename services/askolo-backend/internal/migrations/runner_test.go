@@ -174,3 +174,21 @@ func TestNormalizeSchemaReferenceRemovesOnlyTargetQualification(t *testing.T) {
 		t.Fatalf("normalized schema reference = %q, want %q", got, want)
 	}
 }
+
+func TestAskoloV2SchemaNameIsDedicatedAndDerivedForIsolatedNamespaces(t *testing.T) {
+	if got := askoloV2SchemaName("public"); got != "public_v2" {
+		t.Fatalf("production-style target schema = %q, want public_v2", got)
+	}
+	first := askoloV2SchemaName("askolo_migrations_first")
+	second := askoloV2SchemaName("askolo_migrations_second")
+	if first == second || first == "public_v2" || second == "public_v2" {
+		t.Fatalf("isolated target namespaces collide or use the fixed public_v2 name: %q, %q", first, second)
+	}
+	long := askoloV2SchemaName(strings.Repeat("x", 70))
+	if len(long) > 63 {
+		t.Fatalf("derived schema name has %d bytes, exceeds PostgreSQL's 63-byte limit", len(long))
+	}
+	if long != askoloV2SchemaName(strings.Repeat("x", 70)) {
+		t.Fatal("long derived schema name is not deterministic")
+	}
+}

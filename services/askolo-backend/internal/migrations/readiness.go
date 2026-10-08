@@ -10,9 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ValidateReady is a read-only check for release and health gates. It requires
-// the complete embedded migration prefix and verifies that the current schema
-// still matches the fingerprint recorded by the latest migration.
+// ValidateReady checks the complete embedded migration set. It is used by the
+// explicit migration runner and disposable-database validation.
 func ValidateReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if pool == nil {
 		return errors.New("migration readiness unavailable: database is not configured")
@@ -21,8 +20,36 @@ func ValidateReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("load migration set: %w", err)
 	}
+	return validateReadyWithMigrations(ctx, pool, expected)
+}
+
+// ValidateOperationalReady keeps runtime health checks on the active schema
+// contract while the public_v2 design remains staged and not yet promoted.
+func ValidateOperationalReady(ctx context.Context, pool *pgxpool.Pool) error {
+	if pool == nil {
+		return errors.New("migration readiness unavailable: database is not configured")
+	}
+	expected, err := Load(SQL)
+	if err != nil {
+		return fmt.Errorf("load migration set: %w", err)
+	}
+	if len(expected) < askoloV2MigrationVersion {
+		return fmt.Errorf("active migration prefix is incomplete: have %d versions, need %d",
+			len(expected), askoloV2MigrationVersion)
+	}
+	return validateReadyWithMigrationPrefix(ctx, pool, expected, askoloV2MigrationVersion, false)
+}
+
+func validateReadyWithMigrations(ctx context.Context, pool *pgxpool.Pool, expected []Migration) error {
+	return validateReadyWithMigrationPrefix(ctx, pool, expected, len(expected), true)
+}
+
+func validateReadyWithMigrationPrefix(ctx context.Context, pool *pgxpool.Pool, expected []Migration, activePrefix int, requireCompleteHistory bool) error {
 	if len(expected) == 0 {
 		return errors.New("migration readiness unavailable: no migrations are embedded")
+	}
+	if activePrefix <= 0 || activePrefix > len(expected) {
+		return fmt.Errorf("migration readiness unavailable: invalid active prefix %d for %d embedded migrations", activePrefix, len(expected))
 	}
 
 	conn, err := pool.Acquire(ctx)
@@ -64,7 +91,7 @@ func ValidateReady(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("read migration ledger: %w", err)
 	}
 	applied := 0
-	var latestFingerprint string
+	var activeFingerprint string
 	for rows.Next() {
 		var version int
 		var name, checksum, schemaFingerprint string
@@ -88,32 +115,28 @@ func ValidateReady(ctx context.Context, pool *pgxpool.Pool) error {
 			rows.Close()
 			return fmt.Errorf("migration %04d has no schema fingerprint", version)
 		}
-		latestFingerprint = schemaFingerprint
+		if applied == activePrefix-1 {
+			activeFingerprint = schemaFingerprint
+		}
 		applied++
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate migration ledger: %w", err)
 	}
-	if applied != len(expected) {
+	if requireCompleteHistory && applied != len(expected) {
 		return fmt.Errorf("migration history is incomplete: applied %d of %d versions", applied, len(expected))
 	}
-
-	var currentFingerprint string
-	if strings.HasPrefix(latestFingerprint, fingerprintPrefix) {
-		currentFingerprint, err = fingerprint(ctx, tx)
-	} else if strings.HasPrefix(latestFingerprint, "inventory-") {
-		return fmt.Errorf("unsupported schema fingerprint version %q", strings.SplitN(latestFingerprint, ":", 2)[0])
-	} else {
-		// Preserve readiness for a fully applied legacy history while using its
-		// original drift check. New migrations record the versioned inventory.
-		currentFingerprint, err = legacyFingerprint(ctx, tx)
+	if applied < activePrefix {
+		return fmt.Errorf("migration history is incomplete: applied %d of active %d versions", applied, activePrefix)
 	}
+
+	currentFingerprint, err := fingerprintForStoredVersion(ctx, tx, activeFingerprint)
 	if err != nil {
 		return fmt.Errorf("fingerprint current schema: %w", err)
 	}
-	if currentFingerprint != latestFingerprint {
-		return fmt.Errorf("managed schema drift detected: recorded %s, current %s", latestFingerprint, currentFingerprint)
+	if currentFingerprint != activeFingerprint {
+		return fmt.Errorf("managed schema drift detected: recorded %s, current %s", activeFingerprint, currentFingerprint)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("finish migration readiness check: %w", err)

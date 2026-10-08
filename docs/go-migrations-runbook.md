@@ -16,7 +16,9 @@ For current production recovery constraints, see
 [`production-recovery-runbook.md`](production-recovery-runbook.md).
 
 The API service never executes DDL. Run the explicit migration CLI against a
-disposable PostgreSQL database with `-target development`. PostgreSQL 14+ is
+disposable PostgreSQL database with `-target development` and
+`ASKOLO_MIGRATION_DATABASE_URL`. The CLI refuses staging/production targets and
+refuses a URL equal to the application `DATABASE_URL`. PostgreSQL 14+ is
 supported for migration execution (the release validation target is PostgreSQL
 16). Baseline adoption is narrower: inventory contract version 1 was generated
 and validated on PostgreSQL 16.10, so `-adopt-existing` accepts PostgreSQL
@@ -68,22 +70,27 @@ edited applied migrations, and serializes operators with an advisory lock.
 Every migration and its history row commit in one transaction. A failed
 migration is visible and leaves no history row.
 
-In development and staging, `/readyz` returns 503 until every embedded
-migration is recorded in order with matching names and checksums and the
-current schema fingerprint matches the latest migration record. Replit-managed
-production instead uses a read-only schema inventory and required assistant
-seed-data check; it does not require the Go runner ledger. That compatibility
-check is not proof that Publish transfers migration DML or ledger rows. The
-selected check is reported in `schemaReadinessMode`, and detailed failures are
-logged server-side only when readiness state changes. Both checks use the
-health request's bounded database context.
+In development and staging, `/readyz` checks the active API migration prefix
+through version `0015`, with matching names, checksums, and the current schema
+fingerprint. The draft `public_v2` migration (`0016`) does not gate API
+readiness until that schema is promoted into application use. Full
+`ValidateReady` checks still cover the complete embedded set, including both
+schemas, in disposable migration validation; do not apply the draft to an
+application database. Replit-managed production instead uses a read-only
+schema inventory and required assistant seed-data check; it does not require
+the Go runner ledger. That compatibility check is not proof that Publish
+transfers migration DML or ledger rows. The selected check is reported in
+`schemaReadinessMode`, and detailed failures are logged server-side only when
+readiness state changes. Both checks use the health request's bounded database
+context.
 
 The backend build runs `scripts/test-migrations.sh`. It creates a temporary
-PostgreSQL 16.x instance with a private Unix socket, runs the full migration
-integration suite (including the restricted-role runner test), and exercises
-the development and restore CLI targets against that disposable cluster. The
-script removes the temporary cluster on exit and clears `DATABASE_URL` before
-integration tests, so it cannot use a live application database.
+PostgreSQL 16.x instance with a private Unix socket, runs the complete Go test
+suite, including database-backed integration tests, against that instance, and
+exercises the development and restore CLI targets against the same disposable
+cluster serially with VCS build metadata enabled. The script removes the temporary cluster on exit and clears
+`DATABASE_URL` before integration tests. The ordinary unit-test pass clears
+both `DATABASE_URL` and `ASKOLO_TEST_DATABASE_URL`.
 
 `ASKOLO_MIGRATION_APPROVED=yes` is required for the restore-target test, but it
 does not authorize use against any non-disposable database. Keep migration
@@ -108,3 +115,12 @@ credit balances and refuses to proceed when a nonzero net credit balance or
 open legacy reservation exists. It adds zero-default USD counters and seeds a
 new USD policy version; application settlement uses provider-reported usage
 without converting historical credits.
+
+The workspace redesign migration creates the separate `public_v2` schema when
+the source schema is `public`. In schema-isolated disposable tests, it derives
+a distinct companion schema from each source namespace so parallel tests never
+share or leave behind a fixed `public_v2`. Its `askolo-schema-set-v1` fingerprint
+covers both the existing migration schema and the new workspace schema; earlier
+`inventory-v1` records and production compatibility fingerprints remain
+unchanged. Plan catalog rows are deliberately unseeded until prices and credit
+allowances are approved.

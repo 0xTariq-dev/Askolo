@@ -7,6 +7,8 @@ REVOKE ALL ON SCHEMA @ASKOLO_V2_SCHEMA@ FROM PUBLIC;
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.workspaces (
   id text PRIMARY KEY,
+  owner_user_id varchar NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  owner_role text NOT NULL DEFAULT 'owner' CHECK (owner_role = 'owner'),
   name text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 120),
   status text NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'suspended', 'archived')),
@@ -16,8 +18,13 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.workspaces (
     CHECK (default_locale ~ '^[a-z]{2}$'),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (id, status)
+  UNIQUE (id, owner_user_id),
+  UNIQUE (id, owner_user_id, owner_role)
 );
+--> statement-breakpoint
+CREATE UNIQUE INDEX workspaces_personal_owner_unique_idx
+  ON @ASKOLO_V2_SCHEMA@.workspaces (owner_user_id)
+  WHERE is_personal;
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.workspace_memberships (
   id text PRIMARY KEY,
@@ -32,21 +39,139 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.workspace_memberships (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (workspace_id, user_id),
+  UNIQUE (workspace_id, user_id, role),
   UNIQUE (workspace_id, id),
   CONSTRAINT workspace_membership_status_timestamps_check CHECK (
     (status = 'revoked') = (revoked_at IS NOT NULL)
   )
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX @ASKOLO_V2_SCHEMA@.workspace_memberships_one_owner_idx
+ALTER TABLE @ASKOLO_V2_SCHEMA@.workspaces
+  ADD CONSTRAINT workspaces_owner_membership_fk
+  FOREIGN KEY (id, owner_user_id, owner_role)
+  REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id, role)
+  DEFERRABLE INITIALLY DEFERRED;
+--> statement-breakpoint
+CREATE UNIQUE INDEX workspace_memberships_one_owner_idx
   ON @ASKOLO_V2_SCHEMA@.workspace_memberships (workspace_id)
   WHERE role = 'owner';
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.workspace_memberships_user_status_idx
+CREATE INDEX workspace_memberships_user_status_idx
   ON @ASKOLO_V2_SCHEMA@.workspace_memberships (user_id, status, workspace_id);
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.workspace_memberships_workspace_status_idx
+CREATE INDEX workspace_memberships_workspace_status_idx
   ON @ASKOLO_V2_SCHEMA@.workspace_memberships (workspace_id, status, role);
+--> statement-breakpoint
+CREATE TABLE @ASKOLO_V2_SCHEMA@.plan_catalog (
+  id text PRIMARY KEY,
+  billing_model text NOT NULL CHECK (billing_model IN ('individual', 'team')),
+  plan_code varchar(16) NOT NULL CHECK (plan_code IN ('plus', 'pro', 'max')),
+  included_credits bigint NOT NULL CHECK (included_credits > 0),
+  price_currency varchar(3) NOT NULL DEFAULT 'USD'
+    CHECK (price_currency ~ '^[A-Z]{3}$'),
+  price_micros bigint NOT NULL CHECK (price_micros >= 0),
+  billing_period_days smallint NOT NULL DEFAULT 30 CHECK (billing_period_days > 0),
+  effective_from timestamptz NOT NULL,
+  effective_until timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (billing_model, plan_code, effective_from),
+  UNIQUE (id, billing_model),
+  CHECK (effective_until IS NULL OR effective_until > effective_from)
+);
+--> statement-breakpoint
+CREATE INDEX plan_catalog_current_idx
+  ON @ASKOLO_V2_SCHEMA@.plan_catalog (billing_model, plan_code, effective_from DESC);
+--> statement-breakpoint
+CREATE TABLE @ASKOLO_V2_SCHEMA@.workspace_subscriptions (
+  id text PRIMARY KEY,
+  workspace_id text NOT NULL REFERENCES @ASKOLO_V2_SCHEMA@.workspaces(id) ON DELETE CASCADE,
+  billing_owner_user_id varchar NOT NULL,
+  billing_model text NOT NULL CHECK (billing_model IN ('individual', 'team')),
+  status text NOT NULL CHECK (status IN ('trialing', 'active', 'past_due', 'cancelled')),
+  billing_period_start timestamptz NOT NULL,
+  billing_period_end timestamptz NOT NULL,
+  cancel_at_period_end boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, id, billing_model),
+  FOREIGN KEY (workspace_id, billing_owner_user_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspaces(id, owner_user_id)
+    ON DELETE RESTRICT,
+  CHECK (billing_period_end > billing_period_start)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX workspace_subscriptions_one_current_idx
+  ON @ASKOLO_V2_SCHEMA@.workspace_subscriptions (workspace_id)
+  WHERE status IN ('trialing', 'active', 'past_due');
+--> statement-breakpoint
+CREATE TABLE @ASKOLO_V2_SCHEMA@.workspace_subscription_seats (
+  id text PRIMARY KEY,
+  workspace_id text NOT NULL,
+  subscription_id text NOT NULL,
+  membership_id text NOT NULL,
+  billing_model text NOT NULL CHECK (billing_model IN ('individual', 'team')),
+  plan_id text NOT NULL,
+  seat_source text NOT NULL CHECK (seat_source IN ('invitation', 'slack', 'owner_added')),
+  status text NOT NULL CHECK (status IN ('trialing', 'active', 'ending', 'ended')),
+  included_credits_snapshot bigint NOT NULL CHECK (included_credits_snapshot > 0),
+  price_micros_snapshot bigint NOT NULL CHECK (price_micros_snapshot >= 0),
+  trial_started_at timestamptz,
+  trial_ends_at timestamptz,
+  billing_period_start timestamptz NOT NULL,
+  billing_period_end timestamptz NOT NULL,
+  paid_through_at timestamptz NOT NULL,
+  ended_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, id),
+  UNIQUE (workspace_id, subscription_id, id),
+  FOREIGN KEY (workspace_id, subscription_id, billing_model)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_subscriptions(workspace_id, id, billing_model)
+    ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, membership_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, id)
+    ON DELETE RESTRICT,
+  FOREIGN KEY (plan_id, billing_model)
+    REFERENCES @ASKOLO_V2_SCHEMA@.plan_catalog(id, billing_model)
+    ON DELETE RESTRICT,
+  CHECK ((trial_started_at IS NULL) = (trial_ends_at IS NULL)),
+  CHECK (trial_ends_at IS NULL OR trial_ends_at > trial_started_at),
+  CHECK (seat_source <> 'slack' OR (
+    trial_started_at IS NOT NULL
+    AND trial_ends_at = trial_started_at + INTERVAL '7 days'
+  )),
+  CHECK (seat_source = 'slack' OR trial_started_at IS NULL),
+  CHECK (billing_period_end > billing_period_start),
+  CHECK (paid_through_at >= billing_period_end),
+  CHECK (ended_at IS NULL OR ended_at >= paid_through_at),
+  CHECK ((status = 'ended') = (ended_at IS NOT NULL))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX workspace_subscription_seats_one_current_idx
+  ON @ASKOLO_V2_SCHEMA@.workspace_subscription_seats (workspace_id, membership_id)
+  WHERE status IN ('trialing', 'active', 'ending');
+--> statement-breakpoint
+CREATE INDEX workspace_subscription_seats_period_idx
+  ON @ASKOLO_V2_SCHEMA@.workspace_subscription_seats (workspace_id, paid_through_at, status);
+--> statement-breakpoint
+CREATE TABLE @ASKOLO_V2_SCHEMA@.workspace_member_credit_limits (
+  workspace_id text NOT NULL,
+  user_id varchar NOT NULL,
+  period_start timestamptz NOT NULL,
+  period_end timestamptz NOT NULL,
+  spending_limit_credits bigint NOT NULL CHECK (spending_limit_credits >= 0),
+  changed_by_user_id varchar NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, user_id, period_start),
+  FOREIGN KEY (workspace_id, user_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
+    ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, changed_by_user_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
+    ON DELETE RESTRICT,
+  CHECK (period_end > period_start)
+);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.workspace_member_permissions (
   workspace_id text NOT NULL,
@@ -71,26 +196,26 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.member_preferences (
 CREATE TABLE @ASKOLO_V2_SCHEMA@.member_ai_preferences (
   user_id varchar PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   retention text NOT NULL DEFAULT 'delete_immediately',
-  recorded_voice_input_consent_at timestamptz,
-  recorded_voice_input_consent_version text,
+  consent_at timestamptz,
+  consent_version varchar(32),
   assistant_processing_consent_at timestamptz,
-  assistant_processing_consent_version text,
-  live_voice_consent_at timestamptz,
-  live_voice_consent_version text,
-  live_voice_name text NOT NULL DEFAULT 'michael'
-    CHECK (live_voice_name IN (
+  assistant_processing_consent_version varchar(32),
+  live_agent_consent_at timestamptz,
+  live_agent_consent_version varchar(32),
+  live_agent_voice varchar(32) NOT NULL DEFAULT 'michael'
+    CHECK (live_agent_voice IN (
       'michael', 'mary', 'paul', 'vera', 'giovanni',
       'lola', 'juergen', 'rafael', 'estelle'
     )),
   redaction_location text CHECK (redaction_location IS NULL OR redaction_location = 'app'),
-  spoken_reply_consent_at timestamptz,
-  spoken_reply_consent_version text,
+  voice_output_consent_at timestamptz,
+  voice_output_consent_version varchar(32),
   auto_speak_enabled boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CHECK ((recorded_voice_input_consent_at IS NULL) = (recorded_voice_input_consent_version IS NULL)),
+  CHECK ((consent_at IS NULL) = (consent_version IS NULL)),
   CHECK ((assistant_processing_consent_at IS NULL) = (assistant_processing_consent_version IS NULL)),
-  CHECK ((live_voice_consent_at IS NULL) = (live_voice_consent_version IS NULL)),
-  CHECK ((spoken_reply_consent_at IS NULL) = (spoken_reply_consent_version IS NULL))
+  CHECK ((live_agent_consent_at IS NULL) = (live_agent_consent_version IS NULL)),
+  CHECK ((voice_output_consent_at IS NULL) = (voice_output_consent_version IS NULL))
 );
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.habits (
@@ -118,7 +243,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.habits (
   CHECK (0 <= ALL(days_of_week) AND 6 >= ALL(days_of_week))
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.habits_workspace_status_idx
+CREATE INDEX habits_workspace_status_idx
   ON @ASKOLO_V2_SCHEMA@.habits (workspace_id, status, created_at DESC);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.habit_completions (
@@ -136,7 +261,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.habit_completions (
   UNIQUE (workspace_id, habit_id, completed_on, completed_by_user_id)
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.habit_completions_workspace_date_idx
+CREATE INDEX habit_completions_workspace_date_idx
   ON @ASKOLO_V2_SCHEMA@.habit_completions (workspace_id, completed_on DESC, habit_id);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.goals (
@@ -159,7 +284,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.goals (
     ON DELETE RESTRICT
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.goals_workspace_status_target_idx
+CREATE INDEX goals_workspace_status_target_idx
   ON @ASKOLO_V2_SCHEMA@.goals (workspace_id, status, target_on);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.daily_plans (
@@ -178,7 +303,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.daily_plans (
     ON DELETE RESTRICT
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.daily_plans_workspace_date_idx
+CREATE INDEX daily_plans_workspace_date_idx
   ON @ASKOLO_V2_SCHEMA@.daily_plans (workspace_id, plan_on DESC);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.daily_plan_items (
@@ -209,7 +334,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.daily_plan_items (
   UNIQUE (workspace_id, id)
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.daily_plan_items_workspace_status_idx
+CREATE INDEX daily_plan_items_workspace_status_idx
   ON @ASKOLO_V2_SCHEMA@.daily_plan_items (workspace_id, status, start_at);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.calendar_events (
@@ -240,11 +365,11 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.calendar_events (
   CHECK ((source_provider IS NULL) = (source_event_id IS NULL))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX @ASKOLO_V2_SCHEMA@.calendar_events_external_unique_idx
+CREATE UNIQUE INDEX calendar_events_external_unique_idx
   ON @ASKOLO_V2_SCHEMA@.calendar_events (workspace_id, source_provider, source_event_id)
   WHERE source_provider IS NOT NULL;
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.calendar_events_workspace_start_idx
+CREATE INDEX calendar_events_workspace_start_idx
   ON @ASKOLO_V2_SCHEMA@.calendar_events (workspace_id, starts_at);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.chores (
@@ -279,7 +404,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.chores (
   CHECK (recurrence_rule IS NULL OR jsonb_typeof(recurrence_rule) = 'object')
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.chores_workspace_due_status_idx
+CREATE INDEX chores_workspace_due_status_idx
   ON @ASKOLO_V2_SCHEMA@.chores (workspace_id, due_on, status);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.notes (
@@ -300,7 +425,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.notes (
     ON DELETE RESTRICT
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.notes_workspace_updated_idx
+CREATE INDEX notes_workspace_updated_idx
   ON @ASKOLO_V2_SCHEMA@.notes (workspace_id, updated_at DESC);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.action_items (
@@ -329,7 +454,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.action_items (
   CHECK ((status = 'done') = (completed_at IS NOT NULL))
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.action_items_workspace_due_status_idx
+CREATE INDEX action_items_workspace_due_status_idx
   ON @ASKOLO_V2_SCHEMA@.action_items (workspace_id, due_on, status);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.assistant_conversations (
@@ -346,7 +471,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.assistant_conversations (
     ON DELETE RESTRICT
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.assistant_conversations_workspace_updated_idx
+CREATE INDEX assistant_conversations_workspace_updated_idx
   ON @ASKOLO_V2_SCHEMA@.assistant_conversations (workspace_id, updated_at DESC);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.assistant_messages (
@@ -366,7 +491,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.assistant_messages (
   UNIQUE (workspace_id, id)
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.assistant_messages_conversation_created_idx
+CREATE INDEX assistant_messages_conversation_created_idx
   ON @ASKOLO_V2_SCHEMA@.assistant_messages (workspace_id, conversation_id, created_at, id);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_policy_versions (
@@ -375,112 +500,106 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_policy_versions (
     CHECK (jsonb_typeof(operation_weights) = 'object'),
   rate_cards jsonb NOT NULL DEFAULT '{}'::jsonb
     CHECK (jsonb_typeof(rate_cards) = 'object'),
-  monthly_grant_credits integer NOT NULL DEFAULT 0 CHECK (monthly_grant_credits >= 0),
-  rollover_cap_credits integer NOT NULL DEFAULT 0 CHECK (rollover_cap_credits >= 0),
-  rollover_expiry_days integer NOT NULL DEFAULT 30 CHECK (rollover_expiry_days > 0),
   overrun_margin_percent integer NOT NULL DEFAULT 0
     CHECK (overrun_margin_percent BETWEEN 0 AND 100),
-  monthly_grant_usd_micros bigint NOT NULL DEFAULT 0 CHECK (monthly_grant_usd_micros >= 0),
-  rollover_cap_usd_micros bigint NOT NULL DEFAULT 0 CHECK (rollover_cap_usd_micros >= 0),
   created_by_user_id varchar REFERENCES users(id) ON DELETE SET NULL,
   change_reason varchar(160) NOT NULL DEFAULT 'initial',
   created_at timestamptz NOT NULL DEFAULT now()
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.ai_credit_policy_created_idx
+CREATE INDEX ai_credit_policy_created_idx
   ON @ASKOLO_V2_SCHEMA@.ai_credit_policy_versions (created_at DESC, version DESC);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_accounts (
-  workspace_id text NOT NULL,
-  member_user_id varchar NOT NULL,
+  workspace_id text PRIMARY KEY REFERENCES @ASKOLO_V2_SCHEMA@.workspaces(id) ON DELETE CASCADE,
   granted_credits bigint NOT NULL DEFAULT 0,
   adjustment_credits bigint NOT NULL DEFAULT 0,
   reserved_credits bigint NOT NULL DEFAULT 0 CHECK (reserved_credits >= 0),
   spent_credits bigint NOT NULL DEFAULT 0 CHECK (spent_credits >= 0),
   refunded_credits bigint NOT NULL DEFAULT 0 CHECK (refunded_credits >= 0),
-  granted_usd_micros bigint NOT NULL DEFAULT 0,
-  adjustment_usd_micros bigint NOT NULL DEFAULT 0,
   reserved_usd_micros bigint NOT NULL DEFAULT 0 CHECK (reserved_usd_micros >= 0),
   spent_usd_micros bigint NOT NULL DEFAULT 0 CHECK (spent_usd_micros >= 0),
   refunded_usd_micros bigint NOT NULL DEFAULT 0 CHECK (refunded_usd_micros >= 0),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, member_user_id),
-  FOREIGN KEY (workspace_id, member_user_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
-    ON DELETE RESTRICT
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_grants (
   id text PRIMARY KEY,
   workspace_id text NOT NULL,
-  member_user_id varchar NOT NULL,
+  subscription_seat_id text,
   actor_user_id varchar,
   source_type varchar(40) NOT NULL,
-  amount_credits bigint NOT NULL DEFAULT 0 CHECK (amount_credits >= 0),
-  amount_usd_micros bigint NOT NULL DEFAULT 0 CHECK (amount_usd_micros >= 0),
-  currency varchar(8) NOT NULL CHECK (currency IN ('CREDITS', 'USD')),
+  amount_credits bigint NOT NULL CHECK (amount_credits > 0),
   entitlement_key varchar(160),
+  expires_at timestamptz,
   idempotency_key_hash varchar(64) NOT NULL CHECK (idempotency_key_hash ~ '^[0-9a-f]{64}$'),
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(metadata) = 'object'),
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, member_user_id, id),
-  UNIQUE (workspace_id, member_user_id, idempotency_key_hash),
-  FOREIGN KEY (workspace_id, member_user_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
+  UNIQUE (workspace_id, id),
+  UNIQUE (workspace_id, idempotency_key_hash),
+  FOREIGN KEY (workspace_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, subscription_seat_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_subscription_seats(workspace_id, id)
     ON DELETE RESTRICT,
   FOREIGN KEY (workspace_id, actor_user_id)
     REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
     ON DELETE RESTRICT,
-  CHECK (
-    (currency = 'CREDITS' AND amount_credits > 0 AND amount_usd_micros = 0)
-    OR (currency = 'USD' AND amount_credits = 0 AND amount_usd_micros > 0)
-  )
+  CHECK ((source_type = 'seat_cycle') = (subscription_seat_id IS NOT NULL)),
+  CHECK (subscription_seat_id IS NULL OR expires_at IS NOT NULL)
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.ai_credit_grants_member_created_idx
-  ON @ASKOLO_V2_SCHEMA@.ai_credit_grants (workspace_id, member_user_id, created_at DESC);
+CREATE INDEX ai_credit_grants_workspace_expiry_idx
+  ON @ASKOLO_V2_SCHEMA@.ai_credit_grants (workspace_id, expires_at, created_at);
+--> statement-breakpoint
+CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_grant_balances (
+  workspace_id text NOT NULL,
+  grant_id text NOT NULL,
+  available_credits bigint NOT NULL CHECK (available_credits >= 0),
+  reserved_credits bigint NOT NULL DEFAULT 0 CHECK (reserved_credits >= 0),
+  spent_credits bigint NOT NULL DEFAULT 0 CHECK (spent_credits >= 0),
+  refunded_credits bigint NOT NULL DEFAULT 0 CHECK (refunded_credits >= 0),
+  expired_credits bigint NOT NULL DEFAULT 0 CHECK (expired_credits >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, grant_id),
+  FOREIGN KEY (workspace_id, grant_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.ai_credit_grants(workspace_id, id)
+    ON DELETE CASCADE
+);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_adjustments (
   id text PRIMARY KEY,
   workspace_id text NOT NULL,
-  member_user_id varchar NOT NULL,
   actor_user_id varchar NOT NULL,
-  amount_credits bigint NOT NULL DEFAULT 0,
-  amount_usd_micros bigint NOT NULL DEFAULT 0,
-  currency varchar(8) NOT NULL CHECK (currency IN ('CREDITS', 'USD')),
+  amount_credits bigint NOT NULL CHECK (amount_credits <> 0),
   reason varchar(160) NOT NULL,
   idempotency_key_hash varchar(64) NOT NULL CHECK (idempotency_key_hash ~ '^[0-9a-f]{64}$'),
   reversal_of_id text,
   reversal_of_grant_id text,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(metadata) = 'object'),
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, member_user_id, id),
-  UNIQUE (workspace_id, member_user_id, idempotency_key_hash),
-  FOREIGN KEY (workspace_id, member_user_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
-    ON DELETE RESTRICT,
+  UNIQUE (workspace_id, id),
+  UNIQUE (workspace_id, idempotency_key_hash),
+  FOREIGN KEY (workspace_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspaces(id) ON DELETE CASCADE,
   FOREIGN KEY (workspace_id, actor_user_id)
     REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
     ON DELETE RESTRICT,
-  FOREIGN KEY (workspace_id, member_user_id, reversal_of_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.ai_credit_adjustments(workspace_id, member_user_id, id)
+  FOREIGN KEY (workspace_id, reversal_of_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.ai_credit_adjustments(workspace_id, id)
     ON DELETE RESTRICT,
-  FOREIGN KEY (workspace_id, member_user_id, reversal_of_grant_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.ai_credit_grants(workspace_id, member_user_id, id)
+  FOREIGN KEY (workspace_id, reversal_of_grant_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.ai_credit_grants(workspace_id, id)
     ON DELETE RESTRICT,
-  CHECK (num_nonnulls(reversal_of_id, reversal_of_grant_id) <= 1),
-  CHECK (
-    (currency = 'CREDITS' AND amount_credits <> 0 AND amount_usd_micros = 0)
-    OR (currency = 'USD' AND amount_credits = 0 AND amount_usd_micros <> 0)
-  )
+  CHECK (num_nonnulls(reversal_of_id, reversal_of_grant_id) <= 1)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX @ASKOLO_V2_SCHEMA@.ai_credit_adjustments_reversal_idx
-  ON @ASKOLO_V2_SCHEMA@.ai_credit_adjustments (workspace_id, member_user_id, reversal_of_id)
+CREATE UNIQUE INDEX ai_credit_adjustments_reversal_idx
+  ON @ASKOLO_V2_SCHEMA@.ai_credit_adjustments (workspace_id, reversal_of_id)
   WHERE reversal_of_id IS NOT NULL;
 --> statement-breakpoint
-CREATE UNIQUE INDEX @ASKOLO_V2_SCHEMA@.ai_credit_adjustments_grant_reversal_idx
-  ON @ASKOLO_V2_SCHEMA@.ai_credit_adjustments (workspace_id, member_user_id, reversal_of_grant_id)
+CREATE UNIQUE INDEX ai_credit_adjustments_grant_reversal_idx
+  ON @ASKOLO_V2_SCHEMA@.ai_credit_adjustments (workspace_id, reversal_of_grant_id)
   WHERE reversal_of_grant_id IS NOT NULL;
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_reservations (
@@ -496,6 +615,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_reservations (
   idempotency_key_hash varchar(64) NOT NULL CHECK (idempotency_key_hash ~ '^[0-9a-f]{64}$'),
   request_fingerprint varchar(64) CHECK (request_fingerprint IS NULL OR request_fingerprint ~ '^[0-9a-f]{64}$'),
   currency varchar(8) NOT NULL CHECK (currency IN ('CREDITS', 'USD')),
+  credit_limit_period_start timestamptz,
   reserved_credits bigint NOT NULL DEFAULT 0 CHECK (reserved_credits >= 0),
   settled_credits bigint NOT NULL DEFAULT 0 CHECK (settled_credits >= 0),
   refunded_credits bigint NOT NULL DEFAULT 0 CHECK (refunded_credits >= 0),
@@ -522,18 +642,46 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_reservations (
   FOREIGN KEY (workspace_id, member_user_id)
     REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
     ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, member_user_id, credit_limit_period_start)
+    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_member_credit_limits(workspace_id, user_id, period_start)
+    ON DELETE RESTRICT,
   CHECK (
     (currency = 'CREDITS' AND reserved_usd_micros = 0 AND settled_usd_micros = 0 AND refunded_usd_micros = 0)
     OR (currency = 'USD' AND reserved_credits = 0 AND settled_credits = 0 AND refunded_credits = 0)
   )
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.ai_credit_reservations_member_status_idx
+CREATE INDEX ai_credit_reservations_member_status_idx
   ON @ASKOLO_V2_SCHEMA@.ai_credit_reservations (workspace_id, member_user_id, status, created_at DESC);
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.ai_credit_reservations_expiry_idx
+CREATE INDEX ai_credit_reservations_expiry_idx
   ON @ASKOLO_V2_SCHEMA@.ai_credit_reservations (status, expires_at)
   WHERE status IN ('reserved', 'claimed');
+--> statement-breakpoint
+CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_reservation_allocations (
+  id text PRIMARY KEY,
+  workspace_id text NOT NULL,
+  member_user_id varchar NOT NULL,
+  reservation_id text NOT NULL,
+  grant_id text NOT NULL,
+  reserved_credits bigint NOT NULL CHECK (reserved_credits > 0),
+  settled_credits bigint NOT NULL DEFAULT 0 CHECK (settled_credits >= 0),
+  refunded_credits bigint NOT NULL DEFAULT 0 CHECK (refunded_credits >= 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, member_user_id, reservation_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.ai_credit_reservations(workspace_id, member_user_id, id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, grant_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.ai_credit_grants(workspace_id, id)
+    ON DELETE RESTRICT,
+  UNIQUE (workspace_id, reservation_id, grant_id),
+  CHECK (settled_credits + refunded_credits <= reserved_credits)
+);
+--> statement-breakpoint
+CREATE INDEX ai_credit_reservation_allocations_grant_idx
+  ON @ASKOLO_V2_SCHEMA@.ai_credit_reservation_allocations
+    (workspace_id, grant_id, created_at);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_reservation_events (
   id text PRIMARY KEY,
@@ -555,7 +703,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.ai_credit_reservation_events (
   CHECK ((currency = 'CREDITS' AND amount_usd_micros = 0) OR (currency = 'USD' AND credits = 0))
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.ai_credit_reservation_events_timeline_idx
+CREATE INDEX ai_credit_reservation_events_timeline_idx
   ON @ASKOLO_V2_SCHEMA@.ai_credit_reservation_events
     (workspace_id, reservation_id, created_at, id);
 --> statement-breakpoint
@@ -636,7 +784,7 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.assistant_runs (
   )
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.assistant_runs_workspace_created_idx
+CREATE INDEX assistant_runs_workspace_created_idx
   ON @ASKOLO_V2_SCHEMA@.assistant_runs (workspace_id, created_at DESC);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.assistant_audit_events (
@@ -660,46 +808,45 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.assistant_audit_events (
     ON DELETE CASCADE
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.assistant_audit_run_created_idx
+CREATE INDEX assistant_audit_run_created_idx
   ON @ASKOLO_V2_SCHEMA@.assistant_audit_events (workspace_id, run_id, created_at, id);
 --> statement-breakpoint
 CREATE TABLE @ASKOLO_V2_SCHEMA@.integration_connections (
   id text PRIMARY KEY,
-  workspace_id text NOT NULL REFERENCES @ASKOLO_V2_SCHEMA@.workspaces(id) ON DELETE CASCADE,
-  connected_by_user_id varchar NOT NULL,
+  owner_user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider varchar(40) NOT NULL,
   account_label text,
   status text NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'revoked', 'error', 'disconnected')),
   granted_scopes text[] NOT NULL DEFAULT '{}',
   capabilities text[] NOT NULL DEFAULT '{}',
+  availability_scope text NOT NULL DEFAULT 'private_dm'
+    CHECK (availability_scope = 'private_dm'),
+  -- Opaque reference only; credential material remains outside this schema.
   credential_ref_id text,
   revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, id),
-  FOREIGN KEY (workspace_id, connected_by_user_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.workspace_memberships(workspace_id, user_id)
-    ON DELETE RESTRICT,
+  UNIQUE (owner_user_id, id),
   CHECK ((status = 'revoked') = (revoked_at IS NOT NULL))
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.integration_connections_workspace_provider_idx
-  ON @ASKOLO_V2_SCHEMA@.integration_connections (workspace_id, provider, status);
+CREATE INDEX integration_connections_owner_provider_idx
+  ON @ASKOLO_V2_SCHEMA@.integration_connections (owner_user_id, provider, status);
 --> statement-breakpoint
-CREATE TABLE @ASKOLO_V2_SCHEMA@.integration_defaults (
-  workspace_id text NOT NULL,
+CREATE TABLE @ASKOLO_V2_SCHEMA@.user_integration_defaults (
+  user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   service text NOT NULL,
   connection_id text NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, service),
-  FOREIGN KEY (workspace_id, connection_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.integration_connections(workspace_id, id)
+  PRIMARY KEY (user_id, service),
+  FOREIGN KEY (user_id, connection_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.integration_connections(owner_user_id, id)
     ON DELETE CASCADE
 );
 --> statement-breakpoint
-CREATE TABLE @ASKOLO_V2_SCHEMA@.integration_sync_state (
-  workspace_id text NOT NULL,
+CREATE TABLE @ASKOLO_V2_SCHEMA@.user_integration_sync_state (
+  user_id varchar NOT NULL,
   connection_id text NOT NULL,
   service text NOT NULL,
   sync_cursor text,
@@ -707,14 +854,14 @@ CREATE TABLE @ASKOLO_V2_SCHEMA@.integration_sync_state (
   status text NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'syncing', 'error', 'disabled')),
   last_error_code varchar(80),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, connection_id, service),
-  FOREIGN KEY (workspace_id, connection_id)
-    REFERENCES @ASKOLO_V2_SCHEMA@.integration_connections(workspace_id, id)
+  PRIMARY KEY (user_id, connection_id, service),
+  FOREIGN KEY (user_id, connection_id)
+    REFERENCES @ASKOLO_V2_SCHEMA@.integration_connections(owner_user_id, id)
     ON DELETE CASCADE
 );
 --> statement-breakpoint
-CREATE INDEX @ASKOLO_V2_SCHEMA@.integration_sync_workspace_status_idx
-  ON @ASKOLO_V2_SCHEMA@.integration_sync_state (workspace_id, status, last_sync_at);
+CREATE INDEX user_integration_sync_status_idx
+  ON @ASKOLO_V2_SCHEMA@.user_integration_sync_state (user_id, status, last_sync_at);
 --> statement-breakpoint
 -- Read-only, workspace-scoped query surfaces. These views contain no message
 -- text, credentials, or other broad personal content; callers must still

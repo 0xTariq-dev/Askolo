@@ -36,6 +36,7 @@ func openTAR10(t *testing.T) (context.Context, *pgxpool.Pool, *Store) {
 		t.Fatalf("create disposable schema: %v", err)
 	}
 	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), `DROP SCHEMA IF EXISTS "`+schema+`_public_v2" CASCADE`)
 		_, _ = admin.Exec(context.Background(), `DROP SCHEMA "`+schema+`" CASCADE`)
 		admin.Close()
 	})

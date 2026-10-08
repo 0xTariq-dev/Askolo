@@ -53,6 +53,7 @@ func openCreditPolicyIntegrationFixture(t *testing.T) *creditPolicyIntegrationFi
 		t.Fatalf("create disposable schema: %v", err)
 	}
 	t.Cleanup(func() {
+		_, _ = adminPool.Exec(context.Background(), `DROP SCHEMA IF EXISTS "`+schema+`_public_v2" CASCADE`)
 		_, _ = adminPool.Exec(context.Background(), `DROP SCHEMA "`+schema+`" CASCADE`)
 		adminPool.Close()
 	})

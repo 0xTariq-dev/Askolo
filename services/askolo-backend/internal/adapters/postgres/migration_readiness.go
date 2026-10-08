@@ -11,7 +11,7 @@ func (s *Store) MigrationSchemaReady(ctx context.Context) (bool, error) {
 	if s == nil || s.pool == nil {
 		return false, errors.New("database is not configured")
 	}
-	if err := migrations.ValidateReady(ctx, s.pool); err != nil {
+	if err := migrations.ValidateOperationalReady(ctx, s.pool); err != nil {
 		return false, err
 	}
 	return true, nil

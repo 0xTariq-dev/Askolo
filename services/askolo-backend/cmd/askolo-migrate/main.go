@@ -13,18 +13,21 @@ import (
 )
 
 func main() {
-	target := flag.String("target", "", "required: development, staging, production, or restore")
+	target := flag.String("target", "", "required: development or restore (never staging or production)")
 	adopt := flag.Bool("adopt-existing", false, "adopt an already-created schema only after exact offline verification")
 	flag.Parse()
 	if *target == "" {
 		log.Fatal("-target is required")
 	}
-	if *target != "development" && *target != "staging" && *target != "production" && *target != "restore" {
+	if *target != "development" && *target != "restore" {
 		log.Fatal("invalid migration target")
 	}
-	url := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	url := strings.TrimSpace(os.Getenv("ASKOLO_MIGRATION_DATABASE_URL"))
 	if url == "" {
-		log.Fatal("DATABASE_URL is required; migrations are explicit and never run at app startup")
+		log.Fatal("ASKOLO_MIGRATION_DATABASE_URL is required; do not use the application DATABASE_URL")
+	}
+	if applicationURL := strings.TrimSpace(os.Getenv("DATABASE_URL")); applicationURL != "" && url == applicationURL {
+		log.Fatal("refusing to run migrations against the application DATABASE_URL")
 	}
 	if *target != "development" && strings.TrimSpace(os.Getenv("ASKOLO_MIGRATION_APPROVED")) != "yes" {
 		log.Fatalf("refusing %s target without ASKOLO_MIGRATION_APPROVED=yes", *target)
