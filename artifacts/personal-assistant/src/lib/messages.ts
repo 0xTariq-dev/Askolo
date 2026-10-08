@@ -22,6 +22,7 @@ export const messages = {
   'nav.habits': msg({ id: 'nav.habits', message: 'Habits' }),
   'nav.goals': msg({ id: 'nav.goals', message: 'Goals' }),
   'nav.dailyPlan': msg({ id: 'nav.dailyPlan', message: 'Daily Plan' }),
+  'nav.agent': msg({ id: 'nav.agent', message: 'Agent' }),
   'nav.calendar': msg({ id: 'nav.calendar', message: 'Calendar' }),
   'nav.chores': msg({ id: 'nav.chores', message: 'Chores' }),
   'nav.notes': msg({ id: 'nav.notes', message: 'Notes' }),

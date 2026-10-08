@@ -1,44 +1,47 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
-import { useLocale } from '@/contexts/locale-context';
+import { endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  Sparkles,
-  Plus,
-  Trash2,
-  CheckCircle2,
-  Clock,
-  LayoutList,
-  Calendar as CalendarIcon,
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
   ListTodo,
+  Plus,
+  Sparkles,
+  Trash2,
 } from 'lucide-react';
-
 import {
+  ApiError,
   useListDailyPlans,
   useCreateDailyPlan,
   useUpdateDailyPlan,
   useDeleteDailyPlan,
+  useListEvents,
+  useListHabits,
+  useListHabitCompletions,
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
   getListDailyPlansQueryKey,
   getGetDashboardSummaryQueryKey,
   getGetTranscriptionPreferencesQueryKey,
-  DailyPlan,
+  type DailyPlan,
 } from '@workspace/api-client-react';
-import { ApiError } from '@workspace/api-client-react';
 import { getApiErrorMessage, goApi } from '@/lib/go-api';
-
+import { useLocale } from '@/contexts/locale-context';
+import { useAssistantState } from '@/contexts/assistant-context';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar as DatePicker } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
+import { MonthGrid } from '@/components/calendar/month-grid';
+import type { DailyPlan as CalendarPlan } from '@/components/calendar/types';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import {
   VoiceCaptureButton,
@@ -49,72 +52,132 @@ import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { cn } from '@/lib/utils';
-import { useAssistantState } from '@/contexts/assistant-context';
 import { VoiceAgentControls } from '@/components/voice-agent-controls';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
-
-const priorityColors = {
-  high: 'border-destructive bg-destructive/10 text-destructive',
-  medium: 'border-warning bg-warning/10 text-warning',
-  low: 'border-info bg-info/10 text-info',
-};
 
 const planSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   timeBlock: z.string().optional(),
   priority: z.enum(['high', 'medium', 'low']),
 });
-
 type PlanFormValues = z.infer<typeof planSchema>;
 
+const priorityStyles = {
+  high: 'border-s-2 border-destructive',
+  medium: 'border-s-2 border-warning',
+  low: 'border-s-2 border-info',
+};
+
 export function PlanPage() {
-  const { formatDate } = useLocale();
-  const qc = useQueryClient();
+  const { formatDate, formatNumber, weekStartsOn, locale } = useLocale();
+  const queryClient = useQueryClient();
   const { openWithDraft } = useAssistantState();
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const dateStr = format(selectedDate, 'yyyy-MM-dd');
-  const { data: plans, isLoading } = useListDailyPlans({ date: dateStr });
-  const createPlan = useCreateDailyPlan();
-  const updatePlan = useUpdateDailyPlan();
-  const deletePlan = useDeleteDailyPlan();
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [monthDate, setMonthDate] = useState(new Date());
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [notes, setNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [consentSaving, setConsentSaving] = useState(false);
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
+  const generationControllerRef = useRef<AbortController | null>(null);
+  const dateStr = format(selectedDate, 'yyyy-MM-dd');
+  const monthStart = startOfMonth(monthDate);
+  const monthEnd = endOfMonth(monthDate);
+  const from = format(startOfWeek(monthStart, { weekStartsOn }), 'yyyy-MM-dd');
+  const to = format(endOfWeek(monthEnd, { weekStartsOn }), 'yyyy-MM-dd');
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+  const plansQuery = useListDailyPlans();
+  const plansForDayQuery = useListDailyPlans({ date: dateStr });
+  const eventsQuery = useListEvents({ from, to });
+  const habitsQuery = useListHabits();
+  const completionsQuery = useListHabitCompletions({ from, to });
+  const plans = plansForDayQuery.data ?? [];
+  const events = eventsQuery.data ?? [];
+  const habits = habitsQuery.data ?? [];
+  const completions = completionsQuery.data ?? [];
+  const createPlan = useCreateDailyPlan();
+  const updatePlan = useUpdateDailyPlan();
+  const deletePlan = useDeleteDailyPlan();
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const voice = useVoiceTranscription();
-  const {
-    state: voiceState,
-    transcript,
-    isBusy: voiceIsBusy,
-    start: startVoiceInput,
-    reset: resetVoiceInput,
-  } = voice;
+  const { state: voiceState, transcript, isBusy: voiceIsBusy, start: startVoiceInput, reset: resetVoiceInput } = voice;
 
   const form = useForm<PlanFormValues>({
     resolver: zodResolver(planSchema),
     defaultValues: { title: '', timeBlock: '', priority: 'medium' },
   });
-  const generationControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => () => {
-    generationControllerRef.current?.abort();
-    generationControllerRef.current = null;
-  }, []);
-
+  useEffect(() => () => generationControllerRef.current?.abort(), []);
   useEffect(() => {
     if (voiceState === 'review' && transcript) {
       setVoiceReviewText(transcript);
       setVoiceApplied(false);
     }
   }, [transcript, voiceState]);
+
+  const reloadData = () => {
+    void Promise.all([
+      plansQuery.refetch(),
+      plansForDayQuery.refetch(),
+      eventsQuery.refetch(),
+      habitsQuery.refetch(),
+      completionsQuery.refetch(),
+    ]);
+  };
+
+  const openAdd = () => {
+    form.reset({ title: '', timeBlock: '', priority: 'medium' });
+    setDialogOpen(true);
+  };
+
+  const onSubmit = (data: PlanFormValues) => {
+    createPlan.mutate(
+      { data: { ...data, date: dateStr } },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          setDialogOpen(false);
+        },
+      },
+    );
+  };
+
+  const toggleComplete = (item: DailyPlan) => {
+    queryClient.setQueryData([...getListDailyPlansQueryKey(), dateStr], (old: DailyPlan[] | undefined) =>
+      old?.map((plan) => plan.id === item.id ? { ...plan, completed: !item.completed } : plan),
+    );
+    updatePlan.mutate(
+      { id: item.id, data: { completed: !item.completed } },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+        },
+        onError: () => {
+          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
+        },
+      },
+    );
+  };
+
+  const handleDelete = (id: number) => {
+    deletePlan.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+        },
+      },
+    );
+  };
 
   const generateWithAI = async () => {
     if (!notes.trim()) return;
@@ -123,20 +186,15 @@ export function PlanPage() {
     generationControllerRef.current = controller;
     setIsGenerating(true);
     setGenerationError('');
-
     try {
       await goApi.generatePlan({ notes, date: dateStr }, controller.signal);
-
       setNotes('');
-      setGenerationError('');
       resetVoiceInput();
-      await qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-      await qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+      await queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
+      await queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
     } catch (error) {
       if (controller.signal.aborted) return;
-      // Keep the reviewed transcript in the editor so the user can retry safely.
-      const message = getApiErrorMessage(error, 'The plan could not be generated. Try again.');
-      setGenerationError(message);
+      setGenerationError(getApiErrorMessage(error, 'The plan could not be generated. Try again.'));
       console.error('Plan generation failed', {
         code: error instanceof ApiError ? error.code : undefined,
         requestId: error instanceof ApiError ? error.requestId : undefined,
@@ -150,10 +208,8 @@ export function PlanPage() {
   };
 
   const handleStartVoice = async () => {
-    if (
-      !transcriptionPreferences?.consentGiven ||
-      transcriptionPreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION
-    ) {
+    if (!transcriptionPreferences?.consentGiven ||
+      transcriptionPreferences.consentVersion !== CURRENT_VOICE_CONSENT_VERSION) {
       setConsentError('');
       setConsentOpen(true);
       return;
@@ -163,18 +219,12 @@ export function PlanPage() {
     await startVoiceInput();
   };
 
-  const applyPlanTranscript = () => {
-    if (!voiceReviewText.trim() || voiceApplied) return;
-    setNotes((current) => getReviewedVoiceValue(current, voiceReviewText, 'append') ?? current);
-    setVoiceApplied(true);
-  };
-
   const saveVoiceConsent = async () => {
     setConsentSaving(true);
     setConsentError('');
     try {
       const updated = await updateTranscriptionPreferences.mutateAsync({ data: { consent: true } });
-      qc.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
+      queryClient.setQueryData(getGetTranscriptionPreferencesQueryKey(), updated);
       setConsentOpen(false);
     } catch (error) {
       setConsentError(getVoiceConsentErrorMessage(error));
@@ -183,295 +233,227 @@ export function PlanPage() {
     }
   };
 
-  const openAdd = () => {
-    form.reset({ title: '', timeBlock: '', priority: 'medium' });
-    setDialogOpen(true);
-  };
-
-  const onSubmit = (data: PlanFormValues) => {
-    createPlan.mutate(
-      { data: { ...data, date: dateStr } },
-      {
-        onSuccess: () => {
-          void qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-          void qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          setDialogOpen(false);
-        },
-      },
-    );
-  };
-
-  const handleDelete = (id: number) => {
-    deletePlan.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          void qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-          void qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-        },
-      },
-    );
-  };
-
-  const toggleComplete = (item: DailyPlan) => {
-    qc.setQueryData([...getListDailyPlansQueryKey(), dateStr], (old: DailyPlan[] | undefined) => {
-      if (!old) return old;
-      return old.map((plan) => (plan.id === item.id ? { ...plan, completed: !item.completed } : plan));
-    });
-
-    updatePlan.mutate(
-      { id: item.id, data: { completed: !item.completed } },
-      {
-        onSuccess: () => {
-          void qc.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-          void qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-        },
-      },
-    );
-  };
-
-  const sortedPlans = plans
-    ? [...plans].sort((a, b) => {
-        if (a.completed !== b.completed) return a.completed ? 1 : -1;
-        const priorityScore = { high: 0, medium: 1, low: 2 };
-        return priorityScore[a.priority] - priorityScore[b.priority];
-      })
-    : [];
-  const canGenerate = Boolean(notes.trim()) && !isGenerating && !voiceIsBusy;
+  const calendarPlans: CalendarPlan[] = (plansQuery.data ?? []).map((plan) => ({
+    id: plan.id,
+    date: plan.date,
+    title: plan.title,
+    completed: plan.completed,
+    priority: plan.priority,
+  }));
+  const completionsByDate = new Map<string, Set<number>>();
+  for (const completion of completions) {
+    if (!completionsByDate.has(completion.date)) completionsByDate.set(completion.date, new Set());
+    completionsByDate.get(completion.date)?.add(completion.habitId);
+  }
+  const calendarHabits = habits.map((habit) => ({ id: habit.id, name: habit.name, color: habit.color }));
+  const sortedPlans = [...plans].sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    const rank = { high: 0, medium: 1, low: 2 };
+    return rank[a.priority] - rank[b.priority];
+  });
+  const loading = plansForDayQuery.isLoading || plansQuery.isLoading || eventsQuery.isLoading;
+  const hasError = plansForDayQuery.isError || plansQuery.isError || eventsQuery.isError || habitsQuery.isError || completionsQuery.isError;
+  const completedCount = sortedPlans.filter((item) => item.completed).length;
+  const formattedSelectedDate = formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' });
+  const currentMonthLabel = formatDate(monthDate, { month: 'long', year: 'numeric' });
+  const isArabic = locale === 'ar';
 
   return (
-    <PageTransition surface={false} className="h-full flex flex-col max-w-7xl mx-auto">
-      <header className="shrink-0 mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <PageTransition surface={false} className="mx-auto flex w-full max-w-[1440px] flex-col gap-5">
+      <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight flex items-center gap-3">
-            <LayoutList className="h-8 w-8 text-primary" />
-            Daily Planner
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+            {isArabic ? 'مساحة يومك' : 'YOUR DAY, IN VIEW'}
+          </p>
+          <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+            {isArabic ? 'اليوم والخطة' : 'Today / Plan'}
           </h1>
-          <p className="text-muted-foreground mt-2 text-lg">Brain dump your thoughts, and let AI structure your day.</p>
+          <p className="mt-2 text-sm text-muted-foreground md:text-base">
+            {isArabic ? 'تقويم عائلتك وخطوات اليوم في مكان واحد.' : 'Your calendar and the next few steps, together.'}
+          </p>
         </div>
-        <div className="w-full sm:max-w-xl">
-          <VoiceAgentControls />
-        </div>
+        <div className="w-full lg:max-w-md"><VoiceAgentControls /></div>
       </header>
 
-      <div className="flex-1 min-h-0 pb-6">
-        <section className="flex flex-col overflow-hidden">
-          <div className="flex shrink-0 justify-end pb-3">
-            <Button variant="ghost" size="icon" onClick={openAdd} className="h-8 w-8 text-muted-foreground hover:text-foreground" aria-label="Add plan item">
-              <Plus className="h-4 w-4" />
-            </Button>
+      {hasError && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3" role="alert">
+          <p className="text-sm text-destructive">{isArabic ? 'تعذر تحميل بعض بيانات الخطة.' : 'Some plan data could not be loaded.'}</p>
+          <Button variant="outline" size="sm" onClick={reloadData}>{isArabic ? 'إعادة المحاولة' : 'Try again'}</Button>
+        </div>
+      )}
+
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm" aria-label={isArabic ? 'تقويم الشهر' : 'Month calendar'}>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-4 md:px-6">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{isArabic ? 'التقويم' : 'CALENDAR'}</p>
+              <h2 className="mt-1 font-display text-xl font-semibold">{currentMonthLabel}</h2>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" aria-label={isArabic ? 'الشهر السابق' : 'Previous month'} onClick={() => setMonthDate((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>
+                <ChevronLeft className="size-4 rtl:rotate-180" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { const now = new Date(); setSelectedDate(now); setMonthDate(now); }}>
+                {isArabic ? 'اليوم' : 'Today'}
+              </Button>
+              <Button variant="ghost" size="icon" aria-label={isArabic ? 'الشهر التالي' : 'Next month'} onClick={() => setMonthDate((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>
+                <ChevronRight className="size-4 rtl:rotate-180" />
+              </Button>
+            </div>
           </div>
-          <div className="max-h-[min(42vh,34rem)] overflow-y-auto p-4 space-y-3">
-            {isLoading ? (
-              <div className="space-y-3">
-                {[...Array(5)].map((_, index) => <div key={index} className="h-16 w-full bg-muted animate-pulse rounded-xl" />)}
+          <div className="relative overflow-x-auto">
+            {loading ? (
+              <div className="grid grid-cols-7 gap-px bg-border p-px">
+                {Array.from({ length: 35 }, (_, index) => <div key={index} className="min-h-20 animate-pulse bg-card sm:min-h-24" />)}
               </div>
-            ) : isGenerating ? (
-              <div className="space-y-3">
-                {[...Array(3)].map((_, index) => <div key={index} className="h-16 w-full bg-primary/5 border border-primary/10 animate-pulse rounded-xl" />)}
+            ) : (
+              <div className="min-w-[320px]">
+                <MonthGrid
+                  currentDate={monthDate}
+                  events={events}
+                  plans={calendarPlans}
+                  habits={calendarHabits}
+                  completionsByDate={completionsByDate}
+                  todayStr={todayStr}
+                  selectedDateStr={dateStr}
+                  onEventClick={(event) => {
+                    const day = new Date(`${event.startDate}T12:00:00`);
+                    setSelectedDate(day);
+                    setMonthDate(day);
+                  }}
+                  onDayClick={(day) => { setSelectedDate(day); setMonthDate(day); }}
+                />
               </div>
-            ) : sortedPlans.length > 0 ? (
-              sortedPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className={cn(
-                    'group flex items-center justify-between p-3.5 rounded-xl border transition-all duration-200',
-                    plan.completed
-                      ? 'bg-muted border-border opacity-60'
-                      : 'bg-card hover:bg-accent border-border hover:border-primary/30 shadow-sm',
-                  )}
-                >
-                  <div className="flex items-center gap-4 flex-1 overflow-hidden">
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/70 px-4 py-3 text-xs text-muted-foreground md:px-6">
+            <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-primary" />{isArabic ? 'اليوم المحدد' : 'Selected day'}</span>
+            <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-3.5" />{isArabic ? 'الأحداث' : 'Events'}</span>
+            <span className="inline-flex items-center gap-1.5"><Check className="size-3.5" />{isArabic ? 'العادات' : 'Habits'}</span>
+          </div>
+        </section>
+
+        <aside className="flex min-w-0 flex-col gap-4">
+          <section className="rounded-2xl border border-border bg-card shadow-sm">
+            <div className="flex items-start justify-between gap-3 border-b border-border/70 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-primary">{isArabic ? 'خطة اليوم' : 'DAY PLAN'}</p>
+                <h2 className="mt-1 truncate font-display text-xl font-semibold">{formattedSelectedDate}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {formatNumber(completedCount, { useGrouping: false })} / {formatNumber(sortedPlans.length, { useGrouping: false })} {isArabic ? 'مكتملة' : 'completed'}
+                </p>
+              </div>
+              <Button onClick={openAdd} size="sm" className="shrink-0" data-testid="button-add-plan-item">
+                <Plus className="me-1.5 size-4" />{isArabic ? 'إضافة' : 'Add'}
+              </Button>
+            </div>
+            <div className="space-y-2 p-4">
+              {loading ? (
+                Array.from({ length: 3 }, (_, index) => <div key={index} className="h-[68px] animate-pulse rounded-xl bg-muted" />)
+              ) : sortedPlans.length ? (
+                sortedPlans.map((plan) => (
+                  <div key={plan.id} data-testid={`plan-item-${plan.id}`} className={cn('group flex min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-background/50 p-3 transition-colors hover:bg-muted/50', plan.completed && 'opacity-60')}>
                     <button
                       type="button"
                       onClick={() => toggleComplete(plan)}
                       aria-label={plan.completed ? `Mark ${plan.title} incomplete` : `Mark ${plan.title} complete`}
                       aria-pressed={plan.completed}
-                      className={cn(
-                        'shrink-0 h-6 w-6 rounded-full border flex items-center justify-center transition-colors',
-                        plan.completed
-                          ? 'bg-primary border-primary text-primary-foreground'
-                          : 'border-muted-foreground/40 hover:border-primary/50',
-                      )}
+                      className={cn('flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors', plan.completed ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40 hover:border-primary')}
                     >
-                      {plan.completed && <CheckCircle2 className="h-4 w-4" />}
+                      {plan.completed && <Check className="size-3.5" />}
                     </button>
-                    <div className={cn('w-1 h-8 rounded-full shrink-0', priorityColors[plan.priority].split(' ')[0], priorityColors[plan.priority].split(' ')[1])} />
-                    <div className="flex-1 min-w-0">
-                      <p className={cn('font-medium truncate transition-colors', plan.completed ? 'line-through text-muted-foreground' : 'text-foreground')}>
-                        {plan.title}
-                      </p>
-                      {plan.timeBlock && (
-                        <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          <span>{plan.timeBlock}</span>
-                        </div>
-                      )}
+                    <div className={cn('min-w-0 flex-1 ps-2', priorityStyles[plan.priority])}>
+                      <p dir="auto" className={cn('truncate text-sm font-medium', plan.completed && 'line-through text-muted-foreground')}>{plan.title}</p>
+                      {plan.timeBlock && <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><Clock3 className="size-3" />{plan.timeBlock}</p>}
                     </div>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => handleDelete(plan.id)} aria-label={`Delete ${plan.title}`} className="size-9 shrink-0 text-muted-foreground hover:text-destructive">
+                      <Trash2 className="size-4" />
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDelete(plan.id)}
-                    aria-label={`Delete ${plan.title}`}
-                    className="shrink-0 h-8 w-8 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                ))
+              ) : (
+                <div className="flex flex-col items-center rounded-xl border border-dashed border-border px-5 py-8 text-center">
+                  <div className="mb-3 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary"><ListTodo className="size-5" /></div>
+                  <p className="font-medium">{isArabic ? 'لا توجد مهام لهذا اليوم' : 'A little room in the day'}</p>
+                  <p className="mt-1 max-w-[240px] text-sm text-muted-foreground">{isArabic ? 'أضف خطوة صغيرة لتبدأ.' : 'Add a task or turn your notes into a plan.'}</p>
+                  <Button variant="outline" size="sm" onClick={openAdd} className="mt-4"><Plus className="me-1.5 size-4" />{isArabic ? 'إضافة مهمة' : 'Add a task'}</Button>
                 </div>
-              ))
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 text-muted-foreground">
-                <div className="h-16 w-16 bg-muted rounded-full flex items-center justify-center mb-4 border border-border">
-                  <ListTodo className="h-8 w-8 opacity-50" />
-                </div>
-                <p>No plan for this day yet.</p>
-                <p className="text-sm mt-1 max-w-[250px]">Use the AI generator on the left or add items manually.</p>
-                <Button variant="outline" size="sm" onClick={openAdd} className="mt-6">
-                  <Plus className="h-4 w-4 mr-2" /> Add manually
-                </Button>
+              )}
+              {!!sortedPlans.length && <Button variant="ghost" className="w-full border border-dashed border-border text-muted-foreground" onClick={openAdd}><Plus className="me-2 size-4" />{isArabic ? 'إضافة عنصر آخر' : 'Add another task'}</Button>}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="size-4" /></div>
+              <div>
+                <h2 className="font-display font-semibold">{isArabic ? 'حوّل أفكارك إلى خطة' : 'Shape your day with AI'}</h2>
+                <p className="text-xs text-muted-foreground">{isArabic ? 'راجع النص قبل إنشاء المهام.' : 'Review your notes before creating tasks.'}</p>
               </div>
-            )}
-            {sortedPlans.length > 0 && !isLoading && !isGenerating && (
-              <Button variant="ghost" className="w-full mt-4 text-muted-foreground border border-dashed border-border hover:border-primary/30 hover:bg-accent" onClick={openAdd}>
-                <Plus className="h-4 w-4 mr-2" /> Add item
-              </Button>
-            )}
-          </div>
-          <div className="border-t border-border/50" />
-          <div className="p-4 sm:p-6">
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-lg font-display flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-primary" />
-                What&apos;s on your mind?
-              </h2>
-              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" className="w-full justify-start sm:w-auto">
-                    <CalendarIcon className="me-2 h-4 w-4" />
-                    Plan for {formatDate(selectedDate, { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-auto p-0">
-                  <DatePicker
-                    mode="single"
-                    autoFocus
-                    selected={selectedDate}
-                    onSelect={(date) => {
-                      if (date) {
-                        setSelectedDate(date);
-                        setDatePickerOpen(false);
-                      }
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
             </div>
             <Textarea
               aria-label="Daily plan notes"
-              className="min-h-[180px] resize-y bg-muted/40 border-border focus-visible:ring-1 focus-visible:ring-primary/50 text-lg leading-relaxed placeholder:text-muted-foreground/40 p-4"
-              placeholder={`Write your intentions, tasks, meetings, anything on your mind...\n\nExample:\n"I have a marketing sync at 10am, need to buy groceries for dinner, finish the Q3 report by EOD, and squeeze in a 30min run."`}
+              className="min-h-28 resize-y bg-muted/30 leading-relaxed"
+              placeholder={isArabic ? 'اكتب ما يشغل بالك لهذا اليوم…' : 'Meetings, errands, loose thoughts…'}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
             />
-
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 space-y-2">
               <VoiceCaptureFeedback voice={voice} />
-              <VoiceTranscriptReview
-                id="plan-voice-transcript"
-                state={voiceState}
-                transcript={transcript}
-                value={voiceReviewText}
-                onChange={setVoiceReviewText}
-                label="Editable plan transcript"
-              >
-                <Button type="button" size="sm" onClick={applyPlanTranscript} disabled={!voiceReviewText.trim() || voiceApplied}>
-                  {voiceApplied ? 'Added to plan notes' : 'Add transcript to plan notes'}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={resetVoiceInput}>
-                  Discard transcript
-                </Button>
+              <VoiceTranscriptReview id="plan-voice-transcript" state={voiceState} transcript={transcript} value={voiceReviewText} onChange={setVoiceReviewText} label="Editable plan transcript">
+                <Button type="button" size="sm" onClick={() => {
+                  if (!voiceReviewText.trim() || voiceApplied) return;
+                  setNotes((current) => getReviewedVoiceValue(current, voiceReviewText, 'append') ?? current);
+                  setVoiceApplied(true);
+                }} disabled={!voiceReviewText.trim() || voiceApplied}>{voiceApplied ? 'Added to plan notes' : 'Add transcript to notes'}</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={resetVoiceInput}>Discard transcript</Button>
               </VoiceTranscriptReview>
               {generationError && <p role="alert" className="text-sm text-destructive">{generationError}</p>}
             </div>
-
-            <div className="pt-4 flex flex-col gap-3">
-              <p className="text-xs text-muted-foreground">Voice is optional. Review the transcript before generating your plan.</p>
-              <div className="flex items-center justify-end gap-2">
-                <VoiceCaptureButton
-                  voice={voice}
-                  onStart={handleStartVoice}
-                  startText="Press and hold or activate to record voice note"
-                  stopText="Recording voice note; release or activate to stop"
-                  variant="outline"
-                  size="icon"
-                  iconOnly
-                  title="Press and hold to record"
-                  disabled={voiceState === 'starting' || voiceState === 'processing' || consentSaving || isGenerating}
-                  data-testid="button-voice-record"
-                />
-                <Button
-                  onClick={generateWithAI}
-                  disabled={!canGenerate}
-                  className="bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30"
-                >
-                  {isGenerating ? 'Thinking...' : 'Generate Plan with AI'}
-                  <Sparkles className="h-4 w-4 ml-2" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!notes.trim() || isGenerating || voiceIsBusy}
-                  onClick={() => openWithDraft(notes.trim())}
-                >
-                  Ask Assistant about these notes
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground" role="note">
-                Press and hold to record. Audio is sent to AssemblyAI only after the browser validates the recording.
-              </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <VoiceCaptureButton
+                voice={voice}
+                onStart={handleStartVoice}
+                startText="Press and hold or activate to record voice note"
+                stopText="Recording voice note; release or activate to stop"
+                variant="outline"
+                size="icon"
+                iconOnly
+                title="Press and hold to record"
+                disabled={voiceState === 'starting' || voiceState === 'processing' || consentSaving || isGenerating}
+                data-testid="button-voice-record"
+              />
+              <Button onClick={() => void generateWithAI()} disabled={!notes.trim() || isGenerating || voiceIsBusy} className="flex-1">
+                <Sparkles className="me-2 size-4" />{isGenerating ? (isArabic ? 'جارٍ إعداد الخطة…' : 'Building your plan…') : (isArabic ? 'إنشاء خطة' : 'Generate plan')}
+              </Button>
+              <Button type="button" variant="outline" disabled={!notes.trim() || isGenerating || voiceIsBusy} onClick={() => openWithDraft(notes.trim())}>
+                {isArabic ? 'اسأل المساعد' : 'Ask assistant'}
+              </Button>
             </div>
-          </div>
-        </section>
+          </section>
+        </aside>
       </div>
 
-      <VoiceConsentDialog
-        open={consentOpen}
-        onOpenChange={setConsentOpen}
-        onConfirm={() => void saveVoiceConsent()}
-        saving={consentSaving}
-        error={consentError}
-      />
-
+      <VoiceConsentDialog open={consentOpen} onOpenChange={setConsentOpen} onConfirm={() => void saveVoiceConsent()} saving={consentSaving} error={consentError} />
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader><DialogTitle>Add to Plan</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{isArabic ? 'إضافة إلى الخطة' : 'Add to your plan'}</DialogTitle></DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Task or Intent</Label>
-              <Input id="title" placeholder="e.g. Weekly review meeting" {...form.register('title')} />
+              <Label htmlFor="plan-title">{isArabic ? 'المهمة أو النية' : 'Task or intention'}</Label>
+              <Input id="plan-title" placeholder={isArabic ? 'مثال: مراجعة أسبوعية' : 'For example, weekly review'} {...form.register('title')} />
               {form.formState.errors.title && <p className="text-xs text-destructive">{form.formState.errors.title.message}</p>}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="timeBlock">Time Block (optional)</Label>
-              <Input id="timeBlock" placeholder="e.g. 10:00 AM - 11:00 AM" {...form.register('timeBlock')} />
-            </div>
-            <div className="space-y-2">
-              <Label>Priority</Label>
-              <div className="flex gap-4">
-                {(['high', 'medium', 'low'] as const).map((priority) => (
-                  <label key={priority} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" value={priority} {...form.register('priority')} className="accent-primary" />
-                    <span className={cn('font-medium', priority === 'high' ? 'text-destructive' : priority === 'medium' ? 'text-warning' : 'text-info')}>
-                      {priority[0].toUpperCase() + priority.slice(1)}
-                    </span>
-                  </label>
-                ))}
+            <div className="space-y-2"><Label htmlFor="plan-time">{isArabic ? 'الفترة الزمنية (اختياري)' : 'Time block (optional)'}</Label><Input id="plan-time" placeholder="10:00 AM – 11:00 AM" {...form.register('timeBlock')} /></div>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">{isArabic ? 'الأولوية' : 'Priority'}</legend>
+              <div className="flex flex-wrap gap-4">
+                {(['high', 'medium', 'low'] as const).map((priority) => <label key={priority} className="flex cursor-pointer items-center gap-2 text-sm"><input type="radio" value={priority} {...form.register('priority')} className="accent-primary" /><span>{isArabic ? ({ high: 'عالية', medium: 'متوسطة', low: 'منخفضة' }[priority]) : priority[0].toUpperCase() + priority.slice(1)}</span></label>)}
               </div>
-            </div>
-            <DialogFooter className="pt-4">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>{form.formState.isSubmitting ? 'Adding...' : 'Add Item'}</Button>
+            </fieldset>
+            <DialogFooter className="pt-3">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
+              <Button type="submit" disabled={createPlan.isPending}>{createPlan.isPending ? (isArabic ? 'جارٍ الإضافة…' : 'Adding…') : (isArabic ? 'إضافة المهمة' : 'Add task')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

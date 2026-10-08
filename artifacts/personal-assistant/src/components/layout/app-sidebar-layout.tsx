@@ -10,6 +10,7 @@ import {
   Mail,
   MoreHorizontal,
   NotebookPen,
+  MessageCircle,
   Target,
   UserCircle,
   WalletCards,
@@ -63,6 +64,7 @@ const navigation = [
   { href: '/habits', labelKey: 'nav.habits', icon: CheckCircle2 },
   { href: '/goals', labelKey: 'nav.goals', icon: Target },
   { href: '/plan', labelKey: 'nav.dailyPlan', icon: ListTodo },
+  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
   { href: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
   { href: '/chores', labelKey: 'nav.chores', icon: ClipboardList },
   { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
@@ -358,7 +360,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
         </div>
       </SidebarInset>
 
-      <AssistantSidebar />
+      {location !== '/agent' && <AssistantSidebar />}
     </div>
   );
 }

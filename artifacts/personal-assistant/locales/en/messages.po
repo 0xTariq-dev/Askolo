@@ -77,6 +77,11 @@ msgid "nav.dailyPlan"
 msgstr "Daily Plan"
 
 #. js-lingui-explicit-id
+#: src/lib/messages.ts
+msgid "nav.agent"
+msgstr "Agent"
+
+#. js-lingui-explicit-id
 #: src/lib/messages.ts:21
 msgid "nav.dashboard"
 msgstr "Dashboard"

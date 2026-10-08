@@ -26,6 +26,7 @@ import { LocaleProvider } from '@/contexts/locale-context';
 import type { Locale } from '@/lib/locale';
 import {
   ActionsPage,
+  AgentPage,
   AdminCreditsPage,
   CalendarPage,
   ChoresPage,
@@ -159,7 +160,8 @@ function AuthenticatedPageRoutes() {
       <Route path="/chores" component={ChoresPage} />
       <Route path="/notes" component={NotesPage} />
       <Route path="/actions" component={ActionsPage} />
-      <Route path="/assistant"><Redirect to="/dashboard" /></Route>
+       <Route path="/agent" component={AgentPage} />
+       <Route path="/assistant"><Redirect to="/agent" /></Route>
       <Route path="/email" component={EmailPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/credits" component={CreditsPage} />

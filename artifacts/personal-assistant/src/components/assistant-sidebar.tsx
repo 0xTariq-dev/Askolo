@@ -66,7 +66,7 @@ import { VoiceChatControls } from '@/components/assistant/voice-chat-controls';
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
 
-export function AssistantSidebar() {
+export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
   const {
     isOpen,
     isFull,
@@ -247,10 +247,11 @@ export function AssistantSidebar() {
     speechOutput.stop();
     setVoiceChatStatus('Spoken reply interrupted. Continue speaking when ready.');
   };
+  const assistantVisible = fullPage || isOpen;
   const conversationQuery = useGetAssistantConversation({
     query: {
       queryKey: getGetAssistantConversationQueryKey(),
-      enabled: isOpen,
+      enabled: assistantVisible,
       staleTime: 0,
       refetchOnWindowFocus: true,
     },
@@ -262,8 +263,8 @@ export function AssistantSidebar() {
   });
 
   useEffect(() => {
-    if (isOpen) bottomRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' });
-  }, [messages, isThinking, isOpen, reducedMotion]);
+    if (assistantVisible) bottomRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' });
+  }, [messages, isThinking, assistantVisible, reducedMotion]);
 
   useEffect(() => {
     if (
@@ -278,24 +279,24 @@ export function AssistantSidebar() {
   useEffect(() => () => planningRequestRef.current?.abort(), []);
 
   useEffect(() => {
-    if (!isOpen) speechOutput.stop();
-  }, [isOpen, speechOutput.stop]);
+    if (!assistantVisible) speechOutput.stop();
+  }, [assistantVisible, speechOutput.stop]);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!assistantVisible) {
       cleanupVoiceChatOnCloseRef.current();
       if (voice.state !== 'idle') voice.reset();
     }
-  }, [isOpen, voice.state]);
+  }, [assistantVisible, voice.state]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!assistantVisible || fullPage) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [close, isOpen]);
+  }, [close, assistantVisible, fullPage]);
 
   useEffect(() => {
     if (!conversationQuery.data) return;
@@ -358,11 +359,11 @@ export function AssistantSidebar() {
       const run = (event as CustomEvent<AssistantRun>).detail;
       if (!run || typeof run.id !== 'string' || typeof run.state !== 'string') return;
       incorporateRun(run);
-      if (!isOpen) toggle();
+      if (!assistantVisible) toggle();
     };
     window.addEventListener('askolo:voice-agent-action', onVoiceAgentAction);
     return () => window.removeEventListener('askolo:voice-agent-action', onVoiceAgentAction);
-  }, [incorporateRun, isOpen, toggle]);
+  }, [incorporateRun, assistantVisible, toggle]);
 
   const onSubmit = async (data: MessageForm, options?: { voiceChat?: boolean }) => {
     const text = data.text.trim();
@@ -795,8 +796,7 @@ export function AssistantSidebar() {
 
   return (
     <>
-      {/* Toggle button — bottom-right floating */}
-      <button
+      {!fullPage && <button
         onClick={toggle}
         aria-label={isOpen ? 'Close assistant' : 'Open assistant'}
         aria-expanded={isOpen}
@@ -809,11 +809,11 @@ export function AssistantSidebar() {
         )}
       >
         {isOpen ? <X className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
-      </button>
+      </button>}
 
       {/* Overlay backdrop for fullscreen */}
       <AnimatePresence>
-        {isOpen && isFull && (
+        {!fullPage && isOpen && isFull && (
           <motion.div
             key="backdrop"
             initial={reducedMotion ? false : { opacity: 0 }}
@@ -828,29 +828,36 @@ export function AssistantSidebar() {
 
       {/* Sidebar panel */}
       <AnimatePresence>
-        {isOpen && (
+        {(fullPage || isOpen) && (
           <motion.aside
-            key="sidebar"
+            key={fullPage ? 'workspace' : 'sidebar'}
             id="assistant-panel"
             aria-label="Askolo assistant"
-            initial={reducedMotion ? { x: 0, opacity: 1 } : { x: hiddenOffset }}
+            initial={fullPage || reducedMotion ? { opacity: 1 } : { x: hiddenOffset }}
             animate={{ x: 0 }}
-            exit={reducedMotion ? { opacity: 0 } : { x: hiddenOffset }}
+            exit={fullPage || reducedMotion ? { opacity: 0 } : { x: hiddenOffset }}
             transition={reducedMotion ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 300 }}
             className={cn(
-              'fixed top-0 end-0 bottom-0 z-50 flex flex-col bg-card border-s border-border shadow-2xl',
-              isFull ? 'w-full' : 'w-[380px] max-w-full',
+              fullPage
+                ? 'relative flex min-h-[min(72dvh,760px)] w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm'
+                : cn(
+                    'fixed top-0 end-0 bottom-0 z-50 flex flex-col bg-card border-s border-border shadow-2xl',
+                    isFull ? 'w-full' : 'w-[380px] max-w-full',
+                  ),
             )}
           >
             {/* Header */}
-            <div className="h-14 flex items-center justify-between px-4 border-b border-border shrink-0">
+            <div className={cn('flex items-center justify-between border-b border-border shrink-0', fullPage ? 'px-5 py-4 md:px-7' : 'h-14 px-4')}>
               <div className="flex items-center gap-2">
-                <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <div className={cn('rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary', fullPage ? 'h-9 w-9' : 'h-7 w-7')}>
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
-                <span className="font-display font-semibold text-sm">Askolo Assistant</span>
+                <div>
+                  {fullPage && <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Askolo workspace</p>}
+                  <span className={cn('font-display font-semibold', fullPage ? 'text-lg' : 'text-sm')}>Askolo Assistant</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1">
+              {!fullPage && <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -869,12 +876,12 @@ export function AssistantSidebar() {
                 >
                   <X className="h-4 w-4" />
                 </Button>
-              </div>
+              </div>}
             </div>
 
             {/* Messages */}
              <div
-               className="flex-1 overflow-y-auto p-4 space-y-4"
+               className={cn('flex-1 overflow-y-auto space-y-4', fullPage ? 'p-4 md:px-8 md:py-6' : 'p-4')}
                role="log"
                aria-label="Assistant conversation"
                aria-live="polite"
@@ -1056,7 +1063,7 @@ export function AssistantSidebar() {
             </div>
 
             {/* Input */}
-            <div className="p-3 border-t border-border bg-card/50 shrink-0">
+            <div className={cn('border-t border-border bg-card/50 shrink-0', fullPage ? 'p-4 md:px-7 md:py-5' : 'p-3')}>
               <div role="group" aria-label="Assistant mode" className="mb-3 flex flex-wrap gap-2">
                 <Button
                   type="button"

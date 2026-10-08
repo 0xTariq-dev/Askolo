@@ -26,6 +26,10 @@ export const PlanPage = lazy(() =>
   import('@/pages/plan').then(({ PlanPage }) => ({ default: PlanPage })),
 );
 
+export const AgentPage = lazy(() =>
+  import('@/pages/agent').then(({ AgentPage }) => ({ default: AgentPage })),
+);
+
 export const CalendarPage = lazy(() =>
   import('@/pages/calendar').then(({ CalendarPage }) => ({ default: CalendarPage })),
 );

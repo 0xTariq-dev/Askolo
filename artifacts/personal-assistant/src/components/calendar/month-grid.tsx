@@ -16,6 +16,7 @@ interface MonthGridProps {
   habits: Habit[];
   completionsByDate: Map<string, Set<number>>;
   todayStr: string;
+  selectedDateStr?: string;
   onEventClick: (event: Event) => void;
   onDayClick: (date: Date) => void;
 }
@@ -27,6 +28,7 @@ export function MonthGrid({
   habits,
   completionsByDate,
   todayStr,
+  selectedDateStr,
   onEventClick,
   onDayClick,
 }: MonthGridProps) {
@@ -58,6 +60,7 @@ export function MonthGrid({
           const dateStr = format(day, 'yyyy-MM-dd');
           const isCurrentMonth = isSameMonth(day, currentDate);
           const isTodayCell = dateStr === todayStr;
+          const isSelectedCell = dateStr === selectedDateStr;
 
           // Events spanning this day
           const dayEvents = events.filter((e) => {
@@ -93,6 +96,7 @@ export function MonthGrid({
                 className={cn(
                   'self-start h-6 w-6 rounded-full text-xs font-medium flex items-center justify-center shrink-0 transition-colors hover:bg-muted',
                   isTodayCell && 'bg-primary text-primary-foreground hover:bg-primary/90',
+                   isSelectedCell && !isTodayCell && 'ring-1 ring-inset ring-primary bg-primary/5 text-primary',
                   !isCurrentMonth && !isTodayCell && 'text-muted-foreground/50',
                 )}
               >
