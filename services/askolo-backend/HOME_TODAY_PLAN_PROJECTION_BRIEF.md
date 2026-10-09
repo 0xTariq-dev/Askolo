@@ -17,7 +17,7 @@ Home is a concise, factual roll-up, not a list of every task, calendar event, em
 
 Initial Home content:
 
-1. **Focus actions:** store selections per user and Plan day. Show selected items first; fill the remaining slots with suggestions, up to three total. Unfinished items already in today's Plan qualify. The user also said “plus any overdue items or habits”; whether overdue tasks outside today's Plan qualify still needs clarification. Do not schedule suggestions without approval.
+1. **Focus actions:** store selections per user and Plan day. Show selected items first; fill the remaining slots with suggestions, up to three total. Eligible suggestions include unfinished items already in today's Plan, today's habit occurrences, and any overdue open task in the selected Space. Do not schedule suggestions without approval.
 2. **Email summary:** show unread Inbox and action-needed counts. Action-needed includes threads whose latest message is from someone else and messages flagged or starred. A message may count in both totals. Do not list individual emails in this card. In the target model, provider accounts are owned by a Space; users select which connected accounts in that Space contribute. Keep this provider-agnostic so future email providers fit the same model. Retrieve full email content from its provider only when the user opens a message.
 3. **Calendar summary:** show the current day's event count and the next event with its time. Count an event on each day it overlaps, including multi-day events.
 4. **Contextual Agent:** provide an inline, day-aware entry on Home. It is a quick way to access the same full Agent, not a separate day-limited assistant. The Agent can use all information available within the active Space or All Spaces scope, subject to normal authorization and privacy boundaries. Keep the full Agent as a separate page rather than opening the global drawer from Home.
@@ -65,10 +65,10 @@ Provider systems remain the source of truth for provider-owned content. Keep onl
 
 Remaining detail:
 
-- Clarify whether overdue tasks outside today's Plan are eligible Home suggestions. The user-selected focus actions stay first; suggestions fill remaining slots, up to three total.
+- Focus suggestions may include any overdue open task in the selected Space, even if it is outside today's Plan. The user-selected focus actions stay first; unfinished Plan items and today's habit occurrences are also eligible, with suggestions filling the remaining slots up to three total.
 - The Agenda API supports the full 42-day inclusive Month range and cursor pagination. Its event query uses the viewer's effective time zone and includes events overlapping the range. Page tokens are signed and scope-bound; pages are live reads rather than a cross-request snapshot, so restart after writes or sync updates.
 - Provider account ownership is per Space and account selection is per Space. Existing legacy provider-account tables are user-scoped; the new ownership/sync foundation and server-side All Spaces email-summary endpoint are not implemented by this change.
-- Persisted per-user focus choices are also not implemented here; the overdue-task suggestion rule remains open.
+- Persisted per-user focus choices are also not implemented here; eligibility is now settled, but selection persistence and the suggestion query remain future work.
 
 Do not cache sensitive aggregate payloads until shared invalidation/versioning exists. Protected V2 HTTP responses use `private, no-store`; optimize with bounded indexed queries first. Any future cache must reauthorize and be scoped to viewer, authorized Spaces, selected provider accounts, date range, effective time zone, and data/access versions. Invalidate it on membership changes, account-selection changes, writes, and provider sync events. Never cache message bodies or credentials.
 
