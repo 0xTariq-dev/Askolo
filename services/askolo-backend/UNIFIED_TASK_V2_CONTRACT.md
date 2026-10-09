@@ -6,6 +6,8 @@ Status: implementation baseline for the additive V2 schema and API.
 
 V2 adds a canonical task model and a versioned API alongside the existing stable API. The current public schema and existing `/api` behavior are not changed. Migration 0016 remains checksum-pinned; later V2 schema changes use a forward staged migration under the isolated `public_v2` schema.
 
+Askolo is workspace-first, not household-only: a workspace can represent a family or a professional team. Workspaces and invitations are core organizing and collaboration concepts. Keep product language and Today/Plan views reusable across both contexts rather than assuming every workspace is a household.
+
 For a source schema named `public`, the migration runner resolves the staged schema token to `public_v2`. Schema-isolated tests use a source-specific `*_public_v2` name so they do not share objects.
 
 The staged schema is not a complete copy of V1. It references the existing `public.users` identity table rather than creating a second user directory. It defines a separate workspace-level AI credit ledger, but does not copy V1 credit balances, grants, reservations, or history. The existing authentication/session system therefore remains a V1 dependency unless a separate identity boundary is designed.
