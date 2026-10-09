@@ -18,6 +18,8 @@ There are no active users and existing data is disposable. This implementation d
 
 Do not create additional canonical V2 database views until the Today/Plan UI views and their data needs are defined with the user. Then align the API read contract and database views to those approved screens. The existing `workspace_agenda_items` and `workspace_overview` views in migration 0016 are legacy projections, not the new UI contract. Keep migration 0016 unchanged; any later change to those legacy views must be a forward migration.
 
+A screen-level draft is maintained in `HOME_TODAY_PLAN_PROJECTION_BRIEF.md` and is pending user review. It is not an approved API or database contract and does not authorize creating views or applying migrations.
+
 ## Domain model
 
 ### Tasks
