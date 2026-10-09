@@ -9,7 +9,7 @@ Status: draft for implementation planning. This document does not create a migra
 - Per-Space Home summaries use only the provider accounts available in that Space and selected for the summary.
 - Focus choices are saved per user, workspace/Space, and Plan day. Home shows saved choices first, then suggestions, up to three actions.
 - All Spaces reads are authorized and aggregated on the server. Never fan out to each workspace from the browser.
-- Email summaries contain only unread Inbox and action-needed counts plus freshness metadata. Do not persist email content or credentials in the V2 schema.
+- Email summaries contain only unread Inbox and action-needed counts plus freshness metadata. The user chose to let active Space members read full message content from a promoted account on demand. Do not persist email content or credentials in the V2 schema.
 
 ## Proposed API surface
 
@@ -21,6 +21,8 @@ The draft routes and response contract are in `UNIFIED_TASK_V2_CONTRACT.md`, und
 - `POST /api/v2/workspaces/{workspaceId}/provider-connections`
 - `DELETE /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}`
 - `PUT /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/space-access`
+- `GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages`
+- `GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages/{messageId}`
 
 All Space-scoped writes must use the existing V2 session and workspace-role authorization. A member may associate or detach only their own provider connection; an owner/admin may detach any connection. Only owners/admins can promote or unpromote a connection. Focus writes affect only the signed-in user's current-day choices and must not mutate the underlying Task, occurrence, or Plan.
 
@@ -66,8 +68,9 @@ The API replaces a day's list transactionally after validating all references an
 
 ## Authorization and lifecycle behavior
 
-- For `owner_only`, only the connection owner may use that account in Home. For `space_shared`, active members of the associated workspace may use its Home summary. Promotion grants summary access only; full mailbox content remains outside this contract.
+- For `owner_only`, only the connection owner may use that account in Home or the email reader. For `space_shared`, active members of the associated workspace may use its Home summary and read provider-backed message lists and bodies on demand. Promotion is read-only; it does not allow sending, deleting, drafting, or downloading attachments under this contract.
 - Every Home request rechecks active workspace membership and the provider connection's active status. All Spaces filters to the viewer's currently authorized workspaces and account grants before aggregation.
+- Every message list/detail request also verifies that the connection is associated with the path workspace, is active and `space_shared`, and that the message belongs to that connection. Return `private, no-store`; do not log or persist bodies. Render email HTML as untrusted content and sanitize it or use safe text rendering.
 - A revoked/disconnected provider connection is immediately excluded from summary reads and sync. The V2 schema must not preserve visible stale counts after revocation.
 - If the account owner loses active membership, deny the account to the former owner and the Space, pause sync, and require an active owner/admin to explicitly restore access. Whether to retain the promotion row or remove it during membership revocation should be settled with the broader membership-lifecycle implementation.
 - Never log provider account identifiers, message content, tokens, or email addresses. Avoid exposing connection IDs in Home summary payloads.
@@ -80,13 +83,15 @@ Run only against a fresh disposable PostgreSQL database until a separate Develop
 2. Test unique one-workspace association, default owner-only access, owner/admin promotion, rejection of member promotion, and inactive-connection exclusion.
 3. Test focus limits, ordering, duplicate/cross-workspace rejection, recurring occurrence references, replacement atomicity, and per-user/per-Space/per-day isolation.
 4. Test one-Space Home and All Spaces results, current-day timezone behavior, per-Space and combined email totals, saved-action precedence, multi-day calendar overlap, no-store headers, unauthorized membership, and revoked-account filtering.
-5. Seed summary snapshots directly for read tests; webhook and provider sync are a separate follow-up and are not required to validate the projection API.
+5. Seed summary snapshots directly for Home read tests; webhook and provider sync are a separate follow-up and are not required to validate the projection API.
+6. Test shared message-list/detail authorization across owner, active member, non-member, unpromoted, cross-workspace, and revoked-connection cases. Confirm that message bodies are not cached, logged, or persisted.
 
 ## Items to settle before implementing provider sharing
 
 - Choose the freshness threshold shown by the Home summary and the provider-sync retry/retention behavior.
 - Confirm what happens to a promoted account if its owner disconnects or leaves the workspace; the safe read behavior is already to deny and stop syncing immediately.
-- Confirm whether Space promotion is limited to Home summary counts, as this draft proposes, or should also authorize opening full provider content.
+- Decide whether the account owner must explicitly consent before a Space owner/admin can promote the account for full-content reading.
+- The current Google OAuth code declares the `gmail.send` capability and uses it for the existing message-list/detail provider calls. Define and verify a separate least-privilege read grant and incremental-consent flow before shared reads; do not silently expand an existing grant or treat send authorization as read consent.
 - Confirm All Spaces tie-breaking when more than three saved choices exist across Spaces. This draft uses Space-list order, then each Space's saved position.
 
 No migration has been applied to Development or Production.
