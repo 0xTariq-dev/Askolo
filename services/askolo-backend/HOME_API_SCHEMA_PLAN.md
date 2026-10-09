@@ -18,9 +18,11 @@ The draft routes and response contract are in `UNIFIED_TASK_V2_CONTRACT.md`, und
 - `GET /api/v2/workspaces/{workspaceId}/home`
 - `GET /api/v2/home`
 - `PUT /api/v2/workspaces/{workspaceId}/home/focus`
+- `POST /api/v2/workspaces/{workspaceId}/provider-connections`
+- `DELETE /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}`
 - `PUT /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/space-access`
 
-All Space-scoped writes must use the existing V2 session and workspace-role authorization. Only owners/admins can promote or unpromote a connection. Focus writes affect only the signed-in user's current-day choices and must not mutate the underlying Task, occurrence, or Plan.
+All Space-scoped writes must use the existing V2 session and workspace-role authorization. A member may associate or detach only their own provider connection; an owner/admin may detach any connection. Only owners/admins can promote or unpromote a connection. Focus writes affect only the signed-in user's current-day choices and must not mutate the underlying Task, occurrence, or Plan.
 
 ## Proposed staged migration
 
@@ -45,7 +47,7 @@ Keep one minimal current summary per workspace/provider connection:
 
 - Workspace and provider-connection identifiers.
 - Non-negative unread Inbox and action-needed counts.
-- Sync state, `last_synced_at`, and `updated_at`.
+- Sync state (`current`, `stale`, `syncing`, `error`, or `unavailable`), `last_synced_at`, and `updated_at`.
 - Foreign key to the workspace account-access row so an unlinked account cannot leave an active summary.
 
 The row is a current snapshot, not a message store or historical analytics table. Exclude it from reads whenever the underlying connection is inactive or the viewer lacks account access. The exact stale threshold, retention after disconnect, and sync retry policy belong to the provider-sync implementation.
