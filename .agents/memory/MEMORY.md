@@ -70,4 +70,5 @@
 - [AssemblyAI standalone TTS limit](assemblyai-tts-limit.md) — AssemblyAI speech output is part of its full Voice Agent API, not a standalone way to read existing text.
 - [Assistant tool registry contract](assistant-tool-registry.md) — keep planner arguments registry-driven and transform them into the existing persisted confirmation format before any write.
 - [Azure assistant speech privacy](azure-assistant-speech-output.md) — Azure semi-live replies complement AssemblyAI live mode and require independent consent and owner-scoped stored responses.
+- [Askolo planning model](askolo-planning-model.md) — unify chores, habits, recurring commitments, and action items as tasks; plans link tasks, goals stay contextual, calendar events remain events, reminders wait for automation.
 
