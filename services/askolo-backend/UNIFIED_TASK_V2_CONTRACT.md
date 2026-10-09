@@ -1,0 +1,164 @@
+# Unified Task V2 Contract
+
+Status: implementation baseline for the additive V2 schema and API.
+
+## Scope and compatibility
+
+V2 adds a canonical task model and a versioned API alongside the existing stable API. The current public schema and existing `/api` behavior are not changed. Migration 0016 remains checksum-pinned; later V2 schema changes use a forward staged migration under the isolated `askolo_v2` schema.
+
+There are no active users and existing data is disposable. This implementation does not convert or clean up legacy records, and it does not migrate the UI. V2 schema and API checks run against a fresh disposable PostgreSQL database.
+
+## Domain model
+
+### Tasks
+
+`Task` is the single canonical model for actionable work. Its initial kinds are:
+
+- `action` — an action item or general next step
+- `chore` — household or workspace upkeep
+- `habit` — a repeated behavior tracked by occurrence
+- `commitment` — a recurring or one-time responsibility
+
+Kind does not determine recurrence. All kinds may be one-time or recurring. A task owns its title, details, creator, optional assignee, priority, lifecycle, optional due date, optional goal link, optional parent task, and source provenance. Task identity and state are never copied into a Plan.
+
+Task lifecycle values are `open`, `in_progress`, `done`, `cancelled`, and `archived`. A recurring task remains open or in progress while its individual occurrences are completed. A recurring task is stopped by archiving it; completing an occurrence does not complete the task definition.
+
+Dates are calendar dates, not timestamps. A planned time is a separate timestamp. Recurrence uses an IANA time-zone name and local calendar dates so daylight-saving changes do not shift an occurrence to another local day.
+
+### Recurrence and occurrences
+
+The first recurrence contract supports `daily`, `weekly`, and `monthly` frequency, a positive interval, an inclusive start date, an optional inclusive end date, and a time zone. Weekly rules may include selected weekdays; otherwise they use the start date's weekday. Monthly rules use the start date's day of month and skip months that do not contain that day. Occurrences are generated only for requested date ranges; there is no background scheduler.
+
+`TaskOccurrence` is identified by task ID and local occurrence date. It stores the occurrence status (`done`, `skipped`, or `cancelled`), completion actor/time, and any occurrence-specific due-time override. An occurrence without a stored override is open. Completing or reopening an occurrence never changes the recurring task definition. Non-recurring tasks use their Task lifecycle status and do not require synthetic occurrence rows.
+
+Parent tasks and dependency links refer to canonical tasks in the same workspace. A task cannot be its own parent or dependency, and dependency cycles are rejected.
+
+### Goals
+
+Goals are long-term destinations, not agenda tasks. A task may reference zero or one goal in the same workspace. Goal progress and lifecycle remain independent from task completion; completing a task does not silently rewrite goal progress.
+
+### Plans
+
+A Plan has an owner, title, period, time zone, lifecycle, and visibility. Visibility is `personal` or `shared`. Personal Plans are visible to their owner and workspace owners/admins. Shared Plans are visible to active workspace members. Workspace owners/admins may change a Plan to shared or personal.
+
+A Plan entry links to one existing Task and, optionally, one local occurrence date. It may add a planned date/time and ordering position. It never stores a duplicate title, status, or assignee. A Task may appear in multiple plans; all entries reflect the same canonical Task state.
+
+Assignments are stored on the Task. Assigning from a Plan updates that Task's `assignedToUserId`; it does not assign a copy or change unrelated Plan entries.
+
+### Calendar and agenda
+
+The bounded agenda projection combines:
+
+1. Tasks due in the requested date range, including generated recurrence occurrences.
+2. Plan entries scheduled in the requested range, linked to the canonical Task.
+3. Calendar event records.
+
+Calendar events remain distinct from Tasks. Provider-owned events preserve both provider and source event IDs. The projection identifies each item kind and includes the source IDs for event records. A Plan entry is a scheduling relationship, not a new task.
+
+The V2 agenda endpoint accepts an inclusive date range no longer than 31 days. Responses are capped and ordered by local day, planned start time, then stable ID.
+
+### Reminder definitions
+
+Reminder rules are stored as user-defined, inactive configuration for task reminders, goal reminders, and daily briefs. New rules have state `pending_automation`. The V2 API cannot activate delivery. No notification, email, daily brief, or other automation is dispatched by this implementation.
+
+## API contract
+
+All endpoints are session-authenticated and workspace-scoped. Paths use `/api/v2/workspaces/{workspaceId}`. Every request verifies that the actor has an active membership in the path workspace. The active workspace and membership records remain the authorization source of truth; after an actor is authorized, the current workspace and memberships are synchronized into the isolated V2 schema so V2 foreign keys and shared-plan access stay current. This is request-scoped synchronization, not a bulk legacy-data conversion. Resource IDs from another workspace are treated as unavailable. Writes record the acting user.
+
+### Endpoints
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/v2/healthz` | V2 schema readiness; does not block the stable app's health check. |
+| `GET /api/v2/workspaces/{workspaceId}/tasks` | List tasks with bounded pagination and optional kind, status, assignee, and date filters. |
+| `POST /api/v2/workspaces/{workspaceId}/tasks` | Create a task. |
+| `GET /api/v2/workspaces/{workspaceId}/tasks/{taskId}` | Read a task and its relationships. |
+| `PATCH /api/v2/workspaces/{workspaceId}/tasks/{taskId}` | Partial task update; omitted fields are unchanged and explicit `null` clears nullable fields. |
+| `DELETE /api/v2/workspaces/{workspaceId}/tasks/{taskId}` | Archive a task; task history and plan references remain available. |
+| `GET /api/v2/workspaces/{workspaceId}/tasks/{taskId}/occurrences` | List recurrence occurrences for a bounded date range. |
+| `PATCH /api/v2/workspaces/{workspaceId}/tasks/{taskId}/occurrences/{date}` | Complete, skip, cancel, or reopen one occurrence. |
+| `GET, POST /api/v2/workspaces/{workspaceId}/goals` | List and create goals. |
+| `GET, PATCH, DELETE /api/v2/workspaces/{workspaceId}/goals/{goalId}` | Read, update, or archive a goal. |
+| `GET, POST /api/v2/workspaces/{workspaceId}/plans` | List and create plans. |
+| `GET, PATCH, DELETE /api/v2/workspaces/{workspaceId}/plans/{planId}` | Read, update, or archive a plan. |
+| `POST /api/v2/workspaces/{workspaceId}/plans/{planId}/entries` | Link a task or occurrence to a plan and set schedule/position. |
+| `PATCH, DELETE /api/v2/workspaces/{workspaceId}/plans/{planId}/entries/{entryId}` | Update schedule or remove a plan link. |
+| `GET /api/v2/workspaces/{workspaceId}/agenda?from=YYYY-MM-DD&to=YYYY-MM-DD` | Bounded Task, Plan-entry, and event projection. |
+| `GET, POST /api/v2/workspaces/{workspaceId}/reminder-rules` | List and create inactive reminder definitions. |
+| `PATCH, DELETE /api/v2/workspaces/{workspaceId}/reminder-rules/{ruleId}` | Update or delete an inactive definition; activation is not supported. |
+
+List endpoints default to at most 50 items and accept a maximum of 100. Request bodies are limited to 64 KiB. Invalid enum values, dates, recurrence rules, time zones, cross-workspace references, unknown fields, and unsupported reminder activation requests fail with a client error. Writes are transactional where they affect more than one row.
+
+### Authorization
+
+- All actors must have an active account/session and active workspace membership.
+- Members may read shared workspace resources according to their V2 permissions.
+- A personal Plan is visible to its owner and workspace owners/admins; a shared Plan is visible to active members.
+- Only workspace owners/admins may change Plan visibility.
+- A task creator may edit and assign their Task. Workspace owners/admins may manage Tasks in their workspace. An assignee may complete or reopen their own task occurrence.
+- Plan-entry writes require permission to edit the Plan. Assignment from a Plan uses the same Task authorization and storage as direct Task assignment.
+- Cross-workspace or inactive membership access fails closed.
+
+## Response examples
+
+### Task
+
+```json
+{
+  "id": "task_123",
+  "workspaceId": "workspace_123",
+  "kind": "habit",
+  "title": "Walk after lunch",
+  "details": null,
+  "status": "open",
+  "priority": "medium",
+  "createdByUserId": "user_123",
+  "assignedToUserId": "user_123",
+  "goalId": null,
+  "dueOn": null,
+  "recurrence": {
+    "frequency": "weekly",
+    "interval": 1,
+    "weekdays": [1, 3, 5],
+    "startsOn": "2026-10-12",
+    "endsOn": null,
+    "timeZone": "Africa/Cairo"
+  },
+  "parentTaskId": null,
+  "dependencies": [],
+  "createdAt": "2026-10-09T12:00:00Z",
+  "updatedAt": "2026-10-09T12:00:00Z"
+}
+```
+
+### Agenda item
+
+```json
+{
+  "kind": "task_occurrence",
+  "taskId": "task_123",
+  "occurrenceOn": "2026-10-12",
+  "title": "Walk after lunch",
+  "status": "open",
+  "plannedStartAt": null,
+  "dueOn": "2026-10-12",
+  "planId": "plan_123",
+  "assignedToUserId": "user_123"
+}
+```
+
+A calendar event uses `kind: calendar_event`, its own event ID, and nullable source provider/source event ID fields. It is never returned as a task occurrence.
+
+## Contract-test matrix
+
+| Area | Required checks |
+| --- | --- |
+| Task kinds and validation | All four kinds accepted; unknown kinds and malformed fields rejected. |
+| Recurrence | Daily/weekly/monthly expansion; interval, end date, leap/month-end, weekday, and time-zone boundaries. |
+| Occurrence history | Complete, skip, cancel, reopen, actor/time attribution, and idempotent replay. |
+| Relationships | Optional Goal link, parent task, dependencies, cross-workspace rejection, self-link and cycle rejection. |
+| Plans | Personal/shared visibility, admin share controls, linked entries, assignment from a Plan updates the Task, and no copied task state. |
+| Agenda | Tasks, generated occurrences, Plan scheduling, and provider events appear with distinct kinds and stable source IDs. |
+| Reminders | CRUD leaves every rule pending automation; no dispatch or active state is possible. |
+| Compatibility | Existing stable routes and active migration prefix remain unchanged; V2 staged migration applies only in disposable PostgreSQL tests. |
+| Abuse and errors | Body/range/list caps, strict JSON and query validation, parameterized SQL, timeouts, safe error responses, and no task/event content in logs. |

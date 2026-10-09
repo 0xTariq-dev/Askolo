@@ -484,6 +484,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/user/profile", h.updateProfile)
 	mux.HandleFunc("DELETE /api/user/data", h.deleteUserData)
 	mux.HandleFunc("DELETE /api/user/account", h.deleteAccount)
+	h.mountV2(mux)
 	return mux
 }
 

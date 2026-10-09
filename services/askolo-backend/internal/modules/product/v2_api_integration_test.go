@@ -1,0 +1,392 @@
+package product
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"askolo/backend/internal/adapters/postgres"
+	"askolo/backend/internal/config"
+	"askolo/backend/internal/migrations"
+)
+
+func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	const (
+		ownerID     = "v2-plan-owner"
+		memberID    = "v2-plan-member"
+		impostorID  = "v2-plan-impostor"
+		revokedID   = "v2-plan-revoked"
+		workspaceID = "v2-shared-workspace"
+	)
+	ownerSession := fixture.createUserAndSession(t, ownerID, "v2-owner@example.test", true)
+	memberSession := fixture.createUserAndSession(t, memberID, "v2-member@example.test", true)
+	impostorSession := fixture.createUserAndSession(t, impostorID, "v2-impostor@example.test", true)
+	revokedSession := fixture.createUserAndSession(t, revokedID, "v2-revoked@example.test", true)
+
+	if err := fixture.store.CreateWorkspace(
+		fixture.ctx,
+		workspaceID,
+		"V2 shared workspace",
+		ownerID,
+		[]string{"workspace:manage"},
+	); err != nil {
+		t.Fatalf("create shared workspace: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx, workspaceID, memberID, "active", "member", []string{},
+	); err != nil {
+		t.Fatalf("add shared workspace member: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx, workspaceID, impostorID, "active", "owner", []string{},
+	); err != nil {
+		t.Fatalf("add malformed non-owner owner-role fixture: %v", err)
+	}
+	if err := fixture.store.SetWorkspaceMembership(
+		fixture.ctx, workspaceID, revokedID, "revoked", "member", []string{},
+	); err != nil {
+		t.Fatalf("add revoked workspace member fixture: %v", err)
+	}
+
+	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+	request := func(sessionID, method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+sessionID)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response
+	}
+
+	taskResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/tasks",
+		`{"kind":"action","title":"Canonical task","status":"open","priority":"medium"}`,
+	)
+	if taskResponse.Code != http.StatusCreated {
+		t.Fatalf("create task status = %d, want %d: %s", taskResponse.Code, http.StatusCreated, taskResponse.Body.String())
+	}
+	var task struct {
+		ID               string  `json:"id"`
+		AssignedToUserID *string `json:"assignedToUserId"`
+	}
+	if err := json.NewDecoder(taskResponse.Body).Decode(&task); err != nil {
+		t.Fatalf("decode created task: %v", err)
+	}
+	if task.ID == "" {
+		t.Fatal("created task has no ID")
+	}
+	if role, err := fixture.store.V2WorkspaceRole(fixture.ctx, workspaceID, impostorID); err != nil || role != "member" {
+		t.Fatalf("non-owner owner-role mirror = %q, err=%v; want member", role, err)
+	}
+	revokedMemberRead := request(
+		revokedSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/tasks",
+		"",
+	)
+	if revokedMemberRead.Code != http.StatusNotFound {
+		t.Fatalf("revoked member V2 read status = %d, want %d: %s", revokedMemberRead.Code, http.StatusNotFound, revokedMemberRead.Body.String())
+	}
+	unauthorizedShareResponse := request(
+		impostorSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/plans",
+		`{"title":"Unauthorized shared plan","startsOn":"2026-10-09","endsOn":"2026-10-12","timeZone":"Africa/Cairo","visibility":"shared"}`,
+	)
+	if unauthorizedShareResponse.Code != http.StatusForbidden {
+		t.Fatalf("non-owner share status = %d, want %d: %s", unauthorizedShareResponse.Code, http.StatusForbidden, unauthorizedShareResponse.Body.String())
+	}
+	inactiveAssigneeResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/tasks",
+		fmt.Sprintf(`{"kind":"action","title":"Invalid assignee","assignedToUserId":%q}`, revokedID),
+	)
+	if inactiveAssigneeResponse.Code != http.StatusNotFound {
+		t.Fatalf("assign inactive member status = %d, want %d: %s", inactiveAssigneeResponse.Code, http.StatusNotFound, inactiveAssigneeResponse.Body.String())
+	}
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	plannedOn := today.Format("2006-01-02")
+	endsOn := today.AddDate(0, 0, 3).Format("2006-01-02")
+	planResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/plans",
+		fmt.Sprintf(`{"title":"Shared plan","startsOn":%q,"endsOn":%q,"timeZone":"Africa/Cairo","visibility":"shared"}`, plannedOn, endsOn),
+	)
+	if planResponse.Code != http.StatusCreated {
+		t.Fatalf("create shared plan status = %d, want %d: %s", planResponse.Code, http.StatusCreated, planResponse.Body.String())
+	}
+	var sharedPlan struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(planResponse.Body).Decode(&sharedPlan); err != nil {
+		t.Fatalf("decode shared plan: %v", err)
+	}
+
+	personalPlanResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/plans",
+		fmt.Sprintf(`{"title":"Personal plan","startsOn":%q,"endsOn":%q,"timeZone":"Africa/Cairo","visibility":"personal"}`, plannedOn, endsOn),
+	)
+	if personalPlanResponse.Code != http.StatusCreated {
+		t.Fatalf("create personal plan status = %d, want %d: %s", personalPlanResponse.Code, http.StatusCreated, personalPlanResponse.Body.String())
+	}
+	var personalPlan struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(personalPlanResponse.Body).Decode(&personalPlan); err != nil {
+		t.Fatalf("decode personal plan: %v", err)
+	}
+
+	entryResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/plans/"+sharedPlan.ID+"/entries",
+		fmt.Sprintf(`{"taskId":%q,"plannedOn":%q,"position":0}`, task.ID, plannedOn),
+	)
+	if entryResponse.Code != http.StatusCreated {
+		t.Fatalf("create plan entry status = %d, want %d: %s", entryResponse.Code, http.StatusCreated, entryResponse.Body.String())
+	}
+	var entry struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(entryResponse.Body).Decode(&entry); err != nil {
+		t.Fatalf("decode plan entry: %v", err)
+	}
+
+	assignResponse := request(
+		ownerSession,
+		http.MethodPatch,
+		"/api/v2/workspaces/"+workspaceID+"/plans/"+sharedPlan.ID+"/entries/"+entry.ID,
+		fmt.Sprintf(`{"assignedToUserId":%q}`, memberID),
+	)
+	if assignResponse.Code != http.StatusOK {
+		t.Fatalf("assign task from plan status = %d, want %d: %s", assignResponse.Code, http.StatusOK, assignResponse.Body.String())
+	}
+
+	updatedTaskResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/tasks/"+task.ID,
+		"",
+	)
+	if updatedTaskResponse.Code != http.StatusOK {
+		t.Fatalf("read assigned task status = %d, want %d: %s", updatedTaskResponse.Code, http.StatusOK, updatedTaskResponse.Body.String())
+	}
+	if err := json.NewDecoder(updatedTaskResponse.Body).Decode(&task); err != nil {
+		t.Fatalf("decode assigned task: %v", err)
+	}
+	if task.AssignedToUserID == nil || *task.AssignedToUserID != memberID {
+		t.Fatalf("canonical task assignee = %v, want %q", task.AssignedToUserID, memberID)
+	}
+
+	occurrenceEnd := today.AddDate(0, 0, 2).Format("2006-01-02")
+	recurringTaskResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/tasks",
+		fmt.Sprintf(
+			`{"kind":"habit","title":"Daily walk","status":"open","priority":"medium","recurrence":{"frequency":"daily","interval":1,"startsOn":%q,"endsOn":%q,"timeZone":"Africa/Cairo"}}`,
+			plannedOn,
+			occurrenceEnd,
+		),
+	)
+	if recurringTaskResponse.Code != http.StatusCreated {
+		t.Fatalf("create recurring task status = %d, want %d: %s", recurringTaskResponse.Code, http.StatusCreated, recurringTaskResponse.Body.String())
+	}
+	var recurringTask struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(recurringTaskResponse.Body).Decode(&recurringTask); err != nil {
+		t.Fatalf("decode recurring task: %v", err)
+	}
+	occurrencesResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/tasks/"+recurringTask.ID+"/occurrences?from="+plannedOn+"&to="+occurrenceEnd,
+		"",
+	)
+	if occurrencesResponse.Code != http.StatusOK {
+		t.Fatalf("list task occurrences status = %d, want %d: %s", occurrencesResponse.Code, http.StatusOK, occurrencesResponse.Body.String())
+	}
+	var occurrences []struct {
+		Status  string `json:"status"`
+		History []any  `json:"history"`
+	}
+	if err := json.NewDecoder(occurrencesResponse.Body).Decode(&occurrences); err != nil {
+		t.Fatalf("decode task occurrences: %v", err)
+	}
+	if len(occurrences) != 3 || occurrences[0].Status != "open" {
+		t.Fatalf("generated occurrences = %#v, want three open daily occurrences", occurrences)
+	}
+	occurrencePath := "/api/v2/workspaces/" + workspaceID + "/tasks/" + recurringTask.ID + "/occurrences/" + plannedOn
+	for attempt := 0; attempt < 2; attempt++ {
+		completionResponse := request(ownerSession, http.MethodPatch, occurrencePath, `{"status":"done"}`)
+		if completionResponse.Code != http.StatusOK {
+			t.Fatalf("complete occurrence attempt %d status = %d, want %d: %s", attempt+1, completionResponse.Code, http.StatusOK, completionResponse.Body.String())
+		}
+	}
+	reopenResponse := request(ownerSession, http.MethodPatch, occurrencePath, `{"status":"open"}`)
+	if reopenResponse.Code != http.StatusOK {
+		t.Fatalf("reopen occurrence status = %d, want %d: %s", reopenResponse.Code, http.StatusOK, reopenResponse.Body.String())
+	}
+	if err := json.NewDecoder(reopenResponse.Body).Decode(&occurrences[0]); err != nil {
+		t.Fatalf("decode reopened occurrence: %v", err)
+	}
+	if occurrences[0].Status != "open" || len(occurrences[0].History) != 2 {
+		t.Fatalf("reopened occurrence = %#v, want open with two distinct recorded changes", occurrences[0])
+	}
+
+	dateFilteredTasksResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/tasks?from="+plannedOn+"&to="+occurrenceEnd,
+		"",
+	)
+	if dateFilteredTasksResponse.Code != http.StatusOK {
+		t.Fatalf("list tasks by date range status = %d, want %d: %s", dateFilteredTasksResponse.Code, http.StatusOK, dateFilteredTasksResponse.Body.String())
+	}
+	var dateFilteredTasks []struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(dateFilteredTasksResponse.Body).Decode(&dateFilteredTasks); err != nil {
+		t.Fatalf("decode date-filtered tasks: %v", err)
+	}
+	foundRecurringTask := false
+	for _, item := range dateFilteredTasks {
+		if item.ID == recurringTask.ID {
+			foundRecurringTask = true
+		}
+	}
+	if !foundRecurringTask {
+		t.Fatalf("date-filtered task list did not include recurring task %q: %#v", recurringTask.ID, dateFilteredTasks)
+	}
+
+	var sourceSchema string
+	if err := fixture.pool.QueryRow(fixture.ctx, "SELECT current_schema()").Scan(&sourceSchema); err != nil {
+		t.Fatalf("read disposable source schema: %v", err)
+	}
+	v2Schema := migrations.V2SchemaName(sourceSchema)
+	eventStart := today.Add(10 * time.Hour)
+	eventEnd := eventStart.Add(time.Hour)
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO "`+v2Schema+`".calendar_events (
+  id, workspace_id, created_by_user_id, updated_by_user_id, title,
+  starts_at, ends_at, all_day, time_zone, source_provider, source_event_id
+) VALUES ($1,$2,$3,$3,$4,$5,$6,false,'UTC','google',$7)`,
+		"v2-provider-event",
+		workspaceID,
+		ownerID,
+		"Provider event",
+		eventStart,
+		eventEnd,
+		"google-event-42",
+	); err != nil {
+		t.Fatalf("seed disposable provider event: %v", err)
+	}
+	agendaResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/agenda?from="+plannedOn+"&to="+occurrenceEnd,
+		"",
+	)
+	if agendaResponse.Code != http.StatusOK {
+		t.Fatalf("read agenda projection status = %d, want %d: %s", agendaResponse.Code, http.StatusOK, agendaResponse.Body.String())
+	}
+	var agenda struct {
+		Tasks []struct {
+			Kind   string `json:"kind"`
+			TaskID string `json:"taskId"`
+		} `json:"tasks"`
+		PlanEntries []json.RawMessage `json:"planEntries"`
+		Events      []struct {
+			Kind           string `json:"kind"`
+			SourceProvider string `json:"sourceProvider"`
+			SourceEventID  string `json:"sourceEventId"`
+		} `json:"calendarEvents"`
+	}
+	if err := json.NewDecoder(agendaResponse.Body).Decode(&agenda); err != nil {
+		t.Fatalf("decode agenda projection: %v", err)
+	}
+	recurringItems := 0
+	for _, item := range agenda.Tasks {
+		if item.Kind == "task_occurrence" && item.TaskID == recurringTask.ID {
+			recurringItems++
+		}
+	}
+	if recurringItems != 3 {
+		t.Fatalf("agenda recurring occurrences = %d, want 3: %#v", recurringItems, agenda.Tasks)
+	}
+	if len(agenda.PlanEntries) != 1 {
+		t.Fatalf("agenda plan entries = %d, want 1", len(agenda.PlanEntries))
+	}
+	if len(agenda.Events) != 1 || agenda.Events[0].Kind != "calendar_event" ||
+		agenda.Events[0].SourceProvider != "google" || agenda.Events[0].SourceEventID != "google-event-42" {
+		t.Fatalf("agenda calendar event projection = %#v, want the distinct provider event and source ID", agenda.Events)
+	}
+
+	memberSharedPlanResponse := request(
+		memberSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/plans/"+sharedPlan.ID,
+		"",
+	)
+	if memberSharedPlanResponse.Code != http.StatusOK {
+		t.Fatalf("member read shared plan status = %d, want %d: %s", memberSharedPlanResponse.Code, http.StatusOK, memberSharedPlanResponse.Body.String())
+	}
+	memberPersonalPlanResponse := request(
+		memberSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/plans/"+personalPlan.ID,
+		"",
+	)
+	if memberPersonalPlanResponse.Code != http.StatusNotFound {
+		t.Fatalf("member read personal plan status = %d, want %d: %s", memberPersonalPlanResponse.Code, http.StatusNotFound, memberPersonalPlanResponse.Body.String())
+	}
+
+	reminderResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/reminder-rules",
+		fmt.Sprintf(`{"kind":"task","rule":{"targetId":%q,"minutesBefore":15}}`, task.ID),
+	)
+	if reminderResponse.Code != http.StatusCreated {
+		t.Fatalf("create inactive reminder status = %d, want %d: %s", reminderResponse.Code, http.StatusCreated, reminderResponse.Body.String())
+	}
+	var reminder postgres.V2ReminderRule
+	if err := json.NewDecoder(reminderResponse.Body).Decode(&reminder); err != nil {
+		t.Fatalf("decode reminder rule: %v", err)
+	}
+	if reminder.Status != "pending_automation" {
+		t.Fatalf("new reminder status = %q, want pending_automation", reminder.Status)
+	}
+
+	invalidGoalResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/goals",
+		`{"title":"Invalid progress","progressPercent":65536}`,
+	)
+	if invalidGoalResponse.Code != http.StatusBadRequest {
+		t.Fatalf("overflowing goal progress status = %d, want %d: %s", invalidGoalResponse.Code, http.StatusBadRequest, invalidGoalResponse.Body.String())
+	}
+
+	if role, err := fixture.store.V2WorkspaceRole(fixture.ctx, workspaceID, ownerID); err != nil || role != "owner" {
+		t.Fatalf("mirrored workspace owner role = %q, err=%v; want owner", role, err)
+	}
+}

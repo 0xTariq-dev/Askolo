@@ -366,7 +366,8 @@ func NewWithShutdown(
 			strings.HasPrefix(r.URL.Path, "/api/dashboard"),
 			strings.HasPrefix(r.URL.Path, "/api/ai/"),
 			strings.HasPrefix(r.URL.Path, "/api/admin/ai-credit-"),
-			strings.HasPrefix(r.URL.Path, "/api/user/"):
+			strings.HasPrefix(r.URL.Path, "/api/user/"),
+			strings.HasPrefix(r.URL.Path, "/api/v2/"):
 			productRoutes.ServeHTTP(w, r)
 		default:
 			googleRoutes.ServeHTTP(w, r)

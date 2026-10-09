@@ -685,6 +685,13 @@ func askoloV2SchemaName(sourceSchema string) string {
 	return prefix + "_" + hash + suffix
 }
 
+// V2SchemaName returns the isolated staged-schema name associated with a
+// source schema. Stores use the same naming rule as the staged migration
+// runner rather than guessing which schema is active.
+func V2SchemaName(sourceSchema string) string {
+	return askoloV2SchemaName(sourceSchema)
+}
+
 // logicalFingerprint is used only to verify archived schema adoption. It
 // compares columns by table and name while retaining every other inventory
 // property. Persisted runner fingerprints remain inventory-v1 and
