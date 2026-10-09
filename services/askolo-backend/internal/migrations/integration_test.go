@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -29,11 +30,11 @@ func TestRunDisposableDatabase(t *testing.T) {
 	}
 	defer admin.Close()
 
-	schema := fmt.Sprintf("askolo_migrations_%d", time.Now().UnixNano())
+	schema := newMigrationTestSchemaName(t, "run")
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer dropMigrationTestSchemas(admin, schema)
+	defer cleanupMigrationTestSchemas(t, admin, schema)
 
 	testURL := migrationSchemaURL(t, baseURL, schema)
 	pool, err := pgxpool.New(ctx, testURL)
@@ -384,13 +385,12 @@ func TestRunScopesConstraintLookupsToTheTargetSchema(t *testing.T) {
 	}
 	defer admin.Close()
 
-	suffix := time.Now().UnixNano()
-	targetSchema := fmt.Sprintf("askolo_migrations_target_%d", suffix)
-	shadowSchema := fmt.Sprintf("askolo_migrations_shadow_%d", suffix)
+	targetSchema := newMigrationTestSchemaName(t, "target")
+	shadowSchema := newMigrationTestSchemaName(t, "shadow")
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(targetSchema)); err != nil {
 		t.Fatalf("create target schema: %v", err)
 	}
-	defer dropMigrationTestSchemas(admin, targetSchema)
+	defer cleanupMigrationTestSchemas(t, admin, targetSchema)
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(shadowSchema)); err != nil {
 		t.Fatalf("create shadow schema: %v", err)
 	}
@@ -443,11 +443,11 @@ func TestRunRejectsTamperedHistoryBeforeWrites(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer admin.Close()
-	schema := fmt.Sprintf("askolo_migrations_tamper_%d", time.Now().UnixNano())
+	schema := newMigrationTestSchemaName(t, "tamper")
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer dropMigrationTestSchemas(admin, schema)
+	defer cleanupMigrationTestSchemas(t, admin, schema)
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
 		t.Fatalf("open schema pool: %v", err)
@@ -479,11 +479,11 @@ func TestRunOneRollsBackFailedSQLAndCanRetry(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer admin.Close()
-	schema := fmt.Sprintf("askolo_migrations_failure_%d", time.Now().UnixNano())
+	schema := newMigrationTestSchemaName(t, "failure")
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer dropMigrationTestSchemas(admin, schema)
+	defer cleanupMigrationTestSchemas(t, admin, schema)
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
 		t.Fatalf("open schema pool: %v", err)
@@ -529,11 +529,11 @@ func TestRunConcurrentCallsSerialize(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer admin.Close()
-	schema := fmt.Sprintf("askolo_migrations_lock_%d", time.Now().UnixNano())
+	schema := newMigrationTestSchemaName(t, "lock")
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer dropMigrationTestSchemas(admin, schema)
+	defer cleanupMigrationTestSchemas(t, admin, schema)
 	testURL := migrationSchemaURL(t, baseURL, schema)
 	first, err := pgxpool.New(ctx, testURL)
 	if err != nil {
@@ -772,11 +772,11 @@ func TestLedgerMigrationAddsMissingCounterAndEnforcesContract(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer admin.Close()
-	schema := fmt.Sprintf("askolo_migrations_ledger_%d", time.Now().UnixNano())
+	schema := newMigrationTestSchemaName(t, "ledger")
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
-	defer dropMigrationTestSchemas(admin, schema)
+	defer cleanupMigrationTestSchemas(t, admin, schema)
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
 		t.Fatalf("open schema pool: %v", err)
@@ -1308,29 +1308,67 @@ func openMigrationTestSchema(t *testing.T, ctx context.Context, baseURL, purpose
 	if err != nil {
 		t.Fatalf("open disposable database: %v", err)
 	}
-	schema := fmt.Sprintf("askolo_migrations_%s_%d", purpose, time.Now().UnixNano())
+	schema := newMigrationTestSchemaName(t, purpose)
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+quoteMigrationIdentifier(schema)); err != nil {
 		admin.Close()
 		t.Fatalf("create disposable schema: %v", err)
 	}
 	pool, err := pgxpool.New(ctx, migrationSchemaURL(t, baseURL, schema))
 	if err != nil {
-		dropMigrationTestSchemas(admin, schema)
+		if cleanupErr := dropMigrationTestSchemas(admin, schema); cleanupErr != nil {
+			t.Errorf("clean up schemas after pool setup failure: %v", cleanupErr)
+		}
 		admin.Close()
 		t.Fatalf("open schema-isolated pool: %v", err)
 	}
 	t.Cleanup(func() {
 		pool.Close()
-		dropMigrationTestSchemas(admin, schema)
+		if cleanupErr := dropMigrationTestSchemas(admin, schema); cleanupErr != nil {
+			t.Errorf("clean up isolated migration schemas: %v", cleanupErr)
+		}
 		admin.Close()
 	})
 	return admin, pool, schema
 }
 
-func dropMigrationTestSchemas(admin *pgxpool.Pool, sourceSchema string) {
-	ctx := context.Background()
-	_, _ = admin.Exec(ctx, `DROP SCHEMA IF EXISTS `+quoteMigrationIdentifier(askoloV2SchemaName(sourceSchema))+` CASCADE`)
-	_, _ = admin.Exec(ctx, `DROP SCHEMA IF EXISTS `+quoteMigrationIdentifier(sourceSchema)+` CASCADE`)
+func newMigrationTestSchemaName(t *testing.T, purpose string) string {
+	t.Helper()
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		t.Fatalf("generate migration test schema suffix: %v", err)
+	}
+	purpose = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' {
+			return r
+		}
+		return '_'
+	}, purpose)
+	if len(purpose) > 18 {
+		purpose = purpose[:18]
+	}
+	name := "askolo_migrations_" + purpose + "_" + hex.EncodeToString(random)
+	if len(name)+len("_public_v2") > 63 {
+		t.Fatalf("migration schema name exceeds PostgreSQL's identifier limit")
+	}
+	return name
+}
+
+func cleanupMigrationTestSchemas(t *testing.T, admin *pgxpool.Pool, sourceSchema string) {
+	t.Helper()
+	if err := dropMigrationTestSchemas(admin, sourceSchema); err != nil {
+		t.Errorf("drop migration test schemas for %q: %v", sourceSchema, err)
+	}
+}
+
+func dropMigrationTestSchemas(admin *pgxpool.Pool, sourceSchema string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, schema := range []string{askoloV2SchemaName(sourceSchema), sourceSchema} {
+		if _, err := admin.Exec(ctx, `DROP SCHEMA IF EXISTS `+quoteMigrationIdentifier(schema)+` CASCADE`); err != nil {
+			return fmt.Errorf("drop schema %q: %w", schema, err)
+		}
+	}
+	return nil
 }
 
 func applyUntrackedBaseline(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
