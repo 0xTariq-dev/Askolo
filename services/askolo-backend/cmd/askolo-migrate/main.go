@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -15,7 +16,7 @@ import (
 )
 
 func main() {
-	target := flag.String("target", "", "required: development or restore (never staging or production)")
+	target := flag.String("target", "", "required: development, development-live, or restore (never staging or production)")
 	adopt := flag.Bool("adopt-existing", false, "adopt an already-created schema only after exact offline verification")
 	reconcileFingerprint := flag.Bool("reconcile-operational-fingerprint", false,
 		"reconcile only the active Development ledger fingerprint after exact 0000-0015 history validation")
@@ -23,7 +24,7 @@ func main() {
 	if *target == "" {
 		log.Fatal("-target is required")
 	}
-	if *target != "development" && *target != "restore" {
+	if *target != "development" && *target != "development-live" && *target != "restore" {
 		log.Fatal("invalid migration target")
 	}
 	url := strings.TrimSpace(os.Getenv("ASKOLO_MIGRATION_DATABASE_URL"))
@@ -36,8 +37,19 @@ func main() {
 	if *target != "development" && strings.TrimSpace(os.Getenv("ASKOLO_MIGRATION_APPROVED")) != "yes" {
 		log.Fatalf("refusing %s target without ASKOLO_MIGRATION_APPROVED=yes", *target)
 	}
+	if *target == "development-live" {
+		if strings.TrimSpace(os.Getenv("ASKOLO_ENVIRONMENT")) != "development" {
+			log.Fatal("development-live requires ASKOLO_ENVIRONMENT=development")
+		}
+		if strings.TrimSpace(os.Getenv("REPLIT_DEPLOYMENT")) != "" {
+			log.Fatal("development-live is disabled in a deployment")
+		}
+	}
 	if *adopt && *reconcileFingerprint {
 		log.Fatal("-adopt-existing and -reconcile-operational-fingerprint cannot be used together")
+	}
+	if *adopt && *target == "development-live" {
+		log.Fatal("-adopt-existing is not supported for the live Development target")
 	}
 	if *reconcileFingerprint {
 		if *target != "development" {
@@ -82,6 +94,15 @@ func main() {
 			result.Changed, result.Previous, result.Current)
 		return
 	}
+	if *target == "development-live" {
+		if err := validateDevelopmentMigrationTarget(ctx, pool); err != nil {
+			log.Fatal(err)
+		}
+	} else if *target == "development" {
+		if err := rejectDevelopmentCluster(ctx, pool); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if *adopt {
 		conn, acquireErr := pool.Acquire(ctx)
 		if acquireErr != nil {
@@ -105,7 +126,7 @@ func main() {
 		log.Printf("existing baseline adopted after exact fingerprint match")
 		return
 	}
-	if *target == "development" {
+	if *target == "development" || *target == "development-live" {
 		err = migrations.RunOperational(ctx, pool)
 	} else {
 		err = migrations.Run(ctx, pool)
@@ -116,15 +137,88 @@ func main() {
 	log.Printf("migrations applied successfully (target=%s)", *target)
 }
 
+const verifiedDevelopmentSystemIdentifier = "7664629048854937619"
+
+func readMigrationTargetIdentity(ctx context.Context, pool *pgxpool.Pool) (
+	databaseName, schemaName, databaseUser string,
+	majorVersion int,
+	systemIdentifier string,
+	err error,
+) {
+	err = pool.QueryRow(ctx, `
+		SELECT current_database(), current_schema(), current_user,
+		       current_setting('server_version_num')::integer / 10000,
+		       (SELECT system_identifier::text FROM pg_control_system())
+	`).Scan(&databaseName, &schemaName, &databaseUser, &majorVersion, &systemIdentifier)
+	if err != nil {
+		err = fmt.Errorf("verify migration database identity: %w", err)
+	}
+	return
+}
+
+func validateDevelopmentMigrationTarget(ctx context.Context, pool *pgxpool.Pool) error {
+	databaseName, schemaName, databaseUser, majorVersion, systemIdentifier, err :=
+		readMigrationTargetIdentity(ctx, pool)
+	if err != nil {
+		return err
+	}
+	if err := validateDevelopmentMigrationIdentity(
+		databaseName, schemaName, databaseUser, majorVersion, systemIdentifier,
+	); err != nil {
+		return err
+	}
+	if strings.TrimSpace(os.Getenv("ASKOLO_MIGRATION_APPROVED")) != "yes" {
+		return errors.New("refusing Development migration without ASKOLO_MIGRATION_APPROVED=yes")
+	}
+	return nil
+}
+
+func validateDevelopmentMigrationIdentity(
+	databaseName, schemaName, databaseUser string,
+	majorVersion int,
+	systemIdentifier string,
+) error {
+	if databaseName != "heliumdb" ||
+		schemaName != "public" ||
+		databaseUser != "postgres" ||
+		majorVersion != 16 ||
+		systemIdentifier != verifiedDevelopmentSystemIdentifier {
+		return fmt.Errorf(
+			"refusing migration outside the verified Development target (database=%q schema=%q user=%q PostgreSQL=%d)",
+			databaseName, schemaName, databaseUser, majorVersion,
+		)
+	}
+	return nil
+}
+
+func rejectDevelopmentCluster(ctx context.Context, pool *pgxpool.Pool) error {
+	_, _, _, _, systemIdentifier, err := readMigrationTargetIdentity(ctx, pool)
+	if err != nil {
+		return err
+	}
+	if systemIdentifier == verifiedDevelopmentSystemIdentifier {
+		return errors.New("the verified Development cluster requires -target development-live")
+	}
+	return nil
+}
+
 func validateDevelopmentReconciliationTarget(ctx context.Context, pool *pgxpool.Pool) error {
-	var databaseName, schemaName string
+	var databaseName, schemaName, databaseUser, systemIdentifier string
 	var majorVersion int
 	if err := pool.QueryRow(ctx, `
-		SELECT current_database(), current_schema(), current_setting('server_version_num')::integer / 10000
-	`).Scan(&databaseName, &schemaName, &majorVersion); err != nil {
+		SELECT current_database(), current_schema(), current_user,
+		       current_setting('server_version_num')::integer / 10000,
+		       (SELECT system_identifier::text FROM pg_control_system())
+	`).Scan(&databaseName, &schemaName, &databaseUser, &majorVersion, &systemIdentifier); err != nil {
 		return fmt.Errorf("verify Development reconciliation target: %w", err)
 	}
-	return validateDevelopmentReconciliationIdentity(databaseName, schemaName, majorVersion)
+	if err := validateDevelopmentReconciliationIdentity(databaseName, schemaName, majorVersion); err != nil {
+		return err
+	}
+	if databaseUser != "postgres" || systemIdentifier != verifiedDevelopmentSystemIdentifier {
+		return errors.New("refusing fingerprint reconciliation outside the verified Development database")
+	}
+	return nil
 }
 
 func validateDevelopmentReconciliationIdentity(databaseName, schemaName string, majorVersion int) error {

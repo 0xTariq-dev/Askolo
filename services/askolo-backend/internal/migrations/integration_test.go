@@ -239,7 +239,7 @@ func TestProductionSchemaCompatibilityDoesNotRequireMigrationLedger(t *testing.T
 	}
 }
 
-func TestOperationalReadinessExcludesTheStagedPublicV2Migration(t *testing.T) {
+func TestOperationalReadinessIncludesTheHomeProjectionSchema(t *testing.T) {
 	baseURL := migrationTestURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -248,9 +248,9 @@ func TestOperationalReadinessExcludesTheStagedPublicV2Migration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load migrations: %v", err)
 	}
-	if len(migrations) < askoloV2MigrationVersion {
-		t.Fatalf("migration list has %d entries, need the active pre-v2 prefix of %d",
-			len(migrations), askoloV2MigrationVersion)
+	if len(migrations) < operationalMigrationVersion {
+		t.Fatalf("migration list has %d entries, need the active prefix of %d",
+			len(migrations), operationalMigrationVersion)
 	}
 	if err := RunOperational(ctx, pool); err != nil {
 		t.Fatalf("apply active API migration prefix: %v", err)
@@ -258,18 +258,26 @@ func TestOperationalReadinessExcludesTheStagedPublicV2Migration(t *testing.T) {
 	if err := ValidateOperationalReady(ctx, pool); err != nil {
 		t.Fatalf("operational readiness for active schema: %v", err)
 	}
-	if err := ValidateReady(ctx, pool); err == nil ||
-		!strings.Contains(err.Error(), "migration history is incomplete") {
-		t.Fatalf("full migration readiness = %v, want staged v2 migration to remain unapplied", err)
-	}
-	if err := run(ctx, pool, migrations); err != nil {
-		t.Fatalf("apply staged public_v2 migration: %v", err)
-	}
-	if err := ValidateOperationalReady(ctx, pool); err != nil {
-		t.Fatalf("operational readiness after public_v2 migration: %v", err)
-	}
 	if err := ValidateReady(ctx, pool); err != nil {
-		t.Fatalf("full readiness after public_v2 migration: %v", err)
+		t.Fatalf("full readiness after active migration prefix: %v", err)
+	}
+	for _, table := range []string{
+		"workspace_provider_account_access",
+		"workspace_email_summaries",
+		"home_focus_selections",
+	} {
+		var sourceSchema string
+		if err := pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&sourceSchema); err != nil {
+			t.Fatalf("read migration source schema: %v", err)
+		}
+		var exists bool
+		if err := pool.QueryRow(ctx, `
+			SELECT to_regclass($1) IS NOT NULL`, askoloV2SchemaName(sourceSchema)+"."+table).Scan(&exists); err != nil {
+			t.Fatalf("check Home relation %s: %v", table, err)
+		}
+		if !exists {
+			t.Fatalf("Home relation %s was not created", table)
+		}
 	}
 }
 
@@ -279,8 +287,12 @@ func TestReconcileOperationalFingerprintUpdatesOnlyTheActiveTip(t *testing.T) {
 	defer cancel()
 	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "fingerprint_reconciliation")
 
-	if err := RunOperational(ctx, pool); err != nil {
-		t.Fatalf("apply active migration prefix: %v", err)
+	migrations, err := Load(SQL)
+	if err != nil {
+		t.Fatalf("load migration set: %v", err)
+	}
+	if err := run(ctx, pool, migrations[:askoloV2MigrationVersion]); err != nil {
+		t.Fatalf("apply historical migration prefix: %v", err)
 	}
 	var maxVersion int
 	if err := pool.QueryRow(ctx, `SELECT max(version) FROM askolo_schema_migrations`).Scan(&maxVersion); err != nil {
@@ -311,11 +323,8 @@ func TestReconcileOperationalFingerprintUpdatesOnlyTheActiveTip(t *testing.T) {
 	if !result.Changed || result.Previous != staleFingerprint || result.Current == staleFingerprint {
 		t.Fatalf("reconciliation result = %+v, want changed fingerprint", result)
 	}
-	if err := ValidateOperationalReady(ctx, pool); err != nil {
-		t.Fatalf("operational readiness after reconciliation: %v", err)
-	}
-	if err := ValidateReady(ctx, pool); err == nil || !strings.Contains(err.Error(), "migration history is incomplete") {
-		t.Fatalf("full readiness = %v, want staged v2 to remain unapplied", err)
+	if err := validateReadyWithMigrationPrefix(ctx, pool, migrations, askoloV2MigrationVersion, false); err != nil {
+		t.Fatalf("historical active-prefix readiness after reconciliation: %v", err)
 	}
 
 	var latestFingerprint, unchangedVersion14Fingerprint string

@@ -23,8 +23,7 @@ func ValidateReady(ctx context.Context, pool *pgxpool.Pool) error {
 	return validateReadyWithMigrations(ctx, pool, expected)
 }
 
-// ValidateOperationalReady keeps runtime health checks on the active schema
-// contract while the public_v2 design remains staged and not yet promoted.
+// ValidateOperationalReady checks the schema prefix currently used by the app.
 func ValidateOperationalReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if pool == nil {
 		return errors.New("migration readiness unavailable: database is not configured")
@@ -33,11 +32,11 @@ func ValidateOperationalReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("load migration set: %w", err)
 	}
-	if len(expected) < askoloV2MigrationVersion {
+	if len(expected) < operationalMigrationVersion {
 		return fmt.Errorf("active migration prefix is incomplete: have %d versions, need %d",
-			len(expected), askoloV2MigrationVersion)
+			len(expected), operationalMigrationVersion)
 	}
-	return validateReadyWithMigrationPrefix(ctx, pool, expected, askoloV2MigrationVersion, false)
+	return validateReadyWithMigrationPrefix(ctx, pool, expected, operationalMigrationVersion, false)
 }
 
 func validateReadyWithMigrations(ctx context.Context, pool *pgxpool.Pool, expected []Migration) error {

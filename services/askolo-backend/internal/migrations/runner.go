@@ -83,18 +83,17 @@ func Run(ctx context.Context, pool *pgxpool.Pool) error {
 	return run(ctx, pool, migrationSet)
 }
 
-// RunOperational applies only the active application schema prefix. Staged
-// schema redesigns remain available to disposable validation through Run.
+// RunOperational applies only the explicitly activated application prefix.
 func RunOperational(ctx context.Context, pool *pgxpool.Pool) error {
 	migrationSet, err := Load(SQL)
 	if err != nil {
 		return err
 	}
-	if len(migrationSet) < askoloV2MigrationVersion {
+	if len(migrationSet) < operationalMigrationVersion {
 		return fmt.Errorf("active migration prefix is incomplete: have %d versions, need %d",
-			len(migrationSet), askoloV2MigrationVersion)
+			len(migrationSet), operationalMigrationVersion)
 	}
-	return run(ctx, pool, migrationSet[:askoloV2MigrationVersion])
+	return run(ctx, pool, migrationSet[:operationalMigrationVersion])
 }
 
 type FingerprintReconciliation struct {
@@ -358,6 +357,7 @@ const logicalFingerprintPrefix = "inventory-v2:"
 const workspaceFingerprintPrefix = "workspace-inventory-v1:"
 const askoloV2FingerprintPrefix = "askolo-schema-set-v1:"
 const askoloV2MigrationVersion = 16
+const operationalMigrationVersion = 19
 const askoloV2SchemaToken = "@ASKOLO_V2_SCHEMA@"
 
 func ValidateBaseline(ctx context.Context, tx pgx.Tx) error {
