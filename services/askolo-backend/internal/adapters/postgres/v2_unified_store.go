@@ -43,6 +43,8 @@ func (s *Store) V2SchemaReady(ctx context.Context) error {
 		"workspaces", "workspace_memberships", "tasks", "task_dependencies",
 		"task_occurrences", "task_occurrence_events", "goals", "plans",
 		"plan_entries", "calendar_events", "reminder_rules", "api_request_limits",
+		"member_preferences", "workspace_provider_account_access",
+		"workspace_email_summaries", "home_focus_selections",
 	} {
 		var exists bool
 		if err := s.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil {
@@ -395,33 +397,51 @@ FROM ` + v2Table(schema, "tasks") + ` WHERE workspace_id = $1`
 		add("assigned_to_user_id", filter.AssigneeID)
 	}
 	if filter.From != nil && filter.To != nil {
-		args = append(args, filter.From.Format("2006-01-02"), filter.To.Format("2006-01-02"))
-		fromArg, toArg := len(args)-1, len(args)
+		timeZone := filter.TimeZone
+		if timeZone == "" {
+			timeZone = "UTC"
+		}
+		args = append(args, filter.From.Format("2006-01-02"), filter.To.Format("2006-01-02"), timeZone)
+		fromArg, toArg, zoneArg := len(args)-2, len(args)-1, len(args)
 		query += fmt.Sprintf(` AND (
   due_on BETWEEN $%d AND $%d
+  OR (
+    planned_start_at >= ($%d::date::timestamp AT TIME ZONE $%d)
+    AND planned_start_at < (($%d::date + 1)::timestamp AT TIME ZONE $%d)
+  )
   OR (
     recurrence IS NOT NULL
     AND (recurrence->>'startsOn')::date <= $%d
     AND (recurrence->>'endsOn' IS NULL OR (recurrence->>'endsOn')::date >= $%d)
   )
-)`, fromArg, toArg, toArg, fromArg)
+)`, fromArg, toArg, fromArg, zoneArg, toArg, zoneArg, toArg, fromArg)
 	} else if filter.From != nil {
-		args = append(args, filter.From.Format("2006-01-02"))
-		fromArg := len(args)
+		timeZone := filter.TimeZone
+		if timeZone == "" {
+			timeZone = "UTC"
+		}
+		args = append(args, filter.From.Format("2006-01-02"), timeZone)
+		fromArg, zoneArg := len(args)-1, len(args)
 		query += fmt.Sprintf(` AND (
   due_on >= $%d
+  OR planned_start_at >= ($%d::date::timestamp AT TIME ZONE $%d)
   OR (
     recurrence IS NOT NULL
     AND (recurrence->>'endsOn' IS NULL OR (recurrence->>'endsOn')::date >= $%d)
   )
-)`, fromArg, fromArg)
+)`, fromArg, fromArg, zoneArg, fromArg)
 	} else if filter.To != nil {
-		args = append(args, filter.To.Format("2006-01-02"))
-		toArg := len(args)
+		timeZone := filter.TimeZone
+		if timeZone == "" {
+			timeZone = "UTC"
+		}
+		args = append(args, filter.To.Format("2006-01-02"), timeZone)
+		toArg, zoneArg := len(args)-1, len(args)
 		query += fmt.Sprintf(` AND (
   due_on <= $%d
+  OR planned_start_at < (($%d::date + 1)::timestamp AT TIME ZONE $%d)
   OR (recurrence IS NOT NULL AND (recurrence->>'startsOn')::date <= $%d)
-)`, toArg, toArg)
+)`, toArg, toArg, zoneArg, toArg)
 	}
 	args = append(args, filter.Limit, filter.Offset)
 	query += fmt.Sprintf(" ORDER BY due_on ASC NULLS LAST, updated_at DESC, id ASC LIMIT $%d OFFSET $%d", len(args)-1, len(args))

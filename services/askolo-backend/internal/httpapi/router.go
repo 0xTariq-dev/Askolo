@@ -333,6 +333,7 @@ func NewWithShutdown(
 	googleHandler := googleoauth.NewHandler(cfg, store, logger)
 	productHandler := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName)
 	productHandler.SetAssistantActionExecutor(googleHandler)
+	productHandler.SetSharedEmailReader(googleHandler)
 	websocketHandler := websocket.New(
 		logger, cfg.ServiceName, store, cfg.SessionCookieName,
 		cfg.CanonicalOrigin, cfg.AuthRateLimitHMACSecret, productHandler,

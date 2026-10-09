@@ -52,6 +52,7 @@ type V2TaskFilter struct {
 	AssigneeID string
 	From       *time.Time
 	To         *time.Time
+	TimeZone   string
 	Limit      int
 	Offset     int
 }

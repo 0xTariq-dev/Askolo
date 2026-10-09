@@ -98,6 +98,7 @@ type Handler struct {
 	assistantPlanner        assistantPlanner
 	assistantTools          *assistantToolRegistry
 	assistantActionExecutor AssistantActionExecutor
+	sharedEmailReader       SharedEmailReader
 	realtimeMeters          sync.Map
 	activeRealtimeSessions  sync.Map
 }

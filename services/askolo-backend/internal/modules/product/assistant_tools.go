@@ -69,6 +69,12 @@ func (h *Handler) SetAssistantActionExecutor(executor AssistantActionExecutor) {
 	}
 }
 
+func (h *Handler) SetSharedEmailReader(reader SharedEmailReader) {
+	if h != nil {
+		h.sharedEmailReader = reader
+	}
+}
+
 func (h *Handler) bindAssistantActionTarget(ctx context.Context, userID string, outcome *postgres.AssistantPlanOutcome) {
 	if outcome == nil || outcome.State != "needs_confirmation" {
 		return

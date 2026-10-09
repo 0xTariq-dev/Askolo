@@ -1,6 +1,6 @@
 # Home API and forward-schema plan
 
-Status: draft for implementation planning. This document does not create a migration, apply a schema, or authorize a Development database change.
+Status: implemented. Migrations 0016–0018 were applied to the verified Development database on 2026-10-10; Production was not touched. Migration 0016 remains unchanged.
 
 ## Decisions recorded
 
@@ -12,9 +12,9 @@ Status: draft for implementation planning. This document does not create a migra
 - All Spaces reads are authorized and aggregated on the server. Never fan out to each workspace from the browser.
 - Email summaries contain only unread Inbox and action-needed counts plus freshness metadata. The user chose to let active Space members read full message content from a promoted account on demand. Do not persist email content or credentials in the V2 schema.
 
-## Proposed API surface
+## Implemented API surface
 
-The draft routes and response contract are in `UNIFIED_TASK_V2_CONTRACT.md`, under “Home API draft”:
+The routes and response contract are in `UNIFIED_TASK_V2_CONTRACT.md`, under “Home API implemented”:
 
 - `GET /api/v2/workspaces/{workspaceId}/home`
 - `GET /api/v2/home`
@@ -29,9 +29,9 @@ The draft routes and response contract are in `UNIFIED_TASK_V2_CONTRACT.md`, und
 
 All Space-scoped writes must use the existing V2 session and workspace-role authorization. A member may associate or detach only their own provider connection; an owner/admin may detach any connection. Only owners/admins can promote or unpromote a connection. Focus writes affect only the signed-in user's current-day choices and must not mutate the underlying Task, occurrence, or Plan.
 
-## Proposed staged migration
+## Applied staged migration
 
-Add a new forward-only staged migration after the current unified Task/Plan migration. A candidate filename is `0018_home_projection_foundation.sql`; confirm migration ordering and checksum registration before creating the SQL file. Use `@ASKOLO_V2_SCHEMA@` for new V2 relations. Keep migration 0016 and the stable public API unchanged. Do not add canonical views.
+The forward-only staged migration `0018_home_projection_foundation.sql` follows the unified Task/Plan migration and uses `@ASKOLO_V2_SCHEMA@` for new V2 relations. The approved 0016–0018 prefix is applied in Development. Legacy relations remain in `public`; V2 relations are in `public_v2`. Migration 0016 and the stable public API are unchanged.
 
 ### 1. `workspace_provider_account_access`
 
@@ -80,22 +80,22 @@ The API replaces a day's list transactionally after validating all references an
 - If the account owner loses active membership, deny the account to the former owner and the Space, pause sync, and require an active owner/admin to explicitly restore access. Whether to retain the promotion row or remove it during membership revocation should be settled with the broader membership-lifecycle implementation.
 - Never log provider account identifiers, message content, tokens, or email addresses. Avoid exposing connection IDs in Home summary payloads.
 
-## Migration and API verification plan
+## Migration and API verification
 
-Run only against a fresh disposable PostgreSQL database until a separate Development-schema approval is given:
+Disposable PostgreSQL verification ran before the separately approved Development migration. Production remains untouched.
 
-1. Apply the staged migration after the approved V2 prefix and verify migration checksums; assert migration 0016 is unchanged and no views are created.
-2. Test unique one-workspace association, default owner-only access, owner/admin promotion, rejection of member promotion, and inactive-connection exclusion.
-3. Test focus limits, ordering, duplicate/cross-workspace rejection, recurring occurrence references, replacement atomicity, and per-user/per-Space/per-day isolation.
-4. Test one-Space Home and All Spaces results, current-day timezone behavior, per-Space and combined email totals, saved-action precedence, multi-day calendar overlap, no-store headers, unauthorized membership, and revoked-account filtering.
-5. Seed summary snapshots directly for Home read tests; webhook and provider sync are a separate follow-up and are not required to validate the projection API.
-6. Test summary access after promotion without owner consent, full-message reads only after both approvals, immediate read denial after consent revocation/unpromotion, and owner/member/non-member/cross-workspace/revoked-connection cases. Confirm that message bodies are not cached, logged, or persisted.
+1. Disposable migration tests passed, including the Home projection readiness check and the least-privileged schema-owner check.
+2. Focused PostgreSQL, product, Google, HTTP API, migration, and migration-command Go test suites passed against the disposable test database.
+3. The live Development identity and migration ledger were verified before and after migration; the ledger now contains versions 0–18 and the Home relations exist in `public_v2`.
+4. The migration runner's `development-live` guard verified the Development database identity. The legacy `public` schema remains present, and the source file for migration 0016 is unchanged.
+5. Home summary reads use the projection table. A background provider sync writer and its freshness/retry/retention policy remain separate follow-up work.
 
-## Items to settle before implementing provider sharing
+## Follow-up decisions
 
 - Choose the freshness threshold shown by the Home summary and the provider-sync retry/retention behavior.
 - Confirm what happens to a promoted account if its owner disconnects or leaves the workspace; the safe read behavior is already to deny and stop syncing immediately.
 - The current Google OAuth code declares the `gmail.send` capability and uses it for the existing message-list/detail provider calls. Define and verify a separate least-privilege read grant and incremental-consent flow before shared reads; do not silently expand an existing grant or treat send authorization as read consent.
-- Confirm All Spaces tie-breaking when more than three saved choices exist across Spaces. This draft uses Space-list order, then each Space's saved position.
+- Decide what happens to a promoted account when its owner leaves the Space; reads are denied while membership or the provider connection is inactive.
+- Complete Google's restricted-scope verification and required security assessment before enabling shared Gmail reads publicly.
 
-No migration has been applied to Development or Production.
+All Spaces uses Space-list order, then saved position, when more than three saved choices are available.

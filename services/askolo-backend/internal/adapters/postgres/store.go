@@ -2360,7 +2360,16 @@ func (s *Store) RevokeGoogleConnection(ctx context.Context, userID, connectionID
 	if s == nil {
 		return errors.New("database is not configured")
 	}
-	tag, err := s.pool.Exec(ctx, `
+	schema, err := s.v2Schema(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `
 		UPDATE provider_connections
 		SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
 		WHERE id = $1 AND user_id = $2
@@ -2371,15 +2380,29 @@ func (s *Store) RevokeGoogleConnection(ctx context.Context, userID, connectionID
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	_, err = s.pool.Exec(ctx, `DELETE FROM provider_credentials WHERE connection_id = $1`, connectionID)
-	return err
+	if err := revokeV2EmailReadConsent(ctx, tx, schema, connectionID); err != nil {
+		return fmt.Errorf("revoke shared email consent after Google disconnect: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM provider_credentials WHERE connection_id = $1`, connectionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) UpdateGoogleCapabilities(ctx context.Context, userID, connectionID string, capabilities []string) error {
 	if s == nil {
 		return errors.New("database is not configured")
 	}
-	tag, err := s.pool.Exec(ctx, `
+	schema, err := s.v2Schema(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `
 		UPDATE provider_connections
 		SET capabilities = $3, updated_at = NOW()
 		WHERE id = $1 AND user_id = $2 AND status = 'active'
@@ -2390,7 +2413,32 @@ func (s *Store) UpdateGoogleCapabilities(ctx context.Context, userID, connection
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	for _, capability := range capabilities {
+		if capability == "gmail.read" {
+			return tx.Commit(ctx)
+		}
+	}
+	if err := revokeV2EmailReadConsent(ctx, tx, schema, connectionID); err != nil {
+		return fmt.Errorf("revoke shared email consent after capability change: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+func revokeV2EmailReadConsent(ctx context.Context, tx pgx.Tx, schema, connectionID string) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".workspace_provider_account_access").Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+UPDATE `+v2Table(schema, "workspace_provider_account_access")+`
+SET email_read_consent_revoked_at = COALESCE(email_read_consent_revoked_at, NOW()),
+    updated_at = NOW()
+WHERE provider_connection_id = $1
+`, connectionID)
+	return err
 }
 
 func (s *Store) SetProviderDefault(ctx context.Context, userID, service, capability, connectionID string) error {

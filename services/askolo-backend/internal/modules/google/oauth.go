@@ -31,11 +31,13 @@ const (
 )
 
 const (
-	scopeOpenID   = "openid"
-	scopeEmail    = "email"
-	scopeProfile  = "profile"
-	scopeGmail    = "https://www.googleapis.com/auth/gmail.send"
-	scopeCalendar = "https://www.googleapis.com/auth/calendar"
+	scopeOpenID    = "openid"
+	scopeEmail     = "email"
+	scopeProfile   = "profile"
+	scopeGmailSend = "https://www.googleapis.com/auth/gmail.send"
+	scopeGmailRead = "https://www.googleapis.com/auth/gmail.readonly"
+	scopeGmail     = scopeGmailSend
+	scopeCalendar  = "https://www.googleapis.com/auth/calendar"
 )
 
 type Handler struct {
@@ -569,7 +571,7 @@ func (h *Handler) setCapability(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	capability := r.PathValue("capability")
-	if capability != "calendar" && capability != "gmail.send" {
+	if capability != "calendar" && capability != "gmail.send" && capability != "gmail.read" {
 		writeError(w, http.StatusBadRequest, "INVALID_CAPABILITY", "Unsupported Google capability.")
 		return
 	}
@@ -941,10 +943,12 @@ func requestedScopes(value string) ([]string, error) {
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar, scopeGmail}, nil
 	case "calendar":
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar}, nil
-	case "gmail":
-		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmail}, nil
+	case "gmail", "gmail.send":
+		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailSend}, nil
+	case "gmail.read":
+		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailRead}, nil
 	default:
-		return nil, errors.New("scope must be calendar, gmail, or all")
+		return nil, errors.New("scope must be calendar, gmail, gmail.read, or all")
 	}
 }
 
@@ -970,8 +974,11 @@ func capabilitiesForScopes(scopes []string) []string {
 	if _, ok := set[scopeCalendar]; ok {
 		capabilities = append(capabilities, "calendar")
 	}
-	if _, ok := set[scopeGmail]; ok {
+	if _, ok := set[scopeGmailSend]; ok {
 		capabilities = append(capabilities, "gmail.send")
+	}
+	if _, ok := set[scopeGmailRead]; ok {
+		capabilities = append(capabilities, "gmail.read")
 	}
 	return capabilities
 }
@@ -992,7 +999,9 @@ func scopeForCapability(capability string) string {
 	case "calendar":
 		return scopeCalendar
 	case "gmail.send":
-		return scopeGmail
+		return scopeGmailSend
+	case "gmail.read":
+		return scopeGmailRead
 	default:
 		return ""
 	}

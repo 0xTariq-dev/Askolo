@@ -28,6 +28,7 @@ const (
 var v2IdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 type v2ActorHandler func(http.ResponseWriter, *http.Request, string, string)
+type v2AllActorHandler func(http.ResponseWriter, *http.Request, string)
 
 type v2PatchField[T any] struct {
 	Set   bool
@@ -119,6 +120,63 @@ func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/reminder-rules", h.v2Protect(true, h.v2CreateReminderRule))
 	mux.HandleFunc("PATCH /api/v2/workspaces/{workspaceId}/reminder-rules/{ruleId}", h.v2Protect(true, h.v2UpdateReminderRule))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/reminder-rules/{ruleId}", h.v2Protect(true, h.v2DeleteReminderRule))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/home", h.v2Protect(false, h.v2GetWorkspaceHome))
+	mux.HandleFunc("GET /api/v2/home", h.v2ProtectAll(h.v2GetAllSpacesHome))
+	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/home/focus", h.v2Protect(true, h.v2ReplaceHomeFocus))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/provider-connections", h.v2Protect(false, h.v2ListHomeProviderConnections))
+	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/provider-connections", h.v2Protect(true, h.v2AssociateHomeProviderConnection))
+	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}", h.v2Protect(true, h.v2RemoveHomeProviderConnection))
+	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/space-access", h.v2Protect(true, h.v2SetHomeProviderAccess))
+	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/email-read-consent", h.v2Protect(true, h.v2SetHomeEmailReadConsent))
+	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/email-read-consent", h.v2Protect(true, h.v2RevokeHomeEmailReadConsent))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages", h.v2Protect(false, h.v2ListSharedEmailMessages))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages/{messageId}", h.v2Protect(false, h.v2GetSharedEmailMessage))
+}
+
+func (h *Handler) v2ProtectAll(next v2AllActorHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), v2RequestTimeout)
+		defer cancel()
+		r = r.WithContext(ctx)
+		requestID, idErr := id.New()
+		if idErr != nil {
+			requestID = "unavailable"
+		}
+		w.Header().Set("X-Request-ID", requestID)
+		w.Header().Set("Cache-Control", "private, no-store")
+
+		userID, status := h.sessionUserID(r)
+		if status != http.StatusOK {
+			switch status {
+			case http.StatusUnauthorized:
+				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized.")
+			case http.StatusForbidden:
+				writeError(w, http.StatusForbidden, "MFA_REQUIRED", "Complete the required security challenge.")
+			default:
+				writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.")
+			}
+			return
+		}
+		if h.store == nil {
+			writeError(w, http.StatusServiceUnavailable, "V2_UNAVAILABLE", "The versioned API is temporarily unavailable.")
+			return
+		}
+		allowed, retryAfter, err := h.store.ConsumeV2Request(ctx, userID, false)
+		if err != nil {
+			if errors.Is(err, postgres.ErrV2SchemaNotReady) {
+				writeError(w, http.StatusServiceUnavailable, "V2_NOT_READY", "The versioned API is not ready.")
+				return
+			}
+			h.v2InternalError(w, r, userID, "All Spaces rate limit", err)
+			return
+		}
+		if !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again shortly.")
+			return
+		}
+		next(w, r, userID)
+	}
 }
 
 func (h *Handler) v2Protect(write bool, next v2ActorHandler) http.HandlerFunc {
@@ -232,6 +290,10 @@ func v2HandleStoreError(w http.ResponseWriter, r *http.Request, h *Handler, user
 		writeError(w, http.StatusConflict, "RELATIONSHIP_CYCLE", "Task relationships cannot contain a cycle.")
 	case errors.Is(err, postgres.ErrV2InvalidRange):
 		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "The date is outside the resource period.")
+	case errors.Is(err, postgres.ErrV2InvalidHomeFocus):
+		writeError(w, http.StatusBadRequest, "INVALID_FOCUS", "The selected focus actions are unavailable.")
+	case errors.Is(err, postgres.ErrV2InvalidProviderAccess):
+		writeError(w, http.StatusBadRequest, "INVALID_PROVIDER_ACCESS", "The provider access setting is invalid.")
 	default:
 		var databaseError *pgconn.PgError
 		if errors.As(err, &databaseError) {

@@ -109,9 +109,9 @@ Task, Plan, and Agenda endpoints are session-authenticated and workspace-scoped.
 | `GET, POST /api/v2/workspaces/{workspaceId}/reminder-rules` | List and create inactive reminder definitions. |
 | `PATCH, DELETE /api/v2/workspaces/{workspaceId}/reminder-rules/{ruleId}` | Update or delete an inactive definition; activation is not supported. |
 
-### Home API draft
+### Home API implemented
 
-The following Home routes and payloads are a proposed contract, not implemented endpoints.
+The following Home routes and payloads are implemented in the Go API. Email-summary reads use the projection table; a background provider sync writer and its freshness/retry/retention policy remain follow-up work.
 
 | Method and path | Purpose |
 | --- | --- |
@@ -128,12 +128,12 @@ The following Home routes and payloads are a proposed contract, not implemented 
 
 Home reads are today-only. The server resolves the viewer's effective time zone using the same policy as Agenda and derives the local date; clients do not submit an arbitrary date or time zone. All Spaces includes only active memberships, returns per-Space summaries plus combined email totals, and labels every action and summary with its Space. Both reads use the normal session, authorization, request-size, timeout, and rate-limit protections and return `Cache-Control: private, no-store`.
 
-The Home email card remains summary-only. Space promotion shares summary counts with active members. The separate message-list/detail routes require an active member, a `space_shared` connection, and current explicit consent from the connection owner; consent alone does not grant Space access. The owner may consent or revoke through the routes above. The consent `PUT` body is `{"consent":true}`; the server records the current consent-policy version and timestamp, and accepts consent only while the connection is promoted. Revocation blocks further message reads immediately while preserving summary access. Unpromotion clears message-read consent so a later promotion requires fresh approval. Full content is read-only and fetched from the provider on demand. These routes must not return provider tokens, cache or log message bodies, or allow a message ID to escape its connection and workspace. Render message bodies as untrusted content using safe text or sanitized HTML. Attachments and send/delete/draft actions are not included in this contract.
+The Home email card remains summary-only. Space promotion shares summary counts with active members. The separate message-list/detail routes require an active member, a `space_shared` connection, current explicit consent from the connection owner, and the distinct `gmail.read` capability backed by Google's read-only scope; `gmail.send` never authorizes reads. Consent alone does not grant Space access. The owner may consent or revoke through the routes above. The consent `PUT` body is `{"consent":true}`; the server records the current consent-policy version and timestamp, and accepts consent only while the connection is promoted. Revocation blocks further message reads immediately while preserving summary access. Unpromotion, disconnect, and disabling the read capability revoke message-read consent, so a later promotion, reconnection, or re-enable requires fresh owner approval. Full content is read-only and fetched from the provider on demand. These routes must not return provider tokens, cache or log message bodies, or allow a message ID to escape its connection and workspace. Render message bodies as untrusted content using safe text or sanitized HTML. Attachments and send/delete/draft actions are not included in this contract.
 
 The response contains:
 
 - `date`, `timeZone`, `generatedAt`, and a scope marker (`workspace` or `all_spaces`).
-- `focusActions`, at most three items. Each identifies the Space, Task, optional occurrence date, title/status, and whether it is a saved choice or suggestion. Saved choices precede suggestions. Within a Space, saved order is preserved; in All Spaces, the proposed tie-break is the existing Space-list order, then saved position.
+- `focusActions`, at most three items. Each identifies the Space, Task, optional occurrence date, title/status, and whether it is a saved choice or suggestion. Saved choices precede suggestions. Within a Space, saved order is preserved; in All Spaces, ties use the existing Space-list order, then saved position.
 - `emailSummary`, with `unreadInboxCount`, `actionNeededCount`, `lastSyncedAt`, and a freshness state. A Space response contains its totals; All Spaces contains combined totals and per-Space totals. The two counts may overlap. A freshness threshold remains to be set with the sync policy.
 - `calendarSummary`, with the current-day event count and the next event/time, calculated in the viewer's effective time zone.
 

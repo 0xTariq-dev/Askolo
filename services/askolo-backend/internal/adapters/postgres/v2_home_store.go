@@ -6,8 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"askolo/backend/internal/platform/id"
 	"github.com/jackc/pgx/v5"
+)
+
+var (
+	ErrV2HomeSpaceLimit        = errors.New("Home supports at most 100 active workspaces")
+	ErrV2InvalidHomeFocus      = errors.New("invalid Home focus selection")
+	ErrV2InvalidProviderAccess = errors.New("invalid provider access scope")
 )
 
 type V2HomeWorkspace struct {
@@ -30,19 +35,19 @@ type V2HomeFocusSelection struct {
 }
 
 type V2HomeEmailSummary struct {
-	UnreadInboxCount int64      `json:"unreadInboxCount"`
-	ActionNeededCount int64     `json:"actionNeededCount"`
-	LastSyncedAt     *time.Time `json:"lastSyncedAt"`
-	Freshness        string     `json:"freshness"`
+	UnreadInboxCount  int64      `json:"unreadInboxCount"`
+	ActionNeededCount int64      `json:"actionNeededCount"`
+	LastSyncedAt      *time.Time `json:"lastSyncedAt"`
+	Freshness         string     `json:"freshness"`
 }
 
 type V2HomeProviderConnection struct {
-	ConnectionID          string `json:"connectionId"`
-	AccountLabel          string `json:"accountLabel"`
-	AccessScope           string `json:"access"`
-	OwnedByViewer         bool   `json:"ownedByViewer"`
-	CanReadMessages       bool   `json:"canReadMessages"`
-	HomeSummaryEnabled    bool   `json:"homeSummaryEnabled"`
+	ConnectionID       string `json:"connectionId"`
+	AccountLabel       string `json:"accountLabel"`
+	AccessScope        string `json:"access"`
+	OwnedByViewer      bool   `json:"ownedByViewer"`
+	CanReadMessages    bool   `json:"canReadMessages"`
+	HomeSummaryEnabled bool   `json:"homeSummaryEnabled"`
 }
 
 func (s *Store) ListV2HomeWorkspaces(ctx context.Context, userID string) ([]V2HomeWorkspace, error) {
@@ -97,6 +102,25 @@ WHERE user_id = $1`, userID).Scan(&timeZone)
 	return timeZone, nil
 }
 
+func (s *Store) V2WorkspaceName(ctx context.Context, workspaceID string) (string, error) {
+	schema, err := s.v2Schema(ctx)
+	if err != nil {
+		return "", err
+	}
+	var name string
+	err = s.pool.QueryRow(ctx, `
+SELECT name
+FROM `+v2Table(schema, "workspaces")+`
+WHERE id = $1 AND status = 'active'`, workspaceID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read Home workspace name: %w", err)
+	}
+	return name, nil
+}
+
 func (s *Store) ListV2HomeFocusSelections(
 	ctx context.Context,
 	workspaceID, userID string,
@@ -146,6 +170,53 @@ func (s *Store) ReplaceV2HomeFocusSelections(
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := requireActiveV2WorkspaceMember(ctx, tx, workspaceID, userID); err != nil {
 		return err
+	}
+	seen := make(map[string]struct{}, len(selections))
+	for _, selection := range selections {
+		key := selection.TaskID
+		if selection.OccurrenceOn != nil {
+			key += ":" + selection.OccurrenceOn.Format("2006-01-02")
+		}
+		if _, exists := seen[key]; exists {
+			return ErrV2InvalidHomeFocus
+		}
+		seen[key] = struct{}{}
+
+		var status string
+		var recurrence []byte
+		err := tx.QueryRow(ctx, `
+SELECT status, recurrence
+FROM `+v2Table(schema, "tasks")+`
+WHERE workspace_id = $1 AND id = $2
+FOR SHARE`, workspaceID, selection.TaskID).Scan(&status, &recurrence)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("validate Home focus task: %w", err)
+		}
+		if status == "completed" || status == "done" || status == "cancelled" || status == "archived" {
+			return ErrV2InvalidHomeFocus
+		}
+		if (len(recurrence) > 0) != (selection.OccurrenceOn != nil) {
+			return ErrV2InvalidHomeFocus
+		}
+		if selection.OccurrenceOn != nil {
+			var occurrenceStatus string
+			err := tx.QueryRow(ctx, `
+SELECT status
+FROM `+v2Table(schema, "task_occurrences")+`
+WHERE workspace_id = $1 AND task_id = $2 AND occurrence_on = $3`,
+				workspaceID, selection.TaskID, selection.OccurrenceOn.Format("2006-01-02"),
+			).Scan(&occurrenceStatus)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("validate Home focus occurrence: %w", err)
+			}
+			if occurrenceStatus == "completed" || occurrenceStatus == "done" ||
+				occurrenceStatus == "cancelled" || occurrenceStatus == "skipped" {
+				return ErrV2InvalidHomeFocus
+			}
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 DELETE FROM `+v2Table(schema, "home_focus_selections")+`
@@ -204,6 +275,8 @@ JOIN provider_connections c
  AND c.user_id = a.owner_user_id
  AND c.provider = 'google'
  AND c.status = 'active'
+  AND c.granted_scopes @> ARRAY[$3]::text[]
+  AND c.capabilities @> ARRAY['gmail.read']::text[]
 JOIN `+v2Table(schema, "workspace_memberships")+` viewer
   ON viewer.workspace_id = a.workspace_id
  AND viewer.user_id = $1
@@ -215,7 +288,7 @@ JOIN `+v2Table(schema, "workspace_memberships")+` account_owner
 WHERE a.workspace_id = ANY($2::text[])
   AND a.home_summary_enabled
   AND (a.access_scope = 'space_shared' OR a.owner_user_id = $1)
-GROUP BY a.workspace_id`, userID, workspaceIDs)
+ GROUP BY a.workspace_id`, userID, workspaceIDs, gmailReadScope)
 	if err != nil {
 		return nil, fmt.Errorf("read Home email summaries: %w", err)
 	}
@@ -338,7 +411,7 @@ func (s *Store) SetV2ProviderAccess(
 	workspaceID, actorUserID, role, connectionID, access string,
 ) error {
 	if access != "owner_only" && access != "space_shared" {
-		return ErrV2InvalidHomeFocus
+		return ErrV2InvalidProviderAccess
 	}
 	if role != "owner" && role != "admin" {
 		return ErrV2Forbidden
@@ -365,6 +438,10 @@ SET access_scope = $4,
     email_read_consent_revoked_at = CASE WHEN $4 = 'space_shared' THEN a.email_read_consent_revoked_at ELSE NULL END,
     updated_at = now()
 FROM provider_connections c
+JOIN `+v2Table(schema, "workspace_memberships")+` owner_member
+  ON owner_member.workspace_id = a.workspace_id
+ AND owner_member.user_id = a.owner_user_id
+ AND owner_member.status = 'active'
 WHERE a.workspace_id = $1
   AND a.provider_connection_id = $2
   AND c.id = a.provider_connection_id
@@ -556,8 +633,3 @@ WHERE a.workspace_id = $1
 	}
 	return ownerUserID, nil
 }
-
-func (s *Store) NewV2HomeFocusID() (string, error) {
-	return id.New()
-}
-

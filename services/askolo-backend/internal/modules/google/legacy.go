@@ -138,7 +138,9 @@ func (h *Handler) legacyConnectionID(r *http.Request, userID, capability string)
 }
 
 type gmailPayload struct {
-	Headers []struct {
+	MIMEType string `json:"mimeType"`
+	Filename string `json:"filename"`
+	Headers  []struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"headers"`
@@ -163,12 +165,12 @@ func (h *Handler) legacyGmailMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before using Gmail.")
 		return
 	}
-	connectionID, err := h.legacyConnectionID(r, userID, "gmail.send")
+	connectionID, err := h.legacyConnectionID(r, userID, "gmail.read")
 	if err != nil {
 		h.writeOperationError(w, err)
 		return
 	}
-	_, token, err := h.connectionToken(r.Context(), userID, connectionID, "gmail.send")
+	_, token, err := h.connectionToken(r.Context(), userID, connectionID, "gmail.read")
 	if err != nil {
 		h.writeOperationError(w, err)
 		return
@@ -218,12 +220,12 @@ func (h *Handler) legacyGmailDraft(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_MESSAGE", "messageId is required.")
 		return
 	}
-	connectionID, err := h.legacyConnectionID(r, userID, "gmail.send")
+	connectionID, err := h.legacyConnectionID(r, userID, "gmail.read")
 	if err != nil {
 		h.writeOperationError(w, err)
 		return
 	}
-	_, token, err := h.connectionToken(r.Context(), userID, connectionID, "gmail.send")
+	_, token, err := h.connectionToken(r.Context(), userID, connectionID, "gmail.read")
 	if err != nil {
 		h.writeOperationError(w, err)
 		return
