@@ -36,7 +36,7 @@
 - [Development schema application](dev-schema-apply.md) — Drizzle push behavior is historical development-only guidance, not the current migration path.
 - [Development DB SSL mode](development-database-ssl-mode.md) — the Development database URL explicitly disables SSL; do not infer Production settings from it.
 - [Database disposability](database-disposability.md) — Development and Production databases plus migration_test are disposable; do not let their preservation block product progress.
-- [Database query consolidation](database-query-consolidation.md) — Askolo's database redesign should refine the model and reduce per-page API calls; align UI work with approved contracts.
+- [Database query consolidation](database-query-consolidation.md) — map Home/Agenda reads to API contracts; confirmed screens do not by themselves approve V2 views or staged migrations.
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Replit artifact and canvas separation](replit-artifact-cleanup.md) — artifact files, Library registrations, and canvas frames are separate; inspect frame provenance before changing active service configuration.

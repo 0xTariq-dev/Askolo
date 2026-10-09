@@ -9,8 +9,8 @@ For provider-owned Gmail and Calendar data, keep only the minimal local mapping 
 
 For unresolved product, database, or API decisions in this refactor, ask the user instead of making assumptions.
 
-Do not create canonical V2 database views until the Today/Plan UI projections are defined with the user. Update the related Linear task first, then align API and database read projections to the approved UI. Do not apply staged migrations to Development or Production before that design step.
+Do not treat the confirmed Home/Agenda UI projections as approval to create canonical V2 views or apply migrations. First map the read contract with the user and update the related Linear task; views and migrations remain separately gated until explicitly approved. Keep migration 0016 unchanged.
 
-**Why:** the user stated that database refinement and reducing per-page API calls are central goals, specifically requested UI views before database views or migration application, and clarified the performance boundary for provider-owned data.
+**Why:** the user stated that database refinement and reducing per-page API calls are central goals, requested UI/read mapping before database projections, and separately gated canonical views and migration application even after agreeing on the screens. They also clarified the performance boundary for provider-owned data.
 
-**How to apply:** when changing page data loading, API hooks, query shapes, or other unresolved refactor decisions, update the relevant Linear issue and wait for the approved UI/read contract rather than guessing at endpoints or schema. Use a minimal provider-data mapping for quick rendering and refresh it on provider changes, not every page load.
+**How to apply:** when changing page data loading, API hooks, query shapes, or other unresolved refactor decisions, update the relevant Linear issue and map reads to the agreed UI before proposing schema work. Do not create canonical views or apply staged migrations without separate approval. Use a minimal provider-data mapping for quick rendering and refresh it on provider changes, not every page load.
