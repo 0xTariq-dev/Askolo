@@ -21,6 +21,7 @@ import (
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
 	productmodule "askolo/backend/internal/modules/product"
+	"askolo/backend/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -104,6 +105,7 @@ func newEmailAuthFixture(t *testing.T) *emailAuthFixture {
 	if baseURL == "" {
 		t.Skip("set ASKOLO_TEST_DATABASE_URL to run native email auth integration tests")
 	}
+	testdb.RequireDisposable(t, baseURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"askolo/backend/internal/migrations"
+	"askolo/backend/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,6 +25,7 @@ func openTAR10(t *testing.T) (context.Context, *pgxpool.Pool, *Store) {
 	if base == "" {
 		t.Skip("set ASKOLO_TEST_DATABASE_URL to run TAR-10 credit lifecycle integration tests")
 	}
+	testdb.RequireDisposable(t, base)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	admin, err := pgxpool.New(ctx, base)

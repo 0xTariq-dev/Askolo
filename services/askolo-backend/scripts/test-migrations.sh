@@ -56,7 +56,7 @@ database_url="postgresql://$db_user@/postgres?host=$encoded_socket_dir&port=5432
 # Never let the normal application database URL become an integration-test
 # target. Run the complete database-backed Go suite against this disposable
 # local PostgreSQL instance so its schema fixtures cannot persist elsewhere.
-env -u DATABASE_URL ASKOLO_TEST_DATABASE_URL="$database_url" \
+env -u DATABASE_URL ASKOLO_TEST_DATABASE_DISPOSABLE=yes ASKOLO_TEST_DATABASE_URL="$database_url" \
   go test -buildvcs=true -p 1 -count=1 ./...
 
 # Exercise explicit target selection, including the restore gate, against this

@@ -17,6 +17,7 @@ import (
 	"askolo/backend/internal/config"
 	"askolo/backend/internal/migrations"
 	policy "askolo/backend/internal/platform/authorization"
+	"askolo/backend/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,6 +35,7 @@ func openCreditPolicyIntegrationFixture(t *testing.T) *creditPolicyIntegrationFi
 	if baseURL == "" {
 		t.Skip("set ASKOLO_TEST_DATABASE_URL to run credit policy handler integration tests")
 	}
+	testdb.RequireDisposable(t, baseURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"askolo/backend/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,6 +19,7 @@ func TestUpdateUserProfilePersistsPreferredLocale(t *testing.T) {
 	if baseURL == "" {
 		t.Skip("set ASKOLO_TEST_DATABASE_URL to run profile integration tests")
 	}
+	testdb.RequireDisposable(t, baseURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -111,6 +113,7 @@ func TestSpendAICreditsEnforcesBalanceAtomically(t *testing.T) {
 	if baseURL == "" {
 		t.Skip("set ASKOLO_TEST_DATABASE_URL to run AI credit integration tests")
 	}
+	testdb.RequireDisposable(t, baseURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

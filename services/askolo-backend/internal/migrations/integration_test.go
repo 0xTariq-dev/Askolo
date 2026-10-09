@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"askolo/backend/internal/testdb"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -1299,6 +1300,7 @@ func migrationTestURL(t *testing.T) string {
 	if baseURL == "" {
 		t.Skip("set ASKOLO_TEST_DATABASE_URL to run migration integration tests")
 	}
+	testdb.RequireDisposable(t, baseURL)
 	return baseURL
 }
 
@@ -1333,6 +1335,7 @@ func openMigrationTestSchema(t *testing.T, ctx context.Context, baseURL, purpose
 
 func newMigrationTestSchemaName(t *testing.T, purpose string) string {
 	t.Helper()
+	testdb.RequireDisposable(t, strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL")))
 	random := make([]byte, 8)
 	if _, err := rand.Read(random); err != nil {
 		t.Fatalf("generate migration test schema suffix: %v", err)

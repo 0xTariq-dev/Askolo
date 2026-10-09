@@ -19,6 +19,7 @@ import (
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	"askolo/backend/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -42,6 +43,7 @@ func newGoogleOAuthFixture(t *testing.T) *googleOAuthIntegrationFixture {
 	if baseURL == "" {
 		t.Skip("set ASKOLO_TEST_DATABASE_URL to run Google OAuth integration tests")
 	}
+	testdb.RequireDisposable(t, baseURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
