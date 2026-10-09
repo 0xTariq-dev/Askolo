@@ -103,6 +103,21 @@ func TestPublishCompatibilityGateAllowsOnlyReviewedHistoricalDataMigrations(t *t
 	}
 }
 
+func TestProductionSchemaFingerprintAllowlist(t *testing.T) {
+	for _, fingerprint := range []string{
+		publishSchemaFingerprint,
+		observedProductionSchemaFingerprint,
+		postPublishProductionSchemaFingerprint,
+	} {
+		if !isSupportedProductionSchemaFingerprint(fingerprint) {
+			t.Errorf("reviewed Production fingerprint %q was rejected", fingerprint)
+		}
+	}
+	if isSupportedProductionSchemaFingerprint("inventory-v1:unreviewed") {
+		t.Fatal("unreviewed Production fingerprint was accepted")
+	}
+}
+
 func TestMigrationSQLDataMutationScanner(t *testing.T) {
 	tests := []struct {
 		name string

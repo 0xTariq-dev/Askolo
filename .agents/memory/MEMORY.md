@@ -31,7 +31,7 @@
 - [Go toolchain path](go-toolchain-path.md) — use `go fmt ./...` because the managed Go wrapper may not expose standalone `gofmt`.
 - [Nested package removal](nested-workspace-package-removal.md) — verify artifact manifests and lock importers after package callbacks; nested dependencies may remain.
 - [Go security upgrades](go-security-upgrades.md) — auto-downloaded patched toolchains need an enabled checksum database; treat unused openpgp advisories as call-path findings.
-- [Go backend binary refresh](go-backend-binary-refresh.md) — the run script reuses an existing binary; rebuild before restarting after Go source changes.
+- [Go backend binary refresh](go-backend-binary-refresh.md) — rebuild before restart; its validation-heavy build script stops the API before replacing the binary.
 - [Release environment separation](three-repl-release-architecture.md) — treat the supplied host as Production; verify build provenance because the health endpoint's commit field may be static.
 - [Development schema application](dev-schema-apply.md) — Drizzle push behavior is historical development-only guidance, not the current migration path.
 - [Development DB SSL mode](development-database-ssl-mode.md) — the Development database URL explicitly disables SSL; do not infer Production settings from it.

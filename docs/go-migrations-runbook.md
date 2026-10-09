@@ -24,6 +24,18 @@ supported for migration execution (the release validation target is PostgreSQL
 and validated on PostgreSQL 16.10, so `-adopt-existing` accepts PostgreSQL
 16.x only.
 
+The normal `-target development` command applies only the active migration
+prefix through `0015`; it does not apply the staged `0016` redesign. The
+Development-only `-reconcile-operational-fingerprint` option is a separate,
+explicitly approved operation for the verified `heliumdb` PostgreSQL 16
+Development database. It requires the dedicated migration URL and
+`ASKOLO_MIGRATION_APPROVED=yes`, verifies the exact `0000`–`0015` history, and
+refuses to run if `0016` is already recorded. It updates only the latest active
+ledger row's schema fingerprint to the current inventory; it does not execute
+schema DDL or change application data. The command reports both the previous
+and new fingerprints. Never use this option against Production; structural
+Production changes go through Replit Publish.
+
 ## Authoring a schema change
 
 When a backend change needs a schema update:
@@ -83,6 +95,15 @@ transfers migration DML or ledger rows. The selected check is reported in
 `schemaReadinessMode`, and detailed failures are logged server-side only when
 readiness state changes. Both checks use the health request's bounded database
 context.
+
+The Production inventory allowlist includes the original `0000`–`0013`
+baseline, the exact read-only inventory currently observed in Production, and
+the narrowly predicted inventory after Publish widens the `assistant_runs`
+state check and the preferred-locale check to the Development definitions.
+The predicted inventory retains Production's equivalent live-voice constraint
+representation and does not include Development's `vector` extension, which is
+not declared by the migration source. Recompute and review this contract after
+any other Production schema change; do not accept an arbitrary fingerprint.
 
 The backend build runs `scripts/test-migrations.sh`. It creates a temporary
 PostgreSQL 16.x instance with a private Unix socket, runs the complete Go test

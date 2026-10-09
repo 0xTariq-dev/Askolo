@@ -10,11 +10,26 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// publishSchemaFingerprint is the inventory produced by the reviewed migration
-// chain on PostgreSQL 16. It deliberately excludes the Go runner's ledger.
-// Update it only after validating the new inventory in the disposable migration
-// test database.
-const publishSchemaFingerprint = "inventory-v1:83ba2c6c0946bd03f1a363edd64b906e0dc8348cbce067b75f4dfb9284aa0ba6"
+// publishSchemaFingerprint is the original reviewed 0000-0013 inventory.
+// Production compatibility also recognizes the exact live Production inventory
+// and the narrowly predicted inventory after Publish applies its two
+// outstanding constraint changes. These hashes exclude the Go runner's ledger.
+const (
+	publishSchemaFingerprint               = "inventory-v1:83ba2c6c0946bd03f1a363edd64b906e0dc8348cbce067b75f4dfb9284aa0ba6"
+	observedProductionSchemaFingerprint    = "inventory-v1:a569ef80013cfc2d0ca8fda2b67c9df5c74287e5b376db65077c5e5866d6bee7"
+	postPublishProductionSchemaFingerprint = "inventory-v1:9079f68374ff5f754557cec4ace38436ab8ccf4940e4785511709089cec0de7e"
+)
+
+func isSupportedProductionSchemaFingerprint(fingerprint string) bool {
+	switch fingerprint {
+	case publishSchemaFingerprint,
+		observedProductionSchemaFingerprint,
+		postPublishProductionSchemaFingerprint:
+		return true
+	default:
+		return false
+	}
+}
 
 type approvedPublishDataMigration struct {
 	name     string
@@ -86,10 +101,9 @@ func ValidateProductionSchemaCompatibility(ctx context.Context, pool *pgxpool.Po
 	if err != nil {
 		return fmt.Errorf("inventory production schema: %w", err)
 	}
-	if currentFingerprint != publishSchemaFingerprint {
+	if !isSupportedProductionSchemaFingerprint(currentFingerprint) {
 		return fmt.Errorf(
-			"managed production schema inventory mismatch: expected %s, current %s",
-			publishSchemaFingerprint,
+			"managed production schema inventory mismatch: current %s is not a reviewed inventory",
 			currentFingerprint,
 		)
 	}

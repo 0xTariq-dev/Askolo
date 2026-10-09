@@ -83,6 +83,129 @@ func Run(ctx context.Context, pool *pgxpool.Pool) error {
 	return run(ctx, pool, migrationSet)
 }
 
+// RunOperational applies only the active application schema prefix. Staged
+// schema redesigns remain available to disposable validation through Run.
+func RunOperational(ctx context.Context, pool *pgxpool.Pool) error {
+	migrationSet, err := Load(SQL)
+	if err != nil {
+		return err
+	}
+	if len(migrationSet) < askoloV2MigrationVersion {
+		return fmt.Errorf("active migration prefix is incomplete: have %d versions, need %d",
+			len(migrationSet), askoloV2MigrationVersion)
+	}
+	return run(ctx, pool, migrationSet[:askoloV2MigrationVersion])
+}
+
+type FingerprintReconciliation struct {
+	Previous string
+	Current  string
+	Changed  bool
+}
+
+// ReconcileOperationalFingerprint records the current public-schema inventory
+// on the last active migration row after validating the complete 0000-0015
+// migration prefix. It does not execute schema DDL or change earlier history.
+func ReconcileOperationalFingerprint(ctx context.Context, pool *pgxpool.Pool) (FingerprintReconciliation, error) {
+	if pool == nil {
+		return FingerprintReconciliation{}, errors.New("migration reconciliation unavailable: database is not configured")
+	}
+	migrationSet, err := Load(SQL)
+	if err != nil {
+		return FingerprintReconciliation{}, err
+	}
+	if len(migrationSet) < askoloV2MigrationVersion {
+		return FingerprintReconciliation{}, fmt.Errorf("active migration prefix is incomplete: have %d versions, need %d",
+			len(migrationSet), askoloV2MigrationVersion)
+	}
+	active := migrationSet[:askoloV2MigrationVersion]
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return FingerprintReconciliation{}, err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7261736, 1)`); err != nil {
+		return FingerprintReconciliation{}, fmt.Errorf("migration reconciliation lock: %w", err)
+	}
+	defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7261736, 1)`)
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return FingerprintReconciliation{}, err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT version, name, checksum, schema_fingerprint
+		FROM askolo_schema_migrations ORDER BY version`)
+	if err != nil {
+		return FingerprintReconciliation{}, fmt.Errorf("read migration ledger for reconciliation: %w", err)
+	}
+	applied := 0
+	previous := ""
+	for rows.Next() {
+		var version int
+		var name, checksum, storedFingerprint string
+		if err := rows.Scan(&version, &name, &checksum, &storedFingerprint); err != nil {
+			rows.Close()
+			return FingerprintReconciliation{}, fmt.Errorf("read migration ledger row: %w", err)
+		}
+		if version != applied {
+			rows.Close()
+			return FingerprintReconciliation{}, fmt.Errorf("migration history missing version %04d", applied)
+		}
+		if version >= len(active) {
+			rows.Close()
+			return FingerprintReconciliation{}, fmt.Errorf("cannot reconcile: staged migration %04d is already applied", version)
+		}
+		expected := active[version]
+		if name != expected.Name || checksum != expected.SHA256 {
+			rows.Close()
+			return FingerprintReconciliation{}, fmt.Errorf("migration %04d checksum, name, or ordering mismatch", version)
+		}
+		if strings.TrimSpace(storedFingerprint) == "" {
+			rows.Close()
+			return FingerprintReconciliation{}, fmt.Errorf("migration %04d has no schema fingerprint", version)
+		}
+		previous = storedFingerprint
+		applied++
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return FingerprintReconciliation{}, fmt.Errorf("iterate migration ledger: %w", err)
+	}
+	if applied != len(active) {
+		return FingerprintReconciliation{}, fmt.Errorf("cannot reconcile incomplete active history: applied %d of %d versions", applied, len(active))
+	}
+	if !strings.HasPrefix(previous, fingerprintPrefix) {
+		return FingerprintReconciliation{}, fmt.Errorf("cannot reconcile unsupported active fingerprint %q", strings.SplitN(previous, ":", 2)[0])
+	}
+
+	current, err := fingerprint(ctx, tx)
+	if err != nil {
+		return FingerprintReconciliation{}, fmt.Errorf("inventory current schema for reconciliation: %w", err)
+	}
+	result := FingerprintReconciliation{Previous: previous, Current: current}
+	if previous == current {
+		return result, nil
+	}
+	last := active[len(active)-1]
+	tag, err := tx.Exec(ctx, `UPDATE askolo_schema_migrations
+		SET schema_fingerprint = $1
+		WHERE version = $2 AND name = $3 AND checksum = $4 AND schema_fingerprint = $5`,
+		current, last.Version, last.Name, last.SHA256, previous)
+	if err != nil {
+		return FingerprintReconciliation{}, fmt.Errorf("reconcile active migration fingerprint: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return FingerprintReconciliation{}, errors.New("migration history changed during fingerprint reconciliation")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return FingerprintReconciliation{}, err
+	}
+	result.Changed = true
+	return result, nil
+}
+
 func run(ctx context.Context, pool *pgxpool.Pool, migrations []Migration) error {
 	if len(migrations) == 0 {
 		return errors.New("no embedded migrations")

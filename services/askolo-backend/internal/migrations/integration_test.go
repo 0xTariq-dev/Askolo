@@ -194,8 +194,8 @@ func TestProductionSchemaCompatibilityDoesNotRequireMigrationLedger(t *testing.T
 	if err != nil {
 		t.Fatalf("load published schema migrations: %v", err)
 	}
-	// Production still uses the reviewed 0000-0013 schema baseline. The
-	// following migrations are Development-only until a separate promotion.
+	// Preserve coverage for the original reviewed 0000-0013 compatibility
+	// baseline; current Production snapshots are covered by the exact allowlist.
 	const publishedSchemaMigrationCount = 14
 	if len(migrations) < publishedSchemaMigrationCount {
 		t.Fatalf("only %d migrations available for published baseline", len(migrations))
@@ -252,7 +252,7 @@ func TestOperationalReadinessExcludesTheStagedPublicV2Migration(t *testing.T) {
 		t.Fatalf("migration list has %d entries, need the active pre-v2 prefix of %d",
 			len(migrations), askoloV2MigrationVersion)
 	}
-	if err := run(ctx, pool, migrations[:askoloV2MigrationVersion]); err != nil {
+	if err := RunOperational(ctx, pool); err != nil {
 		t.Fatalf("apply active API migration prefix: %v", err)
 	}
 	if err := ValidateOperationalReady(ctx, pool); err != nil {
@@ -270,6 +270,95 @@ func TestOperationalReadinessExcludesTheStagedPublicV2Migration(t *testing.T) {
 	}
 	if err := ValidateReady(ctx, pool); err != nil {
 		t.Fatalf("full readiness after public_v2 migration: %v", err)
+	}
+}
+
+func TestReconcileOperationalFingerprintUpdatesOnlyTheActiveTip(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "fingerprint_reconciliation")
+
+	if err := RunOperational(ctx, pool); err != nil {
+		t.Fatalf("apply active migration prefix: %v", err)
+	}
+	var maxVersion int
+	if err := pool.QueryRow(ctx, `SELECT max(version) FROM askolo_schema_migrations`).Scan(&maxVersion); err != nil {
+		t.Fatalf("read active migration version: %v", err)
+	}
+	if maxVersion != askoloV2MigrationVersion-1 {
+		t.Fatalf("latest active migration = %04d, want %04d", maxVersion, askoloV2MigrationVersion-1)
+	}
+
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ('reconcile-sentinel', 'reconcile@example.test')`); err != nil {
+		t.Fatalf("insert sentinel row: %v", err)
+	}
+	var priorVersion14Fingerprint string
+	if err := pool.QueryRow(ctx, `SELECT schema_fingerprint FROM askolo_schema_migrations WHERE version = 14`).
+		Scan(&priorVersion14Fingerprint); err != nil {
+		t.Fatalf("read prior migration fingerprint: %v", err)
+	}
+	staleFingerprint := fingerprintPrefix + strings.Repeat("0", 64)
+	if _, err := pool.Exec(ctx, `UPDATE askolo_schema_migrations SET schema_fingerprint = $1 WHERE version = $2`,
+		staleFingerprint, askoloV2MigrationVersion-1); err != nil {
+		t.Fatalf("prepare stale active fingerprint: %v", err)
+	}
+
+	result, err := ReconcileOperationalFingerprint(ctx, pool)
+	if err != nil {
+		t.Fatalf("reconcile active fingerprint: %v", err)
+	}
+	if !result.Changed || result.Previous != staleFingerprint || result.Current == staleFingerprint {
+		t.Fatalf("reconciliation result = %+v, want changed fingerprint", result)
+	}
+	if err := ValidateOperationalReady(ctx, pool); err != nil {
+		t.Fatalf("operational readiness after reconciliation: %v", err)
+	}
+	if err := ValidateReady(ctx, pool); err == nil || !strings.Contains(err.Error(), "migration history is incomplete") {
+		t.Fatalf("full readiness = %v, want staged v2 to remain unapplied", err)
+	}
+
+	var latestFingerprint, unchangedVersion14Fingerprint string
+	if err := pool.QueryRow(ctx, `SELECT schema_fingerprint FROM askolo_schema_migrations WHERE version = $1`,
+		askoloV2MigrationVersion-1).Scan(&latestFingerprint); err != nil {
+		t.Fatalf("read reconciled fingerprint: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT schema_fingerprint FROM askolo_schema_migrations WHERE version = 14`).
+		Scan(&unchangedVersion14Fingerprint); err != nil {
+		t.Fatalf("read earlier migration fingerprint: %v", err)
+	}
+	if latestFingerprint != result.Current || unchangedVersion14Fingerprint != priorVersion14Fingerprint {
+		t.Fatalf("ledger fingerprints changed unexpectedly: latest=%q prior-v14=%q want prior-v14=%q",
+			latestFingerprint, unchangedVersion14Fingerprint, priorVersion14Fingerprint)
+	}
+	var sentinelCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE id = 'reconcile-sentinel'`).Scan(&sentinelCount); err != nil {
+		t.Fatalf("verify application row survived reconciliation: %v", err)
+	}
+	if sentinelCount != 1 {
+		t.Fatalf("application row count after reconciliation = %d, want 1", sentinelCount)
+	}
+
+	replayed, err := ReconcileOperationalFingerprint(ctx, pool)
+	if err != nil {
+		t.Fatalf("repeat reconciliation: %v", err)
+	}
+	if replayed.Changed || replayed.Previous != result.Current || replayed.Current != result.Current {
+		t.Fatalf("repeat reconciliation = %+v, want no-op", replayed)
+	}
+}
+
+func TestReconcileOperationalFingerprintRejectsAppliedStagedMigration(t *testing.T) {
+	baseURL := migrationTestURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, pool, _ := openMigrationTestSchema(t, ctx, baseURL, "fingerprint_reconciliation_staged")
+	if err := Run(ctx, pool); err != nil {
+		t.Fatalf("apply complete disposable migration set: %v", err)
+	}
+	if _, err := ReconcileOperationalFingerprint(ctx, pool); err == nil ||
+		!strings.Contains(err.Error(), "staged migration") {
+		t.Fatalf("reconciliation error = %v, want staged migration refusal", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -15,6 +16,8 @@ import (
 func main() {
 	target := flag.String("target", "", "required: development or restore (never staging or production)")
 	adopt := flag.Bool("adopt-existing", false, "adopt an already-created schema only after exact offline verification")
+	reconcileFingerprint := flag.Bool("reconcile-operational-fingerprint", false,
+		"reconcile only the active Development ledger fingerprint after exact 0000-0015 history validation")
 	flag.Parse()
 	if *target == "" {
 		log.Fatal("-target is required")
@@ -32,6 +35,17 @@ func main() {
 	if *target != "development" && strings.TrimSpace(os.Getenv("ASKOLO_MIGRATION_APPROVED")) != "yes" {
 		log.Fatalf("refusing %s target without ASKOLO_MIGRATION_APPROVED=yes", *target)
 	}
+	if *adopt && *reconcileFingerprint {
+		log.Fatal("-adopt-existing and -reconcile-operational-fingerprint cannot be used together")
+	}
+	if *reconcileFingerprint {
+		if *target != "development" {
+			log.Fatal("-reconcile-operational-fingerprint is allowed only with -target development")
+		}
+		if strings.TrimSpace(os.Getenv("ASKOLO_MIGRATION_APPROVED")) != "yes" {
+			log.Fatal("refusing fingerprint reconciliation without ASKOLO_MIGRATION_APPROVED=yes")
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, url)
@@ -39,6 +53,18 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
+	if *reconcileFingerprint {
+		if err := validateDevelopmentReconciliationTarget(ctx, pool); err != nil {
+			log.Fatal(err)
+		}
+		result, err := migrations.ReconcileOperationalFingerprint(ctx, pool)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("active migration fingerprint reconciliation complete (changed=%t previous=%s current=%s)",
+			result.Changed, result.Previous, result.Current)
+		return
+	}
 	if *adopt {
 		conn, acquireErr := pool.Acquire(ctx)
 		if acquireErr != nil {
@@ -62,8 +88,32 @@ func main() {
 		log.Printf("existing baseline adopted after exact fingerprint match")
 		return
 	}
-	if err := migrations.Run(ctx, pool); err != nil {
+	if *target == "development" {
+		err = migrations.RunOperational(ctx, pool)
+	} else {
+		err = migrations.Run(ctx, pool)
+	}
+	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("migrations applied successfully (target=%s)", *target)
+}
+
+func validateDevelopmentReconciliationTarget(ctx context.Context, pool *pgxpool.Pool) error {
+	var databaseName, schemaName string
+	var majorVersion int
+	if err := pool.QueryRow(ctx, `
+		SELECT current_database(), current_schema(), current_setting('server_version_num')::integer / 10000
+	`).Scan(&databaseName, &schemaName, &majorVersion); err != nil {
+		return fmt.Errorf("verify Development reconciliation target: %w", err)
+	}
+	return validateDevelopmentReconciliationIdentity(databaseName, schemaName, majorVersion)
+}
+
+func validateDevelopmentReconciliationIdentity(databaseName, schemaName string, majorVersion int) error {
+	if databaseName != "heliumdb" || schemaName != "public" || majorVersion != 16 {
+		return fmt.Errorf("refusing fingerprint reconciliation outside the verified Development target (database=%q schema=%q PostgreSQL=%d)",
+			databaseName, schemaName, majorVersion)
+	}
+	return nil
 }

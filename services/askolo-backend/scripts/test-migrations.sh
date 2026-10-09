@@ -81,6 +81,16 @@ elif [[ "$output" != *"refusing to run migrations against the application DATABA
 fi
 if output="$(env -u ASKOLO_MIGRATION_APPROVED \
   ASKOLO_MIGRATION_DATABASE_URL="$database_url" DATABASE_URL= \
+  go run ./cmd/askolo-migrate -target development -reconcile-operational-fingerprint 2>&1)"; then
+  echo "fingerprint reconciliation unexpectedly ran without explicit approval" >&2
+  exit 1
+elif [[ "$output" != *"refusing fingerprint reconciliation without ASKOLO_MIGRATION_APPROVED=yes"* ]]; then
+  echo "$output" >&2
+  echo "fingerprint-reconciliation approval check failed for an unexpected reason" >&2
+  exit 1
+fi
+if output="$(env -u ASKOLO_MIGRATION_APPROVED \
+  ASKOLO_MIGRATION_DATABASE_URL="$database_url" DATABASE_URL= \
   go run ./cmd/askolo-migrate -target restore 2>&1)"; then
   echo "restore target unexpectedly ran without explicit approval" >&2
   exit 1
