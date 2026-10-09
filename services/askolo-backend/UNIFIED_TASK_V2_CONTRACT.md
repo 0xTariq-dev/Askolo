@@ -53,6 +53,8 @@ A Plan has an owner, title, period, time zone, lifecycle, and visibility. Visibi
 
 A Plan entry links to one existing Task and, optionally, one local occurrence date. It may add a planned date/time and ordering position. It never stores a duplicate title, status, or assignee. A Task may appear in multiple plans; all entries reflect the same canonical Task state.
 
+When a Plan day ends, ask the user individually whether each unfinished entry should carry forward to the next day. Do not move an entry without explicit approval; if the user has not decided, leave it on its original day.
+
 Assignments are stored on the Task. Assigning from a Plan updates that Task's `assignedToUserId`; it does not assign a copy or change unrelated Plan entries.
 
 ### Calendar and agenda
