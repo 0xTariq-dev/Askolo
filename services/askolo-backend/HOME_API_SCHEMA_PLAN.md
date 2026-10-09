@@ -5,7 +5,7 @@ Status: draft for implementation planning. This document does not create a migra
 ## Decisions recorded
 
 - A provider account has one owning user and one workspace association when connected to Askolo.
-- A Space owner or admin can promote the account for use by the Space. Promotion grants Space access; it does not transfer account ownership or OAuth credentials.
+- A Space owner or admin can promote the account for use by the Space. Promotion shares Home summary counts only; it does not transfer account ownership or OAuth credentials.
 - Full message reads require both Space owner/admin promotion and explicit account-owner consent. Promotion alone shares Home summary counts; owner consent alone does not grant access to Space members.
 - Per-Space Home summaries use only the provider accounts available in that Space and selected for the summary.
 - Focus choices are saved per user, workspace/Space, and Plan day. Home shows saved choices first, then suggestions, up to three actions.
@@ -40,12 +40,12 @@ Store the association between a user-owned legacy provider connection and its si
 - `workspace_id`, `provider_connection_id`, and `owner_user_id`.
 - Access scope constrained to `owner_only` or `space_shared`; new rows default to `owner_only`.
 - Optional promotion actor and timestamp; both are required only for `space_shared`.
-- Separate nullable account-owner email-read-consent timestamp and server-recorded consent-policy version; this is independent of summary promotion.
+- Separate nullable account-owner email-read-consent timestamp, server-recorded consent-policy version, and consent-revoked timestamp; this is independent of summary promotion.
 - Creation/update timestamps.
 - Unique `provider_connection_id` so the same connection cannot be attached to multiple workspaces.
 - Composite workspace/owner foreign key to workspace membership records, plus a workspace/provider-connection primary key. The service must check membership status is active; a foreign key alone does not enforce active status.
 
-The legacy provider connection remains the credential source of truth. The V2 association stores no access/refresh tokens. Application-level ownership checks must join the referenced legacy provider connection/account and verify that its user matches `owner_user_id`; never trust a client-supplied owner. Only an owner/admin may switch access to `space_shared`. Only the connection owner may consent to or revoke full-message reads. Summary counts require `space_shared`; message reads require both `space_shared` and current owner consent. An inactive or revoked connection is unavailable regardless of its promotion row.
+The legacy provider connection remains the credential source of truth. The V2 association stores no access/refresh tokens. Application-level ownership checks must join the referenced legacy provider connection/account and verify that its user matches `owner_user_id`; never trust a client-supplied owner. Only an owner/admin may switch access to `space_shared`. Only the connection owner may consent to or revoke full-message reads, and consent can be recorded only after Space promotion. Summary counts require `space_shared`; message reads require both `space_shared` and current owner consent. An inactive or revoked connection is unavailable regardless of its promotion row.
 
 ### 2. `workspace_email_summaries`
 
@@ -75,7 +75,7 @@ The API replaces a day's list transactionally after validating all references an
 - For `owner_only`, only the connection owner may use that account in Home or the email reader. For `space_shared`, active members of the associated workspace may use its Home summary. Full message lists and bodies additionally require explicit consent from the connection owner. Promotion and consent together are read-only; they do not allow sending, deleting, drafting, or downloading attachments under this contract.
 - Every Home request rechecks active workspace membership and the provider connection's active status. All Spaces filters to the viewer's currently authorized workspaces and account grants before aggregation.
 - Every message list/detail request also verifies that the connection is associated with the path workspace, is active and `space_shared`, has current owner consent, and that the message belongs to that connection. Return `private, no-store`; do not log or persist bodies. Render email HTML as untrusted content and sanitize it or use safe text rendering.
-- The connection owner can revoke message-read consent at any time; block further message reads immediately while leaving Space summary access unchanged. Unpromotion removes both summary and full-message Space access. A later re-promotion should require the owner to confirm full-message consent again.
+- The connection owner can revoke message-read consent at any time; block further message reads immediately while leaving Space summary access unchanged. Unpromotion removes both summary and full-message Space access and clears consent. A later re-promotion requires fresh owner approval.
 - A revoked/disconnected provider connection is immediately excluded from summary reads and sync. The V2 schema must not preserve visible stale counts after revocation.
 - If the account owner loses active membership, deny the account to the former owner and the Space, pause sync, and require an active owner/admin to explicitly restore access. Whether to retain the promotion row or remove it during membership revocation should be settled with the broader membership-lifecycle implementation.
 - Never log provider account identifiers, message content, tokens, or email addresses. Avoid exposing connection IDs in Home summary payloads.
