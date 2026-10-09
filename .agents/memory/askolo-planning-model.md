@@ -9,6 +9,8 @@ Goals are longer-term destinations. A task may optionally link to a goal, but a 
 
 Plans organize tasks for a time period. A plan entry links to an existing task when it schedules that work; it must not clone the task or create duplicate task state.
 
+Support both personal and shared plans. Workspace owners and admins may share plans with workspace members. Task assignment applies to the canonical task whether initiated from a plan or the task itself.
+
 Calendar is the broad agenda view over tasks, plans, and events. Provider-owned calendar events remain events, preserve their source identifiers, and are not converted into editable tasks.
 
 Lay a foundation for user-defined reminders, but do not activate dispatch until an automation layer exists. That future layer may send item notifications, daily briefs, and other notifications.
