@@ -843,124 +843,199 @@ func decodeStrictRawJSON(data []byte, target any) error {
 }
 
 func (h *Handler) v2GetAgenda(w http.ResponseWriter, r *http.Request, userID, role string) {
-	if !v2QueryValid(r, "from", "to") {
+	if !v2QueryValid(r, "from", "to", "timeZone", "pageToken") {
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "The request contains an unsupported or repeated query parameter.")
 		return
 	}
 	query := r.URL.Query()
 	from, fromOK := parseV2Date(query.Get("from"))
 	to, toOK := parseV2Date(query.Get("to"))
-	if !fromOK || !toOK || to.Before(from) || to.Sub(from) > (v2MaxDateRange-1)*24*time.Hour {
-		writeError(w, http.StatusBadRequest, "INVALID_DATE_RANGE", "Provide a valid agenda range of no more than 31 days.")
+	if !fromOK || !toOK || to.Before(from) || to.Sub(from) > (v2MaxAgendaDateRange-1)*24*time.Hour {
+		writeError(w, http.StatusBadRequest, "INVALID_DATE_RANGE", "Provide a valid agenda range of no more than 42 inclusive dates.")
+		return
+	}
+	timeZone := query.Get("timeZone")
+	if !validV2TimeZone(timeZone) {
+		writeError(w, http.StatusBadRequest, "INVALID_TIME_ZONE", "Provide a valid IANA time zone.")
 		return
 	}
 	workspaceID := r.PathValue("workspaceId")
-	zone, err := h.store.V2WorkspaceTimeZone(r.Context(), workspaceID)
-	if err != nil {
-		v2HandleStoreError(w, r, h, userID, "read workspace time zone", err)
-		return
+	fromText, toText := from.Format("2006-01-02"), to.Format("2006-01-02")
+	scope := v2AgendaScope(userID, workspaceID, role, fromText, toText, timeZone)
+	cursor := v2AgendaCursor{Version: 1, Scope: scope}
+	if rawToken := query.Get("pageToken"); rawToken != "" {
+		var err error
+		cursor, err = decodeV2AgendaCursor(rawToken, scope, h.authRateLimitSecret)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGE_TOKEN", "The agenda page token is invalid or no longer matches this request. Restart the range.")
+			return
+		}
 	}
-	if _, err := time.LoadLocation(zone); err != nil {
-		h.v2InternalError(w, r, userID, "validate workspace time zone", err)
-		return
-	}
-	tasks, err := h.store.ListV2Tasks(r.Context(), workspaceID, postgres.V2TaskFilter{
-		From: &from, To: &to, Limit: 100,
-	})
-	if err != nil {
-		v2HandleStoreError(w, r, h, userID, "list agenda tasks", err)
-		return
-	}
-	states, err := h.store.ListV2AgendaOccurrenceStates(r.Context(), workspaceID, from, to)
-	if err != nil {
-		v2HandleStoreError(w, r, h, userID, "list agenda occurrence states", err)
-		return
-	}
-	stateByKey := make(map[string]postgres.V2TaskOccurrence, len(states))
-	for _, state := range states {
-		stateByKey[state.TaskID+":"+state.OccurrenceOn.Format("2006-01-02")] = state
-	}
+	nextCursor := cursor
 	agendaTasks := make([]postgres.V2TaskAgendaItem, 0)
-	for _, task := range tasks {
-		if task.Status == "archived" || task.Status == "cancelled" {
-			continue
-		}
-		rule, err := recurrenceFromTask(task)
+	if !cursor.TasksDone {
+		tasks, err := h.store.ListV2Tasks(r.Context(), workspaceID, postgres.V2TaskFilter{
+			From: &from, To: &to, Limit: v2AgendaTaskBatchSize + 1, Offset: cursor.TaskOffset,
+		})
 		if err != nil {
-			h.v2InternalError(w, r, userID, "read task recurrence", err)
+			v2HandleStoreError(w, r, h, userID, "list agenda tasks", err)
 			return
 		}
-		if rule == nil {
-			if task.DueOn != nil && v2DateInRange(*task.DueOn, from, to) {
-				agendaTasks = append(agendaTasks, postgres.V2TaskAgendaItem{
-					Kind: "task", TaskID: task.ID, Title: task.Title,
-					Status: task.Status, Priority: task.Priority, DueOn: task.DueOn,
-					PlannedStartAt: task.PlannedStartAt, AssignedToUserID: task.AssignedToUserID,
-				})
-			}
-			continue
+		hasMoreTaskDefinitions := len(tasks) > v2AgendaTaskBatchSize
+		if hasMoreTaskDefinitions {
+			tasks = tasks[:v2AgendaTaskBatchSize]
 		}
-		dates, err := expandV2Recurrence(*rule, from, to)
+		taskIDs := make([]string, 0, len(tasks))
+		for _, task := range tasks {
+			taskIDs = append(taskIDs, task.ID)
+		}
+		states, err := h.store.ListV2AgendaOccurrenceStates(r.Context(), workspaceID, taskIDs, from, to)
 		if err != nil {
-			h.v2InternalError(w, r, userID, "expand task recurrence", err)
+			v2HandleStoreError(w, r, h, userID, "list agenda occurrence states", err)
 			return
 		}
-		for _, date := range dates {
-			state, exists := stateByKey[task.ID+":"+date.Format("2006-01-02")]
-			if exists && (state.Status == "cancelled" || state.Status == "skipped") {
+		stateByKey := make(map[string]postgres.V2TaskOccurrence, len(states))
+		for _, state := range states {
+			stateByKey[state.TaskID+":"+state.OccurrenceOn.Format("2006-01-02")] = state
+		}
+		for _, task := range tasks {
+			if task.Status == "archived" || task.Status == "cancelled" {
 				continue
 			}
-			status := "open"
-			var plannedStart *time.Time
-			if exists {
-				status = state.Status
-				plannedStart = state.DueAtOverride
+			rule, err := recurrenceFromTask(task)
+			if err != nil {
+				h.v2InternalError(w, r, userID, "read task recurrence", err)
+				return
 			}
-			dateCopy := date
-			agendaTasks = append(agendaTasks, postgres.V2TaskAgendaItem{
-				Kind: "task_occurrence", TaskID: task.ID, OccurrenceOn: &dateCopy,
-				Title: task.Title, Status: status, Priority: task.Priority,
-				DueOn: &dateCopy, PlannedStartAt: plannedStart,
-				AssignedToUserID: task.AssignedToUserID,
-			})
-			if len(agendaTasks) >= 1000 {
-				break
+			if rule == nil {
+				if task.DueOn != nil && v2DateInRange(*task.DueOn, from, to) {
+					agendaTasks = append(agendaTasks, postgres.V2TaskAgendaItem{
+						Kind: "task", TaskID: task.ID, Title: task.Title,
+						Status: task.Status, Priority: task.Priority, DueOn: task.DueOn,
+						PlannedStartAt: task.PlannedStartAt, AssignedToUserID: task.AssignedToUserID,
+					})
+				}
+				continue
+			}
+			dates, err := expandV2Recurrence(*rule, from, to)
+			if err != nil {
+				h.v2InternalError(w, r, userID, "expand task recurrence", err)
+				return
+			}
+			for _, date := range dates {
+				state, exists := stateByKey[task.ID+":"+date.Format("2006-01-02")]
+				if exists && (state.Status == "cancelled" || state.Status == "skipped") {
+					continue
+				}
+				status := "open"
+				var plannedStart *time.Time
+				if exists {
+					status = state.Status
+					plannedStart = state.DueAtOverride
+				}
+				dateCopy := date
+				agendaTasks = append(agendaTasks, postgres.V2TaskAgendaItem{
+					Kind: "task_occurrence", TaskID: task.ID, OccurrenceOn: &dateCopy,
+					Title: task.Title, Status: status, Priority: task.Priority,
+					DueOn: &dateCopy, PlannedStartAt: plannedStart,
+					AssignedToUserID: task.AssignedToUserID,
+				})
 			}
 		}
-		if len(agendaTasks) >= 1000 {
-			break
+		sort.SliceStable(agendaTasks, func(i, j int) bool {
+			left, right := agendaTasks[i], agendaTasks[j]
+			leftDate, rightDate := left.DueOn, right.DueOn
+			if leftDate == nil {
+				leftDate = left.OccurrenceOn
+			}
+			if rightDate == nil {
+				rightDate = right.OccurrenceOn
+			}
+			if leftDate != nil && rightDate != nil && !leftDate.Equal(*rightDate) {
+				return leftDate.Before(*rightDate)
+			}
+			return left.TaskID < right.TaskID
+		})
+		if cursor.TaskItemOffset > len(agendaTasks) {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGE_TOKEN", "The agenda changed while paging. Restart the range.")
+			return
+		}
+		end := cursor.TaskItemOffset + v2AgendaPageSize
+		if end > len(agendaTasks) {
+			end = len(agendaTasks)
+		}
+		totalTaskItems := len(agendaTasks)
+		pageTasks := append([]postgres.V2TaskAgendaItem(nil), agendaTasks[cursor.TaskItemOffset:end]...)
+		agendaTasks = pageTasks
+		switch {
+		case end < totalTaskItems:
+			nextCursor.TaskItemOffset = end
+		case hasMoreTaskDefinitions:
+			nextCursor.TaskOffset += v2AgendaTaskBatchSize
+			nextCursor.TaskItemOffset = 0
+		default:
+			nextCursor.TasksDone = true
+			nextCursor.TaskItemOffset = 0
 		}
 	}
-	sort.SliceStable(agendaTasks, func(i, j int) bool {
-		left, right := agendaTasks[i], agendaTasks[j]
-		leftDate, rightDate := left.DueOn, right.DueOn
-		if leftDate == nil {
-			leftDate = left.OccurrenceOn
+
+	planEntries := make([]postgres.V2PlanEntry, 0)
+	var err error
+	if !cursor.PlanEntriesDone {
+		planEntries, err = h.store.ListV2AgendaPlanEntries(
+			r.Context(), workspaceID, userID, role, from, to, v2AgendaPageSize+1, cursor.PlanEntryOffset,
+		)
+		if err != nil {
+			v2HandleStoreError(w, r, h, userID, "list agenda plan entries", err)
+			return
 		}
-		if rightDate == nil {
-			rightDate = right.OccurrenceOn
+		if len(planEntries) > v2AgendaPageSize {
+			planEntries = planEntries[:v2AgendaPageSize]
+			nextCursor.PlanEntryOffset += v2AgendaPageSize
+		} else {
+			nextCursor.PlanEntriesDone = true
 		}
-		if leftDate != nil && rightDate != nil && !leftDate.Equal(*rightDate) {
-			return leftDate.Before(*rightDate)
-		}
-		return left.TaskID < right.TaskID
-	})
-	planEntries, err := h.store.ListV2AgendaPlanEntries(r.Context(), workspaceID, userID, role, from, to, 500)
-	if err != nil {
-		v2HandleStoreError(w, r, h, userID, "list agenda plan entries", err)
-		return
 	}
-	events, err := h.store.ListV2AgendaEvents(r.Context(), workspaceID, from, to, 500)
-	if err != nil {
-		v2HandleStoreError(w, r, h, userID, "list agenda calendar events", err)
-		return
+	events := make([]postgres.V2CalendarEventAgendaItem, 0)
+	if !cursor.CalendarEventsDone {
+		events, err = h.store.ListV2AgendaEvents(
+			r.Context(), workspaceID, from, to, timeZone, v2AgendaPageSize+1, cursor.CalendarEventOffset,
+		)
+		if err != nil {
+			v2HandleStoreError(w, r, h, userID, "list agenda calendar events", err)
+			return
+		}
+		if len(events) > v2AgendaPageSize {
+			events = events[:v2AgendaPageSize]
+			nextCursor.CalendarEventOffset += v2AgendaPageSize
+		} else {
+			nextCursor.CalendarEventsDone = true
+		}
+	}
+	nextCursor.Version, nextCursor.Scope = 1, scope
+	nextPageToken := ""
+	if !nextCursor.TasksDone || !nextCursor.PlanEntriesDone || !nextCursor.CalendarEventsDone {
+		if nextCursor.TaskOffset > v2AgendaCursorMaxOffset ||
+			nextCursor.PlanEntryOffset > v2AgendaCursorMaxOffset ||
+			nextCursor.CalendarEventOffset > v2AgendaCursorMaxOffset {
+			writeError(w, http.StatusUnprocessableEntity, "AGENDA_RESULT_LIMIT", "This range exceeds the supported page count. Narrow the date range to continue.")
+			return
+		}
+		var err error
+		nextPageToken, err = encodeV2AgendaCursor(nextCursor, h.authRateLimitSecret)
+		if err != nil {
+			h.v2InternalError(w, r, userID, "encode agenda page token", err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, postgres.V2Agenda{
 		WorkspaceID:    workspaceID,
-		From:           from.Format("2006-01-02"),
-		To:             to.Format("2006-01-02"),
+		From:           fromText,
+		To:             toText,
+		TimeZone:       timeZone,
 		Tasks:          agendaTasks,
 		PlanEntries:    planEntries,
 		CalendarEvents: events,
+		NextPageToken:  nextPageToken,
 	})
 }

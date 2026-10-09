@@ -715,24 +715,29 @@ WHERE workspace_id=$1 AND id=$2
 	return nil
 }
 
-func (s *Store) ListV2AgendaEvents(ctx context.Context, workspaceID string, from, to time.Time, limit int) ([]V2CalendarEventAgendaItem, error) {
+func (s *Store) ListV2AgendaEvents(ctx context.Context, workspaceID string, from, to time.Time, timeZone string, limit, offset int) ([]V2CalendarEventAgendaItem, error) {
 	schema, err := s.v2Schema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if limit < 1 || limit > 500 {
-		limit = 500
+	if limit < 1 || limit > 501 {
+		limit = 501
+	}
+	if offset < 0 || offset > 1000000 {
+		return nil, errors.New("agenda event offset is outside the supported range")
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT e.id, e.title, e.starts_at, e.ends_at, e.all_day, e.time_zone,
        e.source_provider, e.source_event_id
 FROM `+v2Table(schema, "calendar_events")+` e
-JOIN `+v2Table(schema, "workspaces")+` w ON w.id=e.workspace_id
 WHERE e.workspace_id=$1
-  AND e.starts_at >= ($2::date::timestamp AT TIME ZONE w.time_zone)
-  AND e.starts_at < (($3::date + 1)::timestamp AT TIME ZONE w.time_zone)
-ORDER BY e.starts_at, e.id LIMIT $4`,
-		workspaceID, from.Format("2006-01-02"), to.Format("2006-01-02"), limit,
+  AND e.starts_at < (($3::date + 1)::timestamp AT TIME ZONE $4)
+  AND (
+    e.ends_at > ($2::date::timestamp AT TIME ZONE $4)
+    OR (e.ends_at IS NULL AND e.starts_at >= ($2::date::timestamp AT TIME ZONE $4))
+  )
+ORDER BY e.starts_at, e.id LIMIT $5 OFFSET $6`,
+		workspaceID, from.Format("2006-01-02"), to.Format("2006-01-02"), timeZone, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list calendar events for agenda: %w", err)
@@ -753,13 +758,16 @@ ORDER BY e.starts_at, e.id LIMIT $4`,
 	return items, rows.Err()
 }
 
-func (s *Store) ListV2AgendaPlanEntries(ctx context.Context, workspaceID, actorUserID, role string, from, to time.Time, limit int) ([]V2PlanEntry, error) {
+func (s *Store) ListV2AgendaPlanEntries(ctx context.Context, workspaceID, actorUserID, role string, from, to time.Time, limit, offset int) ([]V2PlanEntry, error) {
 	schema, err := s.v2Schema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if limit < 1 || limit > 500 {
-		limit = 500
+	if limit < 1 || limit > 501 {
+		limit = 501
+	}
+	if offset < 0 || offset > 1000000 {
+		return nil, errors.New("agenda plan-entry offset is outside the supported range")
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT pe.id, pe.workspace_id, pe.plan_id, pe.task_id, pe.occurrence_on,
@@ -775,7 +783,7 @@ WHERE pe.workspace_id=$1 AND pe.planned_on BETWEEN $2 AND $3
   AND p.status <> 'archived'
   AND (p.visibility='shared' OR p.owner_user_id=$4 OR $5 IN ('owner','admin'))
 ORDER BY pe.planned_on, pe.planned_start_at NULLS LAST, pe.position, pe.id
-LIMIT $6`, workspaceID, from, to, actorUserID, role, limit)
+LIMIT $6 OFFSET $7`, workspaceID, from, to, actorUserID, role, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list plan entries for agenda: %w", err)
 	}

@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	v2RequestTimeout = 4 * time.Second
-	v2MaxBodyBytes   = 64 * 1024
-	v2MaxDateRange   = 31
+	v2RequestTimeout     = 4 * time.Second
+	v2MaxBodyBytes       = 64 * 1024
+	v2MaxDateRange       = 31
+	v2MaxAgendaDateRange = 42
 )
 
 var v2IdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -130,6 +131,7 @@ func (h *Handler) v2Protect(write bool, next v2ActorHandler) http.HandlerFunc {
 			requestID = "unavailable"
 		}
 		w.Header().Set("X-Request-ID", requestID)
+		w.Header().Set("Cache-Control", "private, no-store")
 
 		userID, status := h.sessionUserID(r)
 		if status != http.StatusOK {

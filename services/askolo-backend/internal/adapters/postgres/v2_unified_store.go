@@ -366,7 +366,7 @@ func (s *Store) ListV2Tasks(ctx context.Context, workspaceID string, filter V2Ta
 	if err != nil {
 		return nil, err
 	}
-	if filter.Limit < 1 || filter.Limit > 100 {
+	if filter.Limit < 1 || filter.Limit > 101 {
 		filter.Limit = 50
 	}
 	if filter.Offset < 0 {
@@ -821,17 +821,21 @@ func sameV2Time(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
-func (s *Store) ListV2AgendaOccurrenceStates(ctx context.Context, workspaceID string, from, to time.Time) ([]V2TaskOccurrence, error) {
+func (s *Store) ListV2AgendaOccurrenceStates(ctx context.Context, workspaceID string, taskIDs []string, from, to time.Time) ([]V2TaskOccurrence, error) {
 	schema, err := s.v2Schema(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if len(taskIDs) == 0 {
+		return []V2TaskOccurrence{}, nil
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT task_id, occurrence_on, status, resolved_by_user_id,
        completed_by_user_id, completed_at, due_at_override
 FROM `+v2Table(schema, "task_occurrences")+`
 WHERE workspace_id=$1 AND occurrence_on BETWEEN $2 AND $3
-ORDER BY task_id, occurrence_on`, workspaceID, from, to)
+  AND task_id = ANY($4::text[])
+ORDER BY task_id, occurrence_on`, workspaceID, from, to, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("list agenda occurrence states: %w", err)
 	}

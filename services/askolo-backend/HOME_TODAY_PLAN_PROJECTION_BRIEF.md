@@ -1,14 +1,14 @@
 # Home and Agenda Projection Brief
 
-**Status:** User choices captured; API read-needs mapping is next
-**Purpose:** Agree on the screens and the information they need before designing canonical API read contracts or V2 database views.
+**Status:** Home and Agenda read behavior confirmed; one focus-suggestion detail remains open
+**Purpose:** Record screen behavior and the information each projection needs. This does not authorize canonical database views or migrations.
 
 This is a screen-level product brief. It does not define API endpoints, response schemas, SQL views, migrations, or implementation details.
 
 ## 1. Shared Space and Agent scope
 
 - A **Space** can represent a family or a professional team. Use “Space” in product-facing language; keep existing workspace-scoped technical identifiers unchanged unless separately approved.
-- **Home** is the concise daily view for the currently selected Space. **All Spaces** is an option in the existing Space dropdown, not a separate projection or sidebar tab. Selecting it aggregates authorized items across Spaces and labels each item with its Space.
+- **Home** is the concise daily view for the currently selected Space. **All Spaces** is an option in the existing Space dropdown, not a separate projection or sidebar tab. Its authorized aggregation happens on the server and labels each item with its Space; it is not a browser-side fan-out of Space requests.
 - The Agent follows the selected Space or All Spaces scope. It must not silently widen that scope. Shared or assigned items should identify their ownership where relevant.
 
 ## 2. Home projection
@@ -17,8 +17,8 @@ Home is a concise, factual roll-up, not a list of every task, calendar event, em
 
 Initial Home content:
 
-1. **Focus actions:** show user-selected items from the current day's Plan plus suggested items from that Plan, with at most three total. Do not schedule suggestions without the user's approval.
-2. **Email summary:** show unread and action-needed counts. Action-needed includes messages awaiting the user's reply and messages flagged or starred. Do not list individual emails in this card. Gmail remains the source of truth; retrieve full email content from Gmail when the user opens an email.
+1. **Focus actions:** store selections per user and Plan day. Show selected items first; fill the remaining slots with suggestions, up to three total. Unfinished items already in today's Plan qualify. The user also said “plus any overdue items or habits”; whether overdue tasks outside today's Plan qualify still needs clarification. Do not schedule suggestions without approval.
+2. **Email summary:** show unread Inbox and action-needed counts. Action-needed includes threads whose latest message is from someone else and messages flagged or starred. A message may count in both totals. Do not list individual emails in this card. In the target model, provider accounts are owned by a Space; users select which connected accounts in that Space contribute. Keep this provider-agnostic so future email providers fit the same model. Retrieve full email content from its provider only when the user opens a message.
 3. **Calendar summary:** show the current day's event count and the next event with its time. Count an event on each day it overlaps, including multi-day events.
 4. **Contextual Agent:** provide an inline, day-aware entry on Home. It is a quick way to access the same full Agent, not a separate day-limited assistant. The Agent can use all information available within the active Space or All Spaces scope, subject to normal authorization and privacy boundaries. Keep the full Agent as a separate page rather than opening the global drawer from Home.
 
@@ -54,19 +54,22 @@ This list describes information the screens need, not an API or database schema.
 
 | Projection | Information needed |
 | --- | --- |
-| Home | Selected Space; focused current day in the viewer's effective time zone; that user's layout for the Space; up to three user-selected or suggested focus actions from that day's Plan; unread and action-needed email totals; calendar events overlapping the day; and the next event and its time. |
+| Home | Selected Space; focused current day in the viewer's effective time zone; that user's layout and focus selections for the Space/day; up to three selected or suggested actions; unread Inbox and action-needed email totals; calendar events overlapping the day; and the next event and its time. |
 | Agenda | One calendar object containing linked Plan/task items and distinct calendar events; the current Month/Week/Day range; scheduled task times; flexible task and habit occurrences; and any carry-forward approval decision. |
-| Space dropdown set to All Spaces | Authorized tasks and Plan items, calendar events, and email summary counts across Spaces, labeled by Space and relevant ownership/assignment. |
+| Space dropdown set to All Spaces | Server-authorized tasks and Plan items, calendar events, combined email totals, and per-Space email breakdowns, labeled by Space and relevant ownership/assignment. |
 | Home Agent entry | Selected Space or All Spaces scope and the relevant day as entry context, while retaining the same full Agent context available within that scope. |
 
-Gmail and Google Calendar remain the systems of record for provider-owned content. Keep only a minimal local mapping and display metadata needed for instant plotting and summary counts; this is not a local content store. Update the mapping when new or changed provider data arrives rather than requiring a provider network request on every page refresh. Do not duplicate full email or calendar content. Retrieve full email content from Gmail when the user opens an email.
+Provider systems remain the source of truth for provider-owned content. Keep only a minimal local mapping and display metadata needed for instant plotting and summary counts; this is not a local content store. Update summaries from provider events/webhooks with scheduled sync as fallback rather than requiring a provider network request on every page refresh. Do not duplicate full email or calendar content.
 
 ## 6. Open decisions and approval gate
 
-Resolve or map these remaining details before the Agenda read contract is final:
+Remaining detail:
 
-- Which connected Gmail accounts contribute to unread and action-needed counts?
-- Which unselected Plan items qualify as focus suggestions, and how are they ranked?
-- The existing Month view can request 35–42 inclusive visible dates, while the V2 agenda API currently allows at most 31. Preserve the full Month view by supporting its complete range (at least 42 dates) or an equivalent read path before wiring Agenda to V2.
+- Clarify whether overdue tasks outside today's Plan are eligible Home suggestions. The user-selected focus actions stay first; suggestions fill remaining slots, up to three total.
+- The Agenda API supports the full 42-day inclusive Month range and cursor pagination. Its event query uses the viewer's effective time zone and includes events overlapping the range. Page tokens are signed and scope-bound; pages are live reads rather than a cross-request snapshot, so restart after writes or sync updates.
+- Provider account ownership is per Space and account selection is per Space. Existing legacy provider-account tables are user-scoped; the new ownership/sync foundation and server-side All Spaces email-summary endpoint are not implemented by this change.
+- Persisted per-user focus choices are also not implemented here; the overdue-task suggestion rule remains open.
 
-The screen choices are captured for the next API read-needs mapping step. This does **not** approve creating canonical database views, staging migrations, or applying migrations to Development or Production. Keep migration 0016 unchanged.
+Do not cache sensitive aggregate payloads until shared invalidation/versioning exists. Protected V2 HTTP responses use `private, no-store`; optimize with bounded indexed queries first. Any future cache must reauthorize and be scoped to viewer, authorized Spaces, selected provider accounts, date range, effective time zone, and data/access versions. Invalidate it on membership changes, account-selection changes, writes, and provider sync events. Never cache message bodies or credentials.
+
+The product read choices above do **not** approve creating canonical database views, staging migrations, or applying migrations to Development or Production. Keep migration 0016 unchanged.

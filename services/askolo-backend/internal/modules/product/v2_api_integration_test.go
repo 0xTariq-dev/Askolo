@@ -54,7 +54,9 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 		t.Fatalf("add revoked workspace member fixture: %v", err)
 	}
 
-	handler := NewHandler(config.Config{}, fixture.store, slog.Default(), "askolo_session").Routes()
+	handler := NewHandler(config.Config{
+		AuthRateLimitHMACSecret: "test-auth-rate-limit-hmac-secret-32-bytes",
+	}, fixture.store, slog.Default(), "askolo_session").Routes()
 	request := func(sessionID, method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -302,19 +304,24 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 	agendaResponse := request(
 		ownerSession,
 		http.MethodGet,
-		"/api/v2/workspaces/"+workspaceID+"/agenda?from="+plannedOn+"&to="+occurrenceEnd,
+		"/api/v2/workspaces/"+workspaceID+"/agenda?from="+plannedOn+"&to="+occurrenceEnd+"&timeZone=UTC",
 		"",
 	)
 	if agendaResponse.Code != http.StatusOK {
 		t.Fatalf("read agenda projection status = %d, want %d: %s", agendaResponse.Code, http.StatusOK, agendaResponse.Body.String())
 	}
 	var agenda struct {
-		Tasks []struct {
+		From          string `json:"from"`
+		To            string `json:"to"`
+		TimeZone      string `json:"timeZone"`
+		NextPageToken string `json:"nextPageToken"`
+		Tasks         []struct {
 			Kind   string `json:"kind"`
 			TaskID string `json:"taskId"`
 		} `json:"tasks"`
 		PlanEntries []json.RawMessage `json:"planEntries"`
 		Events      []struct {
+			ID             string `json:"id"`
 			Kind           string `json:"kind"`
 			SourceProvider string `json:"sourceProvider"`
 			SourceEventID  string `json:"sourceEventId"`
@@ -322,6 +329,12 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 	}
 	if err := json.NewDecoder(agendaResponse.Body).Decode(&agenda); err != nil {
 		t.Fatalf("decode agenda projection: %v", err)
+	}
+	if agenda.TimeZone != "UTC" || agenda.NextPageToken != "" {
+		t.Fatalf("agenda time zone/token = %q/%q, want UTC and no next page", agenda.TimeZone, agenda.NextPageToken)
+	}
+	if agendaResponse.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("agenda Cache-Control = %q, want private, no-store", agendaResponse.Header().Get("Cache-Control"))
 	}
 	recurringItems := 0
 	for _, item := range agenda.Tasks {
@@ -338,6 +351,130 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 	if len(agenda.Events) != 1 || agenda.Events[0].Kind != "calendar_event" ||
 		agenda.Events[0].SourceProvider != "google" || agenda.Events[0].SourceEventID != "google-event-42" {
 		t.Fatalf("agenda calendar event projection = %#v, want the distinct provider event and source ID", agenda.Events)
+	}
+
+	monthTo := today.AddDate(0, 0, v2MaxAgendaDateRange-1).Format("2006-01-02")
+	monthAgendaResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/agenda?from="+today.Format("2006-01-02")+"&to="+monthTo+"&timeZone=Africa/Cairo",
+		"",
+	)
+	if monthAgendaResponse.Code != http.StatusOK {
+		t.Fatalf("read 42-day agenda status = %d, want %d: %s", monthAgendaResponse.Code, http.StatusOK, monthAgendaResponse.Body.String())
+	}
+	var monthAgenda struct {
+		From     string `json:"from"`
+		To       string `json:"to"`
+		TimeZone string `json:"timeZone"`
+	}
+	if err := json.NewDecoder(monthAgendaResponse.Body).Decode(&monthAgenda); err != nil {
+		t.Fatalf("decode 42-day agenda: %v", err)
+	}
+	if monthAgenda.From != today.Format("2006-01-02") || monthAgenda.To != monthTo || monthAgenda.TimeZone != "Africa/Cairo" {
+		t.Fatalf("42-day agenda boundaries = %q..%q %q, want inclusive range %q..%q in Africa/Cairo",
+			monthAgenda.From, monthAgenda.To, monthAgenda.TimeZone, today.Format("2006-01-02"), monthTo)
+	}
+	outOfRangeAgendaResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/agenda?from="+today.Format("2006-01-02")+"&to="+today.AddDate(0, 0, v2MaxAgendaDateRange).Format("2006-01-02")+"&timeZone=UTC",
+		"",
+	)
+	if outOfRangeAgendaResponse.Code != http.StatusBadRequest {
+		t.Fatalf("read 43-day agenda status = %d, want %d: %s", outOfRangeAgendaResponse.Code, http.StatusBadRequest, outOfRangeAgendaResponse.Body.String())
+	}
+
+	overlapStart := today.AddDate(0, 0, -1).Add(22*time.Hour + 30*time.Minute)
+	overlapEnd := overlapStart.Add(2 * time.Hour)
+	if _, err := fixture.pool.Exec(
+		fixture.ctx,
+		`INSERT INTO "`+v2Schema+`".calendar_events (
+  id, workspace_id, created_by_user_id, updated_by_user_id, title,
+  starts_at, ends_at, all_day, time_zone, source_provider, source_event_id
+) VALUES ($1,$2,$3,$3,$4,$5,$6,false,'UTC','google',$7)`,
+		"v2-overlap-event",
+		workspaceID,
+		ownerID,
+		"Event crossing the viewer's day boundary",
+		overlapStart,
+		overlapEnd,
+		"google-event-overlap",
+	); err != nil {
+		t.Fatalf("seed overlapping provider event: %v", err)
+	}
+	viewerDayResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/agenda?from="+today.Format("2006-01-02")+"&to="+today.Format("2006-01-02")+"&timeZone=Africa/Cairo",
+		"",
+	)
+	if viewerDayResponse.Code != http.StatusOK {
+		t.Fatalf("read viewer-local day agenda status = %d, want %d: %s", viewerDayResponse.Code, http.StatusOK, viewerDayResponse.Body.String())
+	}
+	var viewerDayAgenda struct {
+		Events []struct {
+			ID string `json:"id"`
+		} `json:"calendarEvents"`
+	}
+	if err := json.NewDecoder(viewerDayResponse.Body).Decode(&viewerDayAgenda); err != nil {
+		t.Fatalf("decode viewer-local day agenda: %v", err)
+	}
+	foundOverlap := false
+	for _, event := range viewerDayAgenda.Events {
+		if event.ID == "v2-overlap-event" {
+			foundOverlap = true
+		}
+	}
+	if !foundOverlap {
+		t.Fatalf("viewer-local agenda omitted an event that overlaps its day: %#v", viewerDayAgenda.Events)
+	}
+
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+INSERT INTO "`+v2Schema+`".tasks (
+  id, workspace_id, created_by_user_id, kind, title, due_on
+)
+SELECT 'agenda-pagination-task-' || n::text, $1, $2, 'action',
+       'Agenda pagination task ' || n::text, $3::date
+FROM generate_series(1, 101) AS n`,
+		workspaceID, ownerID, today.AddDate(0, 0, 35)); err != nil {
+		t.Fatalf("seed tasks for agenda pagination: %v", err)
+	}
+	seenPageTasks := make(map[string]struct{}, 101)
+	pageToken := ""
+	paginationComplete := false
+	for page := 0; page < 10; page++ {
+		pageURL := "/api/v2/workspaces/" + workspaceID + "/agenda?from=" +
+			today.Format("2006-01-02") + "&to=" + monthTo + "&timeZone=UTC"
+		if pageToken != "" {
+			pageURL += "&pageToken=" + pageToken
+		}
+		pageResponse := request(ownerSession, http.MethodGet, pageURL, "")
+		if pageResponse.Code != http.StatusOK {
+			t.Fatalf("read agenda page %d status = %d, want %d: %s", page, pageResponse.Code, http.StatusOK, pageResponse.Body.String())
+		}
+		var pageAgenda struct {
+			Tasks []struct {
+				TaskID string `json:"taskId"`
+			} `json:"tasks"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		if err := json.NewDecoder(pageResponse.Body).Decode(&pageAgenda); err != nil {
+			t.Fatalf("decode agenda page %d: %v", page, err)
+		}
+		for _, item := range pageAgenda.Tasks {
+			if strings.HasPrefix(item.TaskID, "agenda-pagination-task-") {
+				seenPageTasks[item.TaskID] = struct{}{}
+			}
+		}
+		pageToken = pageAgenda.NextPageToken
+		if pageToken == "" {
+			paginationComplete = true
+			break
+		}
+	}
+	if !paginationComplete || len(seenPageTasks) != 101 {
+		t.Fatalf("agenda pagination complete=%t, returned %d of 101 seeded tasks", paginationComplete, len(seenPageTasks))
 	}
 
 	memberSharedPlanResponse := request(

@@ -192,7 +192,9 @@ type V2Agenda struct {
 	WorkspaceID    string                      `json:"workspaceId"`
 	From           string                      `json:"from"`
 	To             string                      `json:"to"`
+	TimeZone       string                      `json:"timeZone"`
 	Tasks          []V2TaskAgendaItem          `json:"tasks"`
 	PlanEntries    []V2PlanEntry               `json:"planEntries"`
 	CalendarEvents []V2CalendarEventAgendaItem `json:"calendarEvents"`
+	NextPageToken  string                      `json:"nextPageToken,omitempty"`
 }
