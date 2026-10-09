@@ -4,9 +4,15 @@ Status: implementation baseline for the additive V2 schema and API.
 
 ## Scope and compatibility
 
-V2 adds a canonical task model and a versioned API alongside the existing stable API. The current public schema and existing `/api` behavior are not changed. Migration 0016 remains checksum-pinned; later V2 schema changes use a forward staged migration under the isolated `askolo_v2` schema.
+V2 adds a canonical task model and a versioned API alongside the existing stable API. The current public schema and existing `/api` behavior are not changed. Migration 0016 remains checksum-pinned; later V2 schema changes use a forward staged migration under the isolated `public_v2` schema.
+
+For a source schema named `public`, the migration runner resolves the staged schema token to `public_v2`. Schema-isolated tests use a source-specific `*_public_v2` name so they do not share objects.
+
+The staged schema is not a complete copy of V1. It references the existing `public.users` identity table rather than creating a second user directory. It defines a separate workspace-level AI credit ledger, but does not copy V1 credit balances, grants, reservations, or history. The existing authentication/session system therefore remains a V1 dependency unless a separate identity boundary is designed.
 
 There are no active users and existing data is disposable. This implementation does not convert or clean up legacy records, and it does not migrate the UI. V2 schema and API checks run against a fresh disposable PostgreSQL database.
+
+Do not create additional canonical V2 database views until the Today/Plan UI views and their data needs are defined with the user. Then align the API read contract and database views to those approved screens. The existing `workspace_agenda_items` and `workspace_overview` views in migration 0016 are legacy projections, not the new UI contract. Keep migration 0016 unchanged; any later change to those legacy views must be a forward migration.
 
 ## Domain model
 

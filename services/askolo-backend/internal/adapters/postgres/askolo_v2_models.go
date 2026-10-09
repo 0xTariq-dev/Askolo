@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// These are persistence models for the isolated askolo_v2 target schema.
+// These are persistence models for the isolated public_v2 target schema.
 // They are not API DTOs and are intentionally not wired into existing stores.
 
 type V2Workspace struct {

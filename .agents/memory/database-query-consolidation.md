@@ -7,6 +7,8 @@ Askolo's database redesign should create a more refined database and minimize AP
 
 For unresolved product, database, or API decisions in this refactor, ask the user instead of making assumptions.
 
-**Why:** the user stated that both database refinement and reducing per-page API calls are central goals of the redesign.
+Do not create canonical V2 database views until the Today/Plan UI projections are defined with the user. Update the related Linear task first, then align API and database read projections to the approved UI. Do not apply staged migrations to Development or Production before that design step.
 
-**How to apply:** when changing page data loading, API hooks, query shapes, or other unresolved refactor decisions, wait for or ask about the approved direction rather than guessing at endpoints or schema.
+**Why:** the user stated that both database refinement and reducing per-page API calls are central goals of the redesign, and specifically requested that UI views be defined before database views or migration application.
+
+**How to apply:** when changing page data loading, API hooks, query shapes, or other unresolved refactor decisions, update the relevant Linear issue and wait for the approved UI/read contract rather than guessing at endpoints or schema.
