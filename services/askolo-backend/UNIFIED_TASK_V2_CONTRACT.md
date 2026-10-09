@@ -6,7 +6,7 @@ Status: implementation baseline for the additive V2 schema and API.
 
 V2 adds a canonical task model and a versioned API alongside the existing stable API. The current public schema and existing `/api` behavior are not changed. Migration 0016 remains checksum-pinned; later V2 schema changes use a forward staged migration under the isolated `public_v2` schema.
 
-Askolo is workspace-first, not household-only: a workspace can represent a family or a professional team. Workspaces and invitations are core organizing and collaboration concepts. Keep product language and Today/Plan views reusable across both contexts rather than assuming every workspace is a household.
+Askolo is not limited to families or households: a Space can represent a family or a professional team, with Spaces and invitations as core concepts. Use “Space” as product-facing terminology. The current technical schema and API use workspace-scoped identifiers; keep that technical contract explicit unless separately changed. The main view is named Home and summarizes the user's day in the selected Space. A separate All Spaces view aggregates items with a clear Space label on each one. The Agent must follow the selected Space or All Spaces scope the user is currently using and must never widen scope silently.
 
 For a source schema named `public`, the migration runner resolves the staged schema token to `public_v2`. Schema-isolated tests use a source-specific `*_public_v2` name so they do not share objects.
 
