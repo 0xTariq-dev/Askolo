@@ -44,7 +44,7 @@
 - [Production autoscale configuration](production-autoscale-config.md) — verify required Go production env vars and internal-auth secret before Autoscale promotion.
 - [Static Go binaries for Autoscale](go-autoscale-static-binary.md) — avoid Nix-loader “not found” crashes by producing and verifying a static production executable.
 - [PostgreSQL test search paths](postgres-test-search-path.md) — encode libpq option spaces as `%20` and set the disposable cluster's bootstrap username explicitly.
-- [PostgreSQL inventory fingerprints](postgres-schema-inventory.md) — treat catalog inventories as versioned, engine-specific contracts and validate them on the pinned PostgreSQL major.
+- [PostgreSQL inventory fingerprints](postgres-schema-inventory.md) — compare logical app structures before reconciling hashes; extension objects and physical column order can change catalog fingerprints.
 - [Multi-schema migrations](multi-schema-migrations.md) — restore the caller's `search_path` after cross-schema inventory so ledger writes stay in the source schema.
 - [Workspace migration provenance](workspace-migration-provenance.md) — preserve reviewed baselines and checksums; scope catalog guards to the target relation.
 - [Auth email delivery retry safety](auth-email-delivery-retry.md) — release challenges only for retry-safe failures; retain uncertain handoffs so cooldowns prevent duplicates.
