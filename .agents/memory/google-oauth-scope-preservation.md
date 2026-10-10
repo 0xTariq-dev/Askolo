@@ -1,14 +1,12 @@
 ---
 name: Google OAuth scope preservation
-description: Merge existing granted scopes with new token responses to avoid losing Calendar or Gmail access during refresh or incremental authorization.
+description: Preserve authorized Google scopes and refresh credentials across OAuth reauthorization.
 ---
 
-Google's OAuth token refresh response may omit the `scope` field, and incremental authorization responses may return only newly granted scopes. The current persistence path overwrites stored scopes with the incoming value instead of merging them.
+Google OAuth responses can omit `scope` when it is unchanged, and incremental authorization may return only newly granted scopes. Reauthorization may also omit a refresh token even though the connection already has a usable one.
 
-**Invariant:** When storing Google tokens, preserve all previously granted scopes by merging the existing and newly returned scope sets.
+**Invariant:** Use the signed OAuth state's requested scopes only when the token response omits `scope`; trust a nonempty response, then merge it with scopes already stored for that connection. Preserve the existing refresh token when reauthorization omits one.
 
-**Why:** Calendar access can appear disconnected while Gmail still works if an incremental response replaces the stored scope set.
+**Why:** Replacing scopes with an omitted or partial response silently removes working capabilities; replacing a saved refresh token with an empty value breaks operations after the access token expires.
 
-**Status:** This is an unresolved implementation gap. Do not assume scope preservation is enforced until token storage merges scopes and regression tests cover both refresh and incremental authorization.
-
-**How to apply:** When changing any Google token-persistence path, retain existing scopes when the provider omits `scope` and merge rather than replace when it returns a partial scope set.
+**How to apply:** Keep token-response scope fallback, existing-scope/capability merging, and refresh-token retention in every Google reauthorization path. Never infer a scope that was not requested or reported.

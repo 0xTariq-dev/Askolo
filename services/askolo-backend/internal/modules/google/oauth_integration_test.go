@@ -156,6 +156,28 @@ CREATE TABLE %sprovider_accounts (
 	updated_at timestamptz DEFAULT now() NOT NULL,
 	UNIQUE (provider, external_subject)
 );
+CREATE TABLE %sprovider_connections (
+	id text PRIMARY KEY,
+	user_id text NOT NULL,
+	provider_account_id text NOT NULL,
+	provider text NOT NULL,
+	status text DEFAULT 'active' NOT NULL,
+	granted_scopes text[] DEFAULT '{}' NOT NULL,
+	capabilities text[] DEFAULT '{}' NOT NULL,
+	revoked_at timestamptz,
+	created_at timestamptz DEFAULT now() NOT NULL,
+	updated_at timestamptz DEFAULT now() NOT NULL,
+	UNIQUE (user_id, provider_account_id)
+);
+CREATE TABLE %sprovider_credentials (
+	connection_id text PRIMARY KEY,
+	access_token_encrypted text NOT NULL,
+	refresh_token_encrypted text NOT NULL,
+	expires_at timestamptz NOT NULL,
+	token_type text DEFAULT 'Bearer' NOT NULL,
+	created_at timestamptz DEFAULT now() NOT NULL,
+	updated_at timestamptz DEFAULT now() NOT NULL
+);
 CREATE TABLE %sai_credit_accounts (
  user_id text PRIMARY KEY REFERENCES %susers(id) ON DELETE CASCADE,
  granted_credits integer DEFAULT 0 NOT NULL,
@@ -185,7 +207,7 @@ CREATE TABLE %sai_credit_grants (
  amount_usd_micros bigint DEFAULT 0 NOT NULL,
  UNIQUE (user_id, idempotency_key)
 );
-`, prefix, prefix, prefix, prefix, prefix, prefix,
+	`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix,
 		prefix, prefix, prefix, prefix, prefix)
 }
 
@@ -519,6 +541,65 @@ func TestGoogleCallbackSignupRequiresVerifiedEmailAndCreatesNativeSession(t *tes
 			t.Fatalf("rejected signup created %d users", userCount)
 		}
 	})
+}
+
+func TestGoogleConnectionReauthorizationPreservesScopesAndRefreshToken(t *testing.T) {
+	fixture := newGoogleOAuthFixture(t)
+	ctx := context.Background()
+	userID := "google-reauthorization-test-user"
+	subject := "google-reauthorization-test-subject"
+	encryptionKey := []byte("12345678901234567890123456789012")
+	defer func() {
+		_, _ = fixture.pool.Exec(ctx, `
+			DELETE FROM provider_credentials
+			WHERE connection_id IN (SELECT id FROM provider_connections WHERE user_id = $1)
+		`, userID)
+		_, _ = fixture.pool.Exec(ctx, `DELETE FROM provider_connections WHERE user_id = $1`, userID)
+		_, _ = fixture.pool.Exec(ctx, `
+			DELETE FROM provider_accounts WHERE provider = 'google' AND external_subject = $1
+		`, subject)
+	}()
+
+	firstConnectionID, err := fixture.store.UpsertGoogleConnection(
+		ctx, userID, "owner@example.test", subject, "Owner", "",
+		[]string{scopeCalendar}, []string{"calendar"},
+		"first-access-token", "durable-refresh-token", time.Now().Add(time.Hour), "Bearer", encryptionKey,
+	)
+	if err != nil {
+		t.Fatalf("create initial Google connection: %v", err)
+	}
+	secondConnectionID, err := fixture.store.UpsertGoogleConnection(
+		ctx, userID, "owner@example.test", subject, "Owner", "",
+		[]string{scopeGmailRead}, []string{"gmail.read"},
+		"second-access-token", "", time.Now().Add(time.Hour), "Bearer", encryptionKey,
+	)
+	if err != nil {
+		t.Fatalf("reauthorize Google connection without a new refresh token: %v", err)
+	}
+	if secondConnectionID != firstConnectionID {
+		t.Fatalf("reauthorization changed connection ID from %q to %q", firstConnectionID, secondConnectionID)
+	}
+
+	connections, err := fixture.store.ListGoogleConnections(ctx, userID)
+	if err != nil {
+		t.Fatalf("list Google connections: %v", err)
+	}
+	if len(connections) != 1 ||
+		!hasString(connections[0].Scopes, scopeCalendar) ||
+		!hasString(connections[0].Scopes, scopeGmailRead) ||
+		!hasString(connections[0].Capabilities, "calendar") ||
+		!hasString(connections[0].Capabilities, "gmail.read") {
+		t.Fatalf("reauthorization lost previously granted scopes/capabilities: %+v", connections)
+	}
+
+	credentials, err := fixture.store.GetGoogleCredentials(ctx, userID, firstConnectionID, encryptionKey)
+	if err != nil {
+		t.Fatalf("read reauthorized Google credentials: %v", err)
+	}
+	if credentials.AccessToken != "second-access-token" || credentials.RefreshToken != "durable-refresh-token" {
+		t.Fatalf("reauthorized credentials = access %q refresh %q; expected new access and retained refresh",
+			credentials.AccessToken, credentials.RefreshToken)
+	}
 }
 
 func googleSessionCookie(t *testing.T, response *httptest.ResponseRecorder) *http.Cookie {

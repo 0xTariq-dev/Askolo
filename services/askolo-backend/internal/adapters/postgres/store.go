@@ -2166,13 +2166,19 @@ func (s *Store) UpsertGoogleConnection(
 	if len(encryptionKey) != 32 {
 		return "", errors.New("Google token encryption is not configured")
 	}
+	if len(scopes) == 0 {
+		return "", errors.New("Google connection has no granted scopes")
+	}
 	encryptedAccess, err := crypto.Seal(encryptionKey, []byte(accessToken))
 	if err != nil {
 		return "", err
 	}
-	encryptedRefresh, err := crypto.Seal(encryptionKey, []byte(refreshToken))
-	if err != nil {
-		return "", err
+	var encryptedRefresh string
+	if refreshToken != "" {
+		encryptedRefresh, err = crypto.Seal(encryptionKey, []byte(refreshToken))
+		if err != nil {
+			return "", err
+		}
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -2215,11 +2221,16 @@ func (s *Store) UpsertGoogleConnection(
 	}
 
 	var connectionID string
+	var existingScopes, existingCapabilities []string
 	err = tx.QueryRow(ctx, `
-		SELECT id FROM provider_connections
+		SELECT id, granted_scopes, capabilities FROM provider_connections
 		WHERE user_id = $1 AND provider_account_id = $2
-	`, userID, accountID).Scan(&connectionID)
+		FOR UPDATE
+	`, userID, accountID).Scan(&connectionID, &existingScopes, &existingCapabilities)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if refreshToken == "" {
+			return "", errors.New("Google did not issue a refresh token for a new connection")
+		}
 		connectionID, err = id.New()
 		if err != nil {
 			return "", err
@@ -2235,6 +2246,8 @@ func (s *Store) UpsertGoogleConnection(
 	} else if err != nil {
 		return "", err
 	} else {
+		scopes = mergeGoogleStringSets(existingScopes, scopes)
+		capabilities = mergeGoogleStringSets(existingCapabilities, capabilities)
 		_, err = tx.Exec(ctx, `
 			UPDATE provider_connections
 			SET status = 'active', granted_scopes = $2, capabilities = $3, revoked_at = NULL, updated_at = NOW()
@@ -2242,6 +2255,18 @@ func (s *Store) UpsertGoogleConnection(
 		`, connectionID, scopes, capabilities, userID)
 		if err != nil {
 			return "", err
+		}
+	}
+
+	if refreshToken == "" {
+		err = tx.QueryRow(ctx, `
+			SELECT refresh_token_encrypted
+			FROM provider_credentials
+			WHERE connection_id = $1
+			FOR UPDATE
+		`, connectionID).Scan(&encryptedRefresh)
+		if err != nil || encryptedRefresh == "" {
+			return "", errors.New("Google did not issue a refresh token and no saved token is available")
 		}
 	}
 
@@ -2263,6 +2288,22 @@ func (s *Store) UpsertGoogleConnection(
 		return "", err
 	}
 	return connectionID, nil
+}
+
+func mergeGoogleStringSets(existing, incoming []string) []string {
+	merged := make([]string, 0, len(existing)+len(incoming))
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	for _, value := range append(append([]string(nil), existing...), incoming...) {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+	return merged
 }
 
 func (s *Store) ListGoogleConnections(ctx context.Context, userID string) ([]ProviderConnection, error) {

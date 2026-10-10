@@ -408,7 +408,7 @@ export function ProfilePage() {
   };
 
   const connectGoogle = (scope: 'calendar' | 'gmail') => {
-    window.location.href = `${basePath}/api/google/gmail/connect?scope=${scope}&redirectTo=/profile`;
+    window.location.href = `${basePath}/api/google/gmail/connect?scope=${scope}&returnTo=/profile`;
   };
 
   const disconnectGoogle = async (scope: 'calendar' | 'gmail') => {

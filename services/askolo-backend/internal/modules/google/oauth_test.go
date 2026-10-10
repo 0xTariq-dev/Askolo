@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
 )
 
@@ -64,8 +65,59 @@ func TestRequestedScopesNeverIncludesRestrictedMailboxScope(t *testing.T) {
 			t.Fatal("release-1 scope list must not include gmail.modify")
 		}
 	}
-	if !hasString(scopes, scopeGmail) || !hasString(scopes, scopeCalendar) {
+	if !hasString(scopes, scopeGmailSend) || !hasString(scopes, scopeGmailRead) || !hasString(scopes, scopeCalendar) {
 		t.Fatalf("expected release-1 service scopes, got %v", scopes)
+	}
+}
+
+func TestGmailIntegrationRequestsSeparateReadAndSendCapabilities(t *testing.T) {
+	scopes, err := requestedScopes("gmail")
+	if err != nil {
+		t.Fatalf("Gmail integration scopes: %v", err)
+	}
+	if !hasString(scopes, scopeGmailRead) || !hasString(scopes, scopeGmailSend) {
+		t.Fatalf("Gmail integration scopes = %v; want Gmail read and send scopes", scopes)
+	}
+	capabilities := capabilitiesForScopes(scopes)
+	if !hasString(capabilities, "gmail.read") || !hasString(capabilities, "gmail.send") {
+		t.Fatalf("Gmail integration capabilities = %v; want gmail.read and gmail.send", capabilities)
+	}
+	if hasString(scopes, "https://www.googleapis.com/auth/gmail.modify") {
+		t.Fatal("Gmail integration must not request the broader gmail.modify scope")
+	}
+}
+
+func TestGoogleConnectionStatusMatchesLegacyClientContract(t *testing.T) {
+	connections := []postgres.ProviderConnection{
+		{
+			Status: "active", Scopes: []string{scopeCalendar},
+			Capabilities: []string{"calendar"},
+		},
+		{
+			Status: "active", Scopes: []string{scopeGmailRead},
+			Capabilities: []string{"gmail.read"},
+		},
+		{
+			Status: "revoked", Scopes: []string{scopeGmailSend},
+			Capabilities: []string{"gmail.send"},
+		},
+	}
+	connected, calendarConnected, gmailConnected, scopes := summarizeGoogleConnections(connections)
+	if !connected || !calendarConnected || gmailConnected {
+		t.Fatalf("status = connected:%v calendar:%v gmail:%v; want true, true, false", connected, calendarConnected, gmailConnected)
+	}
+	if !hasString(scopes, scopeCalendar) || !hasString(scopes, scopeGmailRead) || hasString(scopes, scopeGmailSend) {
+		t.Fatalf("status scopes = %v; want active scopes only", scopes)
+	}
+
+	connections = append(connections, postgres.ProviderConnection{
+		Status: "active", Scopes: []string{scopeGmailSend},
+		Capabilities: []string{"gmail.send"},
+	})
+	connected, calendarConnected, gmailConnected, _ = summarizeGoogleConnections(connections)
+	if !connected || !calendarConnected || !gmailConnected {
+		t.Fatalf("status after activating Gmail send = connected:%v calendar:%v gmail:%v; want all true",
+			connected, calendarConnected, gmailConnected)
 	}
 }
 

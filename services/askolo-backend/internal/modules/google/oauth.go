@@ -49,13 +49,14 @@ type Handler struct {
 }
 
 type statePayload struct {
-	Nonce        string `json:"nonce"`
-	CodeVerifier string `json:"codeVerifier"`
-	ReturnTo     string `json:"returnTo"`
-	Flow         string `json:"flow"`
-	Intent       string `json:"intent,omitempty"`
-	UserID       string `json:"userId,omitempty"`
-	IssuedAt     int64  `json:"issuedAt"`
+	Nonce           string   `json:"nonce"`
+	CodeVerifier    string   `json:"codeVerifier"`
+	ReturnTo        string   `json:"returnTo"`
+	Flow            string   `json:"flow"`
+	Intent          string   `json:"intent,omitempty"`
+	UserID          string   `json:"userId,omitempty"`
+	RequestedScopes []string `json:"requestedScopes,omitempty"`
+	IssuedAt        int64    `json:"issuedAt"`
 }
 
 type tokenResponse struct {
@@ -200,13 +201,14 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 		return
 	}
 	payload := statePayload{
-		Nonce:        nonce,
-		CodeVerifier: verifier,
-		ReturnTo:     returnTo,
-		Flow:         flow,
-		Intent:       intent,
-		UserID:       userID,
-		IssuedAt:     time.Now().Unix(),
+		Nonce:           nonce,
+		CodeVerifier:    verifier,
+		ReturnTo:        returnTo,
+		Flow:            flow,
+		Intent:          intent,
+		UserID:          userID,
+		RequestedScopes: append([]string(nil), scopes...),
+		IssuedAt:        time.Now().Unix(),
 	}
 	stateCookie, err := h.encodeState(payload)
 	if err != nil {
@@ -335,7 +337,12 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
-	scopes := splitScopes(tokens.Scope)
+	scopes := grantedScopesFromToken(tokens.Scope, payload.RequestedScopes)
+	if len(scopes) == 0 {
+		h.logger.Warn("Google integration returned no usable scopes", "user_id", userID)
+		redirectStatus(w, r, returnTo, "error")
+		return
+	}
 	capabilities := capabilitiesForScopes(scopes)
 	expiresAt := time.Now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
 	_, err = h.store.UpsertGoogleConnection(
@@ -497,11 +504,33 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "GOOGLE_STATUS_FAILED", "Google connection status is unavailable.")
 		return
 	}
+	connected, calendarConnected, gmailConnected, scopes := summarizeGoogleConnections(connections)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"accounts":  response,
-		"connected": len(response) > 0,
-		"defaults":  defaults,
+		"accounts":          response,
+		"connected":         connected,
+		"scopes":            scopes,
+		"calendarConnected": calendarConnected,
+		"gmailConnected":    gmailConnected,
+		"defaults":          defaults,
 	})
+}
+
+func summarizeGoogleConnections(connections []postgres.ProviderConnection) (connected, calendarConnected, gmailConnected bool, scopes []string) {
+	var gmailRead, gmailSend bool
+	for _, connection := range connections {
+		if connection.Status != "active" {
+			continue
+		}
+		connected = true
+		calendarConnected = calendarConnected || hasString(connection.Capabilities, "calendar")
+		gmailRead = gmailRead || hasString(connection.Capabilities, "gmail.read")
+		gmailSend = gmailSend || hasString(connection.Capabilities, "gmail.send")
+		for _, scope := range connection.Scopes {
+			scopes = appendUnique(scopes, scope)
+		}
+	}
+	gmailConnected = gmailRead && gmailSend
+	return connected, calendarConnected, gmailConnected, scopes
 }
 
 func (h *Handler) disconnect(w http.ResponseWriter, r *http.Request) {
@@ -940,10 +969,14 @@ func callbackPath(flow string) string {
 func requestedScopes(value string) ([]string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "all":
-		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar, scopeGmail}, nil
+		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar, scopeGmailSend, scopeGmailRead}, nil
 	case "calendar":
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar}, nil
-	case "gmail", "gmail.send":
+	case "gmail":
+		// The user-facing Gmail integration provides inbox triage and reply
+		// sending, which require distinct read-only and send capabilities.
+		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailRead, scopeGmailSend}, nil
+	case "gmail.send":
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailSend}, nil
 	case "gmail.read":
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailRead}, nil
@@ -1035,6 +1068,14 @@ func splitScopes(value string) []string {
 		scopes = append(scopes, scope)
 	}
 	return scopes
+}
+
+func grantedScopesFromToken(tokenScope string, requestedScopes []string) []string {
+	granted := splitScopes(tokenScope)
+	if len(granted) > 0 {
+		return granted
+	}
+	return splitScopes(strings.Join(requestedScopes, " "))
 }
 
 func displayName(info userInfo) string {
