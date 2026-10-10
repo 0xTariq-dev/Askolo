@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, CalendarDays, CheckCircle2, Clock3, Mail } from 'lucide-react';
+import { useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useAssistantState } from '@/contexts/assistant-context';
+import { useLocale } from '@/contexts/locale-context';
 import { getV2Home, type V2HomeResponse } from '@/lib/home-v2-api';
 
 const freshnessLabel: Record<V2HomeResponse['emailSummary']['freshness'], string> = {
@@ -16,6 +19,10 @@ export function HomeV2Summary() {
   const [home, setHome] = useState<V2HomeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [, setLocation] = useLocation();
+  const { openWithDraft } = useAssistantState();
+  const { locale } = useLocale();
+  const isArabic = locale === 'ar';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -66,6 +73,14 @@ export function HomeV2Summary() {
 
   const email = home.emailSummary;
   const countsAvailable = email.freshness === 'current' || email.freshness === 'stale';
+  const openAgentForToday = () => {
+    openWithDraft(
+      isArabic
+        ? `ساعدني في التفكير في يومي (${home.date}). استخدم سياق الوكيل الكامل والصلاحيات المتاحة لي؛ هذا التاريخ مجرد نقطة بداية.`
+        : `Help me think through today (${home.date}). Use the full Agent context and permissions available to me; this date is only my starting point.`,
+    );
+    setLocation('/agent');
+  };
 
   return (
     <section aria-label="Home summary" className="grid gap-4 md:grid-cols-3">
@@ -140,6 +155,11 @@ export function HomeV2Summary() {
           )}
         </CardContent>
       </Card>
+      <div className="flex justify-end md:col-span-3">
+        <Button type="button" onClick={openAgentForToday} data-testid="button-home-open-agent">
+          {isArabic ? 'اسأل الوكيل عن اليوم' : 'Ask Agent about today'}
+        </Button>
+      </div>
     </section>
   );
 }

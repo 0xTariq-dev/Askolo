@@ -11,7 +11,7 @@ export const SidebarAppLayout = lazy(() =>
 );
 
 export const DashboardPage = lazy(() =>
-  import('@/pages/dashboard').then(({ DashboardPage }) => ({ default: DashboardPage })),
+  import('@/pages/dashboard-v2').then(({ DashboardPage }) => ({ default: DashboardPage })),
 );
 
 export const HabitsPage = lazy(() =>
