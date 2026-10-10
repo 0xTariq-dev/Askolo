@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { goApi } from '@/lib/go-api';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useLocale } from '@/contexts/locale-context';
+import { HomeV2Summary } from '@/components/dashboard/home-v2-summary';
 
 export function DashboardPage() {
   const { formatDate, formatNumber } = useLocale();
@@ -146,6 +147,8 @@ export function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      <HomeV2Summary />
 
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
