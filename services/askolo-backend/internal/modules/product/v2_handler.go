@@ -26,6 +26,7 @@ const (
 )
 
 var v2IdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+var v2WorkspaceIdentifierPattern = regexp.MustCompile(`^(?:[A-Za-z0-9_-]{1,128}|personal:[A-Za-z0-9_-]{1,128})$`)
 
 type v2ActorHandler func(http.ResponseWriter, *http.Request, string, string)
 type v2AllActorHandler func(http.ResponseWriter, *http.Request, string)
@@ -206,7 +207,7 @@ func (h *Handler) v2Protect(write bool, next v2ActorHandler) http.HandlerFunc {
 			return
 		}
 		workspaceID := r.PathValue("workspaceId")
-		if !v2IdentifierPattern.MatchString(workspaceID) {
+		if !v2WorkspaceIdentifierPattern.MatchString(workspaceID) {
 			writeError(w, http.StatusBadRequest, "INVALID_WORKSPACE_ID", "A valid workspace ID is required.")
 			return
 		}

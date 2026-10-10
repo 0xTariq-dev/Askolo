@@ -83,6 +83,24 @@ func TestV2QueryValidationRejectsUnknownRepeatedAndEmptyValues(t *testing.T) {
 	}
 }
 
+func TestV2WorkspaceIdentifierAllowsPersonalWorkspaceIDsOnly(t *testing.T) {
+	for _, test := range []struct {
+		id   string
+		want bool
+	}{
+		{id: "space_123", want: true},
+		{id: "personal:user_123", want: true},
+		{id: "personal:36722678-e65c-4295-8e4b-b5f", want: true},
+		{id: "personal:", want: false},
+		{id: "other:user_123", want: false},
+		{id: "personal:user/123", want: false},
+	} {
+		if got := v2WorkspaceIdentifierPattern.MatchString(test.id); got != test.want {
+			t.Errorf("workspace identifier %q valid = %t, want %t", test.id, got, test.want)
+		}
+	}
+}
+
 func TestDecodeStrictRawJSONRejectsUnknownAndTrailingValues(t *testing.T) {
 	for _, input := range []string{
 		`{"targetId":"task_1","minutesBefore":15,"unexpected":true}`,
