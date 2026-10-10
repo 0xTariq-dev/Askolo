@@ -6,8 +6,11 @@ import {
   LayoutDashboard,
   ListTodo,
   LogOut,
+  Mail,
   MoreHorizontal,
   MessageCircle,
+  NotebookPen,
+  Target,
   UserCircle,
 } from 'lucide-react';
 import logoUrl from '/logo.png';
@@ -55,9 +58,15 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const navigation = [
   { href: '/home', labelKey: 'nav.home', icon: LayoutDashboard },
+  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
   { href: '/agenda', labelKey: 'nav.agenda', icon: ListTodo },
   { href: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
-  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
+  { href: '/email', labelKey: 'nav.email', icon: Mail },
+] as const;
+
+const moreNavigation = [
+  { href: '/goals', labelKey: 'nav.goals', icon: Target },
+  { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
 ] as const;
 
 function isCurrentRoute(location: string, href: string) {
@@ -199,7 +208,7 @@ function NavigationPanel({
   onSignOut: () => void;
 }) {
   const { t } = useLocale();
-  const commands = navigation.map((item) => ({
+  const commands = [...navigation, ...moreNavigation].map((item) => ({
     href: item.href,
     label: t(item.labelKey),
     icon: item.icon,
@@ -246,6 +255,33 @@ function NavigationPanel({
                         href={item.href}
                         aria-current={active ? 'page' : undefined}
                       >
+                        <Icon aria-hidden="true" />
+                        <span>{t(item.labelKey)}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>{t('nav.more')}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {moreNavigation.map((item) => {
+                const active = isCurrentRoute(location, item.href);
+                const Icon = item.icon;
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={active}
+                      tooltip={t(item.labelKey)}
+                      className="rtl:text-right"
+                      data-testid={`link-nav-${item.href.slice(1)}`}
+                    >
+                      <Link href={item.href} aria-current={active ? 'page' : undefined}>
                         <Icon aria-hidden="true" />
                         <span>{t(item.labelKey)}</span>
                       </Link>

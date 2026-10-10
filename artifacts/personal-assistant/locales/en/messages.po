@@ -87,6 +87,11 @@ msgid "nav.home"
 msgstr "Home"
 
 #. js-lingui-explicit-id
+#: src/lib/messages.ts
+msgid "nav.more"
+msgstr "More"
+
+#. js-lingui-explicit-id
 #: src/lib/messages.ts:58
 msgid "calendar.viewDay"
 msgstr "Day"

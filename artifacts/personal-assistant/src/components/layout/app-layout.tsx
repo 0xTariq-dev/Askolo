@@ -5,6 +5,10 @@ import {
   ListTodo,
   Calendar,
   MessageCircle,
+  Mail,
+  MoreHorizontal,
+  NotebookPen,
+  Target,
   LogOut,
   Menu,
   UserCircle,
@@ -36,9 +40,14 @@ import { useLocale } from '@/contexts/locale-context';
 
 const navItems = [
   { href: '/home', labelKey: 'nav.home', icon: LayoutDashboard },
+  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
   { href: '/agenda', labelKey: 'nav.agenda', icon: ListTodo },
   { href: '/calendar', labelKey: 'nav.calendar', icon: Calendar },
-  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
+  { href: '/email', labelKey: 'nav.email', icon: Mail },
+];
+const moreItems = [
+  { href: '/goals', labelKey: 'nav.goals', icon: Target },
+  { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
   { href: '/credits', labelKey: 'nav.aiCredits', icon: WalletCards },
 ];
 
@@ -123,6 +132,37 @@ function NavigationPanel({
             </Link>
           );
         })}
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md px-3 py-3 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+            {t('nav.more')}
+          </summary>
+          <div className="space-y-1 ps-3 pt-1">
+            {moreItems.map((item) => {
+              const isActive = location === item.href || location.startsWith(item.href);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onNavigate}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={cn(
+                    'flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
+                    isActive
+                      ? 'bg-sidebar-primary/10 text-sidebar-primary'
+                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                  )}
+                  data-testid={`nav-${item.href.slice(1)}`}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {t(item.labelKey)}
+                </Link>
+              );
+            })}
+          </div>
+        </details>
       </nav>
 
       <div className="shrink-0 border-t border-border bg-sidebar p-4">
@@ -378,7 +418,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
                  <p className="text-xs font-medium uppercase tracking-wider text-primary">{t('app.workspace')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                    {(() => {
-                     const item = navItems.find((entry) => location === entry.href || location.startsWith(`${entry.href}/`));
+                     const item = [...navItems, ...moreItems].find((entry) => location === entry.href || location.startsWith(`${entry.href}/`));
                      return item ? t(item.labelKey) : t('app.overview');
                    })()}
                 </p>
@@ -386,7 +426,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
               <div className="flex items-center gap-2">
                 <CommandMenu
                   commands={[
-                    ...navItems.map((item) => ({
+                    ...[...navItems, ...moreItems].map((item) => ({
                       href: item.href,
                       label: t(item.labelKey),
                       icon: item.icon,

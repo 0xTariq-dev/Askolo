@@ -28,6 +28,7 @@ export const messages = {
   'nav.notes': msg({ id: 'nav.notes', message: 'Notes' }),
   'nav.actions': msg({ id: 'nav.actions', message: 'Actions' }),
   'nav.email': msg({ id: 'nav.email', message: 'Email' }),
+  'nav.more': msg({ id: 'nav.more', message: 'More' }),
   'nav.aiCredits': msg({ id: 'nav.aiCredits', message: 'Balance' }),
   'nav.signOut': msg({ id: 'nav.signOut', message: 'Sign Out' }),
   'nav.main': msg({ id: 'nav.main', message: 'Main navigation' }),
