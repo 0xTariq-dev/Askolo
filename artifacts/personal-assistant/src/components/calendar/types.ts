@@ -3,7 +3,7 @@ import type { Event } from '@workspace/api-client-react';
 export type CalendarView = 'month' | 'week' | 'day';
 
 export interface DailyPlan {
-  id: number;
+  id: number | string;
   date: string; // yyyy-MM-dd
   title: string;
   completed: boolean;

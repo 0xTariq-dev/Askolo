@@ -60,6 +60,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := strings.TrimSpace(r.Header.Get("X-Askolo-Workspace-ID"))
+	queryWorkspaceIDs, hasQueryWorkspace := r.URL.Query()["workspaceId"]
+	if hasQueryWorkspace && len(queryWorkspaceIDs) != 1 {
+		apierror.Write(w, r, http.StatusBadRequest, "INVALID_WORKSPACE", "A single valid Space is required.")
+		return
+	}
+	queryWorkspaceID := ""
+	if hasQueryWorkspace {
+		queryWorkspaceID = strings.TrimSpace(queryWorkspaceIDs[0])
+		if queryWorkspaceID == "" {
+			apierror.Write(w, r, http.StatusBadRequest, "INVALID_WORKSPACE", "A single valid Space is required.")
+			return
+		}
+		if workspaceID != "" && workspaceID != queryWorkspaceID {
+			apierror.Write(w, r, http.StatusBadRequest, "INVALID_WORKSPACE", "The requested Space is ambiguous.")
+			return
+		}
+		workspaceID = queryWorkspaceID
+	}
 	if workspaceID == "" {
 		workspaceID = postgres.DefaultWorkspaceID(userID)
 	}

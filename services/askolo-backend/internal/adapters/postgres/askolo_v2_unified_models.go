@@ -128,6 +128,7 @@ type V2PlanWrite struct {
 type V2PlanEntry struct {
 	ID               string     `json:"id"`
 	WorkspaceID      string     `json:"workspaceId"`
+	WorkspaceName    string     `json:"workspaceName,omitempty"`
 	PlanID           string     `json:"planId"`
 	TaskID           string     `json:"taskId"`
 	OccurrenceOn     *time.Time `json:"occurrenceOn"`
@@ -167,6 +168,8 @@ type V2ReminderRule struct {
 type V2CalendarEventAgendaItem struct {
 	Kind           string     `json:"kind"`
 	ID             string     `json:"id"`
+	WorkspaceID    string     `json:"workspaceId,omitempty"`
+	WorkspaceName  string     `json:"workspaceName,omitempty"`
 	Title          string     `json:"title"`
 	StartsAt       time.Time  `json:"startsAt"`
 	EndsAt         *time.Time `json:"endsAt"`
@@ -179,6 +182,8 @@ type V2CalendarEventAgendaItem struct {
 type V2TaskAgendaItem struct {
 	Kind             string     `json:"kind"`
 	TaskID           string     `json:"taskId"`
+	WorkspaceID      string     `json:"workspaceId,omitempty"`
+	WorkspaceName    string     `json:"workspaceName,omitempty"`
 	OccurrenceOn     *time.Time `json:"occurrenceOn"`
 	Title            string     `json:"title"`
 	Status           string     `json:"status"`

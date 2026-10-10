@@ -3,6 +3,7 @@ import { Link, useLocation } from 'wouter';
 import {
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ClipboardList,
   LayoutDashboard,
   ListTodo,
@@ -22,6 +23,7 @@ import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { useAppAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useSpaceScope } from '@/contexts/space-context';
 import { useCreditBalance } from '@/hooks/use-credit-balance';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
 import { AssistantSidebar } from '@/components/assistant-sidebar';
@@ -152,6 +154,49 @@ function AccountMenu({
   );
 }
 
+function SpaceSelector() {
+  const { locale } = useLocale();
+  const { spaces, selectedSpaceId, setSelectedSpaceId, loading, error } = useSpaceScope();
+  const allSpacesLabel = locale === 'ar' ? 'كل المساحات' : 'All Spaces';
+  const selectedName = spaces.find((space) => space.id === selectedSpaceId)?.name ?? allSpacesLabel;
+
+  return (
+    <div className="px-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={loading || Boolean(error)}
+            aria-label={`${locale === 'ar' ? 'المساحة الحالية' : 'Current Space'}: ${selectedName}`}
+            className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md border border-sidebar-border bg-sidebar px-3 text-start text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:cursor-wait disabled:opacity-60"
+            data-testid="space-selector"
+          >
+            <span className="truncate">
+              {loading ? (locale === 'ar' ? 'جارٍ تحميل المساحات…' : 'Loading Spaces…') : selectedName}
+            </span>
+            <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+          <DropdownMenuItem onSelect={() => setSelectedSpaceId(null)}>{allSpacesLabel}</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {spaces.map((space) => (
+            <DropdownMenuItem key={space.id} onSelect={() => setSelectedSpaceId(space.id)}>
+              <span className="min-w-0 truncate">{space.name}</span>
+              {space.isPersonal && (
+                <span className="ms-auto text-xs text-muted-foreground">
+                  {locale === 'ar' ? 'شخصي' : 'Personal'}
+                </span>
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {error && <p className="mt-2 text-xs text-destructive" role="alert">{error}</p>}
+    </div>
+  );
+}
+
 function NavigationPanel({
   location,
   displayName,
@@ -190,6 +235,7 @@ function NavigationPanel({
         <div className="px-2">
           <CommandMenu commands={commands} />
         </div>
+        <SpaceSelector />
       </SidebarHeader>
 
       <SidebarContent role="navigation" aria-label={t('nav.main')}>

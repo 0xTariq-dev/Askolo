@@ -23,6 +23,7 @@ import {
 } from '@/lib/theme-preferences';
 import { NativeAuthProvider, useAppAuth } from '@/contexts/auth-context';
 import { LocaleProvider } from '@/contexts/locale-context';
+import { SpaceProvider } from '@/contexts/space-context';
 import type { Locale } from '@/lib/locale';
 import {
   ActionsPage,
@@ -178,11 +179,13 @@ function NativeProtectedRoutes() {
 
   return (
     <AccountLocaleProvider>
-      <SidebarAppLayout>
-        <Suspense fallback={<RouteContentLoadingState />}>
-          <AuthenticatedPageRoutes />
-        </Suspense>
-      </SidebarAppLayout>
+      <SpaceProvider>
+        <SidebarAppLayout>
+          <Suspense fallback={<RouteContentLoadingState />}>
+            <AuthenticatedPageRoutes />
+          </Suspense>
+        </SidebarAppLayout>
+      </SpaceProvider>
     </AccountLocaleProvider>
   );
 }

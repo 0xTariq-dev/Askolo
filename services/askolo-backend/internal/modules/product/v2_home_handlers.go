@@ -33,6 +33,19 @@ type SharedEmailReader interface {
 	GetSharedGmailMessage(context.Context, string, string, string) (SharedEmailMessage, error)
 }
 
+func (h *Handler) v2ListWorkspaces(w http.ResponseWriter, r *http.Request, userID string) {
+	workspaces, err := h.store.ListV2HomeWorkspaces(r.Context(), userID)
+	if errors.Is(err, postgres.ErrV2HomeSpaceLimit) {
+		writeError(w, http.StatusUnprocessableEntity, "SPACE_LIST_TOO_LARGE", "This account has too many active Spaces to list in one request.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "list Spaces", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaces)
+}
+
 type homeFocusAction struct {
 	WorkspaceID   string  `json:"workspaceId"`
 	WorkspaceName string  `json:"workspaceName"`

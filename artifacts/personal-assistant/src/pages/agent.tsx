@@ -2,10 +2,13 @@ import { Sparkles } from 'lucide-react';
 import { PageTransition } from '@/components/ui/page-transition';
 import { AssistantSidebar } from '@/components/assistant-sidebar';
 import { useLocale } from '@/contexts/locale-context';
+import { useSpaceScope } from '@/contexts/space-context';
 
 export function AgentPage() {
   const { locale } = useLocale();
+  const { spaces, selectedSpaceId } = useSpaceScope();
   const isArabic = locale === 'ar';
+  const selectedSpace = spaces.find((space) => space.id === selectedSpaceId);
 
   return (
     <PageTransition surface={false} className="mx-auto flex w-full max-w-6xl flex-col gap-5">
@@ -22,6 +25,11 @@ export function AgentPage() {
             {isArabic
               ? 'تحدث عن يومك، رتّب أفكارك، وراجع كل إجراء قبل تنفيذه.'
               : 'Think through your day, shape your next step, and review every action before it happens.'}
+          </p>
+          <p className="mt-2 text-sm font-medium text-primary" role="status">
+            {selectedSpace
+              ? `${isArabic ? 'المساحة النشطة' : 'Active Space'}: ${selectedSpace.name}`
+              : (isArabic ? 'نطاق كل المساحات غير متاح للوكيل بعد.' : 'Agent does not support All Spaces scope yet.')}
           </p>
         </div>
       </header>

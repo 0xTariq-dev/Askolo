@@ -39,6 +39,7 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
+import { useSpaceScope } from '@/contexts/space-context';
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
 import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
@@ -84,6 +85,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
   const planningRequestRef = useRef<AbortController | null>(null);
   const reducedMotion = useReducedMotion();
   const { direction, locale } = useLocale();
+  const { selectedSpaceId } = useSpaceScope();
   const hiddenOffset = direction === 'rtl' ? '-100%' : '100%';
   const [isThinking, setIsThinking] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
@@ -393,6 +395,12 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
     planningRequestRef.current = controller;
 
     try {
+      if (!selectedSpaceId) {
+        form.setValue('text', text);
+        throw new Error(locale === 'ar'
+          ? 'اختر مساحة محددة لاستخدام الوكيل؛ نطاق كل المساحات غير متاح بعد.'
+          : 'Choose a specific Space to use Agent; All Spaces scope is not available yet.');
+      }
       const estimate = await creditApi.estimate('assistant', 1);
       setAssistantEstimate(estimate);
       if (controller.signal.aborted) {
@@ -404,6 +412,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
         throw new Error('There are not enough AI credits for this request.');
       }
       const run = await createAssistantRunOverWebSocket({
+        workspaceId: selectedSpaceId,
         conversationId: conversationQuery.data?.conversationId,
         transcript: text,
         idempotencyKey: newCreditIdempotencyKey(),

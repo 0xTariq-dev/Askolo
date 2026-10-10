@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -1038,4 +1040,96 @@ func (h *Handler) v2GetAgenda(w http.ResponseWriter, r *http.Request, userID, ro
 		CalendarEvents: events,
 		NextPageToken:  nextPageToken,
 	})
+}
+
+func (h *Handler) v2GetAllSpacesAgenda(w http.ResponseWriter, r *http.Request, userID string) {
+	if !v2QueryValid(r, "from", "to", "timeZone") {
+		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "The request contains an unsupported or repeated query parameter.")
+		return
+	}
+	workspaces, err := h.store.ListV2HomeWorkspaces(r.Context(), userID)
+	if errors.Is(err, postgres.ErrV2HomeSpaceLimit) {
+		writeError(w, http.StatusUnprocessableEntity, "SPACE_LIST_TOO_LARGE", "This account has too many active Spaces to aggregate.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "list Spaces for Agenda", err)
+		return
+	}
+	sort.Slice(workspaces, func(i, j int) bool { return workspaces[i].ID < workspaces[j].ID })
+	query := r.URL.Query()
+	from, fromOK := parseV2Date(query.Get("from"))
+	to, toOK := parseV2Date(query.Get("to"))
+	if !fromOK || !toOK || to.Before(from) || to.Sub(from) > (v2MaxAgendaDateRange-1)*24*time.Hour {
+		writeError(w, http.StatusBadRequest, "INVALID_DATE_RANGE", "Provide a valid agenda range of no more than 42 inclusive dates.")
+		return
+	}
+	timeZone := query.Get("timeZone")
+	if !validV2TimeZone(timeZone) {
+		writeError(w, http.StatusBadRequest, "INVALID_TIME_ZONE", "Provide a valid IANA time zone.")
+		return
+	}
+	result := postgres.V2Agenda{
+		WorkspaceID: "all", From: from.Format("2006-01-02"),
+		To: to.Format("2006-01-02"), TimeZone: timeZone,
+		Tasks:          []postgres.V2TaskAgendaItem{},
+		PlanEntries:    []postgres.V2PlanEntry{},
+		CalendarEvents: []postgres.V2CalendarEventAgendaItem{},
+	}
+	total := 0
+	for _, space := range workspaces {
+		pageToken := ""
+		for page := 0; page < 100; page++ {
+			request := r.Clone(r.Context())
+			request.SetPathValue("workspaceId", space.ID)
+			request.URL = new(url.URL)
+			*request.URL = *r.URL
+			params := request.URL.Query()
+			params.Del("pageToken")
+			if pageToken != "" {
+				params.Set("pageToken", pageToken)
+			}
+			request.URL.RawQuery = params.Encode()
+			recorder := httptest.NewRecorder()
+			h.v2GetAgenda(recorder, request, userID, space.Role)
+			if recorder.Code < http.StatusOK || recorder.Code >= http.StatusMultipleChoices {
+				w.WriteHeader(recorder.Code)
+				_, _ = w.Write(recorder.Body.Bytes())
+				return
+			}
+			var pageResult postgres.V2Agenda
+			if err := json.Unmarshal(recorder.Body.Bytes(), &pageResult); err != nil {
+				h.v2InternalError(w, r, userID, "decode aggregated Agenda page", err)
+				return
+			}
+			for i := range pageResult.Tasks {
+				pageResult.Tasks[i].WorkspaceID = space.ID
+				pageResult.Tasks[i].WorkspaceName = space.Name
+			}
+			for i := range pageResult.PlanEntries {
+				pageResult.PlanEntries[i].WorkspaceName = space.Name
+			}
+			for i := range pageResult.CalendarEvents {
+				pageResult.CalendarEvents[i].WorkspaceID = space.ID
+				pageResult.CalendarEvents[i].WorkspaceName = space.Name
+			}
+			total += len(pageResult.Tasks) + len(pageResult.PlanEntries) + len(pageResult.CalendarEvents)
+			if total > 20000 {
+				writeError(w, http.StatusUnprocessableEntity, "AGENDA_RESULT_LIMIT", "This All Spaces range is too large. Narrow the date range or select a Space.")
+				return
+			}
+			result.Tasks = append(result.Tasks, pageResult.Tasks...)
+			result.PlanEntries = append(result.PlanEntries, pageResult.PlanEntries...)
+			result.CalendarEvents = append(result.CalendarEvents, pageResult.CalendarEvents...)
+			pageToken = pageResult.NextPageToken
+			if pageToken == "" {
+				break
+			}
+			if page == 99 {
+				writeError(w, http.StatusUnprocessableEntity, "AGENDA_RESULT_LIMIT", "This Space has too many Agenda items to aggregate in one request.")
+				return
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, result)
 }

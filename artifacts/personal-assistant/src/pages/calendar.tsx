@@ -33,9 +33,6 @@ import {
   useCreateGoogleCalendarEvent,
   useUpdateGoogleCalendarEvent,
   useDeleteGoogleCalendarEvent,
-  useListHabits,
-  useListDailyPlans,
-  useListHabitCompletions,
   getListEventsQueryKey,
   getGetDashboardSummaryQueryKey,
   type Event,
@@ -55,6 +52,8 @@ import { WeekGrid } from '@/components/calendar/week-grid';
 import { DayGrid } from '@/components/calendar/day-grid';
 import type { CalendarView } from '@/components/calendar/types';
 import { useLocale } from '@/contexts/locale-context';
+import { useSpaceScope } from '@/contexts/space-context';
+import { getV2AgendaRange, type V2AgendaEvent, type V2AgendaPage } from '@/lib/agenda-v2-api';
 
 // ─── Form schema ────────────────────────────────────────────────────────────
 const eventSchema = z.object({
@@ -129,6 +128,25 @@ function headerLabel(
   return formatLocaleDate(date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+function toCalendarEvent(event: V2AgendaEvent, labelSpace: boolean): Event {
+  const startsAt = new Date(event.startsAt);
+  const endsAt = event.endsAt ? new Date(event.endsAt) : startsAt;
+  const title = labelSpace && event.workspaceName ? `${event.workspaceName}: ${event.title}` : event.title;
+  return {
+    id: `v2:${event.workspaceId ?? ''}:${event.id}`,
+    title,
+    description: '',
+    startDate: format(startsAt, 'yyyy-MM-dd'),
+    startTime: event.allDay ? '' : format(startsAt, 'HH:mm'),
+    endDate: format(endsAt, 'yyyy-MM-dd'),
+    endTime: event.allDay ? '' : format(endsAt, 'HH:mm'),
+    allDay: event.allDay,
+    location: '',
+    color: '#64748b',
+    googleEventId: event.sourceEventId ?? undefined,
+  } as unknown as Event;
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 export function CalendarPage() {
   const { formatDate, formatRelativeDate, t, weekStartsOn } = useLocale();
@@ -145,6 +163,10 @@ export function CalendarPage() {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [, setTick] = useState(0);
   const [, setLocation] = useLocation();
+  const { selectedSpaceId } = useSpaceScope();
+  const [v2Agenda, setV2Agenda] = useState<V2AgendaPage | null>(null);
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [agendaLoading, setAgendaLoading] = useState(false);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const { from, to } = getViewRange(currentDate, view, weekStartsOn);
@@ -152,11 +174,36 @@ export function CalendarPage() {
   // ── Data ──────────────────────────────────────────────────────────────────
   const { data: events = [], isLoading } = useListEvents({ from, to });
   const { data: googleStatus, refetch: refetchGoogleStatus } = useGetGoogleStatus();
-  const { data: habits = [] } = useListHabits();
-  const { data: allPlans = [] } = useListDailyPlans();
-  const { data: rawCompletions = [] } = useListHabitCompletions({ from, to });
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  useEffect(() => {
+    const controller = new AbortController();
+    setAgendaLoading(true);
+    setAgendaError(null);
+    getV2AgendaRange(selectedSpaceId, { from, to, timeZone }, controller.signal)
+      .then((result) => {
+        setV2Agenda(result);
+        setAgendaError(null);
+      })
+      .catch((requestError: unknown) => {
+        if (!controller.signal.aborted) {
+          setAgendaError(requestError instanceof Error ? requestError.message : 'Agenda could not be loaded.');
+          setV2Agenda(null);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAgendaLoading(false);
+      });
+    return () => controller.abort();
+  }, [selectedSpaceId, from, to, timeZone]);
 
   const calendarConnected = googleStatus?.calendarConnected ?? false;
+  const legacyProviderEventIds = new Set<string>(
+    events.flatMap((event) => event.googleEventId ? [event.googleEventId] : []),
+  );
+  const agendaEvents = (v2Agenda?.calendarEvents ?? [])
+    .filter((event) => !event.sourceEventId || !legacyProviderEventIds.has(event.sourceEventId))
+    .map((event) => toCalendarEvent(event, !selectedSpaceId));
+  const displayEvents = [...events, ...agendaEvents];
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const createEvent = useCreateEvent();
@@ -198,6 +245,10 @@ export function CalendarPage() {
   };
 
   const openEdit = (event: Event) => {
+    if (String(event.id).startsWith('v2:')) {
+      toast({ title: 'Calendar event', description: 'This event is managed by its source calendar.' });
+      return;
+    }
     setEditingEvent(event);
     form.reset({
       title: event.title,
@@ -210,6 +261,10 @@ export function CalendarPage() {
       location: event.location || '',
     });
     setDialogOpen(true);
+  };
+
+  const handleCalendarEventClick = (event: Event) => {
+    openEdit(event);
   };
 
   const invalidateCalendar = useCallback(() => {
@@ -350,26 +405,41 @@ export function CalendarPage() {
   }, [toast, refetchGoogleStatus, invalidateCalendar, setLocation]);
 
   // ── Shape data for child components ───────────────────────────────────────
-  const habitItems = habits.map((h) => ({
-    id: h.id,
-    name: h.name,
-    color: h.color,
-  }));
-
-  // Build completions lookup: dateStr → Set<habitId>
+  const habitItems: [] = [];
   const completionsByDate = new Map<string, Set<number>>();
-  for (const c of rawCompletions) {
-    if (!completionsByDate.has(c.date)) completionsByDate.set(c.date, new Set());
-    completionsByDate.get(c.date)!.add(c.habitId);
+  const entriesByTask = new Map<string, NonNullable<typeof v2Agenda>['planEntries'][number]>();
+  for (const entry of v2Agenda?.planEntries ?? []) {
+    entriesByTask.set(`${entry.taskId}:${entry.occurrenceOn ?? ''}`, entry);
   }
-
-  const planItems = allPlans.map((p) => ({
-    id: p.id,
-    date: p.date,
-    title: p.title,
-    completed: p.completed,
-    priority: p.priority,
-  }));
+  const planItems = [
+    ...(v2Agenda?.tasks ?? []).map((task) => {
+      const occurrence = task.occurrenceOn?.slice(0, 10) ?? '';
+      const entry = entriesByTask.get(`${task.taskId}:${task.occurrenceOn ?? ''}`);
+      const taskDate = entry?.plannedOn.slice(0, 10)
+        ?? task.occurrenceOn?.slice(0, 10)
+        ?? task.dueOn?.slice(0, 10)
+        ?? task.plannedStartAt?.slice(0, 10)
+        ?? '';
+      return {
+        id: `${task.taskId}:${occurrence || taskDate}`,
+        date: taskDate,
+        title: !selectedSpaceId && task.workspaceName ? `${task.workspaceName}: ${task.title}` : task.title,
+        completed: task.status === 'done',
+        priority: task.priority as 'high' | 'medium' | 'low',
+      };
+    }),
+    ...(v2Agenda?.planEntries ?? [])
+      .filter((entry) => !(v2Agenda?.tasks ?? []).some(
+        (task) => task.taskId === entry.taskId && (task.occurrenceOn ?? '') === (entry.occurrenceOn ?? ''),
+      ))
+      .map((entry) => ({
+        id: entry.id,
+        date: entry.plannedOn.slice(0, 10),
+        title: !selectedSpaceId && entry.workspaceName ? `${entry.workspaceName}: ${entry.taskTitle}` : entry.taskTitle,
+        completed: entry.taskStatus === 'done',
+        priority: 'medium' as const,
+      })),
+  ].filter((item) => item.date !== '');
 
   // Filter plans to current view range for child components
   const visiblePlans = planItems.filter((p) => p.date >= from && p.date <= to);
@@ -380,8 +450,8 @@ export function CalendarPage() {
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-4 shrink-0">
         <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Family Calendar</h1>
-          <p className="text-muted-foreground mt-1 text-base">Local events and synced Google Calendar in one view.</p>
+        <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Agenda</h1>
+          <p className="text-muted-foreground mt-1 text-base">Tasks and calendar events in one view.</p>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           <div className="flex items-center gap-2">
@@ -456,7 +526,7 @@ export function CalendarPage() {
 
       {/* ── Calendar body ────────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 border border-border rounded-2xl overflow-hidden bg-card shadow-sm">
-        {isLoading ? (
+        {isLoading || agendaLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="space-y-3 w-full p-6">
               {[...Array(5)].map((_, i) => (
@@ -464,43 +534,44 @@ export function CalendarPage() {
               ))}
             </div>
           </div>
-        ) : events.length === 0 && view === 'month' ? (
+        ) : displayEvents.length === 0 && visiblePlans.length === 0 && view === 'month' ? (
           <EmptyState calendarConnected={calendarConnected} onSync={handleSync} onAdd={() => openAdd()} isPending={syncGoogleCalendar.isPending} />
         ) : view === 'month' ? (
           <MonthGrid
             currentDate={currentDate}
-            events={events}
+            events={displayEvents}
             plans={visiblePlans}
             habits={habitItems}
             completionsByDate={completionsByDate}
             todayStr={todayStr}
-            onEventClick={openEdit}
+            onEventClick={handleCalendarEventClick}
             onDayClick={(day) => { setCurrentDate(day); setView('day'); }}
           />
         ) : view === 'week' ? (
           <WeekGrid
             currentDate={currentDate}
-            events={events}
+            events={displayEvents}
             plans={visiblePlans}
             habits={habitItems}
             completionsByDate={completionsByDate}
             todayStr={todayStr}
-            onEventClick={openEdit}
+            onEventClick={handleCalendarEventClick}
             onSlotClick={(date, time) => openAdd(date, time)}
           />
         ) : (
           <DayGrid
             currentDate={currentDate}
-            events={events}
+            events={displayEvents}
             plans={visiblePlans}
             habits={habitItems}
             completionsByDate={completionsByDate}
             todayStr={todayStr}
-            onEventClick={openEdit}
+            onEventClick={handleCalendarEventClick}
             onSlotClick={(date, time) => openAdd(date, time)}
           />
         )}
       </div>
+      {agendaError && <p className="mt-3 text-sm text-destructive" role="alert">{agendaError}</p>}
 
       {/* ── CRUD dialog ─────────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

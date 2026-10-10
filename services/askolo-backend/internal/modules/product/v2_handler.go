@@ -95,6 +95,7 @@ type v2OccurrencePatchRequest struct {
 
 func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/healthz", h.v2Health)
+	mux.HandleFunc("GET /api/v2/workspaces", h.v2ProtectAll(h.v2ListWorkspaces))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/tasks", h.v2Protect(false, h.v2ListTasks))
 	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/tasks", h.v2Protect(true, h.v2CreateTask))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/tasks/{taskId}", h.v2Protect(false, h.v2GetTask))
@@ -116,6 +117,7 @@ func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v2/workspaces/{workspaceId}/plans/{planId}/entries/{entryId}", h.v2Protect(true, h.v2UpdatePlanEntry))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/plans/{planId}/entries/{entryId}", h.v2Protect(true, h.v2DeletePlanEntry))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/agenda", h.v2Protect(false, h.v2GetAgenda))
+	mux.HandleFunc("GET /api/v2/agenda", h.v2ProtectAll(h.v2GetAllSpacesAgenda))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/reminder-rules", h.v2Protect(false, h.v2ListReminderRules))
 	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/reminder-rules", h.v2Protect(true, h.v2CreateReminderRule))
 	mux.HandleFunc("PATCH /api/v2/workspaces/{workspaceId}/reminder-rules/{ruleId}", h.v2Protect(true, h.v2UpdateReminderRule))

@@ -35,8 +35,11 @@ export interface V2HomeResponse {
   };
 }
 
-export async function getV2Home(signal?: AbortSignal): Promise<V2HomeResponse> {
-  const response = await fetch(`${basePath}/api/v2/home`, {
+export async function getV2Home(workspaceId: string | null, signal?: AbortSignal): Promise<V2HomeResponse> {
+  const path = workspaceId
+    ? `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/home`
+    : '/api/v2/home';
+  const response = await fetch(`${basePath}${path}`, {
     credentials: 'include',
     headers: { Accept: 'application/json' },
     signal,

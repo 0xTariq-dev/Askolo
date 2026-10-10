@@ -24,11 +24,12 @@ export interface PublicWebSocketResumeState {
 
 const RESUME_CLOSE_TIMEOUT_MS = 750;
 
-export function publicWebSocketURL(): string {
+export function publicWebSocketURL(workspaceId?: string): string {
   const rawBasePath = import.meta.env?.BASE_URL ?? '/';
   const basePath = rawBasePath.endsWith('/') ? rawBasePath : `${rawBasePath}/`;
   const url = new URL(`${basePath}ws`, window.location.origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
   return url.toString();
 }
 

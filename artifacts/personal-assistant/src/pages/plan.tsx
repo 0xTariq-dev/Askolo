@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns';
+import { useLocation } from 'wouter';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -16,24 +17,22 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  ApiError,
-  useListDailyPlans,
-  useCreateDailyPlan,
-  useUpdateDailyPlan,
-  useDeleteDailyPlan,
   useListEvents,
-  useListHabits,
-  useListHabitCompletions,
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
-  getListDailyPlansQueryKey,
-  getGetDashboardSummaryQueryKey,
   getGetTranscriptionPreferencesQueryKey,
-  type DailyPlan,
 } from '@workspace/api-client-react';
-import { getApiErrorMessage, goApi } from '@/lib/go-api';
 import { useLocale } from '@/contexts/locale-context';
+import { useSpaceScope } from '@/contexts/space-context';
 import { useAssistantState } from '@/contexts/assistant-context';
+import {
+  archiveV2Task,
+  getV2AgendaRange,
+  updateV2Task,
+  updateV2TaskOccurrence,
+  createV2Task,
+  type V2AgendaTask,
+} from '@/lib/agenda-v2-api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -58,6 +57,7 @@ import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 const planSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   timeBlock: z.string().optional(),
+  kind: z.enum(['action', 'chore', 'habit', 'commitment']),
   priority: z.enum(['high', 'medium', 'low']),
 });
 type PlanFormValues = z.infer<typeof planSchema>;
@@ -72,18 +72,25 @@ export function PlanPage() {
   const { formatDate, formatNumber, weekStartsOn, locale } = useLocale();
   const queryClient = useQueryClient();
   const { openWithDraft } = useAssistantState();
+  const { selectedSpaceId, spaces } = useSpaceScope();
+  const [, setLocation] = useLocation();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [monthDate, setMonthDate] = useState(new Date());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [notes, setNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
+  const [agendaTasks, setAgendaTasks] = useState<V2AgendaTask[]>([]);
+  const [agendaLoading, setAgendaLoading] = useState(true);
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [agendaReloadKey, setAgendaReloadKey] = useState(0);
+  const [isSavingTask, setIsSavingTask] = useState(false);
+  const [targetSpaceId, setTargetSpaceId] = useState('');
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [consentSaving, setConsentSaving] = useState(false);
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
-  const generationControllerRef = useRef<AbortController | null>(null);
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
   const monthStart = startOfMonth(monthDate);
   const monthEnd = endOfMonth(monthDate);
@@ -91,18 +98,8 @@ export function PlanPage() {
   const to = format(endOfWeek(monthEnd, { weekStartsOn }), 'yyyy-MM-dd');
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-  const plansQuery = useListDailyPlans();
-  const plansForDayQuery = useListDailyPlans({ date: dateStr });
   const eventsQuery = useListEvents({ from, to });
-  const habitsQuery = useListHabits();
-  const completionsQuery = useListHabitCompletions({ from, to });
-  const plans = plansForDayQuery.data ?? [];
   const events = eventsQuery.data ?? [];
-  const habits = habitsQuery.data ?? [];
-  const completions = completionsQuery.data ?? [];
-  const createPlan = useCreateDailyPlan();
-  const updatePlan = useUpdateDailyPlan();
-  const deletePlan = useDeleteDailyPlan();
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const voice = useVoiceTranscription();
@@ -110,10 +107,30 @@ export function PlanPage() {
 
   const form = useForm<PlanFormValues>({
     resolver: zodResolver(planSchema),
-    defaultValues: { title: '', timeBlock: '', priority: 'medium' },
+    defaultValues: { title: '', timeBlock: '', kind: 'action', priority: 'medium' },
   });
 
-  useEffect(() => () => generationControllerRef.current?.abort(), []);
+  useEffect(() => {
+    const controller = new AbortController();
+    setAgendaLoading(true);
+    setAgendaError(null);
+    getV2AgendaRange(selectedSpaceId, {
+      from,
+      to,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    }, controller.signal)
+      .then((agenda) => setAgendaTasks(agenda.tasks))
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setAgendaTasks([]);
+          setAgendaError(error instanceof Error ? error.message : 'Plan could not be loaded.');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAgendaLoading(false);
+      });
+    return () => controller.abort();
+  }, [selectedSpaceId, from, to, agendaReloadKey]);
   useEffect(() => {
     if (voiceState === 'review' && transcript) {
       setVoiceReviewText(transcript);
@@ -122,89 +139,94 @@ export function PlanPage() {
   }, [transcript, voiceState]);
 
   const reloadData = () => {
-    void Promise.all([
-      plansQuery.refetch(),
-      plansForDayQuery.refetch(),
-      eventsQuery.refetch(),
-      habitsQuery.refetch(),
-      completionsQuery.refetch(),
-    ]);
+    setAgendaReloadKey((value) => value + 1);
+    void eventsQuery.refetch();
   };
 
   const openAdd = () => {
-    form.reset({ title: '', timeBlock: '', priority: 'medium' });
+    setTargetSpaceId(selectedSpaceId ?? '');
+    form.reset({ title: '', timeBlock: '', kind: 'action', priority: 'medium' });
     setDialogOpen(true);
   };
 
-  const onSubmit = (data: PlanFormValues) => {
-    createPlan.mutate(
-      { data: { ...data, date: dateStr } },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-          void queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          setDialogOpen(false);
-        },
-      },
-    );
+  const taskItems = agendaTasks.map((task) => ({
+    id: `${task.taskId}:${task.occurrenceOn ?? ''}`,
+    taskId: task.taskId,
+    workspaceId: task.workspaceId,
+    occurrenceOn: task.occurrenceOn,
+    date: task.occurrenceOn?.slice(0, 10) ?? task.dueOn?.slice(0, 10) ?? task.plannedStartAt?.slice(0, 10) ?? '',
+    title: !selectedSpaceId && task.workspaceName ? `${task.workspaceName}: ${task.title}` : task.title,
+    completed: task.status === 'done',
+    priority: (['high', 'medium', 'low'].includes(task.priority) ? task.priority : 'medium') as PlanFormValues['priority'],
+    timeBlock: undefined,
+  }));
+  const plans = taskItems.filter((task) => task.date === dateStr);
+
+  const onSubmit = async (data: PlanFormValues) => {
+    const workspaceId = selectedSpaceId ?? targetSpaceId;
+    if (!workspaceId) {
+      setAgendaError(isArabic ? 'اختر مساحةً لحفظ المهمة.' : 'Choose a Space to save this task.');
+      return;
+    }
+    setIsSavingTask(true);
+    try {
+      await createV2Task(workspaceId, {
+        kind: data.kind,
+        title: data.title,
+        priority: data.priority,
+        dueOn: dateStr,
+      });
+      setDialogOpen(false);
+      form.reset({ title: '', timeBlock: '', kind: 'action', priority: 'medium' });
+      await reloadData();
+    } catch (error) {
+      setAgendaError(error instanceof Error ? error.message : 'Task could not be saved.');
+    } finally {
+      setIsSavingTask(false);
+    }
   };
 
-  const toggleComplete = (item: DailyPlan) => {
-    queryClient.setQueryData([...getListDailyPlansQueryKey(), dateStr], (old: DailyPlan[] | undefined) =>
-      old?.map((plan) => plan.id === item.id ? { ...plan, completed: !item.completed } : plan),
-    );
-    updatePlan.mutate(
-      { id: item.id, data: { completed: !item.completed } },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-          void queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-        },
-        onError: () => {
-          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-        },
-      },
-    );
+  const toggleComplete = async (item: (typeof taskItems)[number]) => {
+    const workspaceId = item.workspaceId ?? selectedSpaceId;
+    if (!workspaceId) return;
+    const status = item.completed ? 'open' : 'done';
+    try {
+      if (item.occurrenceOn) {
+        await updateV2TaskOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status });
+      } else {
+        await updateV2Task(workspaceId, item.taskId, { status });
+      }
+      await reloadData();
+    } catch (error) {
+      setAgendaError(error instanceof Error ? error.message : 'Task could not be updated.');
+    }
   };
 
-  const handleDelete = (id: number) => {
-    deletePlan.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-          void queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-        },
-      },
-    );
+  const handleDelete = async (item: (typeof taskItems)[number]) => {
+    const workspaceId = item.workspaceId ?? selectedSpaceId;
+    if (!workspaceId) return;
+    try {
+      if (item.occurrenceOn) {
+        await updateV2TaskOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status: 'cancelled' });
+      } else {
+        await archiveV2Task(workspaceId, item.taskId);
+      }
+      await reloadData();
+    } catch (error) {
+      setAgendaError(error instanceof Error ? error.message : 'Task could not be removed.');
+    }
   };
 
   const generateWithAI = async () => {
     if (!notes.trim()) return;
-    generationControllerRef.current?.abort();
-    const controller = new AbortController();
-    generationControllerRef.current = controller;
     setIsGenerating(true);
     setGenerationError('');
-    try {
-      await goApi.generatePlan({ notes, date: dateStr }, controller.signal);
-      setNotes('');
-      resetVoiceInput();
-      await queryClient.invalidateQueries({ queryKey: getListDailyPlansQueryKey() });
-      await queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      setGenerationError(getApiErrorMessage(error, 'The plan could not be generated. Try again.'));
-      console.error('Plan generation failed', {
-        code: error instanceof ApiError ? error.code : undefined,
-        requestId: error instanceof ApiError ? error.requestId : undefined,
-      });
-    } finally {
-      if (generationControllerRef.current === controller) {
-        generationControllerRef.current = null;
-        setIsGenerating(false);
-      }
-    }
+    openWithDraft(
+      `${isArabic ? `أنشئ خطةً لهذا اليوم (${dateStr}) من هذه الملاحظات، واعرض المهام المقترحة للمراجعة قبل حفظها:` : `Create a plan for ${dateStr} from these notes and show proposed tasks for review before saving:`}\n${notes.trim()}`,
+    );
+    setNotes('');
+    resetVoiceInput();
+    setLocation('/agent');
   };
 
   const handleStartVoice = async () => {
@@ -233,26 +255,18 @@ export function PlanPage() {
     }
   };
 
-  const calendarPlans: CalendarPlan[] = (plansQuery.data ?? []).map((plan) => ({
-    id: plan.id,
-    date: plan.date,
-    title: plan.title,
-    completed: plan.completed,
-    priority: plan.priority,
+  const calendarPlans: CalendarPlan[] = taskItems.map(({ id, date, title, completed, priority }) => ({
+    id, date, title, completed, priority,
   }));
   const completionsByDate = new Map<string, Set<number>>();
-  for (const completion of completions) {
-    if (!completionsByDate.has(completion.date)) completionsByDate.set(completion.date, new Set());
-    completionsByDate.get(completion.date)?.add(completion.habitId);
-  }
-  const calendarHabits = habits.map((habit) => ({ id: habit.id, name: habit.name, color: habit.color }));
+  const calendarHabits: [] = [];
   const sortedPlans = [...plans].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
     const rank = { high: 0, medium: 1, low: 2 };
     return rank[a.priority] - rank[b.priority];
   });
-  const loading = plansForDayQuery.isLoading || plansQuery.isLoading || eventsQuery.isLoading;
-  const hasError = plansForDayQuery.isError || plansQuery.isError || eventsQuery.isError || habitsQuery.isError || completionsQuery.isError;
+  const loading = agendaLoading || eventsQuery.isLoading;
+  const hasError = Boolean(agendaError) || eventsQuery.isError;
   const completedCount = sortedPlans.filter((item) => item.completed).length;
   const formattedSelectedDate = formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' });
   const currentMonthLabel = formatDate(monthDate, { month: 'long', year: 'numeric' });
@@ -277,7 +291,7 @@ export function PlanPage() {
 
       {hasError && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3" role="alert">
-          <p className="text-sm text-destructive">{isArabic ? 'تعذر تحميل بعض بيانات الخطة.' : 'Some plan data could not be loaded.'}</p>
+          <p className="text-sm text-destructive">{agendaError ?? (isArabic ? 'تعذر تحميل بعض بيانات الخطة.' : 'Some plan data could not be loaded.')}</p>
           <Button variant="outline" size="sm" onClick={reloadData}>{isArabic ? 'إعادة المحاولة' : 'Try again'}</Button>
         </div>
       )}
@@ -366,7 +380,7 @@ export function PlanPage() {
                       <p dir="auto" className={cn('truncate text-sm font-medium', plan.completed && 'line-through text-muted-foreground')}>{plan.title}</p>
                       {plan.timeBlock && <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><Clock3 className="size-3" />{plan.timeBlock}</p>}
                     </div>
-                    <Button type="button" variant="ghost" size="icon" onClick={() => handleDelete(plan.id)} aria-label={`Delete ${plan.title}`} className="size-9 shrink-0 text-muted-foreground hover:text-destructive">
+                    <Button type="button" variant="ghost" size="icon" onClick={() => handleDelete(plan)} aria-label={`Delete ${plan.title}`} className="size-9 shrink-0 text-muted-foreground hover:text-destructive">
                       <Trash2 className="size-4" />
                     </Button>
                   </div>
@@ -439,10 +453,26 @@ export function PlanPage() {
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader><DialogTitle>{isArabic ? 'إضافة إلى الخطة' : 'Add to your plan'}</DialogTitle></DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+            {!selectedSpaceId && <div className="space-y-2">
+              <Label htmlFor="plan-space">{isArabic ? 'المساحة' : 'Space'}</Label>
+              <select id="plan-space" value={targetSpaceId} onChange={(event) => setTargetSpaceId(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                <option value="">{isArabic ? 'اختر مساحة' : 'Choose a Space'}</option>
+                {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+              </select>
+            </div>}
             <div className="space-y-2">
               <Label htmlFor="plan-title">{isArabic ? 'المهمة أو النية' : 'Task or intention'}</Label>
               <Input id="plan-title" placeholder={isArabic ? 'مثال: مراجعة أسبوعية' : 'For example, weekly review'} {...form.register('title')} />
               {form.formState.errors.title && <p className="text-xs text-destructive">{form.formState.errors.title.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="plan-kind">{isArabic ? 'نوع المهمة' : 'Task type'}</Label>
+              <select id="plan-kind" {...form.register('kind')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                <option value="action">{isArabic ? 'إجراء' : 'Action item'}</option>
+                <option value="chore">{isArabic ? 'عمل منزلي' : 'Chore'}</option>
+                <option value="habit">{isArabic ? 'عادة' : 'Habit'}</option>
+                <option value="commitment">{isArabic ? 'التزام' : 'Commitment'}</option>
+              </select>
             </div>
             <div className="space-y-2"><Label htmlFor="plan-time">{isArabic ? 'الفترة الزمنية (اختياري)' : 'Time block (optional)'}</Label><Input id="plan-time" placeholder="10:00 AM – 11:00 AM" {...form.register('timeBlock')} /></div>
             <fieldset className="space-y-2">
@@ -453,7 +483,7 @@ export function PlanPage() {
             </fieldset>
             <DialogFooter className="pt-3">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
-              <Button type="submit" disabled={createPlan.isPending}>{createPlan.isPending ? (isArabic ? 'جارٍ الإضافة…' : 'Adding…') : (isArabic ? 'إضافة المهمة' : 'Add task')}</Button>
+              <Button type="submit" disabled={isSavingTask}>{isSavingTask ? (isArabic ? 'جارٍ الإضافة…' : 'Adding…') : (isArabic ? 'إضافة المهمة' : 'Add task')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

@@ -352,6 +352,57 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 		agenda.Events[0].SourceProvider != "google" || agenda.Events[0].SourceEventID != "google-event-42" {
 		t.Fatalf("agenda calendar event projection = %#v, want the distinct provider event and source ID", agenda.Events)
 	}
+	allSpacesResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/agenda?from="+plannedOn+"&to="+occurrenceEnd+"&timeZone=UTC",
+		"",
+	)
+	if allSpacesResponse.Code != http.StatusOK {
+		t.Fatalf("read All Spaces agenda status = %d, want %d: %s", allSpacesResponse.Code, http.StatusOK, allSpacesResponse.Body.String())
+	}
+	var allSpacesAgenda struct {
+		WorkspaceID string `json:"workspaceId"`
+		Tasks       []struct {
+			TaskID        string `json:"taskId"`
+			WorkspaceID   string `json:"workspaceId"`
+			WorkspaceName string `json:"workspaceName"`
+		} `json:"tasks"`
+		PlanEntries []struct {
+			WorkspaceID   string `json:"workspaceId"`
+			WorkspaceName string `json:"workspaceName"`
+		} `json:"planEntries"`
+		Events []struct {
+			ID            string `json:"id"`
+			WorkspaceID   string `json:"workspaceId"`
+			WorkspaceName string `json:"workspaceName"`
+		} `json:"calendarEvents"`
+	}
+	if err := json.NewDecoder(allSpacesResponse.Body).Decode(&allSpacesAgenda); err != nil {
+		t.Fatalf("decode All Spaces agenda: %v", err)
+	}
+	if allSpacesAgenda.WorkspaceID != "all" {
+		t.Fatalf("All Spaces agenda workspaceId = %q, want all", allSpacesAgenda.WorkspaceID)
+	}
+	foundLabeledTask, foundLabeledEvent := false, false
+	for _, item := range allSpacesAgenda.Tasks {
+		if item.TaskID == recurringTask.ID {
+			foundLabeledTask = item.WorkspaceID == workspaceID && item.WorkspaceName != ""
+		}
+	}
+	for _, item := range allSpacesAgenda.Events {
+		if item.ID == "v2-provider-event" {
+			foundLabeledEvent = item.WorkspaceID == workspaceID && item.WorkspaceName != ""
+		}
+	}
+	if !foundLabeledTask || !foundLabeledEvent {
+		t.Fatalf("All Spaces agenda did not label authorized Space items: task=%t event=%t", foundLabeledTask, foundLabeledEvent)
+	}
+	if len(allSpacesAgenda.PlanEntries) != 1 ||
+		allSpacesAgenda.PlanEntries[0].WorkspaceID != workspaceID ||
+		allSpacesAgenda.PlanEntries[0].WorkspaceName == "" {
+		t.Fatalf("All Spaces plan entries were not labeled with their Space: %#v", allSpacesAgenda.PlanEntries)
+	}
 
 	monthTo := today.AddDate(0, 0, v2MaxAgendaDateRange-1).Format("2006-01-02")
 	monthAgendaResponse := request(

@@ -3,8 +3,10 @@ import { AlertCircle, CalendarDays, CheckCircle2, Clock3, Mail } from 'lucide-re
 import { useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useAssistantState } from '@/contexts/assistant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useSpaceScope } from '@/contexts/space-context';
 import { getV2Home, type V2HomeResponse } from '@/lib/home-v2-api';
 
 const freshnessLabel: Record<V2HomeResponse['emailSummary']['freshness'], string> = {
@@ -16,19 +18,24 @@ const freshnessLabel: Record<V2HomeResponse['emailSummary']['freshness'], string
 };
 
 export function HomeV2Summary() {
+  const [agentPrompt, setAgentPrompt] = useState('');
   const [home, setHome] = useState<V2HomeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [, setLocation] = useLocation();
   const { openWithDraft } = useAssistantState();
   const { locale } = useLocale();
+  const { selectedSpaceId, loading: spacesLoading } = useSpaceScope();
   const isArabic = locale === 'ar';
 
   useEffect(() => {
+    if (spacesLoading) return;
     const controller = new AbortController();
     let cancelled = false;
+    setLoading(true);
+    setError(null);
 
-    getV2Home(controller.signal)
+    getV2Home(selectedSpaceId, controller.signal)
       .then((data) => {
         if (!cancelled) {
           setHome(data);
@@ -48,7 +55,7 @@ export function HomeV2Summary() {
       cancelled = true;
       controller.abort();
     };
-  }, []);
+  }, [selectedSpaceId, spacesLoading]);
 
   if (loading) {
     return (
@@ -75,9 +82,9 @@ export function HomeV2Summary() {
   const countsAvailable = email.freshness === 'current' || email.freshness === 'stale';
   const openAgentForToday = () => {
     openWithDraft(
-      isArabic
+      agentPrompt.trim() || (isArabic
         ? `ساعدني في التفكير في يومي (${home.date}). استخدم سياق الوكيل الكامل والصلاحيات المتاحة لي؛ هذا التاريخ مجرد نقطة بداية.`
-        : `Help me think through today (${home.date}). Use the full Agent context and permissions available to me; this date is only my starting point.`,
+        : `Help me think through today (${home.date}). Use the full Agent context and permissions available to me; this date is only my starting point.`),
     );
     setLocation('/agent');
   };
@@ -155,11 +162,19 @@ export function HomeV2Summary() {
           )}
         </CardContent>
       </Card>
-      <div className="flex justify-end md:col-span-3">
-        <Button type="button" onClick={openAgentForToday} data-testid="button-home-open-agent">
-          {isArabic ? 'اسأل الوكيل عن اليوم' : 'Ask Agent about today'}
+      <form className="flex w-full flex-col gap-2 sm:flex-row md:col-span-3" onSubmit={(event) => { event.preventDefault(); openAgentForToday(); }}>
+        <label className="sr-only" htmlFor="home-agent-prompt">{isArabic ? 'ماذا تريد أن تسأل الوكيل؟' : 'What would you like to ask Agent?'}</label>
+        <Input
+          id="home-agent-prompt"
+          value={agentPrompt}
+          onChange={(event) => setAgentPrompt(event.target.value)}
+          placeholder={isArabic ? 'اسأل الوكيل عن يومك أو أي موضوع آخر…' : 'Ask Agent about today or anything else…'}
+          data-testid="input-home-agent-prompt"
+        />
+        <Button type="submit" data-testid="button-home-open-agent">
+          {agentPrompt.trim() ? (isArabic ? 'افتح الوكيل' : 'Open Agent') : (isArabic ? 'اسأل الوكيل عن اليوم' : 'Ask Agent about today')}
         </Button>
-      </div>
+      </form>
     </section>
   );
 }
