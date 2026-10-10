@@ -297,10 +297,14 @@ func (h *Handler) RunAssistant(
 		if outcome.State != "needs_confirmation" {
 			return nil, publicws.Failure(http.StatusBadRequest, "INVALID_ASSISTANT_TOOL_CALL", "The requested workspace action is not available.", nil)
 		}
+		if input.AllSpaces {
+			outcome = rejectAllSpacesAssistantWrite(outcome)
+			directToolOutcome = &outcome
+		}
 		definition, _ := h.toolRegistry().lookup(input.ToolName)
-		if definition.external {
+		if definition.external && !input.AllSpaces {
 			directToolName = input.ToolName
-		} else {
+		} else if !input.AllSpaces {
 			directToolOutcome = &outcome
 		}
 	}
@@ -384,7 +388,11 @@ func (h *Handler) RunAssistant(
 	}
 
 	if directToolOutcome != nil {
-		h.bindAssistantActionTarget(ctx, userID, directToolOutcome)
+		if input.AllSpaces {
+			*directToolOutcome = rejectAllSpacesAssistantWrite(*directToolOutcome)
+		} else {
+			h.bindAssistantActionTarget(ctx, userID, directToolOutcome)
+		}
 		finished, err := h.store.FinishAssistantPlanning(ctx, userID, run.ID, *directToolOutcome)
 		if err != nil {
 			return nil, h.assistantPublicErrorAt("finish_tool_run", err)
@@ -476,7 +484,11 @@ func (h *Handler) RunAssistant(
 	if directToolName != "" && plan.Intent != directToolName {
 		outcome = rejectedAssistantPlanOutcome(outcome)
 	}
-	h.bindAssistantActionTarget(ctx, userID, &outcome)
+	if input.AllSpaces && outcome.State == "needs_confirmation" {
+		outcome = rejectAllSpacesAssistantWrite(outcome)
+	} else {
+		h.bindAssistantActionTarget(ctx, userID, &outcome)
+	}
 	if !replyStreamed {
 		if outcome.Message != "" && callbacks.ReplyDelta != nil {
 			if err := callbacks.ReplyDelta(run.ID, outcome.Message); err != nil {

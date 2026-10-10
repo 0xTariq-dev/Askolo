@@ -38,6 +38,7 @@ type AssistantRequest struct {
 	IdempotencyKey string
 	PolicyVersion  int
 	VoiceChat      bool
+	AllSpaces      bool
 	ToolName       string
 	ToolArguments  json.RawMessage
 }

@@ -12,10 +12,30 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"askolo/backend/internal/adapters/postgres"
 	policy "askolo/backend/internal/platform/authorization"
 	"askolo/backend/internal/platform/publicws"
 )
+
+func TestRejectAllSpacesAssistantWriteRemovesExecutableIntent(t *testing.T) {
+	expires := time.Now()
+	outcome := postgres.AssistantPlanOutcome{
+		State: "needs_confirmation", Intent: json.RawMessage(`{"tool":"create_action_item"}`),
+		IntentSHA256: "intent-hash", RiskLevel: "low", RequiresConfirmation: true,
+		ConfirmationExpires: &expires, ToolArgsSHA256: "args-hash",
+	}
+
+	got := rejectAllSpacesAssistantWrite(outcome)
+	if got.State != "rejected" || got.RequiresConfirmation || got.Intent != nil ||
+		got.IntentSHA256 != "" || got.ToolArgsSHA256 != "" || got.ConfirmationExpires != nil {
+		t.Fatalf("All Spaces write still carries executable confirmation data: %+v", got)
+	}
+	if got.Message == "" || got.AuditEvent != "intent_rejected" {
+		t.Fatalf("All Spaces write rejection is missing its explanation or audit event: %+v", got)
+	}
+}
 
 func TestPreflightAssistantTranscript(t *testing.T) {
 	tests := []struct {

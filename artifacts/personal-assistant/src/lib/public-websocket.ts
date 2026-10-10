@@ -24,12 +24,16 @@ export interface PublicWebSocketResumeState {
 
 const RESUME_CLOSE_TIMEOUT_MS = 750;
 
-export function publicWebSocketURL(workspaceId?: string): string {
+export function publicWebSocketURL(workspaceId?: string, allSpaces = false): string {
+  if (workspaceId && allSpaces) {
+    throw new Error('Choose either one Space or All Spaces.');
+  }
   const rawBasePath = import.meta.env?.BASE_URL ?? '/';
   const basePath = rawBasePath.endsWith('/') ? rawBasePath : `${rawBasePath}/`;
   const url = new URL(`${basePath}ws`, window.location.origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
+  if (allSpaces) url.searchParams.set('scope', 'all');
   return url.toString();
 }
 

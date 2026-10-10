@@ -8,6 +8,7 @@ import {
 
 export interface AssistantRunWebSocketInput {
   workspaceId?: string;
+  allSpaces?: boolean;
   conversationId?: string;
   transcript: string;
   idempotencyKey: string;
@@ -33,7 +34,7 @@ export function createAssistantRunOverWebSocket(
     return Promise.reject(new Error('Request stopped. No action was taken.'));
   }
 
-  const socket = new WebSocket(publicWebSocketURL(input.workspaceId));
+  const socket = new WebSocket(publicWebSocketURL(input.workspaceId, input.allSpaces));
   const clientSequence = { current: 0 };
   let serverSequence = 0;
   let ready = false;

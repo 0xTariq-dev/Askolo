@@ -119,6 +119,7 @@ type providerResult struct {
 type protocolState struct {
 	userID                string
 	workspaceID           string
+	allSpaces             bool
 	store                 *postgres.Store
 	session               postgres.PublicWSSession
 	conn                  *websocket.Conn
@@ -183,7 +184,7 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, workspaceID string, origin *url.URL) {
+func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, workspaceID string, allSpaces bool, origin *url.URL) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns:  []string{origin.Host},
 		CompressionMode: websocket.CompressionDisabled,
@@ -226,7 +227,7 @@ func (h *Handler) serveProtocol(w http.ResponseWriter, r *http.Request, userID, 
 		return
 	}
 	state := &protocolState{
-		userID: userID, workspaceID: workspaceID, session: session, conn: conn,
+		userID: userID, workspaceID: workspaceID, allSpaces: allSpaces, session: session, conn: conn,
 		store: h.store, ctx: r.Context(), lastClient: 0, lastActive: time.Now(), terminal: "cancelled",
 	}
 	defer state.finish()
@@ -712,7 +713,7 @@ func (h *Handler) dispatchMessage(
 		request := publicws.AssistantRequest{
 			ConversationID: input.ConversationID, Transcript: input.Transcript,
 			IdempotencyKey: input.IdempotencyKey, PolicyVersion: input.PolicyVersion,
-			VoiceChat: input.VoiceChat,
+			VoiceChat: input.VoiceChat, AllSpaces: state.allSpaces,
 		}
 		assistantCtx, assistantCancel := context.WithCancel(state.ctx)
 		state.assistantCancel = assistantCancel
@@ -999,6 +1000,36 @@ func (h *Handler) sendPublicError(state *protocolState, err error) {
 }
 
 func (h *Handler) authorizeCapability(state *protocolState, action policy.Action) error {
+	if state.allSpaces {
+		workspaces, err := h.store.ListV2HomeWorkspaces(state.ctx, state.userID)
+		if err != nil {
+			return publicws.Failure(http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "Authorization is temporarily unavailable.", err)
+		}
+		for _, workspace := range workspaces {
+			connectDecision, err := h.store.Authorize(state.ctx, policy.Input{
+				ActorUserID: state.userID, WorkspaceID: workspace.ID, Action: policy.ActionWebSocketConnect,
+			})
+			if err != nil {
+				return publicws.Failure(http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "Authorization is temporarily unavailable.", err)
+			}
+			if !connectDecision.Allowed {
+				continue
+			}
+			decision, err := h.store.Authorize(state.ctx, policy.Input{
+				ActorUserID: state.userID, WorkspaceID: workspace.ID, Action: action,
+			})
+			if err != nil {
+				return publicws.Failure(http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "Authorization is temporarily unavailable.", err)
+			}
+			if decision.Allowed {
+				return nil
+			}
+		}
+		_ = h.store.CreateSecurityEvent(state.ctx, state.userID, "authorization_denied", "", map[string]any{
+			"scope": "all", "action": action, "reason": "no_authorized_space",
+		})
+		return publicws.Failure(http.StatusForbidden, "AUTHORIZATION_DENIED", "You are not allowed to use this operation.", nil)
+	}
 	decision, err := h.store.Authorize(state.ctx, policy.Input{
 		ActorUserID: state.userID, WorkspaceID: state.workspaceID, Action: action,
 	})

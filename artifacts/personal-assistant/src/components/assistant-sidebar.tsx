@@ -395,12 +395,6 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
     planningRequestRef.current = controller;
 
     try {
-      if (!selectedSpaceId) {
-        form.setValue('text', text);
-        throw new Error(locale === 'ar'
-          ? 'اختر مساحة محددة لاستخدام الوكيل؛ نطاق كل المساحات غير متاح بعد.'
-          : 'Choose a specific Space to use Agent; All Spaces scope is not available yet.');
-      }
       const estimate = await creditApi.estimate('assistant', 1);
       setAssistantEstimate(estimate);
       if (controller.signal.aborted) {
@@ -412,7 +406,8 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
         throw new Error('There are not enough AI credits for this request.');
       }
       const run = await createAssistantRunOverWebSocket({
-        workspaceId: selectedSpaceId,
+        workspaceId: selectedSpaceId ?? undefined,
+        allSpaces: !selectedSpaceId,
         conversationId: conversationQuery.data?.conversationId,
         transcript: text,
         idempotencyKey: newCreditIdempotencyKey(),

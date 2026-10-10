@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -60,6 +61,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := strings.TrimSpace(r.Header.Get("X-Askolo-Workspace-ID"))
+	scopeValues, hasScope := r.URL.Query()["scope"]
+	allSpaces := false
+	if hasScope {
+		if len(scopeValues) != 1 || scopeValues[0] != "all" {
+			apierror.Write(w, r, http.StatusBadRequest, "INVALID_SCOPE", "A valid Space scope is required.")
+			return
+		}
+		if workspaceID != "" {
+			apierror.Write(w, r, http.StatusBadRequest, "INVALID_SCOPE", "The requested Space scope is ambiguous.")
+			return
+		}
+		allSpaces = true
+	}
 	queryWorkspaceIDs, hasQueryWorkspace := r.URL.Query()["workspaceId"]
 	if hasQueryWorkspace && len(queryWorkspaceIDs) != 1 {
 		apierror.Write(w, r, http.StatusBadRequest, "INVALID_WORKSPACE", "A single valid Space is required.")
@@ -78,6 +92,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		workspaceID = queryWorkspaceID
 	}
+	if allSpaces && hasQueryWorkspace {
+		apierror.Write(w, r, http.StatusBadRequest, "INVALID_SCOPE", "Choose either one Space or All Spaces.")
+		return
+	}
 	if workspaceID == "" {
 		workspaceID = postgres.DefaultWorkspaceID(userID)
 	}
@@ -87,23 +105,38 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	decision, err := h.store.Authorize(r.Context(), policy.Input{
-		ActorUserID: userID,
-		WorkspaceID: workspaceID,
-		Action:      policy.ActionWebSocketConnect,
-	})
-	if err != nil {
-		apierror.Write(w, r, http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "Authorization is temporarily unavailable.")
-		return
-	}
-	if !decision.Allowed {
-		_ = h.store.CreateSecurityEvent(r.Context(), userID, "authorization_denied", r.Header.Get("X-Request-ID"), map[string]any{
-			"workspace_id": workspaceID,
-			"action":       policy.ActionWebSocketConnect,
-			"reason":       decision.Reason,
+	if allSpaces {
+		allowed, err := h.authorizeAnySpace(r.Context(), userID, policy.ActionWebSocketConnect)
+		if err != nil {
+			apierror.Write(w, r, http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "Authorization is temporarily unavailable.")
+			return
+		}
+		if !allowed {
+			_ = h.store.CreateSecurityEvent(r.Context(), userID, "authorization_denied", r.Header.Get("X-Request-ID"), map[string]any{
+				"scope": "all", "action": policy.ActionWebSocketConnect, "reason": "no_authorized_space",
+			})
+			apierror.Write(w, r, http.StatusForbidden, "AUTHORIZATION_DENIED", "You are not allowed to use this connection.")
+			return
+		}
+	} else {
+		decision, err := h.store.Authorize(r.Context(), policy.Input{
+			ActorUserID: userID,
+			WorkspaceID: workspaceID,
+			Action:      policy.ActionWebSocketConnect,
 		})
-		apierror.Write(w, r, http.StatusForbidden, "AUTHORIZATION_DENIED", "You are not allowed to use this connection.")
-		return
+		if err != nil {
+			apierror.Write(w, r, http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "Authorization is temporarily unavailable.")
+			return
+		}
+		if !decision.Allowed {
+			_ = h.store.CreateSecurityEvent(r.Context(), userID, "authorization_denied", r.Header.Get("X-Request-ID"), map[string]any{
+				"workspace_id": workspaceID,
+				"action":       policy.ActionWebSocketConnect,
+				"reason":       decision.Reason,
+			})
+			apierror.Write(w, r, http.StatusForbidden, "AUTHORIZATION_DENIED", "You are not allowed to use this connection.")
+			return
+		}
 	}
 
 	if len(h.messageHMACSecret) < 32 {
@@ -115,7 +148,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, http.StatusServiceUnavailable, "WEBSOCKET_UNAVAILABLE", "The connection is temporarily unavailable.")
 		return
 	}
-	h.serveProtocol(w, r, userID, workspaceID, origin)
+	h.serveProtocol(w, r, userID, workspaceID, allSpaces, origin)
+}
+
+func (h *Handler) authorizeAnySpace(ctx context.Context, userID string, action policy.Action) (bool, error) {
+	workspaces, err := h.store.ListV2HomeWorkspaces(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, workspace := range workspaces {
+		decision, err := h.store.Authorize(ctx, policy.Input{
+			ActorUserID: userID, WorkspaceID: workspace.ID, Action: action,
+		})
+		if err != nil {
+			return false, err
+		}
+		if decision.Allowed {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (h *Handler) sessionUserID(r *http.Request) (string, int) {

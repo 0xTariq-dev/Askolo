@@ -512,6 +512,19 @@ func rejectedAssistantPlanOutcome(outcome postgres.AssistantPlanOutcome) postgre
 	return outcome
 }
 
+func rejectAllSpacesAssistantWrite(outcome postgres.AssistantPlanOutcome) postgres.AssistantPlanOutcome {
+	outcome.State = "rejected"
+	outcome.Intent = nil
+	outcome.IntentSHA256 = ""
+	outcome.RiskLevel = ""
+	outcome.RequiresConfirmation = false
+	outcome.ConfirmationExpires = nil
+	outcome.ToolArgsSHA256 = ""
+	outcome.Message = "Choose a specific Space before asking Agent to make changes. No action was taken."
+	outcome.AuditEvent = "intent_rejected"
+	return outcome
+}
+
 func assistantArgumentsEmpty(arguments json.RawMessage) bool {
 	if !isAssistantJSONObject(arguments) {
 		return false
