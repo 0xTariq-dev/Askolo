@@ -15,6 +15,12 @@ Keep lazy signed-in route Suspense boundaries inside the persistent app shell, s
 
 **How to apply:** Retain the outer fallback for initial shell startup, but place a smaller loading state around the authenticated page switch inside `SidebarAppLayout`.
 
+The signed-in primary navigation should center on Home, Agenda, Calendar, and Agent. Fold task-like views such as habits, chores, and action items into the Agenda experience instead of restoring the old one-link-per-feature sidebar.
+
+**Why:** The user expects the sidebar refactor to ship with the Home, Agenda, Calendar, and Agent migration; leaving the old entries in place makes the new experience look unfinished.
+
+**How to apply:** Update every signed-in shell's nav and command menu consistently, preserve legacy URLs only as compatibility routes, and send assistant drafts to the full Agent page rather than a floating panel.
+
 For ReUI example installs, dry-run the registry item and back up any app-owned files it will overwrite. If the `@reui` alias redirects to a canonical public registry JSON URL that the shadcn CLI rejects, install that exact JSON from a temporary local file. Preserve the user-selected variant instead of switching variants only to match the app's current primitives.
 
 **Why:** Registry redirects can fail in the CLI even when the free example is publicly downloadable, and a variant substitution changes the requested example.

@@ -73,8 +73,8 @@ msgstr "تعذرت مزامنة تفضيل اللغة. سيظل مفعّلًا �
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:24
-msgid "nav.dailyPlan"
-msgstr "الخطة اليومية"
+msgid "nav.agenda"
+msgstr "الأجندة"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts
@@ -83,8 +83,8 @@ msgstr "المساعد"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:21
-msgid "nav.dashboard"
-msgstr "لوحة التحكم"
+msgid "nav.home"
+msgstr "الرئيسية"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:58

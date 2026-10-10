@@ -2,20 +2,13 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   CalendarDays,
-  CheckCircle2,
   ChevronDown,
-  ClipboardList,
   LayoutDashboard,
   ListTodo,
   LogOut,
-  Mail,
   MoreHorizontal,
-  NotebookPen,
   MessageCircle,
-  Target,
   UserCircle,
-  WalletCards,
-  Zap,
 } from 'lucide-react';
 import logoUrl from '/logo.png';
 import { AssistantProvider } from '@/contexts/assistant-context';
@@ -26,7 +19,6 @@ import { useLocale } from '@/contexts/locale-context';
 import { useSpaceScope } from '@/contexts/space-context';
 import { useCreditBalance } from '@/hooks/use-credit-balance';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
-import { AssistantSidebar } from '@/components/assistant-sidebar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BalanceIndicator } from '@/components/credits/balance-indicator';
 import { CommandMenu } from '@/components/layout/command-menu';
@@ -62,16 +54,10 @@ import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const navigation = [
-  { href: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-  { href: '/habits', labelKey: 'nav.habits', icon: CheckCircle2 },
-  { href: '/goals', labelKey: 'nav.goals', icon: Target },
-  { href: '/plan', labelKey: 'nav.dailyPlan', icon: ListTodo },
-  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
+  { href: '/home', labelKey: 'nav.home', icon: LayoutDashboard },
+  { href: '/agenda', labelKey: 'nav.agenda', icon: ListTodo },
   { href: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
-  { href: '/chores', labelKey: 'nav.chores', icon: ClipboardList },
-  { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
-  { href: '/actions', labelKey: 'nav.actions', icon: Zap },
-  { href: '/email', labelKey: 'nav.email', icon: Mail },
+  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
 ] as const;
 
 function isCurrentRoute(location: string, href: string) {
@@ -224,7 +210,7 @@ function NavigationPanel({
       <SidebarHeader className="gap-3">
         <div className="flex items-center gap-2 px-2 pr-12 md:pr-2">
           <Link
-            href="/dashboard"
+            href="/home"
             className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             data-testid="link-brand-dashboard"
           >
@@ -406,7 +392,6 @@ function ShellFrame({ children }: { children: ReactNode }) {
         </div>
       </SidebarInset>
 
-      {location !== '/agent' && <AssistantSidebar />}
     </div>
   );
 }

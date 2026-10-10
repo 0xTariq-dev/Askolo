@@ -2,14 +2,9 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   LayoutDashboard,
-  CheckCircle2,
-  Target,
   ListTodo,
   Calendar,
-  ClipboardList,
-  StickyNote,
-  Zap,
-  Mail,
+  MessageCircle,
   LogOut,
   Menu,
   UserCircle,
@@ -29,7 +24,6 @@ import {
 import { AssistantProvider } from '@/contexts/assistant-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';
-import { AssistantSidebar } from '@/components/assistant-sidebar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BalanceIndicator } from '@/components/credits/balance-indicator';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
@@ -41,15 +35,10 @@ import { useAppAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
 
 const navItems = [
-  { href: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-  { href: '/habits', labelKey: 'nav.habits', icon: CheckCircle2 },
-  { href: '/goals', labelKey: 'nav.goals', icon: Target },
-  { href: '/plan', labelKey: 'nav.dailyPlan', icon: ListTodo },
+  { href: '/home', labelKey: 'nav.home', icon: LayoutDashboard },
+  { href: '/agenda', labelKey: 'nav.agenda', icon: ListTodo },
   { href: '/calendar', labelKey: 'nav.calendar', icon: Calendar },
-  { href: '/chores', labelKey: 'nav.chores', icon: ClipboardList },
-  { href: '/notes', labelKey: 'nav.notes', icon: StickyNote },
-  { href: '/actions', labelKey: 'nav.actions', icon: Zap },
-  { href: '/email', labelKey: 'nav.email', icon: Mail },
+  { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
   { href: '/credits', labelKey: 'nav.aiCredits', icon: WalletCards },
 ];
 
@@ -84,7 +73,7 @@ function NavigationPanel({
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-6">
         <Link
-          href="/dashboard"
+          href="/home"
           onClick={onNavigate}
           className="flex items-center gap-2 group"
         >
@@ -364,7 +353,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
             >
               <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
-            <Link href="/dashboard" className="flex items-center gap-2 group">
+            <Link href="/home" className="flex items-center gap-2 group">
               <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
               <span className="font-display text-xl font-bold tracking-tight transition-colors group-hover:text-primary">
                 Askolo
@@ -433,8 +422,6 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
         </footer>
       </main>
 
-      {/* Persistent AI assistant sidebar */}
-      <AssistantSidebar />
     </div>
   );
 }

@@ -73,8 +73,8 @@ msgstr "Could not sync your language preference. It is still applied on this dev
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:24
-msgid "nav.dailyPlan"
-msgstr "Daily Plan"
+msgid "nav.agenda"
+msgstr "Agenda"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts
@@ -83,8 +83,8 @@ msgstr "Agent"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:21
-msgid "nav.dashboard"
-msgstr "Dashboard"
+msgid "nav.home"
+msgstr "Home"
 
 #. js-lingui-explicit-id
 #: src/lib/messages.ts:58

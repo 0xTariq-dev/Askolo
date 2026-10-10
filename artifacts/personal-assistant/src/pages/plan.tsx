@@ -75,6 +75,7 @@ export function PlanPage() {
   const { selectedSpaceId, spaces } = useSpaceScope();
   const [, setLocation] = useLocation();
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [kindFilter, setKindFilter] = useState<'all' | PlanFormValues['kind']>('all');
   const [monthDate, setMonthDate] = useState(new Date());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -157,10 +158,13 @@ export function PlanPage() {
     date: task.occurrenceOn?.slice(0, 10) ?? task.dueOn?.slice(0, 10) ?? task.plannedStartAt?.slice(0, 10) ?? '',
     title: !selectedSpaceId && task.workspaceName ? `${task.workspaceName}: ${task.title}` : task.title,
     completed: task.status === 'done',
+    kind: task.kind,
     priority: (['high', 'medium', 'low'].includes(task.priority) ? task.priority : 'medium') as PlanFormValues['priority'],
     timeBlock: undefined,
   }));
-  const plans = taskItems.filter((task) => task.date === dateStr);
+  const plans = taskItems.filter((task) =>
+    task.date === dateStr && (kindFilter === 'all' || task.kind === kindFilter),
+  );
 
   const onSubmit = async (data: PlanFormValues) => {
     const workspaceId = selectedSpaceId ?? targetSpaceId;
@@ -280,7 +284,7 @@ export function PlanPage() {
             {isArabic ? 'مساحة يومك' : 'YOUR DAY, IN VIEW'}
           </p>
           <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-            {isArabic ? 'اليوم والخطة' : 'Today / Plan'}
+            {isArabic ? 'الأجندة' : 'Agenda'}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground md:text-base">
             {isArabic ? 'تقويم عائلتك وخطوات اليوم في مكان واحد.' : 'Your calendar and the next few steps, together.'}
@@ -361,6 +365,29 @@ export function PlanPage() {
                 <Plus className="me-1.5 size-4" />{isArabic ? 'إضافة' : 'Add'}
               </Button>
             </div>
+            <div
+              className="flex flex-wrap gap-2 px-4 pt-4"
+              role="group"
+              aria-label={isArabic ? 'تصفية المهام حسب النوع' : 'Filter agenda by task type'}
+            >
+              {(['all', 'action', 'chore', 'habit', 'commitment'] as const).map((kind) => {
+                const labels = isArabic
+                  ? { all: 'الكل', action: 'إجراءات', chore: 'أعمال منزلية', habit: 'عادات', commitment: 'التزامات' }
+                  : { all: 'All', action: 'Actions', chore: 'Chores', habit: 'Habits', commitment: 'Commitments' };
+                return (
+                  <Button
+                    key={kind}
+                    type="button"
+                    variant={kindFilter === kind ? 'default' : 'outline'}
+                    size="sm"
+                    aria-pressed={kindFilter === kind}
+                    onClick={() => setKindFilter(kind)}
+                  >
+                    {labels[kind]}
+                  </Button>
+                );
+              })}
+            </div>
             <div className="space-y-2 p-4">
               {loading ? (
                 Array.from({ length: 3 }, (_, index) => <div key={index} className="h-[68px] animate-pulse rounded-xl bg-muted" />)
@@ -440,8 +467,11 @@ export function PlanPage() {
               <Button onClick={() => void generateWithAI()} disabled={!notes.trim() || isGenerating || voiceIsBusy} className="flex-1">
                 <Sparkles className="me-2 size-4" />{isGenerating ? (isArabic ? 'جارٍ إعداد الخطة…' : 'Building your plan…') : (isArabic ? 'إنشاء خطة' : 'Generate plan')}
               </Button>
-              <Button type="button" variant="outline" disabled={!notes.trim() || isGenerating || voiceIsBusy} onClick={() => openWithDraft(notes.trim())}>
-                {isArabic ? 'اسأل المساعد' : 'Ask assistant'}
+              <Button type="button" variant="outline" disabled={!notes.trim() || isGenerating || voiceIsBusy} onClick={() => {
+                openWithDraft(notes.trim());
+                setLocation('/agent');
+              }}>
+                {isArabic ? 'اسأل الوكيل' : 'Ask Agent'}
               </Button>
             </div>
           </section>

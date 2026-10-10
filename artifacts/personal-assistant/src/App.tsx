@@ -151,12 +151,14 @@ function PublicSiteRoutes() {
 function AuthenticatedPageRoutes() {
   return (
     <Switch>
-      <Route path="/sign-in"><Redirect to="/dashboard" /></Route>
-      <Route path="/sign-up"><Redirect to="/dashboard" /></Route>
-      <Route path="/dashboard" component={DashboardPage} />
+      <Route path="/sign-in"><Redirect to="/home" /></Route>
+      <Route path="/sign-up"><Redirect to="/home" /></Route>
+      <Route path="/home" component={DashboardPage} />
+      <Route path="/dashboard"><Redirect to="/home" /></Route>
       <Route path="/habits" component={HabitsPage} />
       <Route path="/goals" component={GoalsPage} />
-      <Route path="/plan" component={PlanPage} />
+      <Route path="/agenda" component={PlanPage} />
+      <Route path="/plan"><Redirect to="/agenda" /></Route>
       <Route path="/calendar" component={CalendarPage} />
       <Route path="/chores" component={ChoresPage} />
       <Route path="/notes" component={NotesPage} />
