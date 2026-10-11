@@ -246,11 +246,11 @@ export function NotesPage() {
       </header>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="bg-card border border-border">
-          <TabsTrigger value="notes" className="gap-2">
+        <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl bg-muted/70 p-1">
+          <TabsTrigger value="notes" className="h-9 rounded-lg gap-2 text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
             <FileText className="h-4 w-4" /> My Notes
           </TabsTrigger>
-          <TabsTrigger value="meetings" className="gap-2">
+          <TabsTrigger value="meetings" className="h-9 rounded-lg gap-2 text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
             <Sparkles className="h-4 w-4" /> Meeting Intelligence
           </TabsTrigger>
         </TabsList>

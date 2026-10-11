@@ -147,8 +147,17 @@ function AccountMenu({
 function SpaceSelector() {
   const { locale } = useLocale();
   const { spaces, selectedSpaceId, setSelectedSpaceId, loading, error } = useSpaceScope();
+  const { user } = useAppAuth();
   const allSpacesLabel = locale === 'ar' ? 'كل المساحات' : 'All Spaces';
-  const selectedName = spaces.find((space) => space.id === selectedSpaceId)?.name ?? allSpacesLabel;
+  const accountName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
+    || user?.email?.split('@')[0]
+    || 'Personal';
+  const personalSpaceName = locale === 'ar' ? `مساحة ${accountName}` : `${accountName}'s space`;
+  const getSpaceName = (space: (typeof spaces)[number]) => space.isPersonal
+    ? personalSpaceName
+    : space.name.replace(/\s*workspace\b/ig, '').trim();
+  const selectedSpace = spaces.find((space) => space.id === selectedSpaceId);
+  const selectedName = selectedSpace ? getSpaceName(selectedSpace) : allSpacesLabel;
 
   return (
     <div className="px-2">
@@ -172,12 +181,7 @@ function SpaceSelector() {
           <DropdownMenuSeparator />
           {spaces.map((space) => (
             <DropdownMenuItem key={space.id} onSelect={() => setSelectedSpaceId(space.id)}>
-              <span className="min-w-0 truncate">{space.name}</span>
-              {space.isPersonal && (
-                <span className="ms-auto text-xs text-muted-foreground">
-                  {locale === 'ar' ? 'شخصي' : 'Personal'}
-                </span>
-              )}
+              <span className="min-w-0 truncate">{getSpaceName(space)}</span>
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

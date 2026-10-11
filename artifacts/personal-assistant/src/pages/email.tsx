@@ -61,7 +61,7 @@ function EmailPageHeader({
       }
     >
       <div>
-        <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Email Triage</h1>
+        <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Email</h1>
         <p className="text-muted-foreground mt-2 text-lg">
           {connected
             ? 'AI-prioritized inbox and one-click reply drafts.'
@@ -88,7 +88,7 @@ export function EmailPage() {
   const [tone, setTone] = useState('professional');
   const [replyOpen, setReplyOpen] = useState(false);
 
-  const { data: googleStatus, refetch: refetchGoogleStatus, isFetching: isCheckingStatus } = useGetGoogleStatus();
+  const { data: googleStatus, refetch: refetchGoogleStatus } = useGetGoogleStatus();
   const { data: messagesData, isLoading, error, refetch } = useListGmailMessages();
   const generateDraft = useGenerateGmailDraft();
   const sendMessage = useSendGmailMessage();
@@ -164,25 +164,17 @@ export function EmailPage() {
       <PageTransition surface={false} className="max-w-5xl mx-auto pb-10">
         <EmailPageHeader connected={false} />
 
-        <Card className="border border-border/60 bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-8 sm:p-12 text-center">
-            <div className="mx-auto h-20 w-20 rounded-2xl bg-primary/10 border border-border flex items-center justify-center mb-6 shadow-sm">
-              <img src={logoUrl} alt="Askolo" className="h-12 w-12 object-contain" />
-            </div>
-            <h2 className="text-2xl font-display font-semibold mb-3">Connect Gmail</h2>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Button size="lg" onClick={() => (window.location.href = GOOGLE_CONNECT_URL)} className="group">
-                <Mail className="mr-2 h-5 w-5" />
-                Connect Gmail
-                <ArrowRight className="ml-2 h-4 w-4 opacity-70 group-hover:translate-x-0.5 transition-transform" />
-              </Button>
-              <Button variant="outline" size="lg" onClick={() => refetchGoogleStatus()} disabled={isCheckingStatus}>
-                <RefreshCw className={cn('h-4 w-4 mr-2', isCheckingStatus && 'animate-spin')} />
-                Check connection
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <section className="flex flex-col items-center py-10 text-center">
+          <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-border bg-primary/10">
+            <img src={logoUrl} alt="" className="size-10 object-contain" />
+          </div>
+          <h2 className="mb-4 text-2xl font-display font-semibold">Connect Account</h2>
+          <Button size="lg" onClick={() => (window.location.href = GOOGLE_CONNECT_URL)} className="group">
+            <Mail className="mr-2 h-5 w-5" />
+            Connect Account
+            <ArrowRight className="ml-2 h-4 w-4 opacity-70 transition-transform group-hover:translate-x-0.5" />
+          </Button>
+        </section>
       </PageTransition>
     );
   }

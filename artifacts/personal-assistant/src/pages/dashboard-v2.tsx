@@ -1,6 +1,7 @@
 import { PageTransition } from '@/components/ui/page-transition';
 import { HomeV2Summary } from '@/components/dashboard/home-v2-summary';
 import { useLocale } from '@/contexts/locale-context';
+import { HomeAgentComposer } from '@/components/dashboard/home-agent-composer';
 
 export function DashboardPage() {
   const { locale } = useLocale();
@@ -8,10 +9,8 @@ export function DashboardPage() {
 
   return (
     <PageTransition surface={false} className="mx-auto flex w-full max-w-7xl flex-col gap-6 pb-10">
+      <HomeAgentComposer />
       <header className="border-b border-border pb-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-          {isArabic ? 'مساحة أسكولو' : 'ASKOLO HOME'}
-        </p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
           {isArabic ? 'نظرة على يومك' : 'Your day, at a glance'}
         </h1>

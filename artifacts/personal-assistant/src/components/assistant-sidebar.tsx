@@ -1138,7 +1138,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
               )}
               <Form {...form}>
                 <form onSubmit={form.handleSubmit((data) => onSubmit(data))}>
-                  <InputGroup className="h-14 rounded-full border-0 bg-transparent p-1.5 shadow-none dark:bg-transparent">
+                  <InputGroup className="h-14 rounded-full border border-border/60 bg-muted/70 p-1.5 shadow-none dark:bg-muted/40">
                   <FormField
                     control={form.control}
                     name="text"
@@ -1149,7 +1149,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                             placeholder="Write a message…"
                             aria-label="Message"
                             dir="auto"
-                            className="h-11 min-w-0 px-2 text-sm"
+                      className="h-11 min-w-0 px-2 text-sm"
                             {...field}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
@@ -1172,7 +1172,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                       variant="outline"
                       size="icon"
                       iconOnly
-                      className="size-10 shrink-0 rounded-full"
+                      className="h-9 w-9 shrink-0 rounded-full"
                       disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking || pendingActionId !== null}
                       data-testid="button-assistant-voice"
                     />
@@ -1180,7 +1180,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                   <InputGroupButton
                     type="button"
                     size="icon-sm"
-                    className={cn('size-10 rounded-full', assistantMode === 'voice-chat' && 'bg-primary/10 text-primary')}
+                    className={cn('h-9 w-9 rounded-full', assistantMode === 'voice-chat' && 'bg-primary/10 text-primary')}
                     aria-label={assistantMode === 'voice-chat' ? 'End Voice Chat' : 'Start Voice Chat'}
                     aria-pressed={assistantMode === 'voice-chat'}
                     disabled={voice.isBusy || voice.state === 'review' || liveCallActive}
@@ -1198,7 +1198,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                   <Button
                     type="submit"
                     size="icon"
-                    className="size-10 shrink-0 rounded-full"
+                    className="h-9 w-9 shrink-0 rounded-full"
                      disabled={isThinking || pendingActionId !== null || voice.isBusy}
                     aria-label="Send message"
                   >
