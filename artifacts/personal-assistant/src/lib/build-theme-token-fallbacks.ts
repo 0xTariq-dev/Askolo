@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { THEME_PRESETS, getThemeVariables, type ThemeId, type ThemeMode, type SurfaceStyleId } from './theme';
 
-const themeIds: ThemeId[] = ['blueHorizon', 'warmPaper'];
+const themeIds: ThemeId[] = ['blueHorizon', 'warmPaper', 'neutralMaia'];
 const modes: ThemeMode[] = ['light', 'dark'];
 const surfaceStyles: SurfaceStyleId[] = ['soft', 'tinted'];
 const blocks = themeIds.flatMap((themeId) =>

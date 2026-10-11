@@ -2,7 +2,7 @@ import { createContext, useContext, useLayoutEffect, useMemo, type ReactNode } f
 import designTokens from './askolo-design-tokens.json';
 
 export type ThemeMode = 'light' | 'dark';
-export type ThemeId = 'blueHorizon' | 'warmPaper';
+export type ThemeId = 'blueHorizon' | 'warmPaper' | 'neutralMaia';
 export type SurfaceStyleId = 'soft' | 'tinted';
 
 export interface ResolvedThemePreferences {
@@ -15,6 +15,15 @@ export interface ResolvedThemePreferences {
 type TokenColor = Record<string, { $value: string }>;
 interface SourceTheme {
   label: string;
+  description?: string;
+  appearance?: {
+    style: string;
+    radius: string;
+    fontFamily: string[];
+    iconLibrary: string;
+    menuColor: string;
+    menuAccent: string;
+  };
   light: TokenColor;
   dark: TokenColor;
   surfaceOptions: Record<ThemeMode, Record<SurfaceStyleId, TokenColor>>;
@@ -38,6 +47,8 @@ interface ThemeChartTokens {
 
 interface ThemePreset {
   label: string;
+  description: string;
+  appearance: NonNullable<SourceTheme['appearance']>;
   light: ThemeChartTokens;
   dark: ThemeChartTokens;
 }
@@ -88,8 +99,18 @@ function chartTokens(themeId: ThemeId, mode: ThemeMode): ThemeChartTokens {
 }
 
 function themePreset(themeId: ThemeId): ThemePreset {
+  const preset = source.themePresets[themeId];
   return {
-    label: source.themePresets[themeId].label,
+    label: preset.label,
+    description: preset.description ?? '',
+    appearance: preset.appearance ?? {
+      style: 'askolo',
+      radius: '0.875rem',
+      fontFamily: ['Cairo', 'sans-serif'],
+      iconLibrary: 'lucide',
+      menuColor: 'default',
+      menuAccent: 'subtle',
+    },
     light: chartTokens(themeId, 'light'),
     dark: chartTokens(themeId, 'dark'),
   };
@@ -98,10 +119,11 @@ function themePreset(themeId: ThemeId): ThemePreset {
 export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
   blueHorizon: themePreset('blueHorizon'),
   warmPaper: themePreset('warmPaper'),
+  neutralMaia: themePreset('neutralMaia'),
 };
 
 export const DEFAULT_THEME_PREFERENCES: ResolvedThemePreferences = {
-  accountThemeId: 'blueHorizon',
+  accountThemeId: 'neutralMaia',
   mode: 'dark',
   surfaceStyles: { light: 'soft', dark: 'soft' },
   spaceOverrides: {},
@@ -127,9 +149,9 @@ export function getThemeVariables(
   mode: ThemeMode,
   surfaceStyle: SurfaceStyleId,
 ): Record<string, string> {
-  const sharedColors = source.color[mode];
   const preset = source.themePresets[themeId];
-  const actionColors = preset[mode];
+  const sharedColors = { ...source.color[mode], ...preset[mode] };
+  const actionColors = { ...source.color[mode], ...preset[mode] };
   const surfaces = preset.surfaceOptions[mode][surfaceStyle];
   const color = (group: TokenColor, role: string) =>
     hexToHslChannels(readHexColor(group, role));
@@ -212,6 +234,14 @@ function applyTheme(value: ResolvedThemePreferences) {
   root.dataset.askoloTheme = value.accountThemeId;
   root.dataset.askoloMode = value.mode;
   root.dataset.askoloSurfaceStyle = value.surfaceStyles[value.mode];
+  const appearance = THEME_PRESETS[value.accountThemeId].appearance;
+  root.dataset.askoloStyle = appearance.style;
+  root.dataset.askoloIconLibrary = appearance.iconLibrary;
+  root.dataset.askoloMenuColor = appearance.menuColor;
+  root.dataset.askoloMenuAccent = appearance.menuAccent;
+  root.style.setProperty('--app-font-sans', appearance.fontFamily.join(', '));
+  root.style.setProperty('--app-font-display', appearance.fontFamily.join(', '));
+  root.style.setProperty('--radius', appearance.radius);
   for (const [name, token] of Object.entries(
     getThemeVariables(value.accountThemeId, value.mode, value.surfaceStyles[value.mode]),
   )) {

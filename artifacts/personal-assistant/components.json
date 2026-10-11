@@ -1,6 +1,6 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "new-york",
+  "style": "radix-maia",
   "rsc": false,
   "tsx": true,
   "tailwind": {
@@ -17,6 +17,10 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
+  "iconLibrary": "tabler",
+  "rtl": false,
+  "menuColor": "default-translucent",
+  "menuAccent": "subtle",
   "registries": {
     "@reui": "https://reui.io/r/{style}/{name}.json"
   }

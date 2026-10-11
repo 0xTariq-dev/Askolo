@@ -8,7 +8,7 @@ import {
   type ThemeMode,
 } from '@/lib/theme';
 
-const THEME_OPTIONS = ['blueHorizon', 'warmPaper'] as const satisfies readonly ThemeId[];
+const THEME_OPTIONS = ['blueHorizon', 'warmPaper', 'neutralMaia'] as const satisfies readonly ThemeId[];
 const MODES: readonly { id: ThemeMode; label: string }[] = [
   { id: 'light', label: 'Light' },
   { id: 'dark', label: 'Dark' },
@@ -24,8 +24,7 @@ export function ThemePresetSelector() {
       <header className="space-y-1">
         <h2 id="appearance-settings-title" className="text-base font-semibold">Appearance</h2>
         <p className="text-sm text-muted-foreground">
-          Choose a light or dark appearance and one of two color presets. Presets use shared
-          design tokens for backgrounds, accents, charts, and focus colors.
+          Presets control colors, typography, component style, radius, and icon library.
         </p>
       </header>
         <fieldset className="space-y-2">
@@ -48,11 +47,11 @@ export function ThemePresetSelector() {
         </fieldset>
 
         <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Color preset</legend>
+          <legend className="text-sm font-medium">Theme preset</legend>
           <div
             role="group"
             aria-label={`${mode === 'light' ? 'Light' : 'Dark'} color presets`}
-            className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+            className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
           >
             {THEME_OPTIONS.map((themeId) => {
               const preset = THEME_PRESETS[themeId];
@@ -61,7 +60,7 @@ export function ThemePresetSelector() {
               const previewStyle = {
                 backgroundColor: `hsl(${variables['--card']})`,
                 borderColor: `hsl(${variables['--border']})`,
-                color: 'hsl(var(--foreground))',
+                color: `hsl(${variables['--foreground']})`,
               };
               const accentStyle = {
                 backgroundColor: `hsl(${variables['--primary']})`,
@@ -87,6 +86,9 @@ export function ThemePresetSelector() {
                     </span>
                     <span className="mt-1 block text-xs text-muted-foreground">
                       {mode === 'light' ? 'Light' : 'Dark'} · {surfaceStyle === 'soft' ? 'Soft' : 'Tinted'} surfaces
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {preset.appearance.fontFamily[0]} · {preset.appearance.style} · {preset.appearance.iconLibrary} · {preset.appearance.radius} radius
                     </span>
                     <span className="mt-3 flex items-center justify-between gap-3">
                       <span className="text-xs">Accent preview</span>

@@ -26,3 +26,9 @@ For ReUI example installs, dry-run the registry item and back up any app-owned f
 **Why:** Registry redirects can fail in the CLI even when the free example is publicly downloadable, and a variant substitution changes the requested example.
 
 **How to apply:** Verify the resolved item name and variant before installation, inspect every overwrite, retain a recoverable temporary backup, and keep a reference-only example unconnected until its app-specific use is requested.
+
+ReUI MCP search is for component examples and icons, not opaque shadcn preset payloads. Resolve a preset code with the shadcn CLI; if an apply fails because an app-owned component is absent from the registry, preserve that component and retry without overwriting it.
+
+**Why:** ReUI component search does not decode preset codes, and a registry apply can fail on a custom component even when the preset itself is valid.
+
+**How to apply:** Keep the preset code and decoded appearance settings in the project's token source, back up any app-owned registry targets before CLI apply, and restore them immediately afterward.
