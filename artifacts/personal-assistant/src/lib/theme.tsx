@@ -2,7 +2,7 @@ import { createContext, useContext, useLayoutEffect, useMemo, type ReactNode } f
 import designTokens from './askolo-design-tokens.json';
 
 export type ThemeMode = 'light' | 'dark';
-export type ThemeId = 'blueHorizon' | 'warmPaper' | 'neutralMaia';
+export type ThemeId = 'blueHorizon' | 'warmPaper' | 'neutral';
 export type SurfaceStyleId = 'soft' | 'tinted';
 
 export interface ResolvedThemePreferences {
@@ -119,11 +119,11 @@ function themePreset(themeId: ThemeId): ThemePreset {
 export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
   blueHorizon: themePreset('blueHorizon'),
   warmPaper: themePreset('warmPaper'),
-  neutralMaia: themePreset('neutralMaia'),
+  neutral: themePreset('neutral'),
 };
 
 export const DEFAULT_THEME_PREFERENCES: ResolvedThemePreferences = {
-  accountThemeId: 'neutralMaia',
+  accountThemeId: 'neutral',
   mode: 'dark',
   surfaceStyles: { light: 'soft', dark: 'soft' },
   spaceOverrides: {},

@@ -110,7 +110,7 @@
     }
   },
   "themePresets": {
-    "$description": "Account-selectable presets pair semantic colors with coordinated surfaces and appearance settings in light and dark modes. Neutral Maia is the default preset. Theme foreground pairs meet WCAG AA contrast.",
+    "$description": "Account-selectable presets pair semantic colors with coordinated surfaces and appearance settings in light and dark modes. Neutral is the default preset. Theme foreground pairs meet WCAG AA contrast.",
     "openSpectrum": {
       "label": "Open Spectrum",
       "description": "Quiet teal accents with two coordinated light and dark surface treatments.",
@@ -316,6 +316,14 @@
     "warmPaper": {
       "label": "Warm Paper",
       "description": "Warm clay and ochre accents with two coordinated light and dark surface treatments.",
+      "appearance": {
+        "style": "radix-maia",
+        "radius": "1rem",
+        "fontFamily": ["Outfit Variable", "Cairo", "sans-serif"],
+        "iconLibrary": "tabler",
+        "menuColor": "default-translucent",
+        "menuAccent": "subtle"
+      },
       "surfaceOptions": {
         "$description": "Soft keeps the surface close to neutral; tinted gives the palette hue more presence.",
         "light": {
@@ -417,6 +425,14 @@
     "blueHorizon": {
       "label": "Blue Horizon",
       "description": "Clear blue accents, soft gold highlights, and two coordinated light and dark surface treatments.",
+      "appearance": {
+        "style": "radix-maia",
+        "radius": "1rem",
+        "fontFamily": ["Outfit Variable", "Cairo", "sans-serif"],
+        "iconLibrary": "tabler",
+        "menuColor": "default-translucent",
+        "menuAccent": "subtle"
+      },
       "surfaceOptions": {
         "$description": "Soft keeps the surface close to neutral; tinted gives the palette hue more presence.",
         "light": {
@@ -515,9 +531,9 @@
         "sidebarRing": { "$value": "#9CC4F3" }
       }
     },
-    "neutralMaia": {
-      "label": "Neutral Maia",
-      "description": "ReUI preset bbVKXqs: neutral colors, Outfit typography, Tabler icons, and a large radius.",
+    "neutral": {
+      "label": "Neutral",
+      "description": "Neutral surfaces with the shared Outfit, Tabler, Maia, and translucent-menu appearance.",
       "shadcnPreset": "bbVKXqs",
       "appearance": {
         "style": "radix-maia",

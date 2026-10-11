@@ -15,6 +15,12 @@ Sidebar tooltip triggers use Radix primitives and must remain beneath a `Tooltip
 
 **How to apply:** After replacing sidebar primitives, check provider ancestry for every `Tooltip` and verify left/right placement in LTR and RTL layouts.
 
+Theme preset IDs are persisted preferences, including per-space overrides. When renaming one, normalize legacy IDs in both the prepaint bootstrap and the preference loader.
+
+**Why:** Updating the visible preset list alone leaves saved IDs invalid during first paint or after app startup.
+
+**How to apply:** Keep the compatibility mapping until legacy stored values have aged out, and test both account-level and space-level saved selections.
+
 Keep lazy signed-in route Suspense boundaries inside the persistent app shell, so first-time page chunk loads replace only the content pane rather than the sidebar and whole screen.
 
 **Why:** A full-screen fallback on the first visit to an uncached lazy route can look like a browser reload even when Wouter performs client-side navigation.

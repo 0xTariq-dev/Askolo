@@ -19,17 +19,31 @@ function makeWindow(search = '') {
   return new Window({ url: `http://localhost/${search}` });
 }
 
-test('theme prepaint applies the dark Neutral Maia default before app startup', () => {
+test('theme prepaint applies the dark Neutral default before app startup', () => {
   const window = makeWindow();
   window.eval(themeBootstrap);
   const root = window.document.documentElement;
 
   assert.equal(root.classList.contains('dark'), true);
-  assert.equal(root.dataset.askoloTheme, 'neutralMaia');
+  assert.equal(root.dataset.askoloTheme, 'neutral');
   assert.equal(root.dataset.askoloStyle, 'radix-maia');
   assert.equal(root.dataset.askoloIconLibrary, 'tabler');
   assert.equal(root.dataset.askoloMode, 'dark');
   assert.equal(root.dataset.askoloSurfaceStyle, 'soft');
+  window.close();
+});
+
+test('theme prepaint migrates the saved Neutral Maia preset to Neutral', () => {
+  const window = makeWindow();
+  window.localStorage.setItem(
+    'askolo-theme-preferences',
+    JSON.stringify({ accountThemeId: 'neutralMaia', mode: 'dark' }),
+  );
+
+  window.eval(themeBootstrap);
+
+  assert.equal(window.document.documentElement.dataset.askoloTheme, 'neutral');
+  assert.equal(window.document.documentElement.dataset.askoloStyle, 'radix-maia');
   window.close();
 });
 
@@ -50,7 +64,7 @@ test('theme prepaint restores the saved palette, mode, and active surface', () =
   assert.equal(root.classList.contains('dark'), false);
   assert.equal(root.style.colorScheme, 'light');
   assert.equal(root.dataset.askoloTheme, 'warmPaper');
-  assert.equal(root.dataset.askoloIconLibrary, 'lucide');
+  assert.equal(root.dataset.askoloIconLibrary, 'tabler');
   assert.equal(root.dataset.askoloMode, 'light');
   assert.equal(root.dataset.askoloSurfaceStyle, 'tinted');
   window.close();

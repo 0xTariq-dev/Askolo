@@ -16,10 +16,11 @@
       : stored?.mode === 'light' || stored?.mode === 'dark'
         ? stored.mode
         : 'dark';
-  const allowedThemes = new Set(['blueHorizon', 'warmPaper', 'neutralMaia']);
-  const theme = allowedThemes.has(stored?.accountThemeId)
-    ? stored.accountThemeId
-    : 'neutralMaia';
+  const allowedThemes = new Set(['blueHorizon', 'warmPaper', 'neutral']);
+  const storedTheme = stored?.accountThemeId === 'neutralMaia'
+    ? 'neutral'
+    : stored?.accountThemeId;
+  const theme = allowedThemes.has(storedTheme) ? storedTheme : 'neutral';
   const surface =
     stored?.surfaceStyles?.[mode] === 'tinted' ? 'tinted' : 'soft';
 
@@ -28,23 +29,14 @@
   root.dataset.askoloTheme = theme;
   root.dataset.askoloMode = mode;
   root.dataset.askoloSurfaceStyle = surface;
-  const appearance = theme === 'neutralMaia'
-    ? {
-        style: 'radix-maia',
-        iconLibrary: 'tabler',
-        menuColor: 'default-translucent',
-        menuAccent: 'subtle',
-        fontFamily: 'Outfit Variable, Cairo, sans-serif',
-        radius: '1rem',
-      }
-    : {
-        style: 'askolo',
-        iconLibrary: 'lucide',
-        menuColor: 'default',
-        menuAccent: 'subtle',
-        fontFamily: 'Cairo, sans-serif',
-        radius: '0.875rem',
-      };
+  const appearance = {
+    style: 'radix-maia',
+    iconLibrary: 'tabler',
+    menuColor: 'default-translucent',
+    menuAccent: 'subtle',
+    fontFamily: 'Outfit Variable, Cairo, sans-serif',
+    radius: '1rem',
+  };
   root.dataset.askoloStyle = appearance.style;
   root.dataset.askoloIconLibrary = appearance.iconLibrary;
   root.dataset.askoloMenuColor = appearance.menuColor;

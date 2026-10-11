@@ -14,6 +14,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function normalizeThemeId(value: unknown): ThemeId | null {
+  if (value === 'neutralMaia') return 'neutral';
+  return isThemeId(value) ? value : null;
+}
+
 export function loadThemePreferences(): ResolvedThemePreferences {
   const defaults = DEFAULT_THEME_PREFERENCES;
   let stored: Record<string, unknown> = {};
@@ -35,15 +40,14 @@ export function loadThemePreferences(): ResolvedThemePreferences {
   const rawSpaceOverrides = isRecord(stored.spaceOverrides) ? stored.spaceOverrides : {};
   const spaceOverrides = Object.create(null) as Record<string, ThemeId>;
   for (const [spaceId, themeId] of Object.entries(rawSpaceOverrides)) {
-    if (spaceId.trim() && spaceId.length <= 128 && isThemeId(themeId)) {
-      spaceOverrides[spaceId] = themeId;
+    const normalizedThemeId = normalizeThemeId(themeId);
+    if (spaceId.trim() && spaceId.length <= 128 && normalizedThemeId) {
+      spaceOverrides[spaceId] = normalizedThemeId;
     }
   }
 
   return {
-    accountThemeId: isThemeId(stored.accountThemeId)
-      ? stored.accountThemeId
-      : defaults.accountThemeId,
+    accountThemeId: normalizeThemeId(stored.accountThemeId) ?? defaults.accountThemeId,
     mode: isThemeMode(queryMode)
       ? queryMode
       : isThemeMode(stored.mode)

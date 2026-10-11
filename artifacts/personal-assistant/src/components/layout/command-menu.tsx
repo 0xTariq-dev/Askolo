@@ -84,15 +84,15 @@ export function CommandMenu({
         className="shrink-0 gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         aria-label={
           ariaKeyshortcuts
-            ? `Open command menu (${shortcutLabel})`
-            : 'Open command menu'
+            ? `Open search (${shortcutLabel})`
+            : 'Open search'
         }
         aria-keyshortcuts={ariaKeyshortcuts}
         onClick={openFromCurrentFocus}
-        data-testid="open-command-menu"
+        data-testid="open-search"
       >
         <Search className="h-4 w-4" aria-hidden="true" />
-        <span>Commands</span>
+        <span>Search</span>
         {commandMenuShortcut !== 'disabled' && (
           <span
             aria-hidden="true"
@@ -106,7 +106,7 @@ export function CommandMenu({
       <CommandDialog
         open={open}
         onOpenChange={setOpen}
-        title="Askolo command menu"
+        title="Askolo search"
         description="Search available pages. Use the arrow keys to move, Enter to open a page, and Escape to close."
         onCloseAutoFocus={handleCloseAutoFocus}
       >

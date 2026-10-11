@@ -497,7 +497,7 @@ export function ProfilePage() {
             className="text-sm text-muted-foreground"
           >
             Current binding: {getCommandMenuShortcutLabel(commandMenuShortcut)}.
-            The Commands button remains available when the shortcut is disabled.
+            The Search button remains available when the shortcut is disabled.
           </p>
         </CardContent>
       </Card>

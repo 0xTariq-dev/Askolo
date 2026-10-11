@@ -1,18 +1,48 @@
-import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
+  isThemeId,
   getThemeVariables,
   THEME_PRESETS,
   useAskoloTheme,
   type ThemeId,
   type ThemeMode,
 } from '@/lib/theme';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
-const THEME_OPTIONS = ['blueHorizon', 'warmPaper', 'neutralMaia'] as const satisfies readonly ThemeId[];
+const THEME_OPTIONS = ['blueHorizon', 'warmPaper', 'neutral'] as const satisfies readonly ThemeId[];
 const MODES: readonly { id: ThemeMode; label: string }[] = [
   { id: 'light', label: 'Light' },
   { id: 'dark', label: 'Dark' },
 ];
+
+function PresetSwatches({
+  themeId,
+  mode,
+  surfaceStyle,
+}: {
+  themeId: ThemeId;
+  mode: ThemeMode;
+  surfaceStyle: 'soft' | 'tinted';
+}) {
+  const variables = getThemeVariables(themeId, mode, surfaceStyle);
+  return (
+    <span aria-hidden="true" className="flex shrink-0 -space-x-2">
+      {['--primary', '--accent', '--background', '--foreground'].map((token) => (
+        <span
+          key={token}
+          className="size-4 rounded-full border-2 border-popover shadow-sm"
+          style={{ backgroundColor: `hsl(${variables[token]})` }}
+        />
+      ))}
+    </span>
+  );
+}
 
 export function ThemePresetSelector() {
   const { preferences, setAccountTheme, setMode } = useAskoloTheme();
@@ -48,59 +78,33 @@ export function ThemePresetSelector() {
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Theme preset</legend>
-          <div
-            role="group"
-            aria-label={`${mode === 'light' ? 'Light' : 'Dark'} color presets`}
-            className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          <Select
+            value={preferences.accountThemeId}
+            onValueChange={(value) => {
+              if (isThemeId(value)) setAccountTheme(value);
+            }}
           >
-            {THEME_OPTIONS.map((themeId) => {
-              const preset = THEME_PRESETS[themeId];
-              const variables = getThemeVariables(themeId, mode, surfaceStyle);
-              const selected = preferences.accountThemeId === themeId;
-              const previewStyle = {
-                backgroundColor: `hsl(${variables['--card']})`,
-                borderColor: `hsl(${variables['--border']})`,
-                color: `hsl(${variables['--foreground']})`,
-              };
-              const accentStyle = {
-                backgroundColor: `hsl(${variables['--primary']})`,
-                color: `hsl(${variables['--primary-foreground']})`,
-              };
-
-              return (
-                <Button
+            <SelectTrigger id="theme-preset" aria-label="Theme preset" className="w-full max-w-md rounded-[var(--radius)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent
+              position="popper"
+              className="w-(--radix-select-trigger-width) max-w-[calc(100vw-2rem)] rounded-[var(--radius)]"
+            >
+              {THEME_OPTIONS.map((themeId) => (
+                <SelectItem
                   key={themeId}
-                  type="button"
-                  variant="outline"
-                  aria-label={`Use ${preset.label} in ${mode} mode`}
-                  aria-pressed={selected}
-                  onClick={() => setAccountTheme(themeId)}
-                  className={`h-auto min-h-0 w-full justify-start whitespace-normal rounded-xl p-1 text-left motion-reduce:transition-none ${
-                    selected ? 'border-primary ring-2 ring-primary/30' : ''
-                  }`}
+                  value={themeId}
+                  className="rounded-[calc(var(--radius)*0.7)] py-2.5"
                 >
-                  <span className="block w-full rounded-lg border p-3" style={previewStyle}>
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{preset.label}</span>
-                      {selected && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
-                    </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {mode === 'light' ? 'Light' : 'Dark'} · {surfaceStyle === 'soft' ? 'Soft' : 'Tinted'} surfaces
-                    </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {preset.appearance.fontFamily[0]} · {preset.appearance.style} · {preset.appearance.iconLibrary} · {preset.appearance.radius} radius
-                    </span>
-                    <span className="mt-3 flex items-center justify-between gap-3">
-                      <span className="text-xs">Accent preview</span>
-                      <span className="rounded-md px-2 py-1 text-xs font-medium" style={accentStyle}>
-                        Add a task
-                      </span>
-                    </span>
+                  <span className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                    <span className="truncate font-medium">{THEME_PRESETS[themeId].label}</span>
+                    <PresetSwatches themeId={themeId} mode={mode} surfaceStyle={surfaceStyle} />
                   </span>
-                </Button>
-              );
-            })}
-          </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </fieldset>
     </section>
   );
