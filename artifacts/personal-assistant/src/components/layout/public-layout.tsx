@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { Moon, Puzzle, Sparkles, Sun } from 'lucide-react';
 import { ExpandedTabsNav } from '@/components/layout/expanded-tabs-nav';
 import { SiteOriginLink } from '@/components/layout/site-origin-link';
-import logoUrl from '/logo.png';
+import { BrandMark } from '@/components/brand-mark';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
 import { useLocale } from '@/contexts/locale-context';
@@ -44,7 +44,7 @@ export function PublicLayout({
       <header className="sticky top-0 z-50 w-full px-3 pt-3">
         <div className="mx-auto flex h-20 w-full max-w-6xl items-center justify-between rounded-full border border-border/60 bg-background/35 px-4 shadow-sm backdrop-blur-md sm:px-6 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
           <Link href="/" aria-label="Askolo" className="group flex shrink-0 items-center justify-self-start">
-            <img src={logoUrl} alt="Askolo" width={64} height={64} className="h-10 w-auto object-contain" />
+            <BrandMark className="size-10" />
           </Link>
           <ExpandedTabsNav
             ariaLabel="Page sections"
@@ -108,7 +108,7 @@ export function PublicLayout({
       <footer className="relative z-10 mt-auto border-t border-border/60 bg-background/35 py-8 shadow-sm backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row gap-4 sm:gap-6 justify-between items-center text-sm text-muted-foreground">
           <div className="flex items-center gap-3">
-            <img src={logoUrl} alt="" width={64} height={64} className="h-8 w-auto object-contain" />
+            <BrandMark className="size-8" decorative />
             <span>© {new Date().getFullYear()} Askolo</span>
             <span aria-label="Build provenance" className="text-xs opacity-70">
               {provenanceLabel()}

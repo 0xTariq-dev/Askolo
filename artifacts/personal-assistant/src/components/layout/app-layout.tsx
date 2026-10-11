@@ -30,7 +30,7 @@ import { BalanceIndicator } from '@/components/credits/balance-indicator';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
 import { useCreditBalance } from '@/hooks/use-credit-balance';
 import { useIsMobile } from '@/hooks/use-mobile';
-import logoUrl from '/logo.png';
+import { BrandMark } from '@/components/brand-mark';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { useAppAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
@@ -79,7 +79,7 @@ function NavigationPanel({
           onClick={onNavigate}
           className="flex items-center gap-2 group"
         >
-          <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
+          <BrandMark className="size-7" />
           <span className="font-display text-xl font-bold tracking-tight text-sidebar-foreground">
             Askolo
           </span>
@@ -387,7 +387,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
               <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
             <Link href="/home" className="flex items-center gap-2 group">
-              <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
+              <BrandMark className="size-7" />
               <span className="font-display text-xl font-bold tracking-tight transition-colors group-hover:text-primary">
                 Askolo
               </span>

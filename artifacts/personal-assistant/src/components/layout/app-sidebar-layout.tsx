@@ -11,7 +11,7 @@ import {
   NotebookPen,
   UserCircle,
 } from 'lucide-react';
-import logoUrl from '/logo.png';
+import { BrandMark } from '@/components/brand-mark';
 import { AssistantProvider } from '@/contexts/assistant-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';
@@ -222,7 +222,7 @@ function NavigationPanel({
             className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             data-testid="link-brand-dashboard"
           >
-            <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
+            <BrandMark className="size-7" />
             <span className="truncate font-display text-xl font-bold tracking-tight">Askolo</span>
           </Link>
         </div>

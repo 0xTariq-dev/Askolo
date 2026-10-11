@@ -20,7 +20,7 @@ import { AskoloTunnelConcept } from '@/components/hero-animation/AskoloTunnelCon
 import { useAskoloTheme } from '@/lib/theme';
 import { PublicLayout } from '@/components/layout/public-layout';
 import { BrandSloganReveal } from '@/components/landing/brand-slogan';
-import logoUrl from '/logo.png';
+import { BrandMark } from '@/components/brand-mark';
 import { toAppUrl } from '@/lib/site-domains';
 import { setPageMetadata } from '@/lib/seo';
 
@@ -126,15 +126,9 @@ export function LandingPage() {
               initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
-              className="mb-5 h-40 w-auto sm:h-44"
+              className="mb-5 size-40 sm:size-44"
             >
-              <img
-                src={logoUrl}
-                alt=""
-                width={64}
-                height={64}
-                className="h-full w-auto object-contain drop-shadow-2xl"
-              />
+              <BrandMark className="size-full drop-shadow-2xl" decorative />
             </motion.div>
 
             <BrandSloganReveal />

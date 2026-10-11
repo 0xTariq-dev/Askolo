@@ -73,4 +73,5 @@
 - [Azure assistant speech privacy](azure-assistant-speech-output.md) — Azure semi-live replies complement AssemblyAI live mode and require independent consent and owner-scoped stored responses.
 - [Askolo planning model](askolo-planning-model.md) — unify chores, habits, recurring commitments, and action items as tasks; plans link tasks, goals stay contextual, calendar events remain events, reminders wait for automation.
 - [Space-centric product scope](workspace-first-product-scope.md) — use Spaces and Home in product UI; support family and professional Spaces, with explicit Agent scope.
+- [Askolo mark colors](askolo-mark-colors.md) — the user finds the fixed teal mark off; use the active theme in the UI and neutral static browser/home-screen icons.
 
