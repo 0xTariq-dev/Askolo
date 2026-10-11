@@ -234,6 +234,25 @@ function applyTheme(value: ResolvedThemePreferences) {
   root.dataset.askoloTheme = value.accountThemeId;
   root.dataset.askoloMode = value.mode;
   root.dataset.askoloSurfaceStyle = value.surfaceStyles[value.mode];
+  const logoPrimary = readHexColor(source.themePresets[value.accountThemeId][value.mode], 'primary');
+  const logoFilter =
+    value.accountThemeId === 'neutral'
+      ? 'grayscale(1)'
+      : (() => {
+          const logoHue = Number(hexToHslChannels(logoPrimary).split(' ')[0]);
+          const logoHueRotation = ((logoHue - 189 + 540) % 360) - 180;
+          return `hue-rotate(${logoHueRotation}deg)`;
+        })();
+  root.style.setProperty('--askolo-brand-logo-filter', logoFilter);
+  const iconSuffix = `${value.accountThemeId}-${value.mode}`;
+  root.querySelector<HTMLLinkElement>('link[rel="icon"]')?.setAttribute(
+    'href',
+    `/favicon-${iconSuffix}.png`,
+  );
+  root.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')?.setAttribute(
+    'href',
+    `/apple-touch-icon-${iconSuffix}.png`,
+  );
   const appearance = THEME_PRESETS[value.accountThemeId].appearance;
   root.dataset.askoloStyle = appearance.style;
   root.dataset.askoloIconLibrary = appearance.iconLibrary;

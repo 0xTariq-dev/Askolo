@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "tsx src/lib/build-theme-token-fallbacks.ts",
+    "predev": "tsx src/lib/build-theme-token-fallbacks.ts && tsx src/lib/generate-brand-icons.ts",
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
-    "prebuild": "tsx src/lib/build-theme-token-fallbacks.ts",
+    "prebuild": "tsx src/lib/build-theme-token-fallbacks.ts && tsx src/lib/generate-brand-icons.ts",
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "test": "tsx --test src/lib/*.test.mjs src/lib/*.test.ts",

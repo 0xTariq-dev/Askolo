@@ -73,13 +73,13 @@ function NavigationPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-6">
+      <div className="askolo-brand-header flex h-16 shrink-0 items-center justify-between border-b border-border px-6">
         <Link
           href="/home"
           onClick={onNavigate}
           className="flex items-center gap-2 group"
         >
-          <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
+          <img src={logoUrl} alt="Askolo" className="askolo-brand-logo h-7 w-auto object-contain" />
           <span className="font-display text-xl font-bold tracking-tight text-sidebar-foreground">
             Askolo
           </span>
@@ -373,7 +373,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
       >
         {/* Mobile header */}
-        <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 md:hidden">
+        <header className="askolo-brand-header relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 md:hidden">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -387,7 +387,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
               <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
             <Link href="/home" className="flex items-center gap-2 group">
-              <img src={logoUrl} alt="Askolo" className="h-7 w-auto object-contain" />
+              <img src={logoUrl} alt="Askolo" className="askolo-brand-logo h-7 w-auto object-contain" />
               <span className="font-display text-xl font-bold tracking-tight transition-colors group-hover:text-primary">
                 Askolo
               </span>
@@ -406,7 +406,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
         <div className="relative flex-1 overflow-y-auto bg-background">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/10 via-primary/5 to-transparent" />
           <div className="relative flex min-h-full flex-col">
-            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border/60 bg-background/80 px-4 py-5 backdrop-blur-md md:px-8">
+            <header className="askolo-brand-header flex shrink-0 items-center justify-between gap-4 border-b border-border/60 bg-background/80 px-4 py-5 backdrop-blur-md md:px-8">
               <div>
                  <p className="text-xs font-medium uppercase tracking-wider text-primary">{t('app.workspace')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">

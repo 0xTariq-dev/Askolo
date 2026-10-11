@@ -453,7 +453,7 @@ export function LoginPage() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-br from-primary/15 via-primary/5 to-transparent" />
       <section dir="auto" lang="en" className="relative hidden flex-col justify-between border-e border-border/60 p-10 lg:flex xl:p-16" aria-label="Askolo overview">
         <div className="flex items-center gap-4">
-          <img src={logoUrl} alt="" width={64} height={64} className="h-16 w-16 object-contain" />
+          <img src={logoUrl} alt="" width={64} height={64} className="askolo-brand-logo h-16 w-16 object-contain" />
           <span className="font-display text-2xl font-semibold tracking-tight">Askolo</span>
         </div>
         <div className="max-w-xl">
@@ -484,7 +484,7 @@ export function LoginPage() {
         className="relative z-10 flex w-full flex-col items-center justify-center px-4 py-10 text-center sm:px-8 lg:min-h-dvh"
       >
         <div className="mb-10 flex items-center gap-4 lg:hidden">
-          <img src={logoUrl} alt="" width={64} height={64} className="h-14 w-14 object-contain" />
+          <img src={logoUrl} alt="" width={64} height={64} className="askolo-brand-logo h-14 w-14 object-contain" />
           <span className="font-display text-2xl font-semibold tracking-tight">Askolo</span>
         </div>
 

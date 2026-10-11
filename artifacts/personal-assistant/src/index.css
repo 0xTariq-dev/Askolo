@@ -7,6 +7,19 @@
 @import "@fontsource-variable/outfit";
 @plugin '@tailwindcss/typography';
 
+.askolo-brand-logo {
+  filter: var(--askolo-brand-logo-filter, grayscale(1));
+}
+
+:root[data-askolo-theme="neutral"] .askolo-brand-header {
+  background-color: color-mix(
+    in srgb,
+    hsl(var(--primary)) 18%,
+    hsl(var(--background)) 82%
+  );
+  border-color: color-mix(in srgb, hsl(var(--primary)) 42%, hsl(var(--border)));
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
