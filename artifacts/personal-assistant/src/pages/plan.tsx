@@ -288,12 +288,12 @@ export function PlanPage() {
 
       <Tabs value={activeAgendaTab} onValueChange={setActiveAgendaTab} className="min-w-0">
         <TabsList
-          className="grid h-10 w-full grid-cols-3 items-center overflow-hidden rounded-[14px] border border-border/60 bg-muted/70 p-1"
+          className="grid !h-10 w-full grid-cols-3 items-center overflow-hidden rounded-[14px] border border-border/60 bg-muted/70 !p-1"
           aria-label={isArabic ? 'أقسام الأجندة' : 'Agenda sections'}
         >
           <TabsTrigger
             value="calendar"
-            className="h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
+            className="!h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
           >
             <CalendarDays className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{isArabic ? 'التقويم' : 'Calendar'}</span>
@@ -301,7 +301,7 @@ export function PlanPage() {
           </TabsTrigger>
           <TabsTrigger
             value="goals"
-            className="h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
+            className="!h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
           >
             <Target className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{isArabic ? 'الأهداف' : 'Goals'}</span>
@@ -309,7 +309,7 @@ export function PlanPage() {
           </TabsTrigger>
           <TabsTrigger
             value="tasks"
-            className="h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
+            className="!h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
           >
             <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{isArabic ? 'المهام' : 'Tasks'}</span>
