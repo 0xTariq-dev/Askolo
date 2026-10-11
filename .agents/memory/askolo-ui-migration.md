@@ -9,6 +9,12 @@ Treat shared component adoption as both a visual and behavior migration. Follow 
 
 **How to apply:** For UI-wide changes, audit every route for remaining legacy palette styles and demo content, preserve behavior-sensitive props, check the design-system API, and verify keyboard/accessibility and responsive behavior.
 
+Sidebar tooltip triggers use Radix primitives and must remain beneath a `TooltipProvider`; keep the provider around the shell-level sidebar and choose outward tooltip placement for the active text direction.
+
+**Why:** Registry replacements can preserve the tooltip trigger components while dropping their provider, causing a runtime error on pages that render the sidebar.
+
+**How to apply:** After replacing sidebar primitives, check provider ancestry for every `Tooltip` and verify left/right placement in LTR and RTL layouts.
+
 Keep lazy signed-in route Suspense boundaries inside the persistent app shell, so first-time page chunk loads replace only the content pane rather than the sidebar and whole screen.
 
 **Why:** A full-screen fallback on the first visit to an uncached lazy route can look like a browser reload even when Wouter performs client-side navigation.
