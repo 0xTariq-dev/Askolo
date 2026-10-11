@@ -86,7 +86,7 @@ function AccountMenu({
   initials: string;
   onSignOut: () => void;
 }) {
-  const { direction, t } = useLocale();
+  const { t } = useLocale();
 
   return (
     <SidebarMenu>
@@ -117,7 +117,7 @@ function AccountMenu({
               <MoreHorizontal className="ms-auto size-4 opacity-60" aria-hidden="true" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side={direction === 'rtl' ? 'left' : 'right'} align="end">
+          <DropdownMenuContent side="top" align="end">
             <DropdownMenuGroup>
               <DropdownMenuLabel>
                 <bdi dir="auto">{displayName}</bdi>
