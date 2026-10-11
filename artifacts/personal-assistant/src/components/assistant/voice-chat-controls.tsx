@@ -47,7 +47,7 @@ export function VoiceChatControls({
     (starting
       ? 'Requesting microphone permission'
       : speaking
-        ? 'Askolo is speaking'
+        ? 'Assistant is speaking'
         : active
           ? muted
             ? 'Listening is paused'
@@ -108,19 +108,6 @@ export function VoiceChatControls({
           </div>
         </header>
 
-        <div className="rounded-lg border border-border/80 bg-muted/25 px-3.5 py-3">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {active && muted
-              ? 'The microphone is muted. Askolo will not receive voice audio until you unmute.'
-              : active
-                ? 'Speech is detected locally. AssemblyAI handles one utterance at a time; recognized text is sent to chat without transcript review. You can interrupt spoken replies.'
-                : 'Listening starts locally on this device. AssemblyAI connects after speech is detected and closes its session after each utterance. Recognized speech is sent to chat without a review step.'}
-          </p>
-          <p className="mt-1.5 text-[11px] font-medium text-muted-foreground/85">
-            A separate mode from Normal Chat and Live Calls.
-          </p>
-        </div>
-
         {error && (
           <p
             className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive"
@@ -172,7 +159,7 @@ export function VoiceChatControls({
                   variant="outline"
                   onClick={onInterrupt}
                   className="min-h-11 w-full border-primary/30 text-primary hover:bg-primary/5 sm:w-auto"
-                  aria-label="Interrupt Askolo's spoken reply"
+                aria-label="Interrupt the assistant's spoken reply"
                   data-testid="button-interrupt-voice-reply"
                 >
                   <AudioLines className="size-4" aria-hidden="true" />
@@ -239,7 +226,7 @@ export function VoiceChatControls({
               data-testid="button-switch-to-normal-chat"
             >
               <MessageSquareText className="size-4" aria-hidden="true" />
-              Switch to Normal Chat
+              Return to chat
             </Button>
           </div>
         )}

@@ -3,16 +3,13 @@ import { Link, useLocation } from 'wouter';
 import {
   LayoutDashboard,
   ListTodo,
-  Calendar,
   MessageCircle,
   Mail,
   MoreHorizontal,
   NotebookPen,
-  Target,
   LogOut,
   Menu,
   UserCircle,
-  WalletCards,
 } from 'lucide-react';
 import { CommandMenu } from '@/components/layout/command-menu';
 import { SiteOriginLink } from '@/components/layout/site-origin-link';
@@ -42,14 +39,10 @@ const navItems = [
   { href: '/home', labelKey: 'nav.home', icon: LayoutDashboard },
   { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
   { href: '/agenda', labelKey: 'nav.agenda', icon: ListTodo },
-  { href: '/calendar', labelKey: 'nav.calendar', icon: Calendar },
+  { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
   { href: '/email', labelKey: 'nav.email', icon: Mail },
 ];
-const moreItems = [
-  { href: '/goals', labelKey: 'nav.goals', icon: Target },
-  { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
-  { href: '/credits', labelKey: 'nav.aiCredits', icon: WalletCards },
-];
+const moreItems: typeof navItems[number][] = [];
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 const MOBILE_SWIPE_THRESHOLD = 64;
@@ -132,7 +125,7 @@ function NavigationPanel({
             </Link>
           );
         })}
-        <details className="group">
+        {moreItems.length > 0 && <details className="group">
           <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md px-3 py-3 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
             <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
             {t('nav.more')}
@@ -162,7 +155,7 @@ function NavigationPanel({
               );
             })}
           </div>
-        </details>
+        </details>}
       </nav>
 
       <div className="shrink-0 border-t border-border bg-sidebar p-4">

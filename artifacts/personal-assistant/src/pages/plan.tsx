@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -17,7 +16,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  useListEvents,
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
   getGetTranscriptionPreferencesQueryKey,
@@ -39,8 +37,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
-import { MonthGrid } from '@/components/calendar/month-grid';
-import type { DailyPlan as CalendarPlan } from '@/components/calendar/types';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import {
   VoiceCaptureButton,
@@ -53,6 +49,9 @@ import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { cn } from '@/lib/utils';
 import { VoiceAgentControls } from '@/components/voice-agent-controls';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
+import { AgendaCalendar } from '@/components/agenda-calendar';
+import { GoalsPage } from '@/pages/goals';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const planSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -87,6 +86,7 @@ export function PlanPage() {
   const [agendaReloadKey, setAgendaReloadKey] = useState(0);
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [targetSpaceId, setTargetSpaceId] = useState('');
+  const [activeAgendaTab, setActiveAgendaTab] = useState('calendar');
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [consentSaving, setConsentSaving] = useState(false);
@@ -97,10 +97,6 @@ export function PlanPage() {
   const monthEnd = endOfMonth(monthDate);
   const from = format(startOfWeek(monthStart, { weekStartsOn }), 'yyyy-MM-dd');
   const to = format(endOfWeek(monthEnd, { weekStartsOn }), 'yyyy-MM-dd');
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
-
-  const eventsQuery = useListEvents({ from, to });
-  const events = eventsQuery.data ?? [];
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const voice = useVoiceTranscription();
@@ -141,7 +137,6 @@ export function PlanPage() {
 
   const reloadData = () => {
     setAgendaReloadKey((value) => value + 1);
-    void eventsQuery.refetch();
   };
 
   const openAdd = () => {
@@ -259,21 +254,15 @@ export function PlanPage() {
     }
   };
 
-  const calendarPlans: CalendarPlan[] = taskItems.map(({ id, date, title, completed, priority }) => ({
-    id, date, title, completed, priority,
-  }));
-  const completionsByDate = new Map<string, Set<number>>();
-  const calendarHabits: [] = [];
   const sortedPlans = [...plans].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
     const rank = { high: 0, medium: 1, low: 2 };
     return rank[a.priority] - rank[b.priority];
   });
-  const loading = agendaLoading || eventsQuery.isLoading;
-  const hasError = Boolean(agendaError) || eventsQuery.isError;
+  const loading = agendaLoading;
+  const hasError = Boolean(agendaError);
   const completedCount = sortedPlans.filter((item) => item.completed).length;
   const formattedSelectedDate = formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' });
-  const currentMonthLabel = formatDate(monthDate, { month: 'long', year: 'numeric' });
   const isArabic = locale === 'ar';
 
   return (
@@ -293,6 +282,19 @@ export function PlanPage() {
         <div className="w-full lg:max-w-md"><VoiceAgentControls /></div>
       </header>
 
+      <Tabs value={activeAgendaTab} onValueChange={setActiveAgendaTab} className="min-w-0">
+        <TabsList className="grid h-11 w-full grid-cols-3 sm:w-[420px]" aria-label={isArabic ? 'أقسام الأجندة' : 'Agenda sections'}>
+          <TabsTrigger value="calendar">{isArabic ? 'التقويم' : 'Calendar'}</TabsTrigger>
+          <TabsTrigger value="goals">{isArabic ? 'الأهداف' : 'Goals'}</TabsTrigger>
+          <TabsTrigger value="tasks">{isArabic ? 'المهام' : 'Tasks'}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="calendar" className="mt-5 min-w-0">
+          <AgendaCalendar />
+        </TabsContent>
+        <TabsContent value="goals" className="mt-5 min-w-0">
+          <GoalsPage />
+        </TabsContent>
+        <TabsContent value="tasks" className="mt-5 min-w-0">
       {hasError && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3" role="alert">
           <p className="text-sm text-destructive">{agendaError ?? (isArabic ? 'تعذر تحميل بعض بيانات الخطة.' : 'Some plan data could not be loaded.')}</p>
@@ -300,57 +302,39 @@ export function PlanPage() {
         </div>
       )}
 
-      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm" aria-label={isArabic ? 'تقويم الشهر' : 'Month calendar'}>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-4 md:px-6">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{isArabic ? 'التقويم' : 'CALENDAR'}</p>
-              <h2 className="mt-1 font-display text-xl font-semibold">{currentMonthLabel}</h2>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" aria-label={isArabic ? 'الشهر السابق' : 'Previous month'} onClick={() => setMonthDate((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>
-                <ChevronLeft className="size-4 rtl:rotate-180" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => { const now = new Date(); setSelectedDate(now); setMonthDate(now); }}>
-                {isArabic ? 'اليوم' : 'Today'}
-              </Button>
-              <Button variant="ghost" size="icon" aria-label={isArabic ? 'الشهر التالي' : 'Next month'} onClick={() => setMonthDate((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>
-                <ChevronRight className="size-4 rtl:rotate-180" />
-              </Button>
-            </div>
+      <div className="flex min-w-0 flex-col gap-4">
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/80 bg-card px-4 py-3" aria-label={isArabic ? 'اختيار يوم المهام' : 'Choose task date'}>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" aria-label={isArabic ? 'اليوم السابق' : 'Previous day'} onClick={() => setSelectedDate((date) => {
+              const next = new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1);
+              setMonthDate(next);
+              return next;
+            })}>
+              <ChevronLeft className="size-4 rtl:rotate-180" />
+            </Button>
+            <h2 className="min-w-[180px] text-center font-display text-lg font-semibold">{formattedSelectedDate}</h2>
+            <Button variant="ghost" size="icon" aria-label={isArabic ? 'اليوم التالي' : 'Next day'} onClick={() => setSelectedDate((date) => {
+              const next = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+              setMonthDate(next);
+              return next;
+            })}>
+              <ChevronRight className="size-4 rtl:rotate-180" />
+            </Button>
           </div>
-          <div className="relative overflow-x-auto">
-            {loading ? (
-              <div className="grid grid-cols-7 gap-px bg-border p-px">
-                {Array.from({ length: 35 }, (_, index) => <div key={index} className="min-h-20 animate-pulse bg-card sm:min-h-24" />)}
-              </div>
-            ) : (
-              <div className="min-w-[320px]">
-                <MonthGrid
-                  currentDate={monthDate}
-                  events={events}
-                  plans={calendarPlans}
-                  habits={calendarHabits}
-                  completionsByDate={completionsByDate}
-                  todayStr={todayStr}
-                  selectedDateStr={dateStr}
-                  onEventClick={(event) => {
-                    const day = new Date(`${event.startDate}T12:00:00`);
-                    setSelectedDate(day);
-                    setMonthDate(day);
-                  }}
-                  onDayClick={(day) => { setSelectedDate(day); setMonthDate(day); }}
-                />
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/70 px-4 py-3 text-xs text-muted-foreground md:px-6">
-            <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-primary" />{isArabic ? 'اليوم المحدد' : 'Selected day'}</span>
-            <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-3.5" />{isArabic ? 'الأحداث' : 'Events'}</span>
-            <span className="inline-flex items-center gap-1.5"><Check className="size-3.5" />{isArabic ? 'العادات' : 'Habits'}</span>
+          <div className="flex items-center gap-2">
+            <Input aria-label={isArabic ? 'اختر تاريخ المهام' : 'Select task date'} type="date" value={dateStr} onChange={(event) => {
+              if (!event.target.value) return;
+              const next = new Date(`${event.target.value}T12:00:00`);
+              setSelectedDate(next);
+              setMonthDate(next);
+            }} className="w-auto" />
+            <Button variant="outline" size="sm" onClick={() => {
+              const today = new Date();
+              setSelectedDate(today);
+              setMonthDate(today);
+            }}>{isArabic ? 'اليوم' : 'Today'}</Button>
           </div>
         </section>
-
         <aside className="flex min-w-0 flex-col gap-4">
           <section className="rounded-2xl border border-border bg-card shadow-sm">
             <div className="flex items-start justify-between gap-3 border-b border-border/70 px-5 py-4">
@@ -477,6 +461,8 @@ export function PlanPage() {
           </section>
         </aside>
       </div>
+        </TabsContent>
+      </Tabs>
 
       <VoiceConsentDialog open={consentOpen} onOpenChange={setConsentOpen} onConfirm={() => void saveVoiceConsent()} saving={consentSaving} error={consentError} />
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

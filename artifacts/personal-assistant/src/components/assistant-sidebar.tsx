@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Check,
   Loader2,
+  AudioLines,
 } from 'lucide-react';
 import {
   confirmAssistantRun,
@@ -35,8 +36,12 @@ import {
   getGetVoiceOutputPreferencesQueryKey,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
+import { Bubble, BubbleContent } from '@/components/ui/bubble';
+import { Message, MessageAvatar, MessageContent, MessageFooter, MessageHeader } from '@/components/ui/message';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
 import { useSpaceScope } from '@/contexts/space-context';
@@ -82,6 +87,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const followConversationRef = useRef(true);
   const planningRequestRef = useRef<AbortController | null>(null);
   const reducedMotion = useReducedMotion();
   const { direction, locale } = useLocale();
@@ -265,7 +271,9 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
   });
 
   useEffect(() => {
-    if (assistantVisible) bottomRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' });
+    if (assistantVisible && messages.length > 0 && followConversationRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'end' });
+    }
   }, [messages, isThinking, assistantVisible, reducedMotion]);
 
   useEffect(() => {
@@ -305,11 +313,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
     setMessages(
       conversationQuery.data.messages.length > 0
         ? conversationQuery.data.messages
-        : [{
-            role: 'assistant',
-            content: "Hi, I'm Askolo. Ask me to prepare one action item for your list.",
-            id: 'welcome',
-          }],
+        : [],
     );
   }, [conversationQuery.data, setMessages]);
 
@@ -508,7 +512,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
       return;
     }
     if (voice.isBusy || voice.state === 'review') {
-      setVoiceChatError('Finish or cancel the current Normal Chat voice transcription before starting Voice Chat.');
+      setVoiceChatError('Finish or cancel the current voice recording before starting Voice Chat.');
       return;
     }
     if (localVoiceActivity.active || localVoiceActivity.starting) return;
@@ -601,7 +605,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
     }
     if (voice.state === 'error' && voiceChatTurnRef.current) {
       voiceChatTurnRef.current = false;
-      setVoiceChatError(voice.error || 'Voice input could not be transcribed. Try again or switch to Normal Chat.');
+      setVoiceChatError(voice.error || 'Voice input could not be transcribed. Try again or switch to text chat.');
       return;
     }
     if (voice.state !== 'review' || !voice.transcript) return;
@@ -611,16 +615,16 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
       const transcript = voice.transcript.trim();
       resetVoiceRef.current();
       if (!transcript) {
-        setVoiceChatError('No speech was detected. Try again or switch to Normal Chat.');
+        setVoiceChatError('No speech was detected. Try again or switch to text chat.');
         return;
       }
       if (isThinking || pendingActionId !== null) {
         if (pendingVoiceChatTranscriptsRef.current.length >= 3) {
-          setVoiceChatError('Voice Chat can hold three spoken messages while Askolo is busy. Wait for a reply before speaking again.');
+        setVoiceChatError('Voice Chat can hold three spoken messages while the assistant is busy. Wait for a reply before speaking again.');
           return;
         }
         pendingVoiceChatTranscriptsRef.current.push(transcript);
-        setVoiceChatStatus('Your spoken message is queued until Askolo finishes the current reply.');
+      setVoiceChatStatus('Your spoken message is queued until the assistant finishes the current reply.');
         return;
       }
       setVoiceChatError('');
@@ -836,14 +840,14 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
           <motion.aside
             key={fullPage ? 'workspace' : 'sidebar'}
             id="assistant-panel"
-            aria-label="Askolo assistant"
+            aria-label="Assistant"
             initial={fullPage || reducedMotion ? { opacity: 1 } : { x: hiddenOffset }}
             animate={{ x: 0 }}
             exit={fullPage || reducedMotion ? { opacity: 0 } : { x: hiddenOffset }}
             transition={reducedMotion ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 300 }}
             className={cn(
               fullPage
-                ? 'relative flex min-h-[min(72dvh,760px)] w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm'
+                ? 'relative flex min-h-[min(72dvh,760px)] w-full flex-1 flex-col overflow-hidden bg-transparent'
                 : cn(
                     'fixed top-0 end-0 bottom-0 z-50 flex flex-col bg-card border-s border-border shadow-2xl',
                     isFull ? 'w-full' : 'w-[380px] max-w-full',
@@ -851,14 +855,13 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
             )}
           >
             {/* Header */}
-            <div className={cn('flex items-center justify-between border-b border-border shrink-0', fullPage ? 'px-5 py-4 md:px-7' : 'h-14 px-4')}>
+            <div className={cn('flex items-center justify-between border-b border-border shrink-0', fullPage ? 'px-1 py-3 md:px-2' : 'h-14 px-4')}>
               <div className="flex items-center gap-2">
                 <div className={cn('rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary', fullPage ? 'h-9 w-9' : 'h-7 w-7')}>
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
                 <div>
-                  {fullPage && <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Askolo workspace</p>}
-                  <span className={cn('font-display font-semibold', fullPage ? 'text-lg' : 'text-sm')}>Askolo Assistant</span>
+                  <span className={cn('font-display font-semibold', fullPage ? 'text-lg' : 'text-sm')}>Assistant</span>
                 </div>
               </div>
               {!fullPage && <div className="flex items-center gap-1">
@@ -885,9 +888,13 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
 
             {/* Messages */}
              <div
-               className={cn('flex-1 overflow-y-auto space-y-4', fullPage ? 'p-4 md:px-8 md:py-6' : 'p-4')}
+               onScroll={(event) => {
+                 const element = event.currentTarget;
+                 followConversationRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+               }}
+               className={cn('flex-1 overflow-y-auto', fullPage ? 'px-1 py-4 md:px-2 md:py-6' : 'p-4')}
                role="log"
-               aria-label="Assistant conversation"
+               aria-label="Conversation"
                aria-live="polite"
                aria-relevant="additions text"
              >
@@ -896,33 +903,30 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                   Saved assistant history could not be loaded. New messages can still be sent.
                 </p>
               )}
+              <div className={cn('flex min-h-full flex-col gap-4', messages.length > 0 && 'justify-end')}>
               {messages.map((msg, idx) => (
                 <motion.div
                   key={msg.id}
                   initial={reducedMotion ? false : { opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={reducedMotion ? { duration: 0 } : { delay: idx === 0 ? 0 : 0.04 }}
-                  className={cn('flex gap-2.5', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}
+                  className="w-full"
                 >
-                  <div
-                    className={cn(
-                      'h-7 w-7 rounded-full flex items-center justify-center shrink-0 border',
-                      msg.role === 'user'
-                        ? 'bg-primary/20 border-primary/30 text-primary'
-                        : 'bg-muted border-border text-foreground',
-                    )}
-                  >
-                    {msg.role === 'user' ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-                  </div>
-                  <div
-                      className={cn(
-                        'max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
-                      msg.role === 'user'
-                        ? 'bg-primary text-primary-foreground rounded-br-sm'
-                        : 'bg-muted border border-border text-foreground rounded-bl-sm',
-                    )}
-                  >
-                    <p dir="auto">{msg.content}</p>
+                  <Message align={msg.role === 'user' ? 'end' : 'start'} className="gap-3">
+                    <MessageAvatar className="size-8 w-8 self-start bg-transparent">
+                      <Avatar className="size-8 border">
+                        <AvatarFallback className={msg.role === 'user' ? 'bg-primary/15 text-primary' : 'bg-muted text-foreground'}>
+                          {msg.role === 'user' ? <User className="size-4" aria-hidden="true" /> : <Bot className="size-4" aria-hidden="true" />}
+                        </AvatarFallback>
+                      </Avatar>
+                    </MessageAvatar>
+                    <MessageContent className={cn('max-w-[min(84%,760px)] gap-2.5', fullPage && 'md:max-w-[min(78%,820px)]')}>
+                      <MessageHeader className="gap-1.5">
+                        <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
+                        {msg.state && <><span aria-hidden="true" className="size-1 rounded-full bg-muted-foreground/40" /><span>{msg.state === 'planning' ? 'Preparing' : msg.state === 'completed' ? 'Ready' : ''}</span></>}
+                      </MessageHeader>
+                      <Bubble variant={msg.role === 'user' ? 'default' : 'muted'} className="max-w-full">
+                        <BubbleContent><p dir="auto" className="whitespace-pre-wrap">{msg.content}</p>
                     {msg.role === 'assistant' &&
                       msg.state === 'needs_confirmation' &&
                       ['create_action_item', 'send_gmail', 'create_calendar_event'].includes(
@@ -930,7 +934,8 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                       ) &&
                       msg.runId &&
                       msg.intentSha256 && (
-                        <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+                        <Card className="mt-3 border-primary/30 bg-background/80 shadow-none">
+                          <CardContent className="space-y-2 p-3">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             {msg.intent?.tool === 'send_gmail'
                               ? 'Email to send'
@@ -1032,9 +1037,14 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                               This confirmation has expired. Send the request again to review a new action.
                             </p>
                           )}
-                        </div>
+                          </CardContent>
+                        </Card>
                       )}
-                  </div>
+                      </BubbleContent>
+                      </Bubble>
+                      {msg.role === 'assistant' && msg.runId && msg.state && <MessageFooter>{msg.state === 'needs_confirmation' ? 'Review required' : msg.state === 'completed' ? 'Complete' : ''}</MessageFooter>}
+                    </MessageContent>
+                  </Message>
                 </motion.div>
               ))}
               {isThinking && (
@@ -1063,38 +1073,12 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                   </Button>
                 </motion.div>
               )}
+              </div>
               <div ref={bottomRef} />
             </div>
 
             {/* Input */}
             <div className={cn('border-t border-border bg-card/50 shrink-0', fullPage ? 'p-4 md:px-7 md:py-5' : 'p-3')}>
-              <div role="group" aria-label="Assistant mode" className="mb-3 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={assistantMode === 'chat' ? 'default' : 'outline'}
-                  aria-pressed={assistantMode === 'chat'}
-                  onClick={() => {
-                    if (assistantMode !== 'chat') switchToNormalChat();
-                  }}
-                >
-                  Normal Chat
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={assistantMode === 'voice-chat' ? 'default' : 'outline'}
-                  aria-pressed={assistantMode === 'voice-chat'}
-                  disabled={voice.isBusy || voice.state === 'review' || liveCallActive}
-                  onClick={() => {
-                    setVoiceChatError('');
-                    setVoiceChatStatus('');
-                    setAssistantMode('voice-chat');
-                  }}
-                >
-                  Voice Chat
-                </Button>
-              </div>
               {liveCallActive && assistantMode !== 'voice-chat' && (
                 <p className="mb-3 px-1 text-xs text-muted-foreground" role="status">
                   End Live Mode before starting Voice Chat.
@@ -1114,9 +1098,9 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                           : voice.state === 'processing'
                             ? 'Finishing the transcript…'
                             : voiceChatSpeaking || speechOutput.status === 'speaking'
-                              ? 'Askolo is speaking'
+                                ? 'Assistant is speaking'
                               : isThinking
-                                ? 'Askolo is preparing a reply…'
+                                  ? 'Preparing a reply…'
                                 : voiceChatStatus
                     }
                     error={voiceChatError || localVoiceActivity.error || (voice.state === 'error' ? voice.error : '')}
@@ -1146,18 +1130,19 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                 </div>
               )}
               <Form {...form}>
-                <form onSubmit={form.handleSubmit((data) => onSubmit(data))} className="flex flex-wrap gap-2">
+                <form onSubmit={form.handleSubmit((data) => onSubmit(data))}>
+                  <InputGroup className="h-14 rounded-full border-border bg-background p-1.5 shadow-sm">
                   <FormField
                     control={form.control}
                     name="text"
                     render={({ field }) => (
-                      <FormItem className="flex-1">
+                      <FormItem className="min-w-0 flex-1">
                         <FormControl>
-                          <Input
-                            placeholder="Ask Askolo something…"
-                            aria-label="Message Askolo"
+                          <InputGroupInput
+                            placeholder="Write a message…"
+                            aria-label="Message"
                             dir="auto"
-                            className="h-10 min-w-0 flex-1 bg-background border-border text-sm"
+                            className="h-11 min-w-0 px-2 text-sm"
                             {...field}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
@@ -1170,6 +1155,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                       </FormItem>
                     )}
                   />
+                  <InputGroupAddon align="inline-end" className="gap-1 border-0 pe-1">
                   {assistantMode === 'chat' && (
                     <VoiceCaptureButton
                       voice={voice}
@@ -1179,28 +1165,47 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                       variant="outline"
                       size="icon"
                       iconOnly
-                      className="h-10 w-10 shrink-0"
+                      className="size-10 shrink-0 rounded-full"
                       disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking || pendingActionId !== null}
                       data-testid="button-assistant-voice"
                     />
                   )}
+                  <InputGroupButton
+                    type="button"
+                    size="icon-sm"
+                    className={cn('size-10 rounded-full', assistantMode === 'voice-chat' && 'bg-primary/10 text-primary')}
+                    aria-label={assistantMode === 'voice-chat' ? 'End Voice Chat' : 'Start Voice Chat'}
+                    aria-pressed={assistantMode === 'voice-chat'}
+                    disabled={voice.isBusy || voice.state === 'review' || liveCallActive}
+                    onClick={() => assistantMode === 'voice-chat' && localVoiceActivity.active ? switchToNormalChat() : startVoiceChat()}
+                  >
+                    <AudioLines className="size-5" aria-hidden="true" />
+                  </InputGroupButton>
+                  {fullPage && <VoiceAgentControls
+                    voiceChatSelected={assistantMode === 'voice-chat'}
+                    onActiveChange={setLiveCallActive}
+                    compact
+                    hideProcessingLocationNotice
+                  />}
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-10 w-10 shrink-0"
+                    className="size-10 shrink-0 rounded-full"
                      disabled={isThinking || pendingActionId !== null || voice.isBusy}
                     aria-label="Send message"
                   >
                     <Send className="h-4 w-4" />
                   </Button>
+                  </InputGroupAddon>
+                  </InputGroup>
                 </form>
               </Form>
-              <div className="mt-3 px-1">
+              {!fullPage && <div className="mt-2">
                 <VoiceAgentControls
                   voiceChatSelected={assistantMode === 'voice-chat'}
                   onActiveChange={setLiveCallActive}
                 />
-              </div>
+              </div>}
               {assistantMode === 'chat' && (voice.state !== 'idle' || voice.status || voice.error || voice.recording) && (
                 <div className="mt-2 space-y-2 px-1">
                   <VoiceCaptureFeedback voice={voice} />
@@ -1246,9 +1251,6 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                   This request is estimated at <bdi dir="ltr">{formatUsdMicros(assistantEstimate.estimatedUsdMicros)}</bdi>, with a maximum reservation of <bdi dir="ltr">{formatUsdMicros(assistantEstimate.hardCapUsdMicros)}</bdi>. Available: <bdi dir="ltr">{formatUsdMicros(assistantEstimate.availableUsdMicros)}</bdi>.
                 </p>
               )}
-              <p className="mt-2 px-1 text-[10px] leading-relaxed text-muted-foreground">
-                Messages you send are saved to your account. Actions are only added after you confirm.
-              </p>
             </div>
           </motion.aside>
         )}
@@ -1259,7 +1261,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
           setVoiceConsentOpen(open);
           if (!open && pendingVoiceChatStartRef.current) {
             pendingVoiceChatStartRef.current = false;
-            setVoiceChatError('AssemblyAI microphone permission is required for Voice Chat. You can switch to Normal Chat instead.');
+            setVoiceChatError('AssemblyAI microphone permission is required for Voice Chat. You can switch to text chat instead.');
           }
         }}
         onConfirm={() => void saveVoiceConsent()}
@@ -1279,7 +1281,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
             pendingAssistantVoiceChatRef.current = false;
             if (pendingVoiceChatStartRef.current) {
               pendingVoiceChatStartRef.current = false;
-              setVoiceChatError('Assistant processing permission is required for Voice Chat. You can switch to Normal Chat instead.');
+              setVoiceChatError('Assistant processing permission is required for Voice Chat. You can switch to text chat instead.');
             }
           }
         }}
@@ -1293,7 +1295,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
           setVoiceOutputConsentOpen(open);
           if (!open && pendingVoiceChatStartRef.current) {
             pendingVoiceChatStartRef.current = false;
-            setVoiceChatError('Azure speech permission was not granted. Voice Chat did not start; switch to Normal Chat to keep using text.');
+            setVoiceChatError('Azure speech permission was not granted. Voice Chat did not start; switch to text chat.');
           }
         }}
         redactionConfirmed={true}
