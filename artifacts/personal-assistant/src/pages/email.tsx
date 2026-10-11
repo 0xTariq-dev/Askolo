@@ -30,7 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { BrandMark } from '@/components/brand-mark';
+import logoUrl from '/logo.png';
 import { useLocale } from '@/contexts/locale-context';
 
 const PRIORITY_ORDER = ['urgent', 'follow-up', 'fyi', 'archive'] as const;
@@ -165,7 +165,7 @@ export function EmailPage() {
         <EmailPageHeader connected={false} />
         <section className="flex flex-col items-center py-10 text-center">
           <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-border bg-primary/10">
-            <BrandMark className="size-10" decorative />
+            <img src={logoUrl} alt="" className="size-10 object-contain" />
           </div>
           <h2 className="mb-4 font-display text-[16px] font-medium">Connect Email Accounts to Start Triaging Your Inbox  </h2>
           <Button size="lg" onClick={() => (window.location.href = GOOGLE_CONNECT_URL)} className="group">

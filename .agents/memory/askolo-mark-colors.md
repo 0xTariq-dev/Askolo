@@ -3,8 +3,8 @@ name: Askolo mark colors
 description: User feedback and the chosen color behavior for the Askolo brand mark.
 ---
 
-The user said the existing teal mark feels off and suggested either a neutral mark or one that follows the app's theme preset. The current implementation uses the active preset for in-app marks and neutral static assets for browser and home-screen icons.
+The user said the existing teal mark feels off, but explicitly wants any recoloring to preserve the icon's glass style, highlights, and depth.
 
-**Why:** browser and installed-app icon surfaces do not reliably inherit the live in-app theme, while the in-app logo can use the semantic theme color.
+**Why:** a flat mask removed the original material and depth, and the user rejected that result.
 
-**How to apply:** keep these two surfaces distinct when changing the mark again unless the user asks for a different treatment.
+**How to apply:** recolor the original glass artwork with color grading that preserves its highlights, shadows, and transparency; do not replace it with a flat silhouette.
