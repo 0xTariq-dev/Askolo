@@ -38,6 +38,7 @@
 - [Database disposability](database-disposability.md) — Development and Production databases plus migration_test are disposable; do not let their preservation block product progress.
 - [Database query consolidation](database-query-consolidation.md) — map Home/Agenda reads to API contracts; confirmed screens do not by themselves approve V2 views or staged migrations.
 - [Assistant message ordering](assistant-message-ordering.md) — use real statement timestamps for multiple messages inserted in one transaction.
+- [Fresh Agent conversations](fresh-agent-conversations.md) — Agent visits start a new thread without deleting prior conversation history.
 - [Artifact-routed Go service](artifact-go-service-routing.md) — the frontend artifact can route API paths to a Go service, but managed commands start from the artifact directory.
 - [Replit artifact and canvas separation](replit-artifact-cleanup.md) — artifact files, Library registrations, and canvas frames are separate; inspect frame provenance before changing active service configuration.
 - [Manual artifact builds](artifact-shell-build-env.md) — shell builds do not inherit the artifact workflow's manifest environment; pass required values from the current manifest.

@@ -19,16 +19,18 @@ export function VoiceAgentControls({
   onActiveChange,
   compact = false,
   hideProcessingLocationNotice = false,
+  freshConversation = false,
 }: {
   voiceChatSelected?: boolean;
   onActiveChange?: (active: boolean) => void;
   compact?: boolean;
   hideProcessingLocationNotice?: boolean;
+  freshConversation?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const conversationQuery = useGetAssistantConversation({
-    query: { queryKey: getGetAssistantConversationQueryKey() },
+    query: { queryKey: getGetAssistantConversationQueryKey(), enabled: !freshConversation },
   });
   const { data: privacyPreferences } = useGetAIPrivacyPreferences();
   const updatePrivacyPreferences = useUpdateAIPrivacyPreferences();
@@ -88,7 +90,7 @@ export function VoiceAgentControls({
       setConsentOpen(true);
       return;
     }
-    void voiceAgent.start(conversationQuery.data?.conversationId, selectedVoice.locale);
+    void voiceAgent.start(freshConversation ? undefined : conversationQuery.data?.conversationId, selectedVoice.locale);
   };
 
   const saveConsent = async () => {
@@ -108,7 +110,7 @@ export function VoiceAgentControls({
           return;
         }
         if (selectedVoice) {
-          void voiceAgent.start(conversationQuery.data?.conversationId, selectedVoice.locale);
+          void voiceAgent.start(freshConversation ? undefined : conversationQuery.data?.conversationId, selectedVoice.locale);
         }
       }
     } catch (error) {
@@ -132,7 +134,7 @@ export function VoiceAgentControls({
     <section className={compact ? 'flex items-center justify-end' : 'rounded-xl border border-border bg-card/70 p-3'} aria-label="Live voice conversation">
       <div className="flex flex-wrap items-center gap-2">
         {isBusy ? (
-          <Button type="button" variant="destructive" size={compact ? 'icon' : 'sm'} onClick={() => voiceAgent.stop()} disabled={voiceAgent.status === 'stopping'} aria-label={compact ? 'End Live Mode' : undefined}>
+          <Button type="button" variant="destructive" size={compact ? 'icon' : 'sm'} className={compact ? 'size-10 rounded-full' : undefined} onClick={() => voiceAgent.stop()} disabled={voiceAgent.status === 'stopping'} aria-label={compact ? 'End Live Mode' : undefined}>
             {voiceAgent.status === 'stopping' ? <Loader2 className={compact ? 'size-4 animate-spin' : 'mr-2 h-4 w-4 animate-spin'} aria-hidden="true" /> : <Square className={compact ? 'size-3.5' : 'mr-2 h-3.5 w-3.5'} aria-hidden="true" />}
             {!compact && (voiceAgent.status === 'stopping' ? 'Ending Live Mode…' : 'End Live Mode')}
           </Button>
@@ -141,6 +143,7 @@ export function VoiceAgentControls({
             type="button"
             variant="outline"
             size={compact ? 'icon' : 'sm'}
+            className={compact ? 'size-10 rounded-full' : undefined}
             onClick={startLiveMode}
             disabled={voiceUnavailable || liveModeUnavailable || voiceChatSelected}
             aria-label={compact ? 'Start Live Mode' : undefined}

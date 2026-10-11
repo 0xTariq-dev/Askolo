@@ -115,9 +115,9 @@ export async function getV2AgendaRange(
   do {
     if (signal?.aborted) throw new DOMException('Request aborted.', 'AbortError');
     const page = await getV2AgendaPage(workspaceId, range, pageToken, signal);
-    combined.tasks.push(...page.tasks);
-    combined.planEntries.push(...page.planEntries);
-    combined.calendarEvents.push(...page.calendarEvents);
+    combined.tasks.push(...(Array.isArray(page.tasks) ? page.tasks : []));
+    combined.planEntries.push(...(Array.isArray(page.planEntries) ? page.planEntries : []));
+    combined.calendarEvents.push(...(Array.isArray(page.calendarEvents) ? page.calendarEvents : []));
     pageToken = page.nextPageToken || undefined;
     pageCount += 1;
     if (pageCount > 100) {

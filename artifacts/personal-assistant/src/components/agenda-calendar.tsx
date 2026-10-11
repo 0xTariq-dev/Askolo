@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { addDays, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -46,7 +46,7 @@ function toCalendarEvent(event: Event): CalendarEvent<Event> {
   };
 }
 
-export function AgendaCalendar() {
+export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { locale, weekStartsOn } = useLocale();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -63,6 +63,7 @@ export function AgendaCalendar() {
   const [startTime, setStartTime] = useState('');
   const [saving, setSaving] = useState(false);
   const { data: events = [], isLoading, isError, refetch } = useListEvents(range);
+  useEffect(() => onCountChange?.(events.length), [events.length, onCountChange]);
   const { data: googleStatus } = useGetGoogleStatus();
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();

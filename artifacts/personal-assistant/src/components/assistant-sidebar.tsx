@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
-  Send,
+  ArrowUp,
   Sparkles,
   User,
   Bot,
@@ -93,6 +93,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
   const { direction, locale } = useLocale();
   const { selectedSpaceId } = useSpaceScope();
   const hiddenOffset = direction === 'rtl' ? '-100%' : '100%';
+  const activeConversationIdRef = useRef<string | undefined>(undefined);
   const [isThinking, setIsThinking] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState('');
@@ -259,11 +260,17 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
   const conversationQuery = useGetAssistantConversation({
     query: {
       queryKey: getGetAssistantConversationQueryKey(),
-      enabled: assistantVisible,
+      enabled: assistantVisible && !fullPage,
       staleTime: 0,
       refetchOnWindowFocus: true,
     },
   });
+
+  useLayoutEffect(() => {
+    if (!fullPage) return;
+    activeConversationIdRef.current = undefined;
+    setMessages([]);
+  }, [fullPage, setMessages]);
 
   const form = useForm<MessageForm>({
     resolver: zodResolver(messageSchema),
@@ -309,13 +316,13 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
   }, [close, assistantVisible, fullPage]);
 
   useEffect(() => {
-    if (!conversationQuery.data) return;
+    if (fullPage || !conversationQuery.data) return;
     setMessages(
       conversationQuery.data.messages.length > 0
         ? conversationQuery.data.messages
         : [],
     );
-  }, [conversationQuery.data, setMessages]);
+  }, [conversationQuery.data, fullPage, setMessages]);
 
   useEffect(() => {
     if (!draft) return;
@@ -364,12 +371,13 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
     const onVoiceAgentAction = (event: Event) => {
       const run = (event as CustomEvent<AssistantRun>).detail;
       if (!run || typeof run.id !== 'string' || typeof run.state !== 'string') return;
+      if (fullPage && run.conversationId) activeConversationIdRef.current = run.conversationId;
       incorporateRun(run);
       if (!assistantVisible) toggle();
     };
     window.addEventListener('askolo:voice-agent-action', onVoiceAgentAction);
     return () => window.removeEventListener('askolo:voice-agent-action', onVoiceAgentAction);
-  }, [incorporateRun, assistantVisible, toggle]);
+  }, [incorporateRun, assistantVisible, fullPage, toggle]);
 
   const onSubmit = async (data: MessageForm, options?: { voiceChat?: boolean }) => {
     const text = data.text.trim();
@@ -412,7 +420,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
       const run = await createAssistantRunOverWebSocket({
         workspaceId: selectedSpaceId ?? undefined,
         allSpaces: !selectedSpaceId,
-        conversationId: conversationQuery.data?.conversationId,
+        conversationId: fullPage ? activeConversationIdRef.current : conversationQuery.data?.conversationId,
         transcript: text,
         idempotencyKey: newCreditIdempotencyKey(),
         policyVersion: estimate.policyVersion,
@@ -442,6 +450,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
             }
           : undefined,
       });
+      if (fullPage && run.conversationId) activeConversationIdRef.current = run.conversationId;
       incorporateRun(run);
       await queryClient.invalidateQueries({ queryKey: getGetAssistantConversationQueryKey() });
     } catch (error) {
@@ -855,14 +864,12 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
             )}
           >
             {/* Header */}
-            <div className={cn('flex items-center justify-between border-b border-border shrink-0', fullPage ? 'px-1 py-3 md:px-2' : 'h-14 px-4')}>
+            {!fullPage && <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
               <div className="flex items-center gap-2">
-                <div className={cn('rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary', fullPage ? 'h-9 w-9' : 'h-7 w-7')}>
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
-                <div>
-                  <span className={cn('font-display font-semibold', fullPage ? 'text-lg' : 'text-sm')}>Assistant</span>
-                </div>
+                <span className="font-display text-sm font-semibold">Assistant</span>
               </div>
               {!fullPage && <div className="flex items-center gap-1">
                 <Button
@@ -884,7 +891,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                   <X className="h-4 w-4" />
                 </Button>
               </div>}
-            </div>
+            </div>}
 
             {/* Messages */}
              <div
@@ -913,7 +920,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                   className="w-full"
                 >
                   <Message align={msg.role === 'user' ? 'end' : 'start'} className="gap-3">
-                    <MessageAvatar className="size-8 w-8 self-start bg-transparent">
+                    <MessageAvatar className="size-8 w-8 self-end bg-transparent">
                       <Avatar className="size-8 border">
                         <AvatarFallback className={msg.role === 'user' ? 'bg-primary/15 text-primary' : 'bg-muted text-foreground'}>
                           {msg.role === 'user' ? <User className="size-4" aria-hidden="true" /> : <Bot className="size-4" aria-hidden="true" />}
@@ -925,7 +932,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                         <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
                         {msg.state && <><span aria-hidden="true" className="size-1 rounded-full bg-muted-foreground/40" /><span>{msg.state === 'planning' ? 'Preparing' : msg.state === 'completed' ? 'Ready' : ''}</span></>}
                       </MessageHeader>
-                      <Bubble variant={msg.role === 'user' ? 'default' : 'muted'} className="max-w-full">
+                      <Bubble variant={msg.role === 'user' ? 'default' : 'secondary'} className="max-w-full">
                         <BubbleContent><p dir="auto" className="whitespace-pre-wrap">{msg.content}</p>
                     {msg.role === 'assistant' &&
                       msg.state === 'needs_confirmation' &&
@@ -1078,7 +1085,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
             </div>
 
             {/* Input */}
-            <div className={cn('border-t border-border bg-card/50 shrink-0', fullPage ? 'p-4 md:px-7 md:py-5' : 'p-3')}>
+            <div className={cn('shrink-0', fullPage ? 'p-4 md:px-7 md:py-5' : 'border-t border-border bg-card/50 p-3')}>
               {liveCallActive && assistantMode !== 'voice-chat' && (
                 <p className="mb-3 px-1 text-xs text-muted-foreground" role="status">
                   End Live Mode before starting Voice Chat.
@@ -1131,7 +1138,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
               )}
               <Form {...form}>
                 <form onSubmit={form.handleSubmit((data) => onSubmit(data))}>
-                  <InputGroup className="h-14 rounded-full border-border bg-background p-1.5 shadow-sm">
+                  <InputGroup className="h-14 rounded-full border-0 bg-transparent p-1.5 shadow-none dark:bg-transparent">
                   <FormField
                     control={form.control}
                     name="text"
@@ -1186,6 +1193,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                     onActiveChange={setLiveCallActive}
                     compact
                     hideProcessingLocationNotice
+                    freshConversation
                   />}
                   <Button
                     type="submit"
@@ -1194,7 +1202,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                      disabled={isThinking || pendingActionId !== null || voice.isBusy}
                     aria-label="Send message"
                   >
-                    <Send className="h-4 w-4" />
+                    <ArrowUp className="size-5" aria-hidden="true" />
                   </Button>
                   </InputGroupAddon>
                   </InputGroup>

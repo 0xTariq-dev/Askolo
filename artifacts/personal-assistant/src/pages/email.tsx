@@ -170,11 +170,6 @@ export function EmailPage() {
               <img src={logoUrl} alt="Askolo" className="h-12 w-12 object-contain" />
             </div>
             <h2 className="text-2xl font-display font-semibold mb-3">Connect Gmail</h2>
-            <p className="text-muted-foreground max-w-md mx-auto mb-6">
-              Askolo needs access to your Gmail inbox to triage messages and draft replies. The connection uses your{' '}
-              <span className="text-foreground font-medium">Askolo</span> Google app, so the consent screen shows the
-              correct name and logo.
-            </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <Button size="lg" onClick={() => (window.location.href = GOOGLE_CONNECT_URL)} className="group">
                 <Mail className="mr-2 h-5 w-5" />
@@ -186,10 +181,6 @@ export function EmailPage() {
                 Check connection
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-6">
-              Make sure your Google Cloud OAuth consent screen is named "Askolo" and the redirect URI is added before
-              connecting.
-            </p>
           </CardContent>
         </Card>
       </PageTransition>

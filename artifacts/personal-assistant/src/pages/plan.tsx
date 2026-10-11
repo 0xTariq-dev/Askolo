@@ -10,15 +10,18 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  CalendarDays,
   ListTodo,
   Plus,
   Sparkles,
+  Target,
   Trash2,
 } from 'lucide-react';
 import {
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
   getGetTranscriptionPreferencesQueryKey,
+  useListGoals,
 } from '@workspace/api-client-react';
 import { useLocale } from '@/contexts/locale-context';
 import { useSpaceScope } from '@/contexts/space-context';
@@ -47,7 +50,6 @@ import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { cn } from '@/lib/utils';
-import { VoiceAgentControls } from '@/components/voice-agent-controls';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { AgendaCalendar } from '@/components/agenda-calendar';
 import { GoalsPage } from '@/pages/goals';
@@ -87,6 +89,8 @@ export function PlanPage() {
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [targetSpaceId, setTargetSpaceId] = useState('');
   const [activeAgendaTab, setActiveAgendaTab] = useState('calendar');
+  const [calendarEventCount, setCalendarEventCount] = useState(0);
+  const { data: goalItems = [] } = useListGoals();
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [consentSaving, setConsentSaving] = useState(false);
@@ -264,6 +268,7 @@ export function PlanPage() {
   const completedCount = sortedPlans.filter((item) => item.completed).length;
   const formattedSelectedDate = formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' });
   const isArabic = locale === 'ar';
+  const goalCount = Array.isArray(goalItems) ? goalItems.length : 0;
 
   return (
     <PageTransition surface={false} className="mx-auto flex w-full max-w-[1440px] flex-col gap-5">
@@ -279,17 +284,16 @@ export function PlanPage() {
             {isArabic ? 'تقويم عائلتك وخطوات اليوم في مكان واحد.' : 'Your calendar and the next few steps, together.'}
           </p>
         </div>
-        <div className="w-full lg:max-w-md"><VoiceAgentControls /></div>
       </header>
 
       <Tabs value={activeAgendaTab} onValueChange={setActiveAgendaTab} className="min-w-0">
-        <TabsList className="grid h-11 w-full grid-cols-3 sm:w-[420px]" aria-label={isArabic ? 'أقسام الأجندة' : 'Agenda sections'}>
-          <TabsTrigger value="calendar">{isArabic ? 'التقويم' : 'Calendar'}</TabsTrigger>
-          <TabsTrigger value="goals">{isArabic ? 'الأهداف' : 'Goals'}</TabsTrigger>
-          <TabsTrigger value="tasks">{isArabic ? 'المهام' : 'Tasks'}</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-3 bg-muted p-1 sm:w-[460px]" aria-label={isArabic ? 'أقسام الأجندة' : 'Agenda sections'}>
+          <TabsTrigger value="calendar" className="h-10 gap-1.5 px-1.5 text-xs sm:gap-2 sm:px-2 sm:text-sm"><CalendarDays className="size-4" aria-hidden="true" />{isArabic ? 'التقويم' : 'Calendar'}<span className="rounded-md bg-secondary px-1.5 py-0.5 text-[10px] leading-none text-secondary-foreground">{calendarEventCount}</span></TabsTrigger>
+          <TabsTrigger value="goals" className="h-10 gap-1.5 px-1.5 text-xs sm:gap-2 sm:px-2 sm:text-sm"><Target className="size-4" aria-hidden="true" />{isArabic ? 'الأهداف' : 'Goals'}<span className="rounded-md bg-secondary px-1.5 py-0.5 text-[10px] leading-none text-secondary-foreground">{goalCount}</span></TabsTrigger>
+          <TabsTrigger value="tasks" className="h-10 gap-1.5 px-1.5 text-xs sm:gap-2 sm:px-2 sm:text-sm"><ListTodo className="size-4" aria-hidden="true" />{isArabic ? 'المهام' : 'Tasks'}<span className="rounded-md bg-secondary px-1.5 py-0.5 text-[10px] leading-none text-secondary-foreground">{sortedPlans.length}</span></TabsTrigger>
         </TabsList>
         <TabsContent value="calendar" className="mt-5 min-w-0">
-          <AgendaCalendar />
+          <AgendaCalendar onCountChange={setCalendarEventCount} />
         </TabsContent>
         <TabsContent value="goals" className="mt-5 min-w-0">
           <GoalsPage />
@@ -302,7 +306,7 @@ export function PlanPage() {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-col gap-4">
+      <aside className="flex min-w-0 flex-col gap-4">
         <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/80 bg-card px-4 py-3" aria-label={isArabic ? 'اختيار يوم المهام' : 'Choose task date'}>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" aria-label={isArabic ? 'اليوم السابق' : 'Previous day'} onClick={() => setSelectedDate((date) => {
@@ -335,8 +339,7 @@ export function PlanPage() {
             }}>{isArabic ? 'اليوم' : 'Today'}</Button>
           </div>
         </section>
-        <aside className="flex min-w-0 flex-col gap-4">
-          <section className="rounded-2xl border border-border bg-card shadow-sm">
+          <section className="min-w-0">
             <div className="flex items-start justify-between gap-3 border-b border-border/70 px-5 py-4">
               <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-primary">{isArabic ? 'خطة اليوم' : 'DAY PLAN'}</p>
@@ -408,7 +411,7 @@ export function PlanPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
+          {false && <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
             <div className="mb-3 flex items-center gap-2">
               <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="size-4" /></div>
               <div>
@@ -458,9 +461,8 @@ export function PlanPage() {
                 {isArabic ? 'اسأل الوكيل' : 'Ask Agent'}
               </Button>
             </div>
-          </section>
-        </aside>
-      </div>
+          </section>}
+      </aside>
         </TabsContent>
       </Tabs>
 

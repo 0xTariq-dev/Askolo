@@ -230,7 +230,6 @@ function NavigationPanel({
 
       <SidebarContent role="navigation" aria-label={t('nav.main')}>
         <SidebarGroup>
-          <SidebarGroupLabel>{t('app.workspace')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navigation.map((item) => {
