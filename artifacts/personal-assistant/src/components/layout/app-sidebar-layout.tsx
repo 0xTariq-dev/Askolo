@@ -383,7 +383,6 @@ function ShellFrame({ children }: { children: ReactNode }) {
       >
         {t('nav.skipToMain')}
       </a>
-
       <Sidebar
         side={direction === 'rtl' ? 'right' : 'left'}
         variant="inset"
@@ -401,7 +400,6 @@ function ShellFrame({ children }: { children: ReactNode }) {
           onSignOut={handleSignOut}
         />
       </Sidebar>
-
       <SidebarInset
         id="main-content"
         tabIndex={-1}
@@ -420,12 +418,11 @@ function ShellFrame({ children }: { children: ReactNode }) {
             />
             <NotificationBell className="shrink-0" />
           </div>
-          <div className="relative min-h-0 flex-1 overflow-y-auto p-4 pt-1 md:p-8 md:pt-3">
+          <div className="relative min-h-0 flex-1 overflow-y-auto p-4 pt-1 md:p-8 md:pt-3 text-[12px] font-light">
             {children}
           </div>
         </div>
       </SidebarInset>
-
     </div>
   );
 }

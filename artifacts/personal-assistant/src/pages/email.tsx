@@ -163,12 +163,11 @@ export function EmailPage() {
     return (
       <PageTransition surface={false} className="max-w-5xl mx-auto pb-10">
         <EmailPageHeader connected={false} />
-
         <section className="flex flex-col items-center py-10 text-center">
           <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-border bg-primary/10">
             <img src={logoUrl} alt="" className="size-10 object-contain" />
           </div>
-          <h2 className="mb-4 text-2xl font-display font-semibold">Connect Account</h2>
+          <h2 className="mb-4 text-2xl font-display font-semibold">Connect Email Accounts to Start Triaging Your Inbox  </h2>
           <Button size="lg" onClick={() => (window.location.href = GOOGLE_CONNECT_URL)} className="group">
             <Mail className="mr-2 h-5 w-5" />
             Connect Account
