@@ -58,8 +58,8 @@ const navigation = [
   { href: '/home', labelKey: 'nav.home', icon: LayoutDashboard },
   { href: '/agent', labelKey: 'nav.agent', icon: MessageCircle },
   { href: '/agenda', labelKey: 'nav.agenda', icon: ListTodo },
-  { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
   { href: '/email', labelKey: 'nav.email', icon: Mail },
+  { href: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
 ] as const;
 
 const moreNavigation: (typeof navigation[number])[] = [];

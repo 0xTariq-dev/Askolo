@@ -287,10 +287,34 @@ export function PlanPage() {
       </header>
 
       <Tabs value={activeAgendaTab} onValueChange={setActiveAgendaTab} className="min-w-0">
-        <TabsList className="grid h-11 w-full grid-cols-3 rounded-xl bg-muted/70 p-1 sm:w-full" aria-label={isArabic ? 'أقسام الأجندة' : 'Agenda sections'}>
-          <TabsTrigger value="calendar" className="h-9 rounded-lg gap-1.5 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:gap-2 sm:px-3 sm:text-sm"><CalendarDays className="size-4" aria-hidden="true" />{isArabic ? 'التقويم' : 'Calendar'}<span className="text-xs tabular-nums text-muted-foreground">{calendarEventCount}</span></TabsTrigger>
-          <TabsTrigger value="goals" className="h-9 rounded-lg gap-1.5 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:gap-2 sm:px-3 sm:text-sm"><Target className="size-4" aria-hidden="true" />{isArabic ? 'الأهداف' : 'Goals'}<span className="text-xs tabular-nums text-muted-foreground">{goalCount}</span></TabsTrigger>
-          <TabsTrigger value="tasks" className="h-9 rounded-lg gap-1.5 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:gap-2 sm:px-3 sm:text-sm"><ListTodo className="size-4" aria-hidden="true" />{isArabic ? 'المهام' : 'Tasks'}<span className="text-xs tabular-nums text-muted-foreground">{sortedPlans.length}</span></TabsTrigger>
+        <TabsList
+          className="grid h-10 w-full grid-cols-3 rounded-[14px] bg-muted/70 p-1"
+          aria-label={isArabic ? 'أقسام الأجندة' : 'Agenda sections'}
+        >
+          <TabsTrigger
+            value="calendar"
+            className="h-8 min-w-0 gap-1 rounded-[10px] border-transparent px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-foreground/10 dark:data-[state=active]:shadow-none"
+          >
+            <CalendarDays className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{isArabic ? 'التقويم' : 'Calendar'}</span>
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{calendarEventCount}</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="goals"
+            className="h-8 min-w-0 gap-1 rounded-[10px] border-transparent px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-foreground/10 dark:data-[state=active]:shadow-none"
+          >
+            <Target className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{isArabic ? 'الأهداف' : 'Goals'}</span>
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{goalCount}</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="tasks"
+            className="h-8 min-w-0 gap-1 rounded-[10px] border-transparent px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-foreground/10 dark:data-[state=active]:shadow-none"
+          >
+            <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{isArabic ? 'المهام' : 'Tasks'}</span>
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{sortedPlans.length}</span>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="calendar" className="mt-5 min-w-0">
           <AgendaCalendar onCountChange={setCalendarEventCount} />

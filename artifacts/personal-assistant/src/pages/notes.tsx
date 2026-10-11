@@ -246,12 +246,22 @@ export function NotesPage() {
       </header>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl bg-muted/70 p-1">
-          <TabsTrigger value="notes" className="h-9 rounded-lg gap-2 text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
-            <FileText className="h-4 w-4" /> My Notes
+        <TabsList
+          className="grid h-10 w-full grid-cols-2 rounded-[14px] bg-muted/70 p-1"
+          aria-label="Notes and meetings views"
+        >
+          <TabsTrigger
+            value="notes"
+            className="h-8 min-w-0 gap-1.5 rounded-[10px] border-transparent px-2 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-foreground/10 dark:data-[state=active]:shadow-none"
+          >
+            <FileText className="size-3.5 shrink-0" aria-hidden="true" /> My Notes
           </TabsTrigger>
-          <TabsTrigger value="meetings" className="h-9 rounded-lg gap-2 text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
-            <Sparkles className="h-4 w-4" /> Meeting Intelligence
+          <TabsTrigger
+            value="meetings"
+            className="h-8 min-w-0 gap-1.5 rounded-[10px] border-transparent px-2 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-foreground/10 dark:data-[state=active]:shadow-none"
+          >
+            <Sparkles className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">Meeting Intelligence</span>
           </TabsTrigger>
         </TabsList>
 
