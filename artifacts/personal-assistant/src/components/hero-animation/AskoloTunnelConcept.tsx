@@ -8,6 +8,7 @@ export interface AskoloTunnelConceptProps {
   reducedMotion: boolean;
   paused?: boolean;
   neutralRhythm?: boolean;
+  motionRate?: number;
 }
 
 const TAU = Math.PI * 2;
@@ -48,8 +49,14 @@ export function AskoloTunnelConcept({
   reducedMotion,
   paused = false,
   neutralRhythm = false,
+  motionRate = 1,
 }: AskoloTunnelConceptProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const motionRateRef = useRef(motionRate);
+
+  useEffect(() => {
+    motionRateRef.current = motionRate;
+  }, [motionRate]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -136,7 +143,7 @@ export function AskoloTunnelConcept({
     const animate = (timestamp: number) => {
       if (!isMoving()) return;
       if (lastTimestamp) {
-        elapsed += Math.min((timestamp - lastTimestamp) / 1000, 0.05);
+        elapsed += Math.min((timestamp - lastTimestamp) / 1000, 0.05) * motionRateRef.current;
       }
       lastTimestamp = timestamp;
       draw();

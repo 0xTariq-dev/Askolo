@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   CheckCircle2,
@@ -90,6 +90,8 @@ export function LandingPage() {
   const {
     preferences: { mode, accountThemeId },
   } = useAskoloTheme();
+  const [motionRate, setMotionRate] = useState(1);
+  const chapterObserverRef = useRef<IntersectionObserver | null>(null);
   const ctaHref = toAppUrl('/sign-up', { theme: mode });
   const secondaryHref = toAppUrl('/sign-in', { theme: mode });
   const pageBackground = (
@@ -101,6 +103,7 @@ export function LandingPage() {
         theme={mode}
         reducedMotion={Boolean(prefersReducedMotion)}
         neutralRhythm={accountThemeId === 'neutral'}
+        motionRate={motionRate}
       />
     </div>
   );
@@ -113,8 +116,38 @@ export function LandingPage() {
     });
   }, []);
 
+  useEffect(() => {
+    const chapters = ['features', 'how-it-works', 'integrations']
+      .map((id) => document.getElementById(id))
+      .filter((element): element is HTMLElement => element instanceof HTMLElement);
+    if (!chapters.length || !('IntersectionObserver' in window)) return;
+
+    const visibility = new Map<string, number>();
+    const rates: Record<string, number> = {
+      features: 0.94,
+      'how-it-works': 1.06,
+      integrations: 0.97,
+    };
+    chapterObserverRef.current?.disconnect();
+    chapterObserverRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => visibility.set(entry.target.id, entry.isIntersecting ? entry.intersectionRatio : 0));
+        const activeChapter = Array.from(visibility.entries()).sort((a, b) => b[1] - a[1])[0];
+        if (activeChapter && activeChapter[1] > 0) setMotionRate(rates[activeChapter[0]] ?? 1);
+      },
+      { rootMargin: '-18% 0px -32% 0px', threshold: [0, 0.15, 0.35, 0.6] },
+    );
+    chapters.forEach((chapter) => chapterObserverRef.current?.observe(chapter));
+
+    return () => {
+      chapterObserverRef.current?.disconnect();
+      chapterObserverRef.current = null;
+    };
+  }, []);
+
   return (
     <PublicLayout background={pageBackground}>
+      <div className="askolo-chapter askolo-chapter-features">
       {/* Hero */}
       <section
         id="hero"
@@ -140,6 +173,30 @@ export function LandingPage() {
 
             <BrandSloganReveal />
           </div>
+
+          {(() => {
+            const dailyPlan = features.find((feature) => feature.title === 'Daily Plan');
+            if (!dailyPlan) return null;
+            return (
+              <motion.article
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.55, delay: 0.55, ease: 'easeOut' }}
+                className="askolo-editorial-feature askolo-info-card mx-auto mb-8 max-w-4xl rounded-2xl border border-border text-start"
+              >
+                <div className="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:gap-8 sm:px-9 sm:py-7">
+                  <div className="askolo-graphite-inset flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+                    <dailyPlan.icon className="h-7 w-7 text-primary" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <h2 className="mb-2 font-display text-xl font-semibold sm:text-2xl">{dailyPlan.title}</h2>
+                    <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">{dailyPlan.description}</p>
+                  </div>
+                  <span aria-hidden="true" className="ml-auto hidden select-none font-mono text-5xl font-light text-primary/30 sm:block">01</span>
+                </div>
+              </motion.article>
+            );
+          })()}
 
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
@@ -197,7 +254,7 @@ export function LandingPage() {
       <section
         id="features"
         aria-labelledby="features-heading"
-        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6"
+        className="scroll-mt-20 px-4 py-16 sm:px-6 sm:py-24"
       >
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
@@ -209,8 +266,8 @@ export function LandingPage() {
             </p>
           </div>
 
-          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 list-none p-0 m-0">
-            {features.map((feature, index) => (
+          <ul className="grid grid-cols-1 gap-4 p-0 m-0 list-none sm:grid-cols-2 lg:grid-cols-4">
+            {features.filter((feature) => feature.title !== 'Daily Plan').map((feature, index) => (
               <motion.li
                 key={feature.title}
                 initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
@@ -231,12 +288,13 @@ export function LandingPage() {
           </ul>
         </div>
       </section>
+      </div>
 
       {/* How it works */}
       <section
         id="how-it-works"
         aria-labelledby="how-it-works-heading"
-        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6"
+        className="askolo-chapter askolo-chapter-workflow scroll-mt-20 px-4 py-16 sm:px-6 sm:py-24"
       >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
@@ -275,7 +333,7 @@ export function LandingPage() {
       <section
         id="integrations"
         aria-labelledby="integrations-heading"
-        className="scroll-mt-20 py-16 sm:py-24 px-4 sm:px-6"
+        className="askolo-chapter askolo-chapter-integrations scroll-mt-20 px-4 py-16 sm:px-6 sm:py-24"
       >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 sm:mb-14">
