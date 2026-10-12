@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button';
 import {
   isThemeId,
   getThemeVariables,
@@ -7,6 +6,7 @@ import {
   type ThemeId,
   type ThemeMode,
 } from '@/lib/theme';
+import { ThemeModeToggle } from '@/components/settings/theme-mode-toggle';
 import {
   Select,
   SelectContent,
@@ -16,10 +16,6 @@ import {
 } from '@/components/ui/select';
 
 const THEME_OPTIONS = ['blueHorizon', 'warmPaper', 'neutral'] as const satisfies readonly ThemeId[];
-const MODES: readonly { id: ThemeMode; label: string }[] = [
-  { id: 'light', label: 'Light' },
-  { id: 'dark', label: 'Dark' },
-];
 
 function PresetSwatches({
   themeId,
@@ -45,7 +41,7 @@ function PresetSwatches({
 }
 
 export function ThemePresetSelector() {
-  const { preferences, setAccountTheme, setMode } = useAskoloTheme();
+  const { preferences, setAccountTheme } = useAskoloTheme();
   const mode = preferences.mode;
   const surfaceStyle = preferences.surfaceStyles[mode];
 
@@ -59,21 +55,7 @@ export function ThemePresetSelector() {
       </header>
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Mode</legend>
-          <div role="group" aria-label="Appearance mode" className="flex gap-2">
-            {MODES.map((option) => (
-              <Button
-                key={option.id}
-                type="button"
-                size="sm"
-                variant={mode === option.id ? 'default' : 'outline'}
-                aria-pressed={mode === option.id}
-                onClick={() => setMode(option.id)}
-                className="min-h-10 motion-reduce:transition-none"
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
+          <ThemeModeToggle placement="settings" />
         </fieldset>
 
         <fieldset className="space-y-2">

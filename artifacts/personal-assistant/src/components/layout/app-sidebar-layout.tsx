@@ -11,7 +11,7 @@ import {
   NotebookPen,
   UserCircle,
 } from 'lucide-react';
-import { IconDeviceDesktop, IconMoon, IconPalette, IconStack2, IconSun, IconWallet } from '@tabler/icons-react';
+import { IconPalette, IconStack2, IconWallet } from '@tabler/icons-react';
 import logoUrl from '/logo.png';
 import { AssistantProvider } from '@/contexts/assistant-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
@@ -23,6 +23,7 @@ import { useCreditBalance } from '@/hooks/use-credit-balance';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
 import { NotificationBell } from '@/components/notification-bell';
 import { CommandMenu } from '@/components/layout/command-menu';
+import { ThemeModeToggle } from '@/components/settings/theme-mode-toggle';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -30,8 +31,6 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -53,7 +52,6 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
-import { useAskoloTheme } from '@/lib/theme';
 import { formatUsdMicros } from '@/lib/credit-api';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -95,7 +93,6 @@ function AccountMenu({
   onSignOut: () => void;
 }) {
   const { t, locale } = useLocale();
-  const { preferences, setMode } = useAskoloTheme();
   const amount = balanceUsdMicros === null ? '—' : formatUsdMicros(balanceUsdMicros);
   return (
     <SidebarMenu>
@@ -126,7 +123,7 @@ function AccountMenu({
               {!compact && <MoreHorizontal className="ms-auto size-4 opacity-60" aria-hidden="true" />}
             </SidebarMenuButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="end">
+          <DropdownMenuContent side="top" align="end" className="app-border-subtle bg-popover/55 backdrop-blur-2xl">
             <DropdownMenuGroup>
               <DropdownMenuLabel>
                 <span className="grid gap-0.5">
@@ -160,32 +157,7 @@ function AccountMenu({
                 <IconPalette className="size-4" aria-hidden="true" />
                 <span>{locale === 'ar' ? 'المظهر' : 'Theme'}</span>
               </div>
-              <div className="app-border-subtle rounded-full bg-muted/70 p-0.5">
-                <DropdownMenuRadioGroup
-                  aria-label={locale === 'ar' ? 'اختيار المظهر' : 'Choose theme'}
-                  value={preferences.modePreference}
-                  onValueChange={(mode) => {
-                    if (mode === 'light' || mode === 'dark' || mode === 'system') setMode(mode);
-                  }}
-                  className="flex items-center gap-0.5"
-                >
-                  {([
-                    { id: 'light', label: locale === 'ar' ? 'فاتح' : 'Light', Icon: IconSun },
-                    { id: 'dark', label: locale === 'ar' ? 'داكن' : 'Dark', Icon: IconMoon },
-                    { id: 'system', label: locale === 'ar' ? 'النظام' : 'System', Icon: IconDeviceDesktop },
-                  ] as const).map(({ id, label, Icon }) => (
-                    <DropdownMenuRadioItem
-                      key={id}
-                      value={id}
-                      className="app-border-subtle flex size-6 items-center justify-center rounded-full p-0 text-muted-foreground focus:bg-background focus:text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
-                      data-testid={`menu-theme-${id}`}
-                    >
-                      <Icon className="size-3" aria-hidden="true" />
-                      <span className="sr-only">{label}</span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </div>
+              <ThemeModeToggle placement="menu" />
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onSignOut} data-testid="menu-sign-out">
