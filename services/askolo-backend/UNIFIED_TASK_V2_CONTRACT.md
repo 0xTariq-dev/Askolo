@@ -24,7 +24,7 @@ The staged schema is not a complete copy of V1. It references the existing `publ
 
 There are no active users and existing data is disposable. This implementation does not convert or clean up legacy records, and it does not migrate the UI. V2 schema and API checks run against a fresh disposable PostgreSQL database.
 
-Migration 0019 adds the Task/Habit fields structurally and does not rewrite existing V2 rows during Publish. The API normalizes the staged legacy kinds (`action`, `chore`, and `commitment`) to `task`, and `medium` priority to `normal` (or `none` for a Habit) at read/filter boundaries. New writes use only the canonical kinds and priorities.
+Migration 0019 adds the Task/Habit fields structurally and does not rewrite existing V2 rows during Publish. Its database checks retain the staged legacy kinds (`action`, `chore`, and `commitment`) and `medium` priority only so existing staged rows remain readable. API reads and filters normalize those legacy values to `task` and `normal` (or `none` for a Habit); new writes accept only `task` or `habit` and the canonical priorities. A Habit always has `priority: none`.
 
 The user-confirmed Home and Agenda read choices are recorded in `HOME_TODAY_PLAN_PROJECTION_BRIEF.md` and in this contract. They do not authorize creating canonical V2 views or applying staged migrations. The existing `workspace_agenda_items` and `workspace_overview` views in migration 0016 are legacy projections, not the new UI contract. Keep migration 0016 unchanged; any later change to those legacy views must be a forward migration.
 
@@ -109,8 +109,12 @@ Task, Plan, and Agenda endpoints are session-authenticated and workspace-scoped.
 | `POST /api/v2/workspaces/{workspaceId}/plans/{planId}/entries` | Link a task or occurrence to a plan and set schedule/position. |
 | `PATCH, DELETE /api/v2/workspaces/{workspaceId}/plans/{planId}/entries/{entryId}` | Update schedule or remove a plan link. |
 | `GET /api/v2/workspaces/{workspaceId}/agenda?from=YYYY-MM-DD&to=YYYY-MM-DD&timeZone=Area%2FCity&pageToken=...` | Inclusive, up-to-42-day Task, Plan-entry, and overlapping-event projection with complete cursor pagination. `pageToken` is optional. |
+| `GET, POST /api/v2/workspaces/{workspaceId}/calendar-events` | List and create app-owned calendar events. |
+| `PATCH, DELETE /api/v2/workspaces/{workspaceId}/calendar-events/{eventId}` | Update and delete app-owned calendar events. Provider-owned event writes still require provider-specific write-through and conflict handling. |
 | `GET, POST /api/v2/workspaces/{workspaceId}/reminder-rules` | List and create inactive reminder definitions. |
 | `PATCH, DELETE /api/v2/workspaces/{workspaceId}/reminder-rules/{ruleId}` | Update or delete an inactive definition; activation is not supported. |
+
+The canonical V2 responsibility routes are `/tasks` and their occurrence subroutes. The server also currently mounts a parallel `/actions` V2 route family for the same unified Task/Habit records, and the Plan UI still calls it. Treat `/actions` as a cutover gap, not a second canonical contract; move app callers to `/tasks` before declaring the V2 cutover complete.
 
 ### Home API implemented
 
@@ -178,7 +182,7 @@ List endpoints default to at most 50 items and accept a maximum of 100. Request 
   "title": "Walk after lunch",
   "details": null,
   "status": "open",
-  "priority": "medium",
+  "priority": "none",
   "createdByUserId": "user_123",
   "assignedToUserId": "user_123",
   "goalId": null,
@@ -220,7 +224,7 @@ A calendar event uses `kind: calendar_event`, its own event ID, and nullable sou
 
 | Area | Required checks |
 | --- | --- |
-| Task kinds and validation | All four kinds accepted; unknown kinds and malformed fields rejected. |
+| Task kinds and validation | New writes accept exactly `task` and `habit`; unknown and legacy kinds are rejected on write. Existing staged legacy kinds and `medium` priority normalize on API reads/filters; Habits always expose `priority: none`. |
 | Recurrence | Daily/weekly/monthly expansion; interval, end date, leap/month-end, weekday, and time-zone boundaries. |
 | Occurrence history | Complete, skip, cancel, reopen, actor/time attribution, and idempotent replay. |
 | Relationships | Optional Goal link, parent task, dependencies, cross-workspace rejection, self-link and cycle rejection. |
