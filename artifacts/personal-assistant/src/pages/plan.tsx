@@ -26,11 +26,11 @@ import { useLocale } from '@/contexts/locale-context';
 import { useSpaceScope } from '@/contexts/space-context';
 import { useAssistantState } from '@/contexts/assistant-context';
 import {
-  archiveV2Task,
+  archiveV2Action,
   getV2AgendaRange,
-  updateV2Task,
-  updateV2TaskOccurrence,
-  createV2Task,
+  updateV2Action,
+  updateV2ActionOccurrence,
+  createV2Action,
   getV2GoalsForScope,
   type V2AgendaTask,
 } from '@/lib/agenda-v2-api';
@@ -110,7 +110,7 @@ export function PlanPage() {
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [targetSpaceId, setTargetSpaceId] = useState('');
   const [activeAgendaTab, setActiveAgendaTab] = useState(
-    search.get('tab') === 'tasks' ? 'tasks' : 'calendar',
+    search.get('tab') === 'actions' || search.get('tab') === 'tasks' ? 'actions' : 'calendar',
   );
   const [calendarEventCount, setCalendarEventCount] = useState(0);
   const [goalCount, setGoalCount] = useState<number | null>(null);
@@ -205,7 +205,7 @@ export function PlanPage() {
     }
     setIsSavingTask(true);
     try {
-      await createV2Task(workspaceId, {
+      await createV2Action(workspaceId, {
         kind: data.kind,
         title: data.title,
         details: data.kind === 'task' ? data.notes?.trim() || undefined : undefined,
@@ -243,9 +243,9 @@ export function PlanPage() {
     const status = item.completed ? 'open' : 'done';
     try {
       if (item.occurrenceOn) {
-        await updateV2TaskOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status });
+        await updateV2ActionOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status });
       } else {
-        await updateV2Task(workspaceId, item.taskId, { status });
+        await updateV2Action(workspaceId, item.taskId, { status });
       }
       await reloadData();
     } catch (error) {
@@ -258,9 +258,9 @@ export function PlanPage() {
     if (!workspaceId) return;
     try {
       if (item.occurrenceOn) {
-        await updateV2TaskOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status: 'cancelled' });
+        await updateV2ActionOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status: 'cancelled' });
       } else {
-        await archiveV2Task(workspaceId, item.taskId);
+        await archiveV2Action(workspaceId, item.taskId);
       }
       await reloadData();
     } catch (error) {
@@ -357,7 +357,7 @@ export function PlanPage() {
             </span>
           </TabsTrigger>
           <TabsTrigger
-            value="tasks"
+            value="actions"
             className="!h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
           >
             <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />
@@ -371,7 +371,7 @@ export function PlanPage() {
         <TabsContent value="goals" className="mt-5 min-w-0">
           <GoalsPage />
         </TabsContent>
-        <TabsContent value="tasks" className="mt-5 min-w-0">
+        <TabsContent value="actions" className="mt-5 min-w-0">
       {hasError && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3" role="alert">
           <p className="text-sm text-destructive">{agendaError ?? (isArabic ? 'تعذر تحميل بعض بيانات الخطة.' : 'Some plan data could not be loaded.')}</p>

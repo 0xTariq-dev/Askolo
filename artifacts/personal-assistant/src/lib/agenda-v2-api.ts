@@ -360,3 +360,54 @@ export function archiveV2Task(workspaceId: string, taskId: string): Promise<void
     'DELETE',
   ) as Promise<void>;
 }
+
+export async function createV2Action(
+  workspaceId: string,
+  input: V2TaskCreateInput,
+  signal?: AbortSignal,
+): Promise<{ id: string }> {
+  const result = await v2Request<{ id: string }>(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions`,
+    'POST',
+    input,
+    signal,
+  );
+  if (!result?.id) throw new Error('Action was created without an identifier.');
+  return result;
+}
+
+export function updateV2Action(
+  workspaceId: string,
+  actionId: string,
+  patch: { status?: 'open' | 'in_progress' | 'done' | 'cancelled'; title?: string; priority?: 'none' | 'low' | 'normal' | 'high' },
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions/${encodeURIComponent(actionId)}`,
+    'PATCH',
+    patch,
+    signal,
+  );
+}
+
+export function updateV2ActionOccurrence(
+  workspaceId: string,
+  actionId: string,
+  date: string,
+  patch: { status: 'open' | 'in_progress' | 'done' | 'cancelled' },
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions/${encodeURIComponent(actionId)}/occurrences/${encodeURIComponent(date)}`,
+    'PATCH',
+    patch,
+    signal,
+  );
+}
+
+export function archiveV2Action(workspaceId: string, actionId: string): Promise<void> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions/${encodeURIComponent(actionId)}`,
+    'DELETE',
+  ) as Promise<void>;
+}

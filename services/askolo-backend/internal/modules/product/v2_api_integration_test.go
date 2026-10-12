@@ -98,6 +98,49 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 	if task.ID == "" {
 		t.Fatal("created task has no ID")
 	}
+	actionsResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/actions?kind=task",
+		"",
+	)
+	if actionsResponse.Code != http.StatusOK {
+		t.Fatalf("list actions status = %d, want %d: %s", actionsResponse.Code, http.StatusOK, actionsResponse.Body.String())
+	}
+	var actions []struct {
+		ID   string `json:"id"`
+		Kind string `json:"kind"`
+	}
+	if err := json.NewDecoder(actionsResponse.Body).Decode(&actions); err != nil {
+		t.Fatalf("decode actions: %v", err)
+	}
+	foundTaskAction := false
+	for _, action := range actions {
+		if action.ID == task.ID && action.Kind == "task" {
+			foundTaskAction = true
+		}
+	}
+	if !foundTaskAction {
+		t.Fatalf("Actions route omitted the canonical Task record %q: %#v", task.ID, actions)
+	}
+	actionResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/actions/"+task.ID,
+		"",
+	)
+	if actionResponse.Code != http.StatusOK {
+		t.Fatalf("get action status = %d, want %d: %s", actionResponse.Code, http.StatusOK, actionResponse.Body.String())
+	}
+	actionUpdateResponse := request(
+		ownerSession,
+		http.MethodPatch,
+		"/api/v2/workspaces/"+workspaceID+"/actions/"+task.ID,
+		`{"title":"Canonical task"}`,
+	)
+	if actionUpdateResponse.Code != http.StatusOK {
+		t.Fatalf("update action status = %d, want %d: %s", actionUpdateResponse.Code, http.StatusOK, actionUpdateResponse.Body.String())
+	}
 	if task.Kind != "task" || task.Priority != "normal" ||
 		!strings.HasPrefix(task.PlannedOn, "2026-10-12") ||
 		!strings.HasPrefix(task.PlannedStartTime, "23:30") || task.DurationMinutes != 60 ||
@@ -302,7 +345,7 @@ INSERT INTO "`+v2Schema+`".tasks (
 	recurringTaskResponse := request(
 		ownerSession,
 		http.MethodPost,
-		"/api/v2/workspaces/"+workspaceID+"/tasks",
+		"/api/v2/workspaces/"+workspaceID+"/actions",
 		fmt.Sprintf(
 			`{"kind":"habit","title":"Daily walk","status":"open","priority":"none","recurrence":{"frequency":"daily","interval":1,"startsOn":%q,"endsOn":%q,"timeZone":"Africa/Cairo"}}`,
 			plannedOn,
@@ -321,7 +364,7 @@ INSERT INTO "`+v2Schema+`".tasks (
 	occurrencesResponse := request(
 		ownerSession,
 		http.MethodGet,
-		"/api/v2/workspaces/"+workspaceID+"/tasks/"+recurringTask.ID+"/occurrences?from="+plannedOn+"&to="+occurrenceEnd,
+		"/api/v2/workspaces/"+workspaceID+"/actions/"+recurringTask.ID+"/occurrences?from="+plannedOn+"&to="+occurrenceEnd,
 		"",
 	)
 	if occurrencesResponse.Code != http.StatusOK {
@@ -337,7 +380,7 @@ INSERT INTO "`+v2Schema+`".tasks (
 	if len(occurrences) != 3 || occurrences[0].Status != "open" {
 		t.Fatalf("generated occurrences = %#v, want three open daily occurrences", occurrences)
 	}
-	occurrencePath := "/api/v2/workspaces/" + workspaceID + "/tasks/" + recurringTask.ID + "/occurrences/" + plannedOn
+	occurrencePath := "/api/v2/workspaces/" + workspaceID + "/actions/" + recurringTask.ID + "/occurrences/" + plannedOn
 	for attempt := 0; attempt < 2; attempt++ {
 		completionResponse := request(ownerSession, http.MethodPatch, occurrencePath, `{"status":"done"}`)
 		if completionResponse.Code != http.StatusOK {
@@ -353,6 +396,31 @@ INSERT INTO "`+v2Schema+`".tasks (
 	}
 	if occurrences[0].Status != "open" || len(occurrences[0].History) != 2 {
 		t.Fatalf("reopened occurrence = %#v, want open with two distinct recorded changes", occurrences[0])
+	}
+
+	archiveActionResponse := request(
+		ownerSession,
+		http.MethodPost,
+		"/api/v2/workspaces/"+workspaceID+"/actions",
+		`{"kind":"task","title":"Archive alias check","status":"open","priority":"none","timeZone":"Africa/Cairo"}`,
+	)
+	if archiveActionResponse.Code != http.StatusCreated {
+		t.Fatalf("create action for archive alias status = %d, want %d: %s", archiveActionResponse.Code, http.StatusCreated, archiveActionResponse.Body.String())
+	}
+	var archiveAction struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(archiveActionResponse.Body).Decode(&archiveAction); err != nil {
+		t.Fatalf("decode action for archive alias: %v", err)
+	}
+	archiveResponse := request(
+		ownerSession,
+		http.MethodDelete,
+		"/api/v2/workspaces/"+workspaceID+"/actions/"+archiveAction.ID,
+		"",
+	)
+	if archiveResponse.Code != http.StatusNoContent {
+		t.Fatalf("archive action status = %d, want %d: %s", archiveResponse.Code, http.StatusNoContent, archiveResponse.Body.String())
 	}
 
 	dateFilteredTasksResponse := request(

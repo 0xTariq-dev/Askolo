@@ -19,6 +19,12 @@ Support both personal and shared plans. Workspace owners and admins may share pl
 
 Calendar is the broad agenda view over tasks, plans, and events. Provider-owned events remain distinct and preserve provider, connection/account, calendar, and event identifiers. Use that full source tuple when refreshing events so IDs from different calendars do not collide; local CRUD must not mutate provider-owned rows. Provider writes require explicit user opt-in.
 
+The Plan tab is labeled Actions as an umbrella for Task and Habit records. Actions API routes are aliases for Plan callers; retain the canonical task database model and task-specific routes.
+
+**Why:** The Plan label describes the user-facing surface, not a new data type. Renaming the persisted Task/Habit model would create unnecessary schema and compatibility changes.
+
+**How to apply:** Keep Plan mutations on Actions-named API functions/routes, while task-specific consumers continue using the existing Task model and routes.
+
 **Why:** provider event IDs can collide across connected accounts and calendars, and the provider remains the owner of those events.
 
 **How to apply:** upsert by the full source tuple and keep local event IDs stable across refreshes. Do not issue provider writes until the user has explicitly opted in.
