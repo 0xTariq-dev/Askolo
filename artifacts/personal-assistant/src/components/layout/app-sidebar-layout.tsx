@@ -11,6 +11,7 @@ import {
   NotebookPen,
   UserCircle,
 } from 'lucide-react';
+import { IconMoon, IconStack2, IconSun, IconWallet } from '@tabler/icons-react';
 import logoUrl from '/logo.png';
 import { AssistantProvider } from '@/contexts/assistant-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
@@ -21,7 +22,6 @@ import { useSpaceScope } from '@/contexts/space-context';
 import { useCreditBalance } from '@/hooks/use-credit-balance';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
 import { NotificationBell } from '@/components/notification-bell';
-import { BalanceIndicator } from '@/components/credits/balance-indicator';
 import { CommandMenu } from '@/components/layout/command-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -51,6 +51,8 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
+import { useAskoloTheme } from '@/lib/theme';
+import { formatUsdMicros } from '@/lib/credit-api';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -78,15 +80,25 @@ function AccountMenu({
   email,
   avatarUrl,
   initials,
+  balanceUsdMicros,
+  compact,
   onSignOut,
 }: {
   displayName: string;
   email: string;
   avatarUrl?: string;
   initials: string;
+  balanceUsdMicros: number | null;
+  compact: boolean;
   onSignOut: () => void;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const { preferences, setMode } = useAskoloTheme();
+  const amount = balanceUsdMicros === null ? '—' : formatUsdMicros(balanceUsdMicros);
+  const nextMode = preferences.mode === 'dark' ? 'light' : 'dark';
+  const modeLabel = preferences.mode === 'dark'
+    ? (locale === 'ar' ? 'داكن' : 'Dark')
+    : (locale === 'ar' ? 'فاتح' : 'Light');
 
   return (
     <SidebarMenu>
@@ -107,20 +119,23 @@ function AccountMenu({
                 </AvatarFallback>
               </Avatar>
               <span className="grid min-w-0 flex-1 text-start leading-tight">
-                <span className="truncate text-sm font-medium">
+                <span className={`truncate text-sm font-medium ${compact ? 'sr-only' : ''}`}>
                   <bdi dir="auto">{displayName}</bdi>
                 </span>
-                <span className="truncate text-xs text-sidebar-foreground/70">
+                <span className={`truncate text-xs text-sidebar-foreground/70 ${compact ? 'sr-only' : ''}`}>
                   <bdi dir="ltr" lang="en">{email}</bdi>
                 </span>
               </span>
-              <MoreHorizontal className="ms-auto size-4 opacity-60" aria-hidden="true" />
+              {!compact && <MoreHorizontal className="ms-auto size-4 opacity-60" aria-hidden="true" />}
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="end">
             <DropdownMenuGroup>
               <DropdownMenuLabel>
-                <bdi dir="auto">{displayName}</bdi>
+                <span className="grid gap-0.5">
+                  <bdi dir="auto" className="font-medium">{displayName}</bdi>
+                  <bdi dir="ltr" lang="en" className="text-xs font-normal text-muted-foreground">{email}</bdi>
+                </span>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -133,6 +148,30 @@ function AccountMenu({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
+            <DropdownMenuItem asChild data-testid="menu-balance">
+              <Link
+                href="/credits"
+                aria-label={`${t('nav.aiCredits')}: ${amount}`}
+                className="flex items-center"
+              >
+                <IconWallet aria-hidden="true" />
+                <bdi dir="ltr" className="font-mono text-xs font-semibold">{amount}</bdi>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => setMode(nextMode)}
+              aria-label={`${locale === 'ar' ? 'المظهر' : 'Theme'}: ${modeLabel}. ${t(
+                nextMode === 'dark' ? 'common.switchToDark' : 'common.switchToLight',
+              )}`}
+              data-testid="menu-theme-toggle"
+            >
+              {preferences.mode === 'dark'
+                ? <IconMoon aria-hidden="true" />
+                : <IconSun aria-hidden="true" />}
+              <span>{locale === 'ar' ? 'المظهر' : 'Theme'}</span>
+              <span className="ms-auto text-xs text-muted-foreground">{modeLabel}</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onSignOut} data-testid="menu-sign-out">
               <LogOut aria-hidden="true" />
               {t('nav.signOut')}
@@ -144,7 +183,7 @@ function AccountMenu({
   );
 }
 
-function SpaceSelector() {
+function SpaceSelector({ compact }: { compact: boolean }) {
   const { locale } = useLocale();
   const { spaces, selectedSpaceId, setSelectedSpaceId, loading, error } = useSpaceScope();
   const { user } = useAppAuth();
@@ -160,23 +199,35 @@ function SpaceSelector() {
   const selectedName = selectedSpace ? getSpaceName(selectedSpace) : allSpacesLabel;
 
   return (
-    <div className="px-2">
+    <div className={compact ? 'flex justify-center' : 'px-2'}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             disabled={loading || Boolean(error)}
             aria-label={`${locale === 'ar' ? 'المساحة الحالية' : 'Current Space'}: ${selectedName}`}
-            className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md border border-sidebar-border bg-sidebar px-3 text-start text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:cursor-wait disabled:opacity-60"
+            title={selectedName}
+            className={`flex w-full items-center rounded-md border border-sidebar-border bg-sidebar text-start text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:cursor-wait disabled:opacity-60 ${
+              compact ? 'size-8 min-h-8 justify-center p-0' : 'min-h-9 justify-between gap-2 px-3'
+            }`}
             data-testid="space-selector"
           >
-            <span className="truncate">
-              {loading ? (locale === 'ar' ? 'جارٍ تحميل المساحات…' : 'Loading Spaces…') : selectedName}
-            </span>
-            <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+            {compact ? (
+              <IconStack2 aria-hidden="true" className="size-4" />
+            ) : (
+              <>
+                <span className="truncate">
+                  {loading ? (locale === 'ar' ? 'جارٍ تحميل المساحات…' : 'Loading Spaces…') : selectedName}
+                </span>
+                <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+              </>
+            )}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+        <DropdownMenuContent
+          align="start"
+          className={compact ? 'w-56' : 'w-[var(--radix-dropdown-menu-trigger-width)]'}
+        >
           <DropdownMenuItem onSelect={() => setSelectedSpaceId(null)}>{allSpacesLabel}</DropdownMenuItem>
           <DropdownMenuSeparator />
           {spaces.map((space) => (
@@ -206,7 +257,10 @@ function NavigationPanel({
   initials: string;
   onSignOut: () => void;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const { state, isMobile } = useSidebar();
+  const compact = state === 'collapsed' && !isMobile;
+  const balanceUsdMicros = useCreditBalance(location);
   const commands = [...navigation, ...moreNavigation].map((item) => ({
     href: item.href,
     label: t(item.labelKey),
@@ -216,20 +270,31 @@ function NavigationPanel({
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-sidebar-foreground">
       <SidebarHeader className="gap-3">
-        <div className="flex items-center gap-2 px-2 pr-12 md:pr-2">
+        <div className={`flex ${compact ? 'flex-col items-center gap-2' : 'items-center justify-between gap-2 px-2'}`}>
           <Link
             href="/home"
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+            className={`flex min-w-0 items-center gap-2 rounded-md text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring ${
+              compact ? 'justify-center' : 'flex-1'
+            }`}
             data-testid="link-brand-dashboard"
           >
             <img src={logoUrl} alt="Askolo" className="askolo-brand-logo h-7 w-auto object-contain" />
-            <span className="truncate font-display text-xl font-bold tracking-tight">Askolo</span>
+            {!compact && <span className="truncate font-display text-xl font-bold tracking-tight">Askolo</span>}
           </Link>
+          <div className={`flex items-center ${compact ? 'flex-col' : 'gap-1'}`}>
+            <NotificationBell className={compact ? 'size-8' : 'size-9'} />
+            <SidebarTrigger
+              type="button"
+              aria-label={locale === 'ar' ? 'تبديل الشريط الجانبي' : 'Toggle sidebar'}
+              data-testid="button-toggle-sidebar"
+              className={`hidden md:flex ${compact ? 'size-8' : 'size-9'}`}
+            />
+          </div>
         </div>
-        <div className="px-2">
-          <CommandMenu commands={commands} />
+        <div className={compact ? 'flex justify-center' : 'px-2'}>
+          <CommandMenu commands={commands} collapsed={compact} />
         </div>
-        <SpaceSelector />
+        <SpaceSelector compact={compact} />
       </SidebarHeader>
 
       <SidebarContent role="navigation" aria-label={t('nav.main')}>
@@ -294,16 +359,13 @@ function NavigationPanel({
 
       <SidebarFooter>
         <SidebarSeparator className="mx-0" />
-        <BalanceIndicator
-          balanceUsdMicros={useCreditBalance(location)}
-          label={t('nav.aiCredits')}
-          className="w-full justify-center rounded-md border-sidebar-border bg-sidebar text-sidebar-foreground hover:border-sidebar-primary/40 hover:bg-sidebar-accent"
-        />
         <AccountMenu
           displayName={displayName}
           email={email}
           avatarUrl={avatarUrl}
           initials={initials}
+          balanceUsdMicros={balanceUsdMicros}
+          compact={compact}
           onSignOut={onSignOut}
         />
       </SidebarFooter>
@@ -313,7 +375,7 @@ function NavigationPanel({
 
 function ShellFrame({ children }: { children: ReactNode }) {
   const { user, signOut } = useAppAuth();
-  const { direction, t } = useLocale();
+  const { direction, t, locale } = useLocale();
   const [location] = useLocation();
   const { setOpenMobile } = useSidebar();
   const mainContentRef = useRef<HTMLDivElement>(null);
@@ -386,6 +448,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
       <Sidebar
         side={direction === 'rtl' ? 'right' : 'left'}
         variant="inset"
+        collapsible="icon"
         mobileCloseButton
         mobileTitle={t('nav.mobileTitle')}
         mobileDescription={t('nav.main')}
@@ -409,14 +472,13 @@ function ShellFrame({ children }: { children: ReactNode }) {
           ref={mainContentRef}
           className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-sidebar/60 p-2 md:p-3">
+          <div className="flex shrink-0 items-center gap-2 border-b border-sidebar/60 p-2 md:hidden">
             <SidebarTrigger
               type="button"
-              aria-label={t('nav.mobileTitle')}
+              aria-label={locale === 'ar' ? 'فتح قائمة التنقل' : 'Open navigation menu'}
               data-testid="button-open-navigation"
               className="size-9 [&>svg]:rtl:-scale-x-100"
             />
-            <NotificationBell className="shrink-0" />
           </div>
           <div className="relative min-h-0 flex-1 overflow-y-auto p-4 pt-1 md:p-8 md:pt-3 text-[12px] font-light">
             {children}

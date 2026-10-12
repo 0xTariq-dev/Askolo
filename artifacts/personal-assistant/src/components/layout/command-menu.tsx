@@ -31,8 +31,10 @@ export type CommandDestination = {
 
 export function CommandMenu({
   commands,
+  collapsed = false,
 }: {
   commands: CommandDestination[];
+  collapsed?: boolean;
 }) {
   const [, setLocation] = useLocation();
   const { commandMenuShortcut } = useKeyboardShortcutPreferences();
@@ -89,7 +91,12 @@ export function CommandMenu({
             ref={triggerRef}
             type="button"
             variant="outline"
-            className="shrink-0 gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className={`shrink-0 gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+              collapsed ? 'size-8 justify-center p-0' : 'w-full justify-start'
+            }`}
+            title={ariaKeyshortcuts
+              ? `Open search (${shortcutLabel})`
+              : 'Open search'}
             aria-label={
               ariaKeyshortcuts
                 ? `Open search (${shortcutLabel})`
@@ -100,8 +107,8 @@ export function CommandMenu({
             data-testid="open-search"
           >
             <Search className="h-4 w-4" aria-hidden="true" />
-            <span>Search</span>
-            {commandMenuShortcut !== 'disabled' && (
+            {!collapsed && <span>Search</span>}
+            {!collapsed && commandMenuShortcut !== 'disabled' && (
               <span
                 aria-hidden="true"
                 className="hidden rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground sm:inline"
