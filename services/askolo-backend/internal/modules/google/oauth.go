@@ -251,14 +251,17 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 }
 
 func addFlowAuthorizationOptions(params url.Values, flow string) {
-	if flow != "integration" {
+	if flow == "integration" {
+		// Integration authorization needs offline refresh tokens and
+		// incremental scopes. Login/link request identity claims only.
+		params.Set("access_type", "offline")
+		params.Set("prompt", "consent")
+		params.Set("include_granted_scopes", "true")
 		return
 	}
-	// Only integration authorization needs offline refresh tokens and
-	// incremental scopes. Login/link request identity claims only.
-	params.Set("access_type", "offline")
-	params.Set("prompt", "consent")
-	params.Set("include_granted_scopes", "true")
+	// Keep account selection visible without forcing another consent screen or
+	// requesting offline access during identity-only login/link.
+	params.Set("prompt", "select_account")
 }
 
 func (h *Handler) finishLogin(w http.ResponseWriter, r *http.Request) {

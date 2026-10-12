@@ -211,7 +211,10 @@ func TestOnlyIntegrationAuthorizationCarriesGrantedScopes(t *testing.T) {
 	for _, flow := range []string{"login", "link"} {
 		params := url.Values{}
 		addFlowAuthorizationOptions(params, flow)
-		for _, key := range []string{"access_type", "prompt", "include_granted_scopes"} {
+		if params.Get("prompt") != "select_account" {
+			t.Fatalf("%s authorization prompt = %q, want select_account", flow, params.Get("prompt"))
+		}
+		for _, key := range []string{"access_type", "include_granted_scopes"} {
 			if params.Has(key) {
 				t.Fatalf("%s authorization unexpectedly set %s=%q", flow, key, params.Get(key))
 			}

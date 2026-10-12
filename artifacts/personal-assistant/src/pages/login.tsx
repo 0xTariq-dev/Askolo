@@ -94,7 +94,10 @@ export function LoginPage() {
       : 'signin';
   const beginProviderLogin = (provider: 'google' | 'github', intent: 'signin' | 'signup' = 'signin') => {
     ensureDeviceFingerprint();
-    const returnTo = `${basePath}/dashboard${window.location.search}`;
+    const returnParams = new URLSearchParams(window.location.search);
+    returnParams.delete('google');
+    const returnSearch = returnParams.toString();
+    const returnTo = `${basePath}/dashboard${returnSearch ? `?${returnSearch}` : ''}`;
     window.location.assign(
       `${basePath}/api/auth/${provider}?intent=${intent}&returnTo=${encodeURIComponent(returnTo)}`,
     );
@@ -111,7 +114,16 @@ export function LoginPage() {
   const [recoveryMethod, setRecoveryMethod] = useState<RecoveryMethod>('primary_email');
   const [moreWaysOpen, setMoreWaysOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(() => {
+    const googleStatus = new URLSearchParams(window.location.search).get('google');
+    if (googleStatus === 'provider_not_linked') {
+      return 'This Google account is not linked to an Askolo account. Sign in with your existing email and password, then link Google sign-in from Profile. This keeps account access secure.';
+    }
+    if (googleStatus === 'error') {
+      return 'Google sign-in could not be completed. Try again or sign in with your email and password.';
+    }
+    return null;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [resendSeconds, setResendSeconds] = useState(0);
@@ -150,6 +162,18 @@ export function LoginPage() {
   useEffect(() => {
     resetTurnstile();
   }, [resetTurnstile, turnstileAction]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('google')) return;
+    params.delete('google');
+    const search = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
+    );
+  }, []);
 
   const startResendCooldown = (seconds = resendCooldownSeconds) => {
     setResendAvailableAt(Date.now() + seconds * 1000);

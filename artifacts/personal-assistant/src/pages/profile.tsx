@@ -87,6 +87,28 @@ export function ProfilePage() {
 
   const { data: googleStatus, refetch: refetchGoogle, isFetching: checkingGoogle } =
     useGetGoogleStatus();
+  const [googleSignInNotice, setGoogleSignInNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('google');
+    if (status === 'linked') {
+      setGoogleSignInNotice('Google sign-in is linked to this account.');
+    } else if (status === 'provider_not_linked') {
+      setGoogleSignInNotice('That Google account is already linked to a different Askolo account.');
+    } else if (status === 'error') {
+      setGoogleSignInNotice('Google sign-in could not be linked. Please try again.');
+    }
+    if (status) {
+      params.delete('google');
+      const search = params.toString();
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
+      );
+    }
+  }, []);
 
   // Identity edit state
   const [firstName, setFirstName] = useState('');
@@ -409,6 +431,13 @@ export function ProfilePage() {
 
   const connectGoogle = (scope: 'calendar' | 'gmail') => {
     window.location.href = `${basePath}/api/google/gmail/connect?scope=${scope}&returnTo=/profile`;
+  };
+
+  const linkGoogleSignIn = () => {
+    const returnTo = `${basePath}/profile?google=linked`;
+    window.location.assign(
+      `${basePath}/api/auth/google/link?returnTo=${encodeURIComponent(returnTo)}`,
+    );
   };
 
   const disconnectGoogle = async (scope: 'calendar' | 'gmail') => {
@@ -946,6 +975,25 @@ export function ProfilePage() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Google sign-in</CardTitle>
+          <CardDescription>
+            Link Google as a way to sign in to this Askolo account. This requests basic identity only; it does not connect Calendar or Gmail.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {googleSignInNotice && (
+            <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+              {googleSignInNotice}
+            </p>
+          )}
+          <Button onClick={linkGoogleSignIn} className="min-h-11 w-full sm:w-auto">
+            Link Google sign-in
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* ── Google Connections ─────────────────────────────────────────────── */}
       <Card>
