@@ -163,7 +163,7 @@ export function LandingPage() {
             <Button
               size="default"
               asChild
-              className="askolo-public-cta group min-h-11 rounded-full"
+              className="group min-h-11 rounded-full"
             >
               <a href={ctaHref}>
                 Get Started Free
@@ -360,7 +360,7 @@ export function LandingPage() {
           <Button
             size="lg"
             asChild
-            className="askolo-public-cta rounded-full px-8 py-6 text-lg font-medium shadow-lg transition-all duration-300 group"
+            className="rounded-full px-8 py-6 text-lg font-medium shadow-lg transition-all duration-300 group"
           >
             <a href={ctaHref}>
               Get Started Free
