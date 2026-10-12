@@ -32,24 +32,25 @@ A screen-level brief is maintained in `HOME_TODAY_PLAN_PROJECTION_BRIEF.md`. It 
 
 ### Tasks
 
-`Task` is the single canonical model for actionable work. Its initial kinds are:
+The canonical responsibility types are exactly `task` and `habit`. A Task is work the user finishes; a Habit is behavior the user practices. Bills, emails, calls, and recurring house jobs are Tasks. “Chore” is a label, not a type. Labels include presets (`Home`, `Bills`, `Work`, `Family`) and user-defined values.
 
-- `action` — an action item or general next step
-- `chore` — household or workspace upkeep
-- `habit` — a repeated behavior tracked by occurrence
-- `commitment` — a recurring or one-time responsibility
+A Task owns a required title, optional notes/details, optional label, planned date, optional local start-plus-duration block, optional due date/time, optional recurrence, priority, up to three reminder rules, optional goal link, lifecycle, and source provenance. A missing time block means all day. Planned date and actual deadline are distinct. Task priorities are `low`, `normal`, and `high`; quick-add defaults to no priority. A recurring Task's due time is an offset of minutes, hours, or days from its occurrence start and must be shorter than the gap to the next occurrence.
 
-Kind does not determine recurrence. All kinds may be one-time or recurring. A task owns its title, details, creator, optional assignee, priority, lifecycle, optional due date, optional goal link, optional parent task, and source provenance. Task identity and state are never copied into a Plan.
+A Habit has a name, cadence, start date, optional end date, optional time of day (defaulting to anytime), reminder rules, and optional goal link. Habits do not have descriptions or priority. Cadence supports daily, selected weekdays, N times per week, and custom rules. Quick-add creates a daily, anytime Habit starting today with no end. At the end of a Habit run, offer “keep going” or “graduate” while preserving its history either way.
+
+Chore and other category-like distinctions are labels on Tasks. A Plan links to a canonical Task/Habit occurrence and never copies its identity or state.
 
 Task lifecycle values are `open`, `in_progress`, `done`, `cancelled`, and `archived`. A recurring task remains open or in progress while its individual occurrences are completed. A recurring task is stopped by archiving it; completing an occurrence does not complete the task definition.
 
-Dates are calendar dates, not timestamps. A planned time is a separate timestamp. Recurrence uses an IANA time-zone name and local calendar dates so daylight-saving changes do not shift an occurrence to another local day.
+Planned dates are local calendar dates. A time block is stored as local wall-clock start plus duration, not as a fixed end timestamp. It may cross midnight, belongs to its start-date occurrence, and appears on every Agenda day it overlaps. Limit duration to 24 hours and to less than the recurrence gap. Preserve local wall-clock intent through daylight-saving changes. Do not add a day-start preference now; account for that onboarding preference when it is added later.
 
 ### Recurrence and occurrences
 
-The first recurrence contract supports `daily`, `weekly`, and `monthly` frequency, a positive interval, an inclusive start date, an optional inclusive end date, and a time zone. Weekly rules may include selected weekdays; otherwise they use the start date's weekday. Monthly rules use the start date's day of month and skip months that do not contain that day. Occurrences are generated only for requested date ranges; there is no background scheduler.
+Task recurrence supports none, daily, weekdays, weekly, monthly, yearly, and custom rules. A Task series may end never, on a date, or after N occurrences. Habit cadence supports daily, selected weekdays, N times per week, and custom rules; Habit end may be never or a date (including “run for N days”). Store the user's IANA time-zone ID so local times remain stable through daylight-saving changes. Monthly recurrence on days 29–31 clamps to the last day of shorter months. Expand rules in code only for requested windows, capped at about one year; do not pre-insert future occurrences.
 
-`TaskOccurrence` is identified by task ID and local occurrence date. It stores the occurrence status (`done`, `skipped`, or `cancelled`), completion actor/time, and any occurrence-specific due-time override. An occurrence without a stored override is open. Completing or reopening an occurrence never changes the recurring task definition. Non-recurring tasks use their Task lifecycle status and do not require synthetic occurrence rows.
+An occurrence row is written only when the user changes an occurrence (done, skipped, moved, or edited); an expected occurrence with no completion row is a miss. A Habit miss does not roll over. A Task remains overdue until done or skipped, but an occurrence closes as missed when the next interval begins. Keep `next_due_at` on the series for reminder scheduling and overdue sweeps, and cache Habit streaks when a completion lands. “Just this one” writes an override; “this and following” ends the old series the day before and starts a new one; “all” updates the series.
+
+Task reminders are limited to three per Task and may be relative to its start, due time, or daily brief. Habit reminders default to the daily brief, may use an offset when a time is set, and may include an evening “still open” nudge. Reminder rules are data only until an approved automation dispatcher is available.
 
 Parent tasks and dependency links refer to canonical tasks in the same workspace. A task cannot be its own parent or dependency, and dependency cycles are rejected.
 
