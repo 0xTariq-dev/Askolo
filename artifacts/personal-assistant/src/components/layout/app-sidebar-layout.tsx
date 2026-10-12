@@ -170,7 +170,7 @@ function AccountMenu({
                     aria-label={label}
                     aria-pressed={preferences.modePreference === id}
                     onClick={() => setMode(id)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-tl-[12px] rounded-tr-[12px] rounded-br-[12px] rounded-bl-[12px]"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-tl-[8px] rounded-tr-[8px] rounded-br-[8px] rounded-bl-[8px]"
                     data-testid={`menu-theme-${id}`}
                   >
                     <Icon className="size-3.5" aria-hidden="true" />
