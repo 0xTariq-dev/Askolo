@@ -126,7 +126,7 @@ export function LandingPage() {
               initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.7, delay: 0.1, ease: 'easeOut' }}
-              className="mb-5 h-40 w-auto drop-shadow-2xl sm:h-44"
+              className="askolo-hero-mark mb-5 h-40 w-auto drop-shadow-2xl sm:h-44"
             >
               <img
                 src={logoUrl}
