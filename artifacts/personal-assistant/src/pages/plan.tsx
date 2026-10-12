@@ -361,7 +361,7 @@ export function PlanPage() {
             className="!h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
           >
             <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{isArabic ? 'المهام' : 'Tasks'}</span>
+            <span className="truncate">{isArabic ? 'الإجراءات' : 'Actions'}</span>
             <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{sortedPlans.length}</span>
           </TabsTrigger>
         </TabsList>
