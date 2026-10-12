@@ -216,9 +216,9 @@ export function LandingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: index * 0.05 }}
               >
-                <Card className="h-full bg-card/40 border-border hover:bg-card/60 hover:border-primary/20 transition-all duration-300">
+                <Card className="askolo-graphite-surface h-full bg-card/40 border-border hover:bg-card/60 hover:border-primary/20 transition-all duration-300">
                   <CardContent className="p-5">
-                    <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
+                    <div className="askolo-graphite-inset h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                       <feature.icon className="h-5 w-5 text-primary" />
                     </div>
                     <h3 className="font-display font-semibold mb-1.5">{feature.title}</h3>
@@ -255,9 +255,9 @@ export function LandingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.2 + index * 0.1 }}
               >
-                <Card className="h-full bg-card/40 border-border">
+                <Card className="askolo-graphite-surface h-full bg-card/40 border-border">
                   <CardContent className="p-6">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
+                    <div className="askolo-graphite-inset h-10 w-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                       <span className="text-sm font-bold text-primary">{item.step}</span>
                     </div>
                     <h3 className="font-display font-semibold text-lg mb-2">{item.title}</h3>
@@ -287,10 +287,10 @@ export function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <Card className="bg-card/40 border-border">
+            <Card className="askolo-graphite-surface bg-card/40 border-border">
               <CardContent className="p-6 sm:p-8">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="h-12 w-12 rounded-xl bg-info/10 border border-info/20 flex items-center justify-center">
+                  <div className="askolo-graphite-inset h-12 w-12 rounded-xl bg-info/10 border border-info/20 flex items-center justify-center">
                     <Calendar className="h-6 w-6 text-info" />
                   </div>
                   <h3 className="font-display font-semibold text-lg">Google Calendar</h3>
@@ -306,10 +306,10 @@ export function LandingPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-card/40 border-border">
+            <Card className="askolo-graphite-surface bg-card/40 border-border">
               <CardContent className="p-6 sm:p-8">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="h-12 w-12 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center justify-center">
+                  <div className="askolo-graphite-inset h-12 w-12 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center justify-center">
                     <Mail className="h-6 w-6 text-destructive" />
                   </div>
                   <h3 className="font-display font-semibold text-lg">Gmail</h3>
@@ -326,7 +326,7 @@ export function LandingPage() {
             </Card>
           </div>
 
-          <div className="mt-8 flex items-start gap-4 rounded-xl border border-border/60 bg-card/30 p-5 text-sm text-muted-foreground">
+          <div className="askolo-graphite-surface mt-8 flex items-start gap-4 rounded-xl border border-border/60 bg-card/30 p-5 text-sm text-muted-foreground">
             <ShieldCheck className="h-5 w-5 text-success shrink-0 mt-0.5" />
             <p className="leading-relaxed">
               The Google consent screen shows <strong>Askolo</strong> because the app uses its own Google Cloud OAuth project. You can revoke access at any time in your{' '}
