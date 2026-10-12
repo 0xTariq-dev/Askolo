@@ -1,6 +1,6 @@
 - [Orval codegen dedup](orval-codegen-dedup.md) — after codegen, trim `lib/api-zod/src/index.ts` to a single `generated/api` export to avoid duplicate-name TS2308 errors.
 - [API client declaration freshness](api-client-declaration-freshness.md) — when generated source has exports but app typechecks do not, inspect and rebuild stale project-reference declarations before regenerating.
-- [Google OAuth scope preservation](google-oauth-scope-preservation.md) — current storage overwrites scopes; preserve prior grants during refresh and incremental authorization.
+- [Google OAuth scope policy](google-oauth-scope-preservation.md) — preserve granted scopes and begin integrations with limited, non-sensitive permissions, expanding incrementally.
 - [Google auth feedback](google-auth-feedback.md) — distinguish signup email collisions from unlinked sign-in and keep both as concise, persistent ReUI Alerts.
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
 - [Microsoft integration OAuth](microsoft-integration-oauth.md) — Entra app setup exists; use configured `MS_CLIENT_*` secret names with the planned callback when implementing Graph OAuth.

@@ -279,8 +279,6 @@ func (h *Handler) confirmAssistantRun(w http.ResponseWriter, r *http.Request) {
 			)
 		} else if toolName == assistantToolSendGmail {
 			message = "Google confirmed that the email was sent."
-		} else if toolName == assistantToolCreateCalendar {
-			message = "Google confirmed that the calendar event was created."
 		}
 		finishContext := r.Context()
 		var cancel context.CancelFunc

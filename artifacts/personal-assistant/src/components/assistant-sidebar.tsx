@@ -936,63 +936,34 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                         <BubbleContent><p dir="auto" className="whitespace-pre-wrap">{msg.content}</p>
                     {msg.role === 'assistant' &&
                       msg.state === 'needs_confirmation' &&
-                      ['send_gmail', 'create_calendar_event'].includes(
-                        msg.intent?.tool ?? '',
-                      ) &&
+                      msg.intent?.tool === 'send_gmail' &&
                       msg.runId &&
                       msg.intentSha256 && (
                         <Card className="mt-3 border-primary/30 bg-background/80 shadow-none">
                           <CardContent className="space-y-2 p-3">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {msg.intent?.tool === 'send_gmail'
-                              ? 'Email to send'
-                              : msg.intent?.tool === 'create_calendar_event'
-                                ? 'Calendar event to create'
-                                : 'Action to review'}
+                            Email to send
                           </p>
-                          {msg.intent?.tool === 'send_gmail' ? (
-                            <div className="space-y-2 text-sm">
-                              <p className="break-words">
-                                <span className="font-medium">Google account:</span>{' '}
-                                {msg.intent.accountEmail || 'Connected Google account'}
-                              </p>
-                              <p dir="auto" className="break-words">
-                                <span className="font-medium">To:</span> {msg.intent.to}
-                              </p>
-                              <p dir="auto" className="break-words">
-                                <span className="font-medium">Subject:</span> {msg.intent.subject}
-                              </p>
-                              <div
-                                dir="auto"
-                                tabIndex={0}
-                                aria-label="Email message to review"
-                                className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-2 text-sm"
-                              >
-                                {msg.intent.body}
-                              </div>
+                          <div className="space-y-2 text-sm">
+                            <p className="break-words">
+                              <span className="font-medium">Google account:</span>{' '}
+                              {msg.intent.accountEmail || 'Connected Google account'}
+                            </p>
+                            <p dir="auto" className="break-words">
+                              <span className="font-medium">To:</span> {msg.intent.to}
+                            </p>
+                            <p dir="auto" className="break-words">
+                              <span className="font-medium">Subject:</span> {msg.intent.subject}
+                            </p>
+                            <div
+                              dir="auto"
+                              tabIndex={0}
+                              aria-label="Email message to review"
+                              className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-2 text-sm"
+                            >
+                              {msg.intent.body}
                             </div>
-                          ) : msg.intent?.tool === 'create_calendar_event' ? (
-                            <div className="space-y-1 text-sm">
-                              <p className="break-words">
-                                <span className="font-medium">Google account:</span>{' '}
-                                {msg.intent.accountEmail || 'Connected Google account'}
-                              </p>
-                              <p dir="auto" className="break-words">
-                                <span className="font-medium">Event:</span> {msg.intent.title}
-                              </p>
-                              <p className="break-words">
-                                <span className="font-medium">Start:</span> {msg.intent.start}
-                              </p>
-                              <p className="break-words">
-                                <span className="font-medium">End:</span> {msg.intent.end}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                Times include their UTC offset. The event will be added to the primary calendar without guests.
-                              </p>
-                            </div>
-                          ) : (
-                            <p dir="auto" className="text-sm font-medium break-words">{msg.intent?.title}</p>
-                          )}
+                          </div>
                           {msg.confirmationExpiresAt &&
                           new Date(msg.confirmationExpiresAt).getTime() > Date.now() ? (
                             <div className="flex flex-wrap gap-2 pt-1">
@@ -1002,24 +973,14 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                                 className="min-h-10"
                                 disabled={pendingActionId !== null || isThinking}
                                 onClick={() => void handleConfirm(msg)}
-                                aria-label={
-                                  msg.intent?.tool === 'send_gmail'
-                                    ? 'Confirm sending this email'
-                                    : msg.intent?.tool === 'create_calendar_event'
-                                      ? 'Confirm creating this calendar event'
-                                  : `Confirm action ${msg.intent?.title ?? ''}`
-                                }
+                                aria-label="Confirm sending this email"
                               >
                                 {pendingActionId === msg.runId ? (
                                   <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                                 ) : (
                                   <Check className="h-4 w-4 mr-1" />
                                 )}
-                                {msg.intent?.tool === 'send_gmail'
-                                  ? 'Send email'
-                                  : msg.intent?.tool === 'create_calendar_event'
-                                    ? 'Create event'
-                                    : 'Confirm add'}
+                                Send email
                               </Button>
                               <Button
                                 type="button"
@@ -1028,13 +989,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                                 className="min-h-10"
                                 disabled={pendingActionId !== null || isThinking}
                                 onClick={() => void handleCancel(msg)}
-                                aria-label={
-                                  msg.intent?.tool === 'send_gmail'
-                                    ? 'Dismiss sending this email'
-                                    : msg.intent?.tool === 'create_calendar_event'
-                                      ? 'Dismiss creating this calendar event'
-                                      : `Dismiss action ${msg.intent?.title ?? ''}`
-                                }
+                                aria-label="Dismiss sending this email"
                               >
                                 Not now
                               </Button>

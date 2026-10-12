@@ -11,6 +11,12 @@ Google OAuth responses can omit `scope` when it is unchanged, and incremental au
 
 **How to apply:** Keep token-response scope fallback, existing-scope/capability merging, and refresh-token retention in every Google reauthorization path. Never infer a scope that was not requested or reported.
 
+**Integration rollout policy:** Begin Google integrations with a limited scope set that avoids sensitive or restricted permissions, then expand incrementally as needed.
+
+**Why:** The user wants Google access to grow gradually rather than requesting broad permissions at the start.
+
+**How to apply:** For each Google integration, request only the least-permissive scopes needed for its initial capabilities and add scopes only when a later feature requires them.
+
 **Login/signup rule:** Request only `openid`, `email`, and `profile` for identity. Use `prompt=select_account` on login/link, but do not set `include_granted_scopes`, offline access, or forced consent; reserve incremental grants and refresh-token requests for Google integrations.
 
 **Why:** Account selection should remain explicit without forcing repeat consent or carrying Calendar/Gmail permissions into identity authentication, which is separate from connecting Google services.

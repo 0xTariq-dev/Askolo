@@ -8,7 +8,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
 type assistantActionExecutorStub struct {
@@ -60,43 +59,6 @@ func TestPrepareAssistantGmailRejectsUnsafeOrAmbiguousFields(t *testing.T) {
 	}
 }
 
-func TestPrepareAssistantCalendarRequiresBoundedRFC3339Interval(t *testing.T) {
-	start := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
-	end := start.Add(time.Hour)
-	arguments, err := json.Marshal(map[string]string{
-		"title": "Planning",
-		"start": start.Format(time.RFC3339),
-		"end":   end.Format(time.RFC3339),
-	})
-	if err != nil {
-		t.Fatalf("encode event: %v", err)
-	}
-	prepared, err := prepareAssistantCalendarEvent(arguments)
-	if err != nil {
-		t.Fatalf("prepare event: %v", err)
-	}
-	var intent assistantIntent
-	if err := json.Unmarshal(prepared.Intent, &intent); err != nil {
-		t.Fatalf("decode intent: %v", err)
-	}
-	if intent.Tool != assistantToolCreateCalendar || intent.Title != "Planning" ||
-		intent.Start != start.Format(time.RFC3339) || intent.End != end.Format(time.RFC3339) {
-		t.Fatalf("prepared intent = %#v", intent)
-	}
-
-	for name, invalid := range map[string]string{
-		"missing timezone": `{"title":"Planning","start":"2030-01-02T10:00:00","end":"2030-01-02T11:00:00"}`,
-		"past start":       `{"title":"Planning","start":"2020-01-02T10:00:00Z","end":"2020-01-02T11:00:00Z"}`,
-		"too long":         `{"title":"Planning","start":"2030-01-02T10:00:00Z","end":"2030-01-06T11:00:00Z"}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := prepareAssistantCalendarEvent(json.RawMessage(invalid)); err == nil {
-				t.Fatal("invalid calendar interval was accepted")
-			}
-		})
-	}
-}
-
 func TestBindAssistantActionTargetHashesImmutableGoogleIntent(t *testing.T) {
 	outcome := prepareAssistantPlanOutcome(assistantModelPlan{
 		Intent:    assistantToolSendGmail,
@@ -117,7 +79,7 @@ func TestBindAssistantActionTargetHashesImmutableGoogleIntent(t *testing.T) {
 	}
 	if intent.ConnectionID != executor.connectionID ||
 		intent.AccountEmail != executor.accountEmail ||
-		intent.CalendarID != "" {
+		intent.Tool != assistantToolSendGmail {
 		t.Fatalf("bound intent = %#v", intent)
 	}
 	digest := sha256.Sum256(outcome.Intent)
@@ -129,8 +91,8 @@ func TestBindAssistantActionTargetHashesImmutableGoogleIntent(t *testing.T) {
 
 func TestBindAssistantActionTargetRejectsMissingConnection(t *testing.T) {
 	outcome := prepareAssistantPlanOutcome(assistantModelPlan{
-		Intent:    assistantToolCreateCalendar,
-		Arguments: json.RawMessage(`{"title":"Planning","start":"2030-01-02T10:00:00Z","end":"2030-01-02T11:00:00Z"}`),
+		Intent:    assistantToolSendGmail,
+		Arguments: json.RawMessage(`{"to":"person@example.com","subject":"Planning","body":"Let's meet."}`),
 	}, nil)
 	handler := &Handler{assistantActionExecutor: assistantActionExecutorStub{
 		resolveErr: errors.New("connection missing"),
@@ -146,9 +108,12 @@ func TestPlannerPromptRequiresExplicitGoogleWriteDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build prompt: %v", err)
 	}
-	for _, required := range []string{"never invent", "explicit subject", "UTC offsets"} {
+	for _, required := range []string{"never invent", "explicit subject"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("planner prompt does not include %q", required)
+		}
+		if strings.Contains(prompt, "create_calendar_event") {
+			t.Fatal("planner prompt still advertises direct Google Calendar writes")
 		}
 	}
 }

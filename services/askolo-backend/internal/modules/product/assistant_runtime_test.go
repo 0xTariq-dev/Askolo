@@ -98,7 +98,8 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 	}{
 		{name: "ordinary request", content: `{"intent":"none","arguments":{},"message":"I can help with that."}`, wantIntent: "none", wantMessage: "I can help with that."},
 		{name: "clarification", content: `{"intent":"clarify","arguments":{},"message":"What should I clarify?"}`, wantIntent: "clarify", wantMessage: "What should I clarify?"},
-{name: "retired action tool", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"That tool is no longer available."}`, wantErr: true},
+		{name: "retired action tool", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"That tool is no longer available."}`, wantErr: true},
+		{name: "deferred calendar tool", content: `{"intent":"create_calendar_event","arguments":{"title":"Planning"},"message":"That tool is not available yet."}`, wantErr: true},
 		{name: "unknown tool", content: `{"intent":"send_email","arguments":{"title":"Hello"},"message":"I can't do that."}`, wantErr: true},
 		{name: "extra field", content: `{"intent":"none","arguments":{},"message":"I can help.","risk":"low"}`, wantErr: true},
 		{name: "duplicate field", content: `{"intent":"none","intent":"create_action_item","arguments":{},"message":"I can help."}`, wantErr: true},
@@ -149,25 +150,26 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 func TestAssistantToolRegistryExcludesLegacyActionTool(t *testing.T) {
 	registry := newAssistantToolRegistry()
 	wantTools := strings.Join([]string{
-		assistantToolCreateCalendar,
 		assistantToolSendGmail,
 	}, ",")
 	if got := strings.Join(registry.names(), ","); got != wantTools {
 		t.Fatalf("registered tools = %q, want %q", got, wantTools)
 	}
-	if _, ok := registry.lookup("create_action_item"); ok {
-		t.Fatal("legacy action-item tool is still registered")
-	}
-	if _, _, err := registry.prepare("create_action_item", json.RawMessage(`{"title":"Buy milk"}`)); err == nil {
-		t.Fatal("legacy action-item tool was accepted")
+	for _, name := range []string{"create_action_item", "create_calendar_event"} {
+		if _, ok := registry.lookup(name); ok {
+			t.Fatalf("deferred tool %q is still registered", name)
+		}
+		if _, _, err := registry.prepare(name, json.RawMessage(`{"title":"Buy milk"}`)); err == nil {
+			t.Fatalf("deferred tool %q was accepted", name)
+		}
 	}
 }
 
 func TestAssistantToolRegistryRejectsDuplicateAndNonStrictDefinitions(t *testing.T) {
 	registry := newAssistantToolRegistry()
-	existing, ok := registry.lookup(assistantToolCreateCalendar)
+	existing, ok := registry.lookup(assistantToolSendGmail)
 	if !ok {
-		t.Fatal("calendar tool is not registered")
+		t.Fatal("Gmail tool is not registered")
 	}
 	if err := registry.Register(existing); err == nil {
 		t.Fatal("duplicate tool registration was accepted")
@@ -178,7 +180,6 @@ func TestAssistantToolRegistryRejectsDuplicateAndNonStrictDefinitions(t *testing
 		t.Fatal("tool schema allowing arbitrary arguments was accepted")
 	}
 	wantTools := strings.Join([]string{
-		assistantToolCreateCalendar,
 		assistantToolSendGmail,
 	}, ",")
 	if got := strings.Join(registry.names(), ","); got != wantTools {
@@ -188,13 +189,13 @@ func TestAssistantToolRegistryRejectsDuplicateAndNonStrictDefinitions(t *testing
 
 func TestPrepareAssistantPlanOutcomeUsesRegistryAndRequiresConfirmation(t *testing.T) {
 	plan := assistantModelPlan{
-		Intent:    assistantToolCreateCalendar,
-Arguments: json.RawMessage(`{"title":"Planning","start":"2027-10-12T10:00:00Z","end":"2027-10-12T10:30:00Z"}`),
+		Intent:    assistantToolSendGmail,
+		Arguments: json.RawMessage(`{"to":"owner@example.com","subject":"Planning","body":"Please review."}`),
 	}
 	outcome := prepareAssistantPlanOutcome(plan, newAssistantToolRegistry())
 	if outcome.State != "needs_confirmation" ||
 		!outcome.RequiresConfirmation ||
-		outcome.ToolName != assistantToolCreateCalendar ||
+		outcome.ToolName != assistantToolSendGmail ||
 		outcome.RiskLevel != "write" ||
 		outcome.IntentSHA256 == "" ||
 		outcome.IntentSHA256 != outcome.ToolArgsSHA256 {
