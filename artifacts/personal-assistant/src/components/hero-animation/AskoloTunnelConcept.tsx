@@ -7,6 +7,7 @@ export interface AskoloTunnelConceptProps {
   theme: TunnelTheme;
   reducedMotion: boolean;
   paused?: boolean;
+  neutralRhythm?: boolean;
 }
 
 const TAU = Math.PI * 2;
@@ -46,6 +47,7 @@ export function AskoloTunnelConcept({
   theme,
   reducedMotion,
   paused = false,
+  neutralRhythm = false,
 }: AskoloTunnelConceptProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -110,10 +112,11 @@ export function AskoloTunnelConcept({
         const ringRadius = 0.145 / (denominator * denominator);
         if (ringRadius > visibleRadius + Math.hypot(offsetX, offsetY)) continue;
 
-        context.globalAlpha = Math.max(
-          0,
-          Math.min(1, 0.19 + 0.59 * (1 - depth)),
-        );
+        const baseAlpha = 0.19 + 0.59 * (1 - depth);
+        const wave = neutralRhythm
+          ? 0.045 * Math.sin(TAU * (elapsed / 24 - depth / 7))
+          : 0;
+        context.globalAlpha = Math.max(0, Math.min(1, baseAlpha + wave));
         context.beginPath();
         for (let dot = 0; dot < DOTS_PER_RING; dot += 1) {
           const angle = (dot / DOTS_PER_RING) * TAU;
@@ -164,7 +167,7 @@ export function AskoloTunnelConcept({
       document.removeEventListener('visibilitychange', restart);
       window.removeEventListener('resize', restart);
     };
-  }, [paused, reducedMotion, theme]);
+  }, [neutralRhythm, paused, reducedMotion, theme]);
 
   return (
     <canvas

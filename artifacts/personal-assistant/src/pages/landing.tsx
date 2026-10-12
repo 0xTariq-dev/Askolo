@@ -88,7 +88,7 @@ const howItWorks = [
 export function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
   const {
-    preferences: { mode },
+    preferences: { mode, accountThemeId },
   } = useAskoloTheme();
   const ctaHref = toAppUrl('/sign-up', { theme: mode });
   const secondaryHref = toAppUrl('/sign-in', { theme: mode });
@@ -100,6 +100,7 @@ export function LandingPage() {
       <AskoloTunnelConcept
         theme={mode}
         reducedMotion={Boolean(prefersReducedMotion)}
+        neutralRhythm={accountThemeId === 'neutral'}
       />
     </div>
   );
