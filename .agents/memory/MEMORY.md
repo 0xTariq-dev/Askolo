@@ -2,7 +2,7 @@
 - [API client declaration freshness](api-client-declaration-freshness.md) — when generated source has exports but app typechecks do not, inspect and rebuild stale project-reference declarations before regenerating.
 - [Google OAuth scope preservation](google-oauth-scope-preservation.md) — current storage overwrites scopes; preserve prior grants during refresh and incremental authorization.
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
-- [Microsoft integration OAuth](microsoft-integration-oauth.md) — use the Google-style integration callback path and client-variable names; the route remains unimplemented until Microsoft Graph support is built.
+- [Microsoft integration OAuth](microsoft-integration-oauth.md) — Entra app setup exists; use configured `MS_CLIENT_*` secret names with the planned callback when implementing Graph OAuth.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [Lingui localization in Vite](lingui-vite-macros.md) — configure the macro transform and verify runtime browser catalog loaders; Vite’s static glob expansion is not a runtime API.

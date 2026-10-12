@@ -3,8 +3,8 @@ name: Microsoft integration OAuth
 description: Agreed callback-path and environment-variable conventions for future Microsoft Graph integration.
 ---
 
-**Rule:** use `/api/integrations/microsoft/callback` for the Microsoft integration callback, with `MICROSOFT_INTEGRATION_CLIENT_ID` and `MICROSOFT_INTEGRATION_CLIENT_SECRET`. Derive the public redirect origin from `ASKOLO_CANONICAL_ORIGIN`, as the Google integration does. The callback route is planned but is not implemented yet.
+**Rule:** the user has configured the Microsoft Entra app and its permissions. The Replit secret names are `MS_CLIENT_ID` and `MS_CLIENT_SECRET`; use those exact names, never request or record their values. The planned Microsoft Graph integration callback is `/api/integrations/microsoft/callback`, with its public origin derived from `ASKOLO_CANONICAL_ORIGIN` as the Google integration does. The callback route is not implemented yet.
 
-**Why:** this matches the existing integration callback and client-credential naming pattern while avoiding proxy-derived OAuth origins.
+**Why:** the user chose existing `MS_CLIENT_*` names for the configured app credentials; the callback path follows the existing Google integration pattern and avoids proxy-derived OAuth origins.
 
-**How to apply:** when implementing Microsoft Graph authorization, register the callback against the environment's canonical origin and do not advertise the redirect as live until the backend route exists.
+**How to apply:** when implementing Microsoft Graph authorization, read `MS_CLIENT_ID` and `MS_CLIENT_SECRET`, register the callback against the environment's canonical origin, and do not advertise the redirect as live until the backend route exists.
