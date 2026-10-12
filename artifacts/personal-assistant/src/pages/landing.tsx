@@ -163,7 +163,7 @@ export function LandingPage() {
             <Button
               size="default"
               asChild
-              className="group min-h-11 rounded-full"
+              className="askolo-public-cta group min-h-11 rounded-full"
             >
               <a href={ctaHref}>
                 Get Started Free
@@ -217,7 +217,7 @@ export function LandingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: index * 0.05 }}
               >
-                <Card className="askolo-graphite-surface h-full bg-card/40 border-border hover:bg-card/60 hover:border-primary/20 transition-all duration-300">
+                <Card className="askolo-info-card askolo-graphite-surface h-full bg-card/40 border-border">
                   <CardContent className="p-5">
                     <div className="askolo-graphite-inset h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                       <feature.icon className="h-5 w-5 text-primary" />
@@ -256,7 +256,7 @@ export function LandingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.2 + index * 0.1 }}
               >
-                <Card className="askolo-graphite-surface h-full bg-card/40 border-border">
+                <Card className="askolo-info-card askolo-graphite-surface h-full bg-card/40 border-border">
                   <CardContent className="p-6">
                     <div className="askolo-graphite-inset h-10 w-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                       <span className="text-sm font-bold text-primary">{item.step}</span>
@@ -288,7 +288,7 @@ export function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <Card className="askolo-graphite-surface bg-card/40 border-border">
+            <Card className="askolo-info-card askolo-graphite-surface bg-card/40 border-border">
               <CardContent className="p-6 sm:p-8">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="askolo-graphite-inset h-12 w-12 rounded-xl bg-info/10 border border-info/20 flex items-center justify-center">
@@ -307,7 +307,7 @@ export function LandingPage() {
               </CardContent>
             </Card>
 
-            <Card className="askolo-graphite-surface bg-card/40 border-border">
+            <Card className="askolo-info-card askolo-graphite-surface bg-card/40 border-border">
               <CardContent className="p-6 sm:p-8">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="askolo-graphite-inset h-12 w-12 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center justify-center">
@@ -360,7 +360,7 @@ export function LandingPage() {
           <Button
             size="lg"
             asChild
-            className="rounded-full px-8 py-6 text-lg font-medium shadow-lg transition-all duration-300 group"
+            className="askolo-public-cta rounded-full px-8 py-6 text-lg font-medium shadow-lg transition-all duration-300 group"
           >
             <a href={ctaHref}>
               Get Started Free

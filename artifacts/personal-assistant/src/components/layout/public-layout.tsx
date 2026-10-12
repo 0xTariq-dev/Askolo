@@ -60,7 +60,7 @@ export function PublicLayout({
                 {t('common.signIn')}
               </SiteOriginLink>
             </Button>
-            <Button size="sm" asChild className="rounded-full">
+            <Button size="sm" asChild className="askolo-public-cta rounded-full">
               <SiteOriginLink href={toAppUrl('/sign-up', { theme: mode })}>
                 {t('common.getStarted')}
               </SiteOriginLink>
