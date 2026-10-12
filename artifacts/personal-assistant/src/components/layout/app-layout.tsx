@@ -23,6 +23,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { AssistantProvider } from '@/contexts/assistant-context';
+import { ConfirmDialogProvider, useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { NotificationBell } from '@/components/notification-bell';
@@ -199,6 +200,7 @@ function NavigationPanel({
 
 // Inner component so it can consume both providers
 function AppLayoutInner({ children }: { children: ReactNode }) {
+  const { confirm } = useConfirmDialog();
   const { user, signOut } = useAppAuth();
   const [location] = useLocation();
   const balanceUsdMicros = useCreditBalance(location);
@@ -218,7 +220,13 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
   const avatarUrl = user?.imageUrl || user?.profileImageUrl || undefined;
   const initials = user?.firstName?.[0] || 'U';
   const closeMobileNav = () => setIsMobileNavOpen(false);
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    if (!(await confirm({
+      title: 'Sign out?',
+      description: 'You will need to sign in again to access your account.',
+      confirmLabel: 'Sign out',
+      variant: 'logout',
+    }))) return;
     closeMobileNav();
     signOut({
       redirectUrl: isAppProductionHost() ? toPublicUrl('/') : basePath || '/',
@@ -463,9 +471,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <NotificationProvider>
       <AssistantProvider>
-        <KeyboardShortcutProvider>
-          <AppLayoutInner>{children}</AppLayoutInner>
-        </KeyboardShortcutProvider>
+        <ConfirmDialogProvider>
+          <KeyboardShortcutProvider>
+            <AppLayoutInner>{children}</AppLayoutInner>
+          </KeyboardShortcutProvider>
+        </ConfirmDialogProvider>
       </AssistantProvider>
     </NotificationProvider>
   );

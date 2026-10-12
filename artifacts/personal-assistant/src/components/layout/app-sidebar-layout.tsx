@@ -14,6 +14,7 @@ import {
 import { IconPalette, IconStack2, IconWallet } from '@tabler/icons-react';
 import logoUrl from '/logo.png';
 import { AssistantProvider } from '@/contexts/assistant-context';
+import { ConfirmDialogProvider, useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { useAppAuth } from '@/contexts/auth-context';
@@ -362,6 +363,7 @@ function NavigationPanel({
 }
 
 function ShellFrame({ children }: { children: ReactNode }) {
+  const { confirm } = useConfirmDialog();
   const { user, signOut } = useAppAuth();
   const { direction, t, locale } = useLocale();
   const [location] = useLocation();
@@ -376,7 +378,13 @@ function ShellFrame({ children }: { children: ReactNode }) {
   const email = user?.email || '';
   const avatarUrl = user?.imageUrl || user?.profileImageUrl || undefined;
   const initials = getInitials(user?.firstName, user?.lastName);
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    if (!(await confirm({
+      title: 'Sign out?',
+      description: 'You will need to sign in again to access your account.',
+      confirmLabel: 'Sign out',
+      variant: 'logout',
+    }))) return;
     void signOut({
       redirectUrl: isAppProductionHost() ? toPublicUrl('/') : basePath || '/',
     });
@@ -481,11 +489,13 @@ export function SidebarAppLayout({ children }: { children: ReactNode }) {
   return (
     <NotificationProvider>
       <AssistantProvider>
-        <KeyboardShortcutProvider>
-          <SidebarProvider keyboardShortcut={false} className="relative h-dvh min-h-0 w-full overflow-hidden">
-            <ShellFrame>{children}</ShellFrame>
-          </SidebarProvider>
-        </KeyboardShortcutProvider>
+        <ConfirmDialogProvider>
+          <KeyboardShortcutProvider>
+            <SidebarProvider keyboardShortcut={false} className="relative h-dvh min-h-0 w-full overflow-hidden">
+              <ShellFrame>{children}</ShellFrame>
+            </SidebarProvider>
+          </KeyboardShortcutProvider>
+        </ConfirmDialogProvider>
       </AssistantProvider>
     </NotificationProvider>
   );

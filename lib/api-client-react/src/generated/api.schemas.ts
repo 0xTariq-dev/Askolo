@@ -899,6 +899,54 @@ export const AssistantRunRiskLevel = {
   write: 'write',
 } as const;
 
+export type AssistantQuestionnaireResultType = typeof AssistantQuestionnaireResultType[keyof typeof AssistantQuestionnaireResultType];
+
+
+export const AssistantQuestionnaireResultType = {
+  questionnaire: 'questionnaire',
+} as const;
+
+export type AssistantQuestionnaireQuestionType = typeof AssistantQuestionnaireQuestionType[keyof typeof AssistantQuestionnaireQuestionType];
+
+
+export const AssistantQuestionnaireQuestionType = {
+  radio: 'radio',
+  checkbox: 'checkbox',
+  text: 'text',
+} as const;
+
+export interface AssistantQuestionnaireQuestion {
+  /**
+     * @minLength 1
+     * @maxLength 32
+     * @pattern ^[a-z][a-z0-9_]*$
+     */
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  prompt: string;
+  type: AssistantQuestionnaireQuestionType;
+  /**
+     * @maxItems 6
+     * @items.minLength 1
+     * @items.maxLength 100
+     */
+  options: string[];
+  allowWriteIn: boolean;
+  required: boolean;
+}
+
+export interface AssistantQuestionnaireResult {
+  type: AssistantQuestionnaireResultType;
+  /**
+     * @minItems 1
+     * @maxItems 3
+     */
+  questions: AssistantQuestionnaireQuestion[];
+}
+
 export interface AssistantRun {
   id: string;
   conversationId: string;
@@ -921,7 +969,7 @@ export interface AssistantRun {
   requiresConfirmation: boolean;
   /** @nullable */
   confirmationExpiresAt?: string | null;
-  result?: AssistantActionItemResult | AssistantExternalActionResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult | AssistantQuestionnaireResult;
   message?: string;
   createdAt: string;
   updatedAt: string;
@@ -960,7 +1008,7 @@ export interface AssistantMessage {
   requiresConfirmation?: boolean;
   /** @nullable */
   confirmationExpiresAt?: string | null;
-  result?: AssistantActionItemResult | AssistantExternalActionResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult | AssistantQuestionnaireResult;
 }
 
 export interface AssistantConversation {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { addDays, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import {
@@ -46,6 +47,7 @@ function toCalendarEvent(event: V2AgendaEvent): CalendarEvent<V2AgendaEvent> {
 }
 
 export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: number) => void }) {
+  const { confirm } = useConfirmDialog();
   const { locale, weekStartsOn } = useLocale();
   const { selectedSpaceId, spaces } = useSpaceScope();
   const { toast } = useToast();
@@ -147,7 +149,12 @@ export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: numb
   };
 
   const removeEvent = async () => {
-    if (!editing || !window.confirm(isArabic ? 'هل تريد حذف هذا الحدث؟' : 'Delete this event?')) return;
+    if (!editing || !(await confirm({
+      title: isArabic ? 'حذف الحدث؟' : 'Delete event?',
+      description: isArabic ? 'سيُحذف هذا الحدث من التقويم.' : 'This event will be removed from the calendar.',
+      confirmLabel: isArabic ? 'حذف' : 'Delete',
+      variant: 'nested',
+    }))) return;
     setSaving(true);
     try {
       const workspaceId = editing.workspaceId ?? selectedSpaceId;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -60,6 +61,7 @@ const noteSchema = z.object({
 type NoteForm = z.infer<typeof noteSchema>;
 
 export function NotesPage() {
+  const { confirm } = useConfirmDialog();
   const qc = useQueryClient();
   const { data: notes, isLoading } = useListNotes();
   const createNote = useCreateNote();
@@ -138,8 +140,8 @@ export function NotesPage() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('Delete this note?')) {
+  const handleDelete = async (id: number) => {
+    if (await confirm({ title: 'Delete note?', description: 'This note will be permanently removed.', variant: 'icon' })) {
       deleteNote.mutate(
         { id },
         {

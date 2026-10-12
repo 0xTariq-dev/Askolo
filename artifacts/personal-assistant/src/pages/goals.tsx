@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -80,6 +81,7 @@ const fromV2Goal = (goal: V2Goal): Goal => ({
 });
 
 export function GoalsPage() {
+  const { confirm } = useConfirmDialog();
   const { selectedSpaceId, spaces } = useSpaceScope();
   const { toast } = useToast();
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -175,7 +177,7 @@ export function GoalsPage() {
   };
 
   const handleDelete = async (goal: Goal) => {
-    if (confirm("Delete this goal?")) {
+    if (await confirm({ title: 'Delete goal?', description: 'This goal and its progress will be permanently removed.', variant: 'destructive' })) {
       try {
         await archiveV2Goal(goal.workspaceId, goal.id);
         setGoals((items) => items.filter((item) => item.id !== goal.id));

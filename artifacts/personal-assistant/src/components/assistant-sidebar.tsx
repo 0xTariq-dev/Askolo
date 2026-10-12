@@ -68,6 +68,7 @@ import { CURRENT_VOICE_OUTPUT_CONSENT_VERSION } from '@/lib/voice-output-consent
 import { useToast } from '@/hooks/use-toast';
 import { VoiceAgentControls } from '@/components/voice-agent-controls';
 import { VoiceChatControls } from '@/components/assistant/voice-chat-controls';
+import { AssistantQuestionnaire } from '@/components/assistant/assistant-questionnaire';
 
 const messageSchema = z.object({ text: z.string().min(1) });
 type MessageForm = z.infer<typeof messageSchema>;
@@ -1005,6 +1006,16 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                       )}
                       </BubbleContent>
                       </Bubble>
+                      {msg.role === 'assistant' &&
+                        msg.result &&
+                        'type' in msg.result &&
+                        msg.result.type === 'questionnaire' && (
+                          <AssistantQuestionnaire
+                            questionnaire={msg.result}
+                            disabled={isThinking || pendingActionId !== null}
+                            onSubmit={(text) => onSubmitRef.current({ text })}
+                          />
+                        )}
                       {msg.role === 'assistant' && msg.runId && msg.state && <MessageFooter>{msg.state === 'needs_confirmation' ? 'Review required' : msg.state === 'completed' ? 'Complete' : ''}</MessageFooter>}
                     </MessageContent>
                   </Message>

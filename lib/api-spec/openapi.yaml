@@ -3209,6 +3209,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/AssistantActionItemResult"
             - $ref: "#/components/schemas/AssistantExternalActionResult"
+            - $ref: "#/components/schemas/AssistantQuestionnaireResult"
         message:
           type: string
         createdAt:
@@ -3246,6 +3247,47 @@ components:
           oneOf:
             - $ref: "#/components/schemas/AssistantActionItemResult"
             - $ref: "#/components/schemas/AssistantExternalActionResult"
+            - $ref: "#/components/schemas/AssistantQuestionnaireResult"
+    AssistantQuestionnaireResult:
+      type: object
+      required: [type, questions]
+      properties:
+        type:
+          type: string
+          enum: [questionnaire]
+        questions:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/AssistantQuestionnaireQuestion"
+    AssistantQuestionnaireQuestion:
+      type: object
+      required: [id, prompt, type, options, allowWriteIn, required]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 32
+          pattern: "^[a-z][a-z0-9_]*$"
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 240
+        type:
+          type: string
+          enum: [radio, checkbox, text]
+        options:
+          type: array
+          maxItems: 6
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+        allowWriteIn:
+          type: boolean
+        required:
+          type: boolean
     AssistantConversation:
       type: object
       required: [messages]

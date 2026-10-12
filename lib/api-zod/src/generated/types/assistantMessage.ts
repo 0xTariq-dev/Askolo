@@ -10,6 +10,7 @@ import type { AssistantExternalActionResult } from './assistantExternalActionRes
 import type { AssistantIntent } from './assistantIntent';
 import type { AssistantMessageRole } from './assistantMessageRole';
 import type { AssistantMessageState } from './assistantMessageState';
+import type { AssistantQuestionnaireResult } from './assistantQuestionnaireResult';
 
 export interface AssistantMessage {
   id: string;
@@ -22,5 +23,5 @@ export interface AssistantMessage {
   requiresConfirmation?: boolean;
   /** @nullable */
   confirmationExpiresAt?: Date | null;
-  result?: AssistantActionItemResult | AssistantExternalActionResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult | AssistantQuestionnaireResult;
 }

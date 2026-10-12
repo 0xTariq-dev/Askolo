@@ -1542,6 +1542,18 @@ export const getAssistantConversationResponseMessagesItemIntentBodyMax = 4000;
 
 export const getAssistantConversationResponseMessagesItemIntentAccountEmailMax = 254;
 
+export const getAssistantConversationResponseMessagesItemResultThreeQuestionsItemIdMax = 32;
+
+
+export const getAssistantConversationResponseMessagesItemResultThreeQuestionsItemIdRegExp = new RegExp('^[a-z][a-z0-9_]*$');
+export const getAssistantConversationResponseMessagesItemResultThreeQuestionsItemPromptMax = 240;
+
+export const getAssistantConversationResponseMessagesItemResultThreeQuestionsItemOptionsItemMax = 100;
+
+export const getAssistantConversationResponseMessagesItemResultThreeQuestionsItemOptionsMax = 6;
+
+export const getAssistantConversationResponseMessagesItemResultThreeQuestionsMax = 3;
+
 
 
 export const GetAssistantConversationResponse = zod.object({
@@ -1577,6 +1589,16 @@ export const GetAssistantConversationResponse = zod.object({
   "title": zod.string().optional(),
   "start": zod.coerce.date().optional(),
   "end": zod.coerce.date().optional()
+}),zod.object({
+  "type": zod.enum(['questionnaire']),
+  "questions": zod.array(zod.object({
+  "id": zod.string().min(1).max(getAssistantConversationResponseMessagesItemResultThreeQuestionsItemIdMax).regex(getAssistantConversationResponseMessagesItemResultThreeQuestionsItemIdRegExp),
+  "prompt": zod.string().min(1).max(getAssistantConversationResponseMessagesItemResultThreeQuestionsItemPromptMax),
+  "type": zod.enum(['radio', 'checkbox', 'text']),
+  "options": zod.array(zod.string().min(1).max(getAssistantConversationResponseMessagesItemResultThreeQuestionsItemOptionsItemMax)).max(getAssistantConversationResponseMessagesItemResultThreeQuestionsItemOptionsMax),
+  "allowWriteIn": zod.boolean(),
+  "required": zod.boolean()
+})).min(1).max(getAssistantConversationResponseMessagesItemResultThreeQuestionsMax)
 })]).optional()
 }))
 })
@@ -1624,6 +1646,18 @@ export const createAssistantRunResponseIntentBodyMax = 4000;
 export const createAssistantRunResponseIntentAccountEmailMax = 254;
 
 export const createAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const createAssistantRunResponseResultThreeQuestionsItemIdMax = 32;
+
+
+export const createAssistantRunResponseResultThreeQuestionsItemIdRegExp = new RegExp('^[a-z][a-z0-9_]*$');
+export const createAssistantRunResponseResultThreeQuestionsItemPromptMax = 240;
+
+export const createAssistantRunResponseResultThreeQuestionsItemOptionsItemMax = 100;
+
+export const createAssistantRunResponseResultThreeQuestionsItemOptionsMax = 6;
+
+export const createAssistantRunResponseResultThreeQuestionsMax = 3;
+
 
 
 export const CreateAssistantRunResponse = zod.object({
@@ -1662,6 +1696,16 @@ export const CreateAssistantRunResponse = zod.object({
   "title": zod.string().optional(),
   "start": zod.coerce.date().optional(),
   "end": zod.coerce.date().optional()
+}),zod.object({
+  "type": zod.enum(['questionnaire']),
+  "questions": zod.array(zod.object({
+  "id": zod.string().min(1).max(createAssistantRunResponseResultThreeQuestionsItemIdMax).regex(createAssistantRunResponseResultThreeQuestionsItemIdRegExp),
+  "prompt": zod.string().min(1).max(createAssistantRunResponseResultThreeQuestionsItemPromptMax),
+  "type": zod.enum(['radio', 'checkbox', 'text']),
+  "options": zod.array(zod.string().min(1).max(createAssistantRunResponseResultThreeQuestionsItemOptionsItemMax)).max(createAssistantRunResponseResultThreeQuestionsItemOptionsMax),
+  "allowWriteIn": zod.boolean(),
+  "required": zod.boolean()
+})).min(1).max(createAssistantRunResponseResultThreeQuestionsMax)
 })]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),
@@ -1694,6 +1738,18 @@ export const getAssistantRunResponseIntentBodyMax = 4000;
 export const getAssistantRunResponseIntentAccountEmailMax = 254;
 
 export const getAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const getAssistantRunResponseResultThreeQuestionsItemIdMax = 32;
+
+
+export const getAssistantRunResponseResultThreeQuestionsItemIdRegExp = new RegExp('^[a-z][a-z0-9_]*$');
+export const getAssistantRunResponseResultThreeQuestionsItemPromptMax = 240;
+
+export const getAssistantRunResponseResultThreeQuestionsItemOptionsItemMax = 100;
+
+export const getAssistantRunResponseResultThreeQuestionsItemOptionsMax = 6;
+
+export const getAssistantRunResponseResultThreeQuestionsMax = 3;
+
 
 
 export const GetAssistantRunResponse = zod.object({
@@ -1732,6 +1788,16 @@ export const GetAssistantRunResponse = zod.object({
   "title": zod.string().optional(),
   "start": zod.coerce.date().optional(),
   "end": zod.coerce.date().optional()
+}),zod.object({
+  "type": zod.enum(['questionnaire']),
+  "questions": zod.array(zod.object({
+  "id": zod.string().min(1).max(getAssistantRunResponseResultThreeQuestionsItemIdMax).regex(getAssistantRunResponseResultThreeQuestionsItemIdRegExp),
+  "prompt": zod.string().min(1).max(getAssistantRunResponseResultThreeQuestionsItemPromptMax),
+  "type": zod.enum(['radio', 'checkbox', 'text']),
+  "options": zod.array(zod.string().min(1).max(getAssistantRunResponseResultThreeQuestionsItemOptionsItemMax)).max(getAssistantRunResponseResultThreeQuestionsItemOptionsMax),
+  "allowWriteIn": zod.boolean(),
+  "required": zod.boolean()
+})).min(1).max(getAssistantRunResponseResultThreeQuestionsMax)
 })]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),
@@ -1785,6 +1851,18 @@ export const confirmAssistantRunResponseIntentBodyMax = 4000;
 export const confirmAssistantRunResponseIntentAccountEmailMax = 254;
 
 export const confirmAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const confirmAssistantRunResponseResultThreeQuestionsItemIdMax = 32;
+
+
+export const confirmAssistantRunResponseResultThreeQuestionsItemIdRegExp = new RegExp('^[a-z][a-z0-9_]*$');
+export const confirmAssistantRunResponseResultThreeQuestionsItemPromptMax = 240;
+
+export const confirmAssistantRunResponseResultThreeQuestionsItemOptionsItemMax = 100;
+
+export const confirmAssistantRunResponseResultThreeQuestionsItemOptionsMax = 6;
+
+export const confirmAssistantRunResponseResultThreeQuestionsMax = 3;
+
 
 
 export const ConfirmAssistantRunResponse = zod.object({
@@ -1823,6 +1901,16 @@ export const ConfirmAssistantRunResponse = zod.object({
   "title": zod.string().optional(),
   "start": zod.coerce.date().optional(),
   "end": zod.coerce.date().optional()
+}),zod.object({
+  "type": zod.enum(['questionnaire']),
+  "questions": zod.array(zod.object({
+  "id": zod.string().min(1).max(confirmAssistantRunResponseResultThreeQuestionsItemIdMax).regex(confirmAssistantRunResponseResultThreeQuestionsItemIdRegExp),
+  "prompt": zod.string().min(1).max(confirmAssistantRunResponseResultThreeQuestionsItemPromptMax),
+  "type": zod.enum(['radio', 'checkbox', 'text']),
+  "options": zod.array(zod.string().min(1).max(confirmAssistantRunResponseResultThreeQuestionsItemOptionsItemMax)).max(confirmAssistantRunResponseResultThreeQuestionsItemOptionsMax),
+  "allowWriteIn": zod.boolean(),
+  "required": zod.boolean()
+})).min(1).max(confirmAssistantRunResponseResultThreeQuestionsMax)
 })]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),
@@ -1862,6 +1950,18 @@ export const cancelAssistantRunResponseIntentBodyMax = 4000;
 export const cancelAssistantRunResponseIntentAccountEmailMax = 254;
 
 export const cancelAssistantRunResponseIntentSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const cancelAssistantRunResponseResultThreeQuestionsItemIdMax = 32;
+
+
+export const cancelAssistantRunResponseResultThreeQuestionsItemIdRegExp = new RegExp('^[a-z][a-z0-9_]*$');
+export const cancelAssistantRunResponseResultThreeQuestionsItemPromptMax = 240;
+
+export const cancelAssistantRunResponseResultThreeQuestionsItemOptionsItemMax = 100;
+
+export const cancelAssistantRunResponseResultThreeQuestionsItemOptionsMax = 6;
+
+export const cancelAssistantRunResponseResultThreeQuestionsMax = 3;
+
 
 
 export const CancelAssistantRunResponse = zod.object({
@@ -1900,6 +2000,16 @@ export const CancelAssistantRunResponse = zod.object({
   "title": zod.string().optional(),
   "start": zod.coerce.date().optional(),
   "end": zod.coerce.date().optional()
+}),zod.object({
+  "type": zod.enum(['questionnaire']),
+  "questions": zod.array(zod.object({
+  "id": zod.string().min(1).max(cancelAssistantRunResponseResultThreeQuestionsItemIdMax).regex(cancelAssistantRunResponseResultThreeQuestionsItemIdRegExp),
+  "prompt": zod.string().min(1).max(cancelAssistantRunResponseResultThreeQuestionsItemPromptMax),
+  "type": zod.enum(['radio', 'checkbox', 'text']),
+  "options": zod.array(zod.string().min(1).max(cancelAssistantRunResponseResultThreeQuestionsItemOptionsItemMax)).max(cancelAssistantRunResponseResultThreeQuestionsItemOptionsMax),
+  "allowWriteIn": zod.boolean(),
+  "required": zod.boolean()
+})).min(1).max(cancelAssistantRunResponseResultThreeQuestionsMax)
 })]).optional(),
   "message": zod.string().optional(),
   "createdAt": zod.coerce.date(),

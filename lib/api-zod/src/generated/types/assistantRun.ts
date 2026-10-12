@@ -8,6 +8,7 @@
 import type { AssistantActionItemResult } from './assistantActionItemResult';
 import type { AssistantExternalActionResult } from './assistantExternalActionResult';
 import type { AssistantIntent } from './assistantIntent';
+import type { AssistantQuestionnaireResult } from './assistantQuestionnaireResult';
 import type { AssistantRunRiskLevel } from './assistantRunRiskLevel';
 import type { AssistantRunState } from './assistantRunState';
 
@@ -33,7 +34,7 @@ export interface AssistantRun {
   requiresConfirmation: boolean;
   /** @nullable */
   confirmationExpiresAt?: Date | null;
-  result?: AssistantActionItemResult | AssistantExternalActionResult;
+  result?: AssistantActionItemResult | AssistantExternalActionResult | AssistantQuestionnaireResult;
   message?: string;
   createdAt: Date;
   updatedAt: Date;

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,6 +45,7 @@ const actionSchema = z.object({
 type ActionForm = z.infer<typeof actionSchema>;
 
 export function ActionsPage() {
+  const { confirm } = useConfirmDialog();
   const qc = useQueryClient();
   const { data: items, isLoading } = useListActionItems();
   const createItem = useCreateActionItem();
@@ -119,8 +121,8 @@ export function ActionsPage() {
     );
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('Delete this action item?')) {
+  const handleDelete = async (id: number) => {
+    if (await confirm({ title: 'Delete action item?', description: 'This action item will be permanently removed.', variant: 'quick' })) {
       deleteItem.mutate(
         { id },
         {

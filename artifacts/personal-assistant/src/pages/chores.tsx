@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm as useHookForm } from 'react-hook-form';
@@ -51,6 +52,7 @@ const choreSchema = z.object({
 type ChoreFormValues = z.infer<typeof choreSchema>;
 
 export function ChoresPage() {
+  const { confirm } = useConfirmDialog();
   const qc = useQueryClient();
   const [filter, setFilter] = useState('all');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -123,8 +125,8 @@ export function ChoresPage() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('Delete this chore?')) {
+  const handleDelete = async (id: number) => {
+    if (await confirm({ title: 'Delete chore?', description: 'This chore will be permanently removed.', variant: 'quick' })) {
       deleteChore.mutate(
         { id },
         {

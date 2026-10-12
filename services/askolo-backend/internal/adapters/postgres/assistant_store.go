@@ -80,6 +80,7 @@ type AssistantPlanOutcome struct {
 	State                string
 	Intent               json.RawMessage
 	IntentSHA256         string
+	Result               json.RawMessage
 	RiskLevel            string
 	RequiresConfirmation bool
 	ConfirmationExpires  *time.Time
@@ -476,10 +477,11 @@ func (s *Store) FinishAssistantPlanning(ctx context.Context, userID, runID strin
 	if _, err = tx.Exec(ctx, `UPDATE assistant_runs SET
 		state=$3,intent=$4::jsonb,intent_sha256=NULLIF($5,''),risk_level=NULLIF($6,''),
 		requires_confirmation=$7,confirmation_expires_at=$8,settled_credits=0,settled_usd_micros=$9,
-		assistant_message=$10,updated_at=NOW()
+		assistant_message=$10,result=$11::jsonb,updated_at=NOW()
 		WHERE id=$1 AND user_id=$2 AND state='planning'`,
 		runID, userID, outcome.State, nullableJSON(outcome.Intent), outcome.IntentSHA256,
 		outcome.RiskLevel, outcome.RequiresConfirmation, outcome.ConfirmationExpires, settled, outcome.Message,
+		nullableJSON(outcome.Result),
 	); err != nil {
 		return AssistantRunRecord{}, err
 	}

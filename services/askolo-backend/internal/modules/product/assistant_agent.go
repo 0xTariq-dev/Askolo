@@ -47,14 +47,24 @@ type assistantStreamingPlanner interface {
 }
 
 type assistantModelPlan struct {
-	Intent            string          `json:"intent"`
-	Arguments         json.RawMessage `json:"arguments"`
-	Message           string          `json:"message"`
-	ProviderModel     string          `json:"-"`
-	ProviderRequestID string          `json:"-"`
-	InputTokens       int64           `json:"-"`
-	OutputTokens      int64           `json:"-"`
-	UsageValid        bool            `json:"-"`
+	Intent            string              `json:"intent"`
+	Arguments         json.RawMessage     `json:"arguments"`
+	Message           string              `json:"message"`
+	Questions         []assistantQuestion `json:"questions"`
+	ProviderModel     string              `json:"-"`
+	ProviderRequestID string              `json:"-"`
+	InputTokens       int64               `json:"-"`
+	OutputTokens      int64               `json:"-"`
+	UsageValid        bool                `json:"-"`
+}
+
+type assistantQuestion struct {
+	ID           string   `json:"id"`
+	Prompt       string   `json:"prompt"`
+	Type         string   `json:"type"`
+	Options      []string `json:"options"`
+	AllowWriteIn bool     `json:"allowWriteIn"`
+	Required     bool     `json:"required"`
 }
 
 type openAIAssistantPlanner struct {
@@ -276,7 +286,7 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 		registry = registries[0]
 	}
 	var plan assistantModelPlan
-	if len([]byte(content)) == 0 || len([]byte(content)) > 2048 {
+	if len([]byte(content)) == 0 || len([]byte(content)) > 8192 {
 		return plan, errors.New("assistant intent response is invalid")
 	}
 	decoder := json.NewDecoder(strings.NewReader(content))
@@ -284,7 +294,7 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 	if err != nil || token != json.Delim('{') {
 		return assistantModelPlan{}, errors.New("assistant intent response is invalid")
 	}
-	seen := make(map[string]bool, 3)
+	seen := make(map[string]bool, 4)
 	for decoder.More() {
 		keyToken, keyErr := decoder.Token()
 		key, ok := keyToken.(string)
@@ -299,6 +309,8 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 			err = decoder.Decode(&plan.Arguments)
 		case "message":
 			err = decoder.Decode(&plan.Message)
+		case "questions":
+			err = decoder.Decode(&plan.Questions)
 		default:
 			return assistantModelPlan{}, errors.New("assistant intent response has an unknown field")
 		}
@@ -307,7 +319,7 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 		}
 	}
 	if _, err := decoder.Token(); err != nil ||
-		len(seen) != 3 || !seen["intent"] || !seen["arguments"] || !seen["message"] {
+		len(seen) != 4 || !seen["intent"] || !seen["arguments"] || !seen["message"] || !seen["questions"] {
 		return assistantModelPlan{}, errors.New("assistant intent response is invalid")
 	}
 	var trailing any
@@ -319,14 +331,68 @@ func decodeAssistantModelPlan(content string, registries ...*assistantToolRegist
 		return assistantModelPlan{}, errors.New("assistant reply message is invalid")
 	}
 	switch plan.Intent {
-	case assistantIntentNone, assistantIntentClarify:
+	case assistantIntentNone:
 		if !assistantArgumentsEmpty(plan.Arguments) {
 			return assistantModelPlan{}, errors.New("assistant intent contains unexpected data")
 		}
+		if len(plan.Questions) != 0 {
+			return assistantModelPlan{}, errors.New("assistant intent contains unexpected questions")
+		}
+	case assistantIntentClarify:
+		if !assistantArgumentsEmpty(plan.Arguments) || !validAssistantQuestions(plan.Questions) {
+			return assistantModelPlan{}, errors.New("assistant clarification questions are invalid")
+		}
 	default:
+		if len(plan.Questions) != 0 {
+			return assistantModelPlan{}, errors.New("assistant action contains unexpected questions")
+		}
 		if _, _, err := registry.prepare(plan.Intent, plan.Arguments); err != nil {
 			return assistantModelPlan{}, errors.New("assistant tool selection is invalid")
 		}
 	}
 	return plan, nil
+}
+
+func validAssistantQuestions(questions []assistantQuestion) bool {
+	if len(questions) < 1 || len(questions) > 3 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(questions))
+	for _, question := range questions {
+		if !validAssistantToolName(question.ID) || len(question.ID) > 32 ||
+			!validAssistantReply(question.Prompt, false) || len([]byte(question.Prompt)) > 240 {
+			return false
+		}
+		if _, exists := seen[question.ID]; exists {
+			return false
+		}
+		seen[question.ID] = struct{}{}
+		switch question.Type {
+		case "radio", "checkbox":
+			if len(question.Options) < 2 || len(question.Options) > 6 {
+				return false
+			}
+			if question.Type == "checkbox" && question.AllowWriteIn {
+				return false
+			}
+			optionSet := make(map[string]struct{}, len(question.Options))
+			for _, option := range question.Options {
+				option = strings.TrimSpace(option)
+				if option == "" || len([]byte(option)) > 100 || !utf8.ValidString(option) {
+					return false
+				}
+				if _, exists := optionSet[option]; exists {
+					return false
+				}
+				optionSet[option] = struct{}{}
+			}
+		case "text":
+			if len(question.Options) != 0 || question.AllowWriteIn {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }

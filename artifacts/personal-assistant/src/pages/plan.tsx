@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { useLocation } from 'wouter';
@@ -88,6 +89,7 @@ const priorityStyles = {
 };
 
 export function PlanPage() {
+  const { confirm } = useConfirmDialog();
   const { formatDate, formatNumber, weekStartsOn, locale } = useLocale();
   const queryClient = useQueryClient();
   const { openWithDraft } = useAssistantState();
@@ -254,6 +256,7 @@ export function PlanPage() {
   };
 
   const handleDelete = async (item: (typeof taskItems)[number]) => {
+    if (!(await confirm({ title: 'Remove task?', description: 'The task will be removed from this plan.', variant: 'nested' }))) return;
     const workspaceId = item.workspaceId ?? selectedSpaceId;
     if (!workspaceId) return;
     try {

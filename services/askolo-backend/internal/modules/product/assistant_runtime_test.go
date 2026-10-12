@@ -96,8 +96,8 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 		wantMessage string
 		wantErr     bool
 	}{
-		{name: "ordinary request", content: `{"intent":"none","arguments":{},"message":"I can help with that."}`, wantIntent: "none", wantMessage: "I can help with that."},
-		{name: "clarification", content: `{"intent":"clarify","arguments":{},"message":"What should I clarify?"}`, wantIntent: "clarify", wantMessage: "What should I clarify?"},
+		{name: "ordinary request", content: `{"intent":"none","arguments":{},"message":"I can help with that.","questions":[]}`, wantIntent: "none", wantMessage: "I can help with that."},
+		{name: "clarification", content: `{"intent":"clarify","arguments":{},"message":"What should I clarify?","questions":[{"id":"preference","prompt":"Which approach do you prefer?","type":"radio","options":["Simple","Detailed"],"allowWriteIn":true,"required":true}]}`, wantIntent: "clarify", wantMessage: "What should I clarify?"},
 		{name: "retired action tool", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"That tool is no longer available."}`, wantErr: true},
 		{name: "deferred calendar tool", content: `{"intent":"create_calendar_event","arguments":{"title":"Planning"},"message":"That tool is not available yet."}`, wantErr: true},
 		{name: "unknown tool", content: `{"intent":"send_email","arguments":{"title":"Hello"},"message":"I can't do that."}`, wantErr: true},
@@ -336,7 +336,7 @@ func TestOpenAIAssistantPlannerPostsConstrainedRequestAndReturnsUsage(t *testing
 		_, _ = w.Write([]byte(assistantPlannerProviderEnvelope(
 			assistantPlannerModel,
 			"planner-request-test",
-			[]string{`{"intent":"none","arguments":{},"message":"I can help."}`},
+			[]string{`{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`},
 			31,
 			8,
 		)))
@@ -388,19 +388,19 @@ func TestOpenAIAssistantPlannerRejectsInvalidProviderResults(t *testing.T) {
 		{
 			name:          "unexpected model",
 			status:        http.StatusOK,
-			body:          assistantPlannerProviderEnvelope("unexpected-model", "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help."}`}, 10, 2),
+			body:          assistantPlannerProviderEnvelope("unexpected-model", "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`}, 10, 2),
 			wantErrorText: "model mismatch",
 		},
 		{
 			name:          "missing token usage",
 			status:        http.StatusOK,
-			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help."}`}, 0, 2),
+			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`}, 0, 2),
 			wantErrorText: "usage was missing",
 		},
 		{
 			name:          "multiple choices",
 			status:        http.StatusOK,
-			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help."}`, `{"intent":"none","arguments":{},"message":"I can help."}`}, 10, 2),
+			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`, `{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`}, 10, 2),
 			wantErrorText: "usable plan",
 		},
 		{

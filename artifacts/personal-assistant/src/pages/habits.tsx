@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, subDays, addDays, isSameDay } from 'date-fns';
@@ -59,6 +60,7 @@ const habitSchema = z.object({
 type HabitFormValues = z.infer<typeof habitSchema>;
 
 export function HabitsPage() {
+  const { confirm } = useConfirmDialog();
   const qc = useQueryClient();
   const { data: habits, isLoading } = useListHabits();
   
@@ -130,8 +132,8 @@ export function HabitsPage() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("Delete this habit?")) {
+  const handleDelete = async (id: number) => {
+    if (await confirm({ title: 'Delete habit?', description: 'This habit and its tracking history will be removed.', variant: 'icon' })) {
       deleteHabit.mutate({ id }, {
         onSuccess: () => {
           qc.invalidateQueries({ queryKey: getListHabitsQueryKey() });
