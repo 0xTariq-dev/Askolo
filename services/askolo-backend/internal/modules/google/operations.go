@@ -96,12 +96,17 @@ func (h *Handler) createCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ConnectionID string          `json:"connectionId"`
-		CalendarID   string          `json:"calendarId"`
-		Event        json.RawMessage `json:"event"`
+		ConnectionID       string          `json:"connectionId"`
+		CalendarID         string          `json:"calendarId"`
+		ProviderWriteOptIn bool            `json:"providerWriteOptIn"`
+		Event              json.RawMessage `json:"event"`
 	}
 	if err := decodeBody(r, &input, 64*1024); err != nil || !providerIDPattern.MatchString(input.CalendarID) || len(input.Event) == 0 || string(input.Event) == "null" {
 		writeError(w, http.StatusBadRequest, "INVALID_EVENT", "connectionId, calendarId, and event are required.")
+		return
+	}
+	if !input.ProviderWriteOptIn {
+		writeError(w, http.StatusForbidden, "PROVIDER_WRITE_OPT_IN_REQUIRED", "Explicit Google Calendar write approval is required.")
 		return
 	}
 	_, token, err := h.connectionToken(r.Context(), userID, input.ConnectionID, "calendar")
@@ -131,12 +136,17 @@ func (h *Handler) updateCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ConnectionID string          `json:"connectionId"`
-		CalendarID   string          `json:"calendarId"`
-		Event        json.RawMessage `json:"event"`
+		ConnectionID       string          `json:"connectionId"`
+		CalendarID         string          `json:"calendarId"`
+		ProviderWriteOptIn bool            `json:"providerWriteOptIn"`
+		Event              json.RawMessage `json:"event"`
 	}
 	if err := decodeBody(r, &input, 64*1024); err != nil || !providerIDPattern.MatchString(input.CalendarID) || len(input.Event) == 0 || string(input.Event) == "null" {
 		writeError(w, http.StatusBadRequest, "INVALID_EVENT", "connectionId, calendarId, and event are required.")
+		return
+	}
+	if !input.ProviderWriteOptIn {
+		writeError(w, http.StatusForbidden, "PROVIDER_WRITE_OPT_IN_REQUIRED", "Explicit Google Calendar write approval is required.")
 		return
 	}
 	_, token, err := h.connectionToken(r.Context(), userID, input.ConnectionID, "calendar")
@@ -162,6 +172,10 @@ func (h *Handler) deleteCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	eventID := r.PathValue("eventID")
 	calendarID := r.URL.Query().Get("calendarId")
+	if r.URL.Query().Get("providerWriteOptIn") != "true" {
+		writeError(w, http.StatusForbidden, "PROVIDER_WRITE_OPT_IN_REQUIRED", "Explicit Google Calendar write approval is required.")
+		return
+	}
 	if !providerIDPattern.MatchString(eventID) || !providerIDPattern.MatchString(calendarID) {
 		writeError(w, http.StatusBadRequest, "INVALID_EVENT", "calendarId and eventId are required.")
 		return

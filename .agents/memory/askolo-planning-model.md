@@ -17,7 +17,11 @@ Plans organize tasks for a time period. A plan entry links to an existing task w
 
 Support both personal and shared plans. Workspace owners and admins may share plans with workspace members. Task assignment applies to the canonical task whether initiated from a plan or the task itself.
 
-Calendar is the broad agenda view over tasks, plans, and events. Provider-owned events remain events and preserve their source identifiers. V2 stores normalized provider/account/calendar/event metadata; provider edits write through only after the user enables the feature. Local notes and linked tasks remain separate records.
+Calendar is the broad agenda view over tasks, plans, and events. Provider-owned events remain distinct and preserve provider, connection/account, calendar, and event identifiers. Use that full source tuple when refreshing events so IDs from different calendars do not collide; local CRUD must not mutate provider-owned rows. Provider writes require explicit user opt-in.
+
+**Why:** provider event IDs can collide across connected accounts and calendars, and the provider remains the owner of those events.
+
+**How to apply:** upsert by the full source tuple and keep local event IDs stable across refreshes. Do not issue provider writes until the user has explicitly opted in.
 
 Support multiple connected accounts and multiple calendars per account. Use consistent account filters across provider-backed features and calendar filters wherever calendar data appears.
 

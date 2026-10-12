@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   format,
   startOfMonth,
@@ -24,17 +23,10 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import {
-  useListEvents,
-  useCreateEvent,
-  useUpdateEvent,
-  useDeleteEvent,
   useGetGoogleStatus,
   useSyncGoogleCalendar,
-  useCreateGoogleCalendarEvent,
   useUpdateGoogleCalendarEvent,
   useDeleteGoogleCalendarEvent,
-  getListEventsQueryKey,
-  getGetDashboardSummaryQueryKey,
   type Event,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
@@ -53,7 +45,16 @@ import { DayGrid } from '@/components/calendar/day-grid';
 import type { CalendarView } from '@/components/calendar/types';
 import { useLocale } from '@/contexts/locale-context';
 import { useSpaceScope } from '@/contexts/space-context';
-import { getV2AgendaRange, type V2AgendaEvent, type V2AgendaPage } from '@/lib/agenda-v2-api';
+import {
+  createV2CalendarEvent,
+  deleteV2CalendarEvent,
+  getV2AgendaRange,
+  getV2Workspaces,
+  updateV2CalendarEvent,
+  type V2AgendaEvent,
+  type V2AgendaPage,
+  type V2CalendarEventInput,
+} from '@/lib/agenda-v2-api';
 
 // ─── Form schema ────────────────────────────────────────────────────────────
 const eventSchema = z.object({
@@ -135,16 +136,93 @@ function toCalendarEvent(event: V2AgendaEvent, labelSpace: boolean): Event {
   return {
     id: `v2:${event.workspaceId ?? ''}:${event.id}`,
     title,
-    description: '',
+    description: event.description ?? '',
     startDate: format(startsAt, 'yyyy-MM-dd'),
     startTime: event.allDay ? '' : format(startsAt, 'HH:mm'),
-    endDate: format(endsAt, 'yyyy-MM-dd'),
+    endDate: format(event.allDay && event.endsAt ? addDays(endsAt, -1) : endsAt, 'yyyy-MM-dd'),
     endTime: event.allDay ? '' : format(endsAt, 'HH:mm'),
     allDay: event.allDay,
-    location: '',
-    color: '#64748b',
+    location: event.location ?? '',
+    color: event.color ?? '#64748b',
     googleEventId: event.sourceEventId ?? undefined,
+    sourceProvider: event.sourceProvider ?? undefined,
+    sourceConnectionId: event.sourceConnectionId ?? undefined,
+    sourceCalendarId: event.sourceCalendarId ?? undefined,
   } as unknown as Event;
+}
+
+function toV2EventInput(data: EventFormValues, color: string, timeZone: string): V2CalendarEventInput {
+  const startsAt = new Date(`${data.startDate}T${data.allDay ? '00:00' : data.startTime || '00:00'}:00`);
+  let endsAt: Date | null = null;
+  if (data.allDay) {
+    endsAt = new Date(`${data.endDate || data.startDate}T00:00:00`);
+    endsAt.setDate(endsAt.getDate() + 1);
+  } else if (data.endTime) {
+    endsAt = new Date(`${data.endDate || data.startDate}T${data.endTime}:00`);
+  }
+  return {
+    title: data.title.trim(),
+    description: data.description?.trim() || null,
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt?.toISOString() ?? null,
+    allDay: data.allDay,
+    timeZone,
+    location: data.location?.trim() || null,
+    color,
+  };
+}
+
+function toGoogleCalendarInput(data: EventFormValues, timeZone: string) {
+  const summary = data.title.trim();
+  const description = data.description?.trim() || '';
+  const location = data.location?.trim() || '';
+  if (data.allDay) {
+    const exclusiveEnd = new Date(`${data.endDate || data.startDate}T00:00:00`);
+    exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
+    return {
+      summary,
+      description,
+      location,
+      start: { date: data.startDate },
+      end: { date: format(exclusiveEnd, 'yyyy-MM-dd') },
+    };
+  }
+  const start = new Date(`${data.startDate}T${data.startTime || '00:00'}:00`);
+  const end = data.endTime
+    ? new Date(`${data.endDate || data.startDate}T${data.endTime}:00`)
+    : new Date(start.getTime() + 60 * 60 * 1000);
+  return {
+    summary,
+    description,
+    location,
+    start: { dateTime: start.toISOString(), timeZone },
+    end: { dateTime: end.toISOString(), timeZone },
+  };
+}
+
+function v2EventReference(event: Event): { workspaceId: string; eventId: string } | null {
+  const [prefix, workspaceId, ...eventParts] = String(event.id).split(':');
+  return prefix === 'v2' && workspaceId && eventParts.length
+    ? { workspaceId, eventId: eventParts.join(':') }
+    : null;
+}
+
+function providerSyncRange(
+  startDate: string,
+  endDate: string,
+  connectionId: string,
+  calendarId: string,
+) {
+  const from = new Date(`${startDate}T00:00:00`);
+  from.setDate(from.getDate() - 2);
+  const to = new Date(`${endDate || startDate}T00:00:00`);
+  to.setDate(to.getDate() + 3);
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    connectionId,
+    calendarId,
+  };
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -153,28 +231,40 @@ export function CalendarPage() {
   const { preferences } = useAskoloTheme();
   const defaultEventColor =
     THEME_PRESETS[preferences.accountThemeId][preferences.mode].chart1;
-  const qc = useQueryClient();
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<CalendarView>('month');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [providerWriteOptIn, setProviderWriteOptIn] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [, setTick] = useState(0);
   const [, setLocation] = useLocation();
   const { selectedSpaceId } = useSpaceScope();
+  const [personalWorkspaceId, setPersonalWorkspaceId] = useState<string | null>(null);
   const [v2Agenda, setV2Agenda] = useState<V2AgendaPage | null>(null);
   const [agendaError, setAgendaError] = useState<string | null>(null);
   const [agendaLoading, setAgendaLoading] = useState(false);
+  const [agendaRefreshKey, setAgendaRefreshKey] = useState(0);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const { from, to } = getViewRange(currentDate, view, weekStartsOn);
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  const { data: events = [], isLoading } = useListEvents({ from, to });
   const { data: googleStatus, refetch: refetchGoogleStatus } = useGetGoogleStatus();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  useEffect(() => {
+    let active = true;
+    getV2Workspaces()
+      .then((workspaces) => {
+        if (active) setPersonalWorkspaceId(workspaces.find((workspace) => workspace.isPersonal)?.id ?? null);
+      })
+      .catch(() => {
+        if (active) setPersonalWorkspaceId(null);
+      });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     setAgendaLoading(true);
@@ -194,25 +284,17 @@ export function CalendarPage() {
         if (!controller.signal.aborted) setAgendaLoading(false);
       });
     return () => controller.abort();
-  }, [selectedSpaceId, from, to, timeZone]);
+  }, [selectedSpaceId, from, to, timeZone, agendaRefreshKey]);
 
   const calendarConnected = googleStatus?.calendarConnected ?? false;
-  const legacyProviderEventIds = new Set<string>(
-    events.flatMap((event) => event.googleEventId ? [event.googleEventId] : []),
-  );
-  const agendaEvents = (v2Agenda?.calendarEvents ?? [])
-    .filter((event) => !event.sourceEventId || !legacyProviderEventIds.has(event.sourceEventId))
+  const isLoading = agendaLoading;
+  const displayEvents = (v2Agenda?.calendarEvents ?? [])
     .map((event) => toCalendarEvent(event, !selectedSpaceId));
-  const displayEvents = [...events, ...agendaEvents];
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const createEvent = useCreateEvent();
-  const updateEvent = useUpdateEvent();
-  const deleteEvent = useDeleteEvent();
-  const createGoogleEvent = useCreateGoogleCalendarEvent();
+  const syncGoogleCalendar = useSyncGoogleCalendar();
   const updateGoogleEvent = useUpdateGoogleCalendarEvent();
   const deleteGoogleEvent = useDeleteGoogleCalendarEvent();
-  const syncGoogleCalendar = useSyncGoogleCalendar();
 
   // ── Form ──────────────────────────────────────────────────────────────────
   const form = useHookForm<EventFormValues>({
@@ -231,6 +313,7 @@ export function CalendarPage() {
 
   const openAdd = (date?: Date, time?: string) => {
     setEditingEvent(null);
+    setProviderWriteOptIn(false);
     form.reset({
       title: '',
       description: '',
@@ -245,11 +328,13 @@ export function CalendarPage() {
   };
 
   const openEdit = (event: Event) => {
-    if (String(event.id).startsWith('v2:')) {
-      toast({ title: 'Calendar event', description: 'This event is managed by its source calendar.' });
+    const source = event as Event & { sourceConnectionId?: string; sourceCalendarId?: string };
+    if (event.googleEventId && (!source.sourceConnectionId || !source.sourceCalendarId)) {
+      toast({ title: 'Calendar event', description: 'This event is missing its source account details and remains read-only.' });
       return;
     }
     setEditingEvent(event);
+    setProviderWriteOptIn(false);
     form.reset({
       title: event.title,
       description: event.description || '',
@@ -268,9 +353,8 @@ export function CalendarPage() {
   };
 
   const invalidateCalendar = useCallback(() => {
-    qc.invalidateQueries({ queryKey: getListEventsQueryKey() });
-    qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-  }, [qc]);
+    setAgendaRefreshKey((current) => current + 1);
+  }, []);
 
   const handleMutationError = (action: string, error: Error) => {
     toast({ variant: 'destructive', title: `Failed to ${action}`, description: error.message || 'Please try again.' });
@@ -281,88 +365,96 @@ export function CalendarPage() {
 
   const onSubmit = (data: EventFormValues) => {
     setIsSaving(true);
-    const payload = {
-      ...data,
-      endDate: data.endDate || data.startDate,
-      color: editingEvent?.color || defaultEventColor,
-    };
-    const googleEventId = editingEvent?.googleEventId ?? undefined;
-
-    if (editingEvent) {
-      if (googleEventId && calendarConnected) {
-        updateGoogleEvent.mutate(
-          { eventId: googleEventId, data: { calendarId: 'primary', ...payload } },
-          {
-            onSuccess: () => {
-              updateEvent.mutate(
-                { id: editingEvent.id, data: payload },
-                {
-                  onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
-                  onError: (e) => handleMutationError('update local event', e),
-                },
-              );
-            },
-            onError: (e) => handleMutationError('update Google Calendar event', e),
-          },
-        );
-      } else {
-        updateEvent.mutate(
-          { id: editingEvent.id, data: payload },
+    const input = toV2EventInput(data, editingEvent?.color || defaultEventColor, timeZone);
+    const reference = editingEvent ? v2EventReference(editingEvent) : null;
+    const workspaceId = reference?.workspaceId ?? selectedSpaceId ?? personalWorkspaceId;
+    if (!workspaceId) {
+      handleMutationError('save event', new Error('Choose a Space before saving this event.'));
+      return;
+    }
+    const providerEventID = editingEvent?.googleEventId;
+    if (providerEventID && !providerWriteOptIn) {
+      handleMutationError('save event', new Error('Enable the Google write option before changing a provider event.'));
+      return;
+    }
+    if (providerEventID && providerWriteOptIn) {
+      // The generated client still types this legacy route as a local Event form;
+      // the backend adapter forwards the provider-native Google event shape.
+      const providerSource = editingEvent as Event & { sourceCalendarId?: string; sourceConnectionId?: string };
+      const calendarId = providerSource.sourceCalendarId || 'primary';
+      const connectionId = providerSource.sourceConnectionId || '';
+      const providerData = {
+        calendarId,
+        connectionId,
+        providerWriteOptIn: true,
+        ...toGoogleCalendarInput(data, timeZone),
+      } as never;
+      const refreshProviderEvents = () => {
+        syncGoogleCalendar.mutate(
+          { data: providerSyncRange(data.startDate, data.endDate || data.startDate, connectionId, calendarId) as never },
           {
             onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
-            onError: (e) => handleMutationError('update event', e),
+            onError: (error) => handleMutationError('refresh Google Calendar events', error),
           },
         );
-      }
-    } else if (calendarConnected) {
-      createGoogleEvent.mutate(
-        { data: { calendarId: 'primary', ...payload } },
-        {
-          onSuccess: (created) => {
-            createEvent.mutate(
-              { data: { ...payload, googleEventId: created.googleEventId } },
-              {
-                onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
-                onError: (e) => handleMutationError('save local event', e),
-              },
-            );
-          },
-          onError: (e) => handleMutationError('create Google Calendar event', e),
-        },
+      };
+      updateGoogleEvent.mutate(
+        { eventId: providerEventID, data: providerData },
+        { onSuccess: refreshProviderEvents, onError: (error) => handleMutationError('update Google Calendar event', error) },
       );
-    } else {
-      createEvent.mutate(
-        { data: payload },
-        {
-          onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
-          onError: (e) => handleMutationError('create event', e),
-        },
-      );
+      return;
     }
+    const mutation = reference
+      ? updateV2CalendarEvent(workspaceId, reference.eventId, input)
+      : createV2CalendarEvent(workspaceId, input);
+    mutation.then(() => {
+      invalidateCalendar();
+      setDialogOpen(false);
+      setIsSaving(false);
+    }).catch((error: unknown) => {
+      handleMutationError('save event', error instanceof Error ? error : new Error('Please try again.'));
+    });
   };
 
   const handleDelete = (event: Event) => {
     if (!confirm('Delete this event?')) return;
-    const googleEventId = event.googleEventId ?? undefined;
-    if (googleEventId && calendarConnected) {
+    if (event.googleEventId) {
+      if (!providerWriteOptIn) {
+        toast({ title: 'Google write required', description: 'Enable the Google write option before deleting this provider event.' });
+        return;
+      }
+      const source = event as Event & { sourceCalendarId?: string; sourceConnectionId?: string };
+      if (!source.sourceCalendarId || !source.sourceConnectionId) {
+        toast({ title: 'Calendar event', description: 'This event is missing its source account details and remains read-only.' });
+        return;
+      }
+      const providerDeleteQuery = {
+        calendarId: source.sourceCalendarId || 'primary',
+        connectionId: source.sourceConnectionId,
+        providerWriteOptIn: true,
+      };
       deleteGoogleEvent.mutate(
-        { eventId: googleEventId, data: { calendarId: 'primary' } },
+        { eventId: event.googleEventId, data: providerDeleteQuery as { calendarId: string } },
         {
           onSuccess: () => {
-            deleteEvent.mutate({ id: event.id }, {
-              onSuccess: () => invalidateCalendar(),
-              onError: (e) => handleMutationError('delete local event', e),
-            });
+            syncGoogleCalendar.mutate(
+              { data: providerSyncRange(event.startDate, event.endDate || event.startDate, source.sourceConnectionId!, source.sourceCalendarId!) as never },
+              { onSuccess: invalidateCalendar, onError: (error) => handleMutationError('refresh Google Calendar events', error) },
+            );
           },
-          onError: (e) => handleMutationError('delete Google Calendar event', e),
+          onError: (error) => handleMutationError('delete Google Calendar event', error),
         },
       );
-    } else {
-      deleteEvent.mutate({ id: event.id }, {
-        onSuccess: () => invalidateCalendar(),
-        onError: (e) => handleMutationError('delete event', e),
-      });
+      return;
     }
+    const reference = v2EventReference(event);
+    if (!reference || event.googleEventId) return;
+    deleteV2CalendarEvent(reference.workspaceId, reference.eventId)
+      .then(invalidateCalendar)
+      .catch((error: unknown) => handleMutationError(
+        'delete event',
+        error instanceof Error ? error : new Error('Please try again.'),
+      ));
   };
 
   const handleSync = useCallback(() => {
@@ -580,6 +672,24 @@ export function CalendarPage() {
             <DialogTitle>{editingEvent ? 'Edit Event' : 'New Event'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+            {calendarConnected && editingEvent?.googleEventId &&
+              (editingEvent as Event & { sourceConnectionId?: string; sourceCalendarId?: string }).sourceConnectionId &&
+              (editingEvent as Event & { sourceConnectionId?: string; sourceCalendarId?: string }).sourceCalendarId && (
+              <label className="flex items-start gap-2 rounded-md border border-border/60 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={providerWriteOptIn}
+                  onChange={(event) => setProviderWriteOptIn(event.target.checked)}
+                  className="mt-0.5 accent-primary"
+                />
+                <span>
+                  Allow this action to update Google Calendar
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Google is only changed when you enable this option for this event.
+                  </span>
+                </span>
+              </label>
+            )}
             <div className="space-y-2">
               <Label htmlFor="title">Title</Label>
               <Input id="title" placeholder="e.g. Family dinner" {...form.register('title')} />

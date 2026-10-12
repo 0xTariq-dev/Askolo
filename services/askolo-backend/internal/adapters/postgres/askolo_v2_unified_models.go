@@ -178,17 +178,67 @@ type V2ReminderRule struct {
 }
 
 type V2CalendarEventAgendaItem struct {
-	Kind           string     `json:"kind"`
-	ID             string     `json:"id"`
-	WorkspaceID    string     `json:"workspaceId,omitempty"`
-	WorkspaceName  string     `json:"workspaceName,omitempty"`
-	Title          string     `json:"title"`
-	StartsAt       time.Time  `json:"startsAt"`
-	EndsAt         *time.Time `json:"endsAt"`
-	AllDay         bool       `json:"allDay"`
-	TimeZone       string     `json:"timeZone"`
-	SourceProvider *string    `json:"sourceProvider"`
-	SourceEventID  *string    `json:"sourceEventId"`
+	Kind               string     `json:"kind"`
+	ID                 string     `json:"id"`
+	WorkspaceID        string     `json:"workspaceId,omitempty"`
+	WorkspaceName      string     `json:"workspaceName,omitempty"`
+	Title              string     `json:"title"`
+	Description        *string    `json:"description"`
+	StartsAt           time.Time  `json:"startsAt"`
+	EndsAt             *time.Time `json:"endsAt"`
+	AllDay             bool       `json:"allDay"`
+	TimeZone           string     `json:"timeZone"`
+	Location           *string    `json:"location"`
+	Color              *string    `json:"color"`
+	SourceProvider     *string    `json:"sourceProvider"`
+	SourceConnectionID *string    `json:"sourceConnectionId"`
+	SourceCalendarID   *string    `json:"sourceCalendarId"`
+	SourceEventID      *string    `json:"sourceEventId"`
+}
+
+type V2CalendarEventRecord struct {
+	ID                 string     `json:"id"`
+	WorkspaceID        string     `json:"workspaceId"`
+	CreatedByUserID    string     `json:"createdByUserId"`
+	UpdatedByUserID    string     `json:"updatedByUserId"`
+	Title              string     `json:"title"`
+	Description        *string    `json:"description"`
+	StartsAt           time.Time  `json:"startsAt"`
+	EndsAt             *time.Time `json:"endsAt"`
+	AllDay             bool       `json:"allDay"`
+	TimeZone           string     `json:"timeZone"`
+	Location           *string    `json:"location"`
+	Color              *string    `json:"color"`
+	SourceProvider     *string    `json:"sourceProvider"`
+	SourceConnectionID *string    `json:"sourceConnectionId"`
+	SourceCalendarID   *string    `json:"sourceCalendarId"`
+	SourceEventID      *string    `json:"sourceEventId"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+}
+
+type V2CalendarEventWrite struct {
+	Title       string
+	Description *string
+	StartsAt    time.Time
+	EndsAt      *time.Time
+	AllDay      bool
+	TimeZone    string
+	Location    *string
+	Color       *string
+}
+
+type V2ProviderCalendarEvent struct {
+	ProviderConnectionID string
+	ProviderCalendarID   string
+	ProviderEventID      string
+	Title                string
+	Description          *string
+	StartsAt             time.Time
+	EndsAt               *time.Time
+	AllDay               bool
+	TimeZone             string
+	Location             *string
 }
 
 type V2TaskAgendaItem struct {

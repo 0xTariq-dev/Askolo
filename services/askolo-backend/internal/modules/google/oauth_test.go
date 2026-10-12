@@ -1,6 +1,7 @@
 package google
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,59 @@ func testOAuthHandler() *Handler {
 			AuthURL:             "https://accounts.google.com/o/oauth2/v2/auth",
 		},
 	}, nil, slog.Default())
+}
+
+func TestMapGoogleCalendarEvent(t *testing.T) {
+	timed, ok := mapGoogleCalendarEvent(providerCalendarEvent{
+		ID: "google-event-1", Summary: "Planning", Description: "Weekly review",
+		Start: providerCalendarDateTime{DateTime: "2026-10-14T12:30:00+02:00", TimeZone: "Africa/Cairo"},
+		End:   providerCalendarDateTime{DateTime: "2026-10-14T13:30:00+02:00", TimeZone: "Africa/Cairo"},
+	})
+	if !ok || timed.AllDay || timed.Title != "Planning" || timed.TimeZone != "Africa/Cairo" ||
+		!timed.StartsAt.Equal(time.Date(2026, 10, 14, 10, 30, 0, 0, time.UTC)) ||
+		timed.EndsAt == nil || !timed.EndsAt.Equal(time.Date(2026, 10, 14, 11, 30, 0, 0, time.UTC)) {
+		t.Fatalf("mapped timed event = %#v, valid = %t", timed, ok)
+	}
+	allDay, ok := mapGoogleCalendarEvent(providerCalendarEvent{
+		ID: "google-event-2", Summary: "Holiday",
+		Start: providerCalendarDateTime{Date: "2026-10-14", TimeZone: "Africa/Cairo"},
+		End:   providerCalendarDateTime{Date: "2026-10-15", TimeZone: "Africa/Cairo"},
+	})
+	if !ok || !allDay.AllDay || allDay.TimeZone != "Africa/Cairo" ||
+		allDay.StartsAt.Format("2006-01-02") != "2026-10-14" ||
+		allDay.EndsAt == nil || allDay.EndsAt.Format("2006-01-02") != "2026-10-15" {
+		t.Fatalf("mapped all-day event = %#v, valid = %t", allDay, ok)
+	}
+}
+
+func TestLegacyCalendarEventRequiresWriteOptIn(t *testing.T) {
+	handler := legacyCalendarEvent(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode adapted event request: %v", err)
+		}
+		if body["providerWriteOptIn"] != true || body["calendarId"] != "primary" {
+			t.Errorf("adapted event request omitted explicit consent or calendar: %#v", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	for _, test := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "missing consent", body: `{"calendarId":"primary","title":"Test"}`, want: http.StatusForbidden},
+		{name: "consented", body: `{"calendarId":"primary","providerWriteOptIn":true,"title":"Test"}`, want: http.StatusNoContent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/google/calendar/events", strings.NewReader(test.body))
+			response := httptest.NewRecorder()
+			handler(response, req)
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d: %s", response.Code, test.want, response.Body.String())
+			}
+		})
+	}
 }
 
 func TestOAuthStateIsSignedAndRejectsTampering(t *testing.T) {

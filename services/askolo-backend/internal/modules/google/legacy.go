@@ -8,7 +8,31 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"askolo/backend/internal/adapters/postgres"
 )
+
+type providerCalendarDateTime struct {
+	DateTime string `json:"dateTime"`
+	Date     string `json:"date"`
+	TimeZone string `json:"timeZone"`
+}
+
+type providerCalendarEvent struct {
+	ID          string                   `json:"id"`
+	Status      string                   `json:"status"`
+	Summary     string                   `json:"summary"`
+	Description string                   `json:"description"`
+	Location    string                   `json:"location"`
+	Start       providerCalendarDateTime `json:"start"`
+	End         providerCalendarDateTime `json:"end"`
+}
+
+type providerCalendarPage struct {
+	Items         []providerCalendarEvent `json:"items"`
+	NextPageToken string                  `json:"nextPageToken"`
+}
 
 // legacyCalendarEvent adapts the old local-event request shape to the native
 // provider operation without retaining an API-server compatibility proxy.
@@ -30,12 +54,19 @@ func legacyCalendarEvent(next http.HandlerFunc) http.HandlerFunc {
 		}
 		calendarID, _ := input["calendarId"].(string)
 		connectionID, _ := input["connectionId"].(string)
+		consented, _ := input["providerWriteOptIn"].(bool)
+		if !consented {
+			writeError(w, http.StatusForbidden, "PROVIDER_WRITE_OPT_IN_REQUIRED", "Explicit Google Calendar write approval is required.")
+			return
+		}
 		delete(input, "calendarId")
 		delete(input, "connectionId")
+		delete(input, "providerWriteOptIn")
 		wrapped, err := json.Marshal(map[string]any{
-			"connectionId": connectionID,
-			"calendarId":   calendarID,
-			"event":        input,
+			"connectionId":       connectionID,
+			"calendarId":         calendarID,
+			"providerWriteOptIn": true,
+			"event":              input,
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_EVENT", "The calendar event is invalid.")
@@ -54,17 +85,29 @@ func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		From string `json:"from"`
-		To   string `json:"to"`
+		From         string `json:"from"`
+		To           string `json:"to"`
+		ConnectionID string `json:"connectionId"`
+		CalendarID   string `json:"calendarId"`
 	}
-	if err := decodeBody(r, &input, 4096); err != nil || input.From == "" || input.To == "" {
+	if err := decodeBody(r, &input, 4096); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "from and to are required.")
 		return
 	}
-	connectionID, err := h.legacyConnectionID(r, userID, "calendar")
-	if err != nil {
-		h.writeOperationError(w, err)
+	from, fromErr := time.Parse(time.RFC3339, input.From)
+	to, toErr := time.Parse(time.RFC3339, input.To)
+	if fromErr != nil || toErr != nil || !to.After(from) || to.Sub(from) > 93*24*time.Hour {
+		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "Provide a valid time range of no more than 93 days.")
 		return
+	}
+	connectionID := input.ConnectionID
+	var err error
+	if connectionID == "" {
+		connectionID, err = h.legacyConnectionID(r, userID, "calendar")
+		if err != nil {
+			h.writeOperationError(w, err)
+			return
+		}
 	}
 	_, token, err := h.connectionToken(r.Context(), userID, connectionID, "calendar")
 	if err != nil {
@@ -88,12 +131,19 @@ func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	calendarsResponse.Body.Close()
-	calendarID := ""
+	calendarID := input.CalendarID
+	calendarFound := calendarID == ""
 	for _, calendar := range calendars.Items {
-		if calendar.Primary {
-			calendarID = calendar.ID
-			break
+		if calendar.ID == calendarID {
+			calendarFound = true
 		}
+		if calendar.Primary && calendarID == "" {
+			calendarID = calendar.ID
+		}
+	}
+	if !calendarFound {
+		writeError(w, http.StatusNotFound, "CALENDAR_NOT_FOUND", "The selected Google calendar is unavailable.")
+		return
 	}
 	if calendarID == "" && len(calendars.Items) > 0 {
 		calendarID = calendars.Items[0].ID
@@ -102,23 +152,135 @@ func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "NO_CALENDAR", "No calendar found.")
 		return
 	}
-	query := url.Values{"timeMin": {input.From}, "timeMax": {input.To}, "singleEvents": {"true"}}
-	eventsResponse, err := h.googleRequest(r.Context(), http.MethodGet,
-		"https://www.googleapis.com/calendar/v3/calendars/"+url.PathEscape(calendarID)+"/events?"+query.Encode(), token, nil)
-	if err != nil {
-		h.writeOperationError(w, err)
+	if len(calendarID) > 1024 || strings.ContainsAny(calendarID, "\r\n\x00") {
+		writeError(w, http.StatusBadGateway, "GOOGLE_PROVIDER_FAILED", "Google returned an invalid calendar.")
 		return
 	}
-	var events struct {
-		Items []json.RawMessage `json:"items"`
-	}
-	err = json.NewDecoder(eventsResponse.Body).Decode(&events)
-	eventsResponse.Body.Close()
+	workspaces, err := h.store.ListV2HomeWorkspaces(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "GOOGLE_PROVIDER_FAILED", "Google could not complete the request.")
+		writeError(w, http.StatusServiceUnavailable, "V2_NOT_READY", "The versioned calendar is temporarily unavailable.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"synced": len(events.Items), "calendarId": calendarID})
+	workspaceID := ""
+	for _, workspace := range workspaces {
+		if workspace.IsPersonal {
+			workspaceID = workspace.ID
+			break
+		}
+	}
+	if workspaceID == "" {
+		writeError(w, http.StatusNotFound, "WORKSPACE_NOT_FOUND", "The personal Space is unavailable.")
+		return
+	}
+
+	events := make([]postgres.V2ProviderCalendarEvent, 0)
+	const maxPages = 10
+	pageToken := ""
+	for page := 0; page < maxPages; page++ {
+		query := url.Values{
+			"timeMin": {from.Format(time.RFC3339)}, "timeMax": {to.Format(time.RFC3339)},
+			"singleEvents": {"true"}, "showDeleted": {"true"}, "maxResults": {"2500"},
+		}
+		if pageToken != "" {
+			query.Set("pageToken", pageToken)
+		}
+		eventsResponse, requestErr := h.googleRequest(r.Context(), http.MethodGet,
+			"https://www.googleapis.com/calendar/v3/calendars/"+url.PathEscape(calendarID)+"/events?"+query.Encode(), token, nil)
+		if requestErr != nil {
+			h.writeOperationError(w, requestErr)
+			return
+		}
+		var result providerCalendarPage
+		decodeErr := json.NewDecoder(io.LimitReader(eventsResponse.Body, 4<<20)).Decode(&result)
+		eventsResponse.Body.Close()
+		if decodeErr != nil {
+			writeError(w, http.StatusBadGateway, "GOOGLE_PROVIDER_FAILED", "Google could not complete the request.")
+			return
+		}
+		for _, item := range result.Items {
+			if !providerIDPattern.MatchString(item.ID) {
+				continue
+			}
+			if item.Status == "cancelled" {
+				if deleteErr := h.store.DeleteV2GoogleCalendarEvent(
+					r.Context(), workspaceID, connectionID, calendarID, item.ID,
+				); deleteErr != nil {
+					writeError(w, http.StatusServiceUnavailable, "CALENDAR_SYNC_FAILED", "Calendar changes could not be saved.")
+					return
+				}
+				continue
+			}
+			mapped, valid := mapGoogleCalendarEvent(item)
+			if valid {
+				mapped.ProviderConnectionID = connectionID
+				mapped.ProviderCalendarID = calendarID
+				events = append(events, mapped)
+			}
+		}
+		pageToken = result.NextPageToken
+		if pageToken == "" {
+			break
+		}
+		if page == maxPages-1 {
+			writeError(w, http.StatusUnprocessableEntity, "CALENDAR_RANGE_TOO_LARGE", "Narrow the date range and sync again.")
+			return
+		}
+	}
+	if err := h.store.UpsertV2GoogleCalendarEvents(r.Context(), workspaceID, userID, events); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "CALENDAR_SYNC_FAILED", "Calendar changes could not be saved.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"synced": len(events), "calendarId": calendarID, "workspaceId": workspaceID,
+	})
+}
+
+func mapGoogleCalendarEvent(item providerCalendarEvent) (postgres.V2ProviderCalendarEvent, bool) {
+	title := strings.TrimSpace(item.Summary)
+	if title == "" {
+		title = "Untitled event"
+	}
+	if len(title) > 240 {
+		title = title[:240]
+	}
+	zone := item.Start.TimeZone
+	if _, err := time.LoadLocation(zone); err != nil {
+		zone = "UTC"
+	}
+	event := postgres.V2ProviderCalendarEvent{
+		ProviderEventID: item.ID, Title: title, TimeZone: zone,
+	}
+	if value := strings.TrimSpace(item.Description); value != "" {
+		if len(value) > 4000 {
+			value = value[:4000]
+		}
+		event.Description = &value
+	}
+	if value := strings.TrimSpace(item.Location); value != "" {
+		if len(value) > 500 {
+			value = value[:500]
+		}
+		event.Location = &value
+	}
+	if item.Start.Date != "" {
+		location, _ := time.LoadLocation(zone)
+		startDate, startErr := time.Parse("2006-01-02", item.Start.Date)
+		endDate, endErr := time.Parse("2006-01-02", item.End.Date)
+		if startErr != nil || endErr != nil {
+			return postgres.V2ProviderCalendarEvent{}, false
+		}
+		event.StartsAt = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, location)
+		end := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, location)
+		event.EndsAt, event.AllDay = &end, true
+	} else {
+		start, startErr := time.Parse(time.RFC3339Nano, item.Start.DateTime)
+		end, endErr := time.Parse(time.RFC3339Nano, item.End.DateTime)
+		if startErr != nil || endErr != nil || end.Before(start) {
+			return postgres.V2ProviderCalendarEvent{}, false
+		}
+		event.StartsAt, event.EndsAt = start, &end
+	}
+	return event, true
 }
 
 func (h *Handler) legacyConnectionID(r *http.Request, userID, capability string) (string, error) {

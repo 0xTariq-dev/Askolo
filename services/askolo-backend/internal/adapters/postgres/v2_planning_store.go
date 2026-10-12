@@ -727,8 +727,9 @@ func (s *Store) ListV2AgendaEvents(ctx context.Context, workspaceID string, from
 		return nil, errors.New("agenda event offset is outside the supported range")
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT e.id, e.title, e.starts_at, e.ends_at, e.all_day, e.time_zone,
-       e.source_provider, e.source_event_id
+SELECT e.id, e.title, e.description, e.starts_at, e.ends_at, e.all_day, e.time_zone,
+       e.location, e.color, e.source_provider, e.source_connection_id,
+       e.source_calendar_id, e.source_event_id
 FROM `+v2Table(schema, "calendar_events")+` e
 WHERE e.workspace_id=$1
   AND e.starts_at < (($3::date + 1)::timestamp AT TIME ZONE $4)
@@ -747,8 +748,9 @@ ORDER BY e.starts_at, e.id LIMIT $5 OFFSET $6`,
 	for rows.Next() {
 		var item V2CalendarEventAgendaItem
 		if err := rows.Scan(
-			&item.ID, &item.Title, &item.StartsAt, &item.EndsAt,
-			&item.AllDay, &item.TimeZone, &item.SourceProvider, &item.SourceEventID,
+			&item.ID, &item.Title, &item.Description, &item.StartsAt, &item.EndsAt,
+			&item.AllDay, &item.TimeZone, &item.Location, &item.Color,
+			&item.SourceProvider, &item.SourceConnectionID, &item.SourceCalendarID, &item.SourceEventID,
 		); err != nil {
 			return nil, fmt.Errorf("scan calendar agenda event: %w", err)
 		}

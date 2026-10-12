@@ -666,3 +666,120 @@ FROM generate_series(1, 101) AS n`,
 		t.Fatalf("mirrored workspace owner role = %q, err=%v; want owner", role, err)
 	}
 }
+
+func TestV2CalendarEventCRUD(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	const userID, workspaceID = "v2-calendar-owner", "v2-calendar-workspace"
+	sessionID := fixture.createUserAndSession(t, userID, "v2-calendar@example.test", true)
+	if err := fixture.store.CreateWorkspace(fixture.ctx, workspaceID, "Calendar", userID, []string{"workspace:manage"}); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	handler := NewHandler(config.Config{
+		AuthRateLimitHMACSecret: "test-auth-rate-limit-hmac-secret-32-bytes",
+	}, fixture.store, slog.Default(), "askolo_session").Routes()
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+sessionID)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response
+	}
+
+	payload := `{"title":"Dentist","description":"Annual checkup","startsAt":"2026-10-14T09:00:00Z","endsAt":"2026-10-14T10:00:00Z","allDay":false,"timeZone":"Africa/Cairo","location":"Clinic","color":"#123456"}`
+	created := request(http.MethodPost, "/api/v2/workspaces/"+workspaceID+"/calendar-events", payload)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d: %s", created.Code, http.StatusCreated, created.Body.String())
+	}
+	var event postgres.V2CalendarEventRecord
+	if err := json.NewDecoder(created.Body).Decode(&event); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if event.ID == "" || event.Title != "Dentist" || event.TimeZone != "Africa/Cairo" ||
+		event.Location == nil || *event.Location != "Clinic" || event.Color == nil || *event.Color != "#123456" {
+		t.Fatalf("created event = %#v", event)
+	}
+
+	query := "?from=2026-10-14&to=2026-10-14&timeZone=Africa%2FCairo"
+	listed := request(http.MethodGet, "/api/v2/workspaces/"+workspaceID+"/calendar-events"+query, "")
+	if listed.Code != http.StatusOK {
+		t.Fatalf("list status = %d: %s", listed.Code, listed.Body.String())
+	}
+	var events []postgres.V2CalendarEventRecord
+	if err := json.NewDecoder(listed.Body).Decode(&events); err != nil || len(events) != 1 || events[0].ID != event.ID {
+		t.Fatalf("listed events = %#v, decode error = %v", events, err)
+	}
+
+	updated := request(http.MethodPatch, "/api/v2/workspaces/"+workspaceID+"/calendar-events/"+event.ID,
+		`{"title":"Dentist follow-up","description":null,"startsAt":"2026-10-14T11:00:00Z","endsAt":null,"allDay":false,"timeZone":"Africa/Cairo","location":null,"color":null}`)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update status = %d: %s", updated.Code, updated.Body.String())
+	}
+	if err := json.NewDecoder(updated.Body).Decode(&event); err != nil || event.Title != "Dentist follow-up" || event.Description != nil {
+		t.Fatalf("updated event = %#v, decode error = %v", event, err)
+	}
+
+	deleted := request(http.MethodDelete, "/api/v2/workspaces/"+workspaceID+"/calendar-events/"+event.ID, "")
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d: %s", deleted.Code, http.StatusNoContent, deleted.Body.String())
+	}
+	listed = request(http.MethodGet, "/api/v2/workspaces/"+workspaceID+"/calendar-events"+query, "")
+	if listed.Code != http.StatusOK {
+		t.Fatalf("list after delete status = %d: %s", listed.Code, listed.Body.String())
+	}
+	events = nil
+	if err := json.NewDecoder(listed.Body).Decode(&events); err != nil || len(events) != 0 {
+		t.Fatalf("events after delete = %#v, decode error = %v", events, err)
+	}
+
+	providerEvent := postgres.V2ProviderCalendarEvent{
+		ProviderConnectionID: "google-connection-preserved",
+		ProviderCalendarID:   "primary-calendar-preserved",
+		ProviderEventID:      "google-event-preserved",
+		Title:                "Provider event",
+		StartsAt:             time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC),
+		TimeZone:             "UTC",
+	}
+	if err := fixture.store.UpsertV2GoogleCalendarEvents(fixture.ctx, workspaceID, userID, []postgres.V2ProviderCalendarEvent{providerEvent}); err != nil {
+		t.Fatalf("upsert provider event: %v", err)
+	}
+	listed = request(http.MethodGet, "/api/v2/workspaces/"+workspaceID+"/calendar-events"+query, "")
+	if listed.Code != http.StatusOK {
+		t.Fatalf("list provider event status = %d: %s", listed.Code, listed.Body.String())
+	}
+	events = nil
+	if err := json.NewDecoder(listed.Body).Decode(&events); err != nil || len(events) != 1 {
+		t.Fatalf("provider events = %#v, decode error = %v", events, err)
+	}
+	providerRecord := events[0]
+	if providerRecord.SourceProvider == nil || *providerRecord.SourceProvider != "google" ||
+		providerRecord.SourceConnectionID == nil || *providerRecord.SourceConnectionID != providerEvent.ProviderConnectionID ||
+		providerRecord.SourceCalendarID == nil || *providerRecord.SourceCalendarID != providerEvent.ProviderCalendarID ||
+		providerRecord.SourceEventID == nil || *providerRecord.SourceEventID != providerEvent.ProviderEventID {
+		t.Fatalf("provider source identity was not preserved: %#v", providerRecord)
+	}
+	readOnlyUpdate := request(http.MethodPatch, "/api/v2/workspaces/"+workspaceID+"/calendar-events/"+providerRecord.ID,
+		`{"title":"Do not overwrite","startsAt":"2026-10-14T13:00:00Z","allDay":false,"timeZone":"UTC"}`)
+	if readOnlyUpdate.Code != http.StatusNotFound {
+		t.Fatalf("provider-owned event update status = %d, want %d", readOnlyUpdate.Code, http.StatusNotFound)
+	}
+	providerEvent.Title = "Provider event updated"
+	if err := fixture.store.UpsertV2GoogleCalendarEvents(fixture.ctx, workspaceID, userID, []postgres.V2ProviderCalendarEvent{providerEvent}); err != nil {
+		t.Fatalf("upsert updated provider event: %v", err)
+	}
+	listed = request(http.MethodGet, "/api/v2/workspaces/"+workspaceID+"/calendar-events"+query, "")
+	if listed.Code != http.StatusOK {
+		t.Fatalf("list updated provider event status = %d: %s", listed.Code, listed.Body.String())
+	}
+	events = nil
+	if err := json.NewDecoder(listed.Body).Decode(&events); err != nil || len(events) != 1 ||
+		events[0].ID != providerRecord.ID || events[0].Title != providerEvent.Title ||
+		events[0].SourceConnectionID == nil || *events[0].SourceConnectionID != providerEvent.ProviderConnectionID ||
+		events[0].SourceCalendarID == nil || *events[0].SourceCalendarID != providerEvent.ProviderCalendarID ||
+		events[0].SourceEventID == nil || *events[0].SourceEventID != providerEvent.ProviderEventID {
+		t.Fatalf("provider identity/upsert result = %#v, decode error = %v", events, err)
+	}
+}

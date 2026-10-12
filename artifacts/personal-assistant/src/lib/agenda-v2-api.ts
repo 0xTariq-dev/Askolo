@@ -41,11 +41,16 @@ export type V2AgendaEvent = {
   workspaceId?: string;
   workspaceName?: string;
   title: string;
+  description: string | null;
   startsAt: string;
   endsAt: string | null;
   allDay: boolean;
   timeZone: string;
+  location: string | null;
+  color: string | null;
   sourceProvider: string | null;
+  sourceConnectionId: string | null;
+  sourceCalendarId: string | null;
   sourceEventId: string | null;
 };
 
@@ -175,6 +180,49 @@ async function v2Request<T>(
   if (!response.ok) throw new Error(`Request could not be completed (${response.status}).`);
   if (response.status === 204) return undefined;
   return response.json() as Promise<T>;
+}
+
+export type V2CalendarEventInput = {
+  title: string;
+  description: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  allDay: boolean;
+  timeZone: string;
+  location: string | null;
+  color: string | null;
+};
+
+export async function createV2CalendarEvent(
+  workspaceId: string,
+  input: V2CalendarEventInput,
+): Promise<{ id: string }> {
+  const result = await v2Request<{ id: string }>(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/calendar-events`,
+    'POST',
+    input,
+  );
+  if (!result?.id) throw new Error('Calendar event was created without an identifier.');
+  return result;
+}
+
+export function updateV2CalendarEvent(
+  workspaceId: string,
+  eventId: string,
+  input: V2CalendarEventInput,
+): Promise<unknown> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/calendar-events/${encodeURIComponent(eventId)}`,
+    'PATCH',
+    input,
+  );
+}
+
+export function deleteV2CalendarEvent(workspaceId: string, eventId: string): Promise<void> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/calendar-events/${encodeURIComponent(eventId)}`,
+    'DELETE',
+  ) as Promise<void>;
 }
 
 export async function createV2Task(
