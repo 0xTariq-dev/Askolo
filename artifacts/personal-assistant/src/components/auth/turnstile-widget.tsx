@@ -132,9 +132,6 @@ export function TurnstileWidget({ action, tokenReady, onToken }: TurnstileWidget
 
   return (
     <div className="space-y-2" role="group" aria-label="Security verification">
-      <p className="text-sm text-muted-foreground">
-        Complete the security check before continuing.
-      </p>
       <div ref={containerRef} className="min-h-[65px]" />
       {tokenReady && !error && (
         <p className="text-sm text-muted-foreground" role="status" aria-live="polite">

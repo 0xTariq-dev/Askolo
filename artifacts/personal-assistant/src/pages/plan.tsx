@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns';
+import { format } from 'date-fns';
 import { useLocation } from 'wouter';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -34,6 +34,7 @@ import {
   createV2Task,
   type V2AgendaTask,
 } from '@/lib/agenda-v2-api';
+import { getMonthGridAgendaRange } from '@/lib/agenda-date-range';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -97,10 +98,7 @@ export function PlanPage() {
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
-  const monthStart = startOfMonth(monthDate);
-  const monthEnd = endOfMonth(monthDate);
-  const from = format(startOfWeek(monthStart, { weekStartsOn }), 'yyyy-MM-dd');
-  const to = format(endOfWeek(monthEnd, { weekStartsOn }), 'yyyy-MM-dd');
+  const { from, to } = getMonthGridAgendaRange(monthDate, weekStartsOn);
   const { data: transcriptionPreferences } = useGetTranscriptionPreferences();
   const updateTranscriptionPreferences = useUpdateTranscriptionPreferences();
   const voice = useVoiceTranscription();
