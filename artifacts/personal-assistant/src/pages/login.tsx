@@ -117,7 +117,7 @@ export function LoginPage() {
   const [notice, setNotice] = useState<string | null>(() => {
     const googleStatus = new URLSearchParams(window.location.search).get('google');
     if (googleStatus === 'provider_not_linked') {
-      return 'This Google account is not linked to an Askolo account. Sign in with your existing email and password, then link Google sign-in from Profile. This keeps account access secure.';
+      return 'An Askolo account already exists for this email. Sign in with the method you used for that account. If you use an email and password, sign in here, then link this Google account from Profile → Google sign-in. We do not link accounts automatically to protect your account.';
     }
     if (googleStatus === 'error') {
       return 'Google sign-in could not be completed. Try again or sign in with your email and password.';
