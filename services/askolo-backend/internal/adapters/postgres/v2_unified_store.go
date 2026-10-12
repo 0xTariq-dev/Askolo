@@ -308,6 +308,7 @@ func (s *Store) GetV2Task(ctx context.Context, workspaceID, taskID string) (V2Ta
 SELECT id, workspace_id, created_by_user_id, assigned_to_user_id, kind,
        title, details, status, priority, due_on, planned_start_at, goal_id,
        parent_task_id, recurrence, source_type, source_reference,
+       planned_on, planned_start_time, duration_minutes, due_time, time_zone, label,
        completed_at, archived_at, created_at, updated_at
 FROM `+v2Table(schema, "tasks")+`
 WHERE workspace_id = $1 AND id = $2`, workspaceID, taskID))
@@ -333,11 +334,35 @@ func scanV2Task(row pgx.Row) (V2Task, error) {
 		&task.ID, &task.WorkspaceID, &task.CreatedByUserID, &task.AssignedToUserID,
 		&task.Kind, &task.Title, &task.Details, &task.Status, &task.Priority,
 		&task.DueOn, &task.PlannedStartAt, &task.GoalID, &task.ParentTaskID,
-		&task.Recurrence, &task.SourceType, &task.SourceReference, &task.CompletedAt,
+		&task.Recurrence, &task.SourceType, &task.SourceReference,
+		&task.PlannedOn, &task.PlannedStartTime, &task.DurationMinutes, &task.DueTime,
+		&task.TimeZone, &task.Label, &task.CompletedAt,
 		&task.ArchivedAt, &task.CreatedAt, &task.UpdatedAt,
 	)
 	if task.Recurrence == nil {
 		task.Recurrence = json.RawMessage("null")
+	}
+	switch task.Kind {
+	case "action", "chore", "commitment":
+		task.Kind = "task"
+	}
+	if task.Priority == "medium" {
+		if task.Kind == "habit" {
+			task.Priority = "none"
+		} else {
+			task.Priority = "normal"
+		}
+	}
+	if task.PlannedOn == nil {
+		switch {
+		case task.DueOn != nil:
+			date := time.Date(task.DueOn.Year(), task.DueOn.Month(), task.DueOn.Day(), 0, 0, 0, 0, time.UTC)
+			task.PlannedOn = &date
+		case task.PlannedStartAt != nil:
+			startUTC := task.PlannedStartAt.UTC()
+			date := time.Date(startUTC.Year(), startUTC.Month(), startUTC.Day(), 0, 0, 0, 0, time.UTC)
+			task.PlannedOn = &date
+		}
 	}
 	return task, err
 }
@@ -377,6 +402,7 @@ func (s *Store) ListV2Tasks(ctx context.Context, workspaceID string, filter V2Ta
 	query := `SELECT id, workspace_id, created_by_user_id, assigned_to_user_id, kind,
  title, details, status, priority, due_on, planned_start_at, goal_id,
  parent_task_id, recurrence, source_type, source_reference,
+ planned_on, planned_start_time, duration_minutes, due_time, time_zone, label,
  completed_at, archived_at, created_at, updated_at
 FROM ` + v2Table(schema, "tasks") + ` WHERE workspace_id = $1`
 	args := []any{workspaceID}
@@ -388,7 +414,11 @@ FROM ` + v2Table(schema, "tasks") + ` WHERE workspace_id = $1`
 		query += fmt.Sprintf(" AND %s = $%d", condition, len(args))
 	}
 	if filter.Kind != "" {
-		add("kind", filter.Kind)
+		if filter.Kind == "task" {
+			query += " AND kind IN ('task', 'action', 'chore', 'commitment')"
+		} else {
+			add("kind", filter.Kind)
+		}
 	}
 	if filter.Status != "" {
 		add("status", filter.Status)
@@ -405,6 +435,17 @@ FROM ` + v2Table(schema, "tasks") + ` WHERE workspace_id = $1`
 		fromArg, toArg, zoneArg := len(args)-2, len(args)-1, len(args)
 		query += fmt.Sprintf(` AND (
   due_on BETWEEN $%d AND $%d
+  OR planned_on BETWEEN $%d AND $%d
+  OR (
+    planned_on IS NOT NULL
+    AND planned_start_time IS NOT NULL
+    AND duration_minutes IS NOT NULL
+    AND ((planned_on + planned_start_time) AT TIME ZONE time_zone)
+        < (($%d::date + 1)::timestamp AT TIME ZONE $%d)
+    AND (((planned_on + planned_start_time) AT TIME ZONE time_zone)
+         + make_interval(mins => duration_minutes))
+        > ($%d::date::timestamp AT TIME ZONE $%d)
+  )
   OR (
     planned_start_at >= ($%d::date::timestamp AT TIME ZONE $%d)
     AND planned_start_at < (($%d::date + 1)::timestamp AT TIME ZONE $%d)
@@ -414,7 +455,8 @@ FROM ` + v2Table(schema, "tasks") + ` WHERE workspace_id = $1`
     AND (recurrence->>'startsOn')::date <= $%d
     AND (recurrence->>'endsOn' IS NULL OR (recurrence->>'endsOn')::date >= $%d)
   )
-)`, fromArg, toArg, fromArg, zoneArg, toArg, zoneArg, toArg, fromArg)
+ )`, fromArg, toArg, fromArg, toArg, toArg, zoneArg, fromArg, zoneArg,
+			fromArg, zoneArg, toArg, zoneArg, toArg, fromArg)
 	} else if filter.From != nil {
 		timeZone := filter.TimeZone
 		if timeZone == "" {
@@ -424,12 +466,13 @@ FROM ` + v2Table(schema, "tasks") + ` WHERE workspace_id = $1`
 		fromArg, zoneArg := len(args)-1, len(args)
 		query += fmt.Sprintf(` AND (
   due_on >= $%d
+  OR planned_on >= $%d
   OR planned_start_at >= ($%d::date::timestamp AT TIME ZONE $%d)
   OR (
     recurrence IS NOT NULL
     AND (recurrence->>'endsOn' IS NULL OR (recurrence->>'endsOn')::date >= $%d)
   )
-)`, fromArg, fromArg, zoneArg, fromArg)
+ )`, fromArg, fromArg, fromArg, zoneArg, fromArg)
 	} else if filter.To != nil {
 		timeZone := filter.TimeZone
 		if timeZone == "" {
@@ -439,9 +482,10 @@ FROM ` + v2Table(schema, "tasks") + ` WHERE workspace_id = $1`
 		toArg, zoneArg := len(args)-1, len(args)
 		query += fmt.Sprintf(` AND (
   due_on <= $%d
+  OR planned_on <= $%d
   OR planned_start_at < (($%d::date + 1)::timestamp AT TIME ZONE $%d)
   OR (recurrence IS NOT NULL AND (recurrence->>'startsOn')::date <= $%d)
-)`, toArg, toArg, zoneArg, toArg)
+ )`, toArg, toArg, toArg, zoneArg, toArg)
 	}
 	args = append(args, filter.Limit, filter.Offset)
 	query += fmt.Sprintf(" ORDER BY due_on ASC NULLS LAST, updated_at DESC, id ASC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
@@ -501,13 +545,15 @@ func (s *Store) CreateV2Task(ctx context.Context, workspaceID, actorUserID strin
 	_, err = tx.Exec(ctx, `
 INSERT INTO `+v2Table(schema, "tasks")+` (
   id, workspace_id, created_by_user_id, assigned_to_user_id, kind, title,
-  details, status, priority, due_on, planned_start_at, goal_id,
-  parent_task_id, recurrence, source_type, source_reference,
+  details, status, priority, due_on, planned_start_at,
+  planned_on, planned_start_time, duration_minutes, due_time, time_zone, label,
+  goal_id, parent_task_id, recurrence, source_type, source_reference,
   completed_at, archived_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
 		taskID, workspaceID, actorUserID, input.AssignedToUserID, input.Kind,
 		input.Title, input.Details, input.Status, input.Priority, input.DueOn,
-		input.PlannedStartAt, input.GoalID, input.ParentTaskID, input.Recurrence,
+		input.PlannedStartAt, input.PlannedOn, input.PlannedStartTime, input.DurationMinutes,
+		input.DueTime, input.TimeZone, input.Label, input.GoalID, input.ParentTaskID, input.Recurrence,
 		input.SourceType, input.SourceReference, completedAt, archivedAt,
 	)
 	if err != nil {
@@ -593,14 +639,16 @@ SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = $3)`,
 	tag, err := tx.Exec(ctx, `
 UPDATE `+v2Table(schema, "tasks")+`
 SET assigned_to_user_id=$3, kind=$4, title=$5, details=$6, status=$7,
-    priority=$8, due_on=$9, planned_start_at=$10, goal_id=$11,
-    parent_task_id=$12, recurrence=$13, source_type=$14, source_reference=$15,
-    completed_at=$16, archived_at=$17, updated_at=now()
+    priority=$8, due_on=$9, planned_start_at=$10,
+    planned_on=$11, planned_start_time=$12, duration_minutes=$13, due_time=$14,
+    time_zone=$15, label=$16, goal_id=$17, parent_task_id=$18, recurrence=$19,
+    source_type=$20, source_reference=$21, completed_at=$22, archived_at=$23, updated_at=now()
 WHERE workspace_id=$1 AND id=$2`,
 		workspaceID, taskID, input.AssignedToUserID, input.Kind, input.Title,
 		input.Details, input.Status, input.Priority, input.DueOn, input.PlannedStartAt,
-		input.GoalID, input.ParentTaskID, input.Recurrence, input.SourceType,
-		input.SourceReference, completedAt, archivedAt,
+		input.PlannedOn, input.PlannedStartTime, input.DurationMinutes, input.DueTime,
+		input.TimeZone, input.Label, input.GoalID, input.ParentTaskID, input.Recurrence,
+		input.SourceType, input.SourceReference, completedAt, archivedAt,
 	)
 	if err != nil {
 		return V2Task{}, fmt.Errorf("update versioned task: %w", err)

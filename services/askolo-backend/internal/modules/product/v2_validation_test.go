@@ -1,6 +1,7 @@
 package product
 
 import (
+	"askolo/backend/internal/adapters/postgres"
 	"net/http/httptest"
 	"reflect"
 	"testing"
@@ -124,5 +125,73 @@ func TestV2DateParsingUsesCalendarDates(t *testing.T) {
 	got, ok := parseV2Date("2026-10-09")
 	if !ok || got.Location() != time.UTC || got.Format("2006-01-02") != "2026-10-09" {
 		t.Fatalf("parseV2Date = %v, %t; want UTC calendar date 2026-10-09", got, ok)
+	}
+}
+
+func TestV2TaskHabitContractValidation(t *testing.T) {
+	plannedOn := "2026-10-12"
+	start := "23:30"
+	duration := 60
+	timeZone := "Africa/Cairo"
+	tests := []struct {
+		name    string
+		request v2TaskRequest
+		wantErr bool
+	}{
+		{
+			name: "task may be all day with no priority",
+			request: v2TaskRequest{
+				Kind: "task", Title: "Pay rent", PlannedOn: &plannedOn,
+				TimeZone: timeZone,
+			},
+		},
+		{
+			name: "time block keeps duration with local start",
+			request: v2TaskRequest{
+				Kind: "task", Title: "Work block", PlannedOn: &plannedOn,
+				PlannedStartTime: &start, DurationMinutes: &duration, TimeZone: timeZone,
+			},
+		},
+		{
+			name: "habit cannot have a priority",
+			request: v2TaskRequest{
+				Kind: "habit", Title: "Walk", Priority: "high", TimeZone: timeZone,
+			},
+			wantErr: true,
+		},
+		{
+			name: "time block requires a duration",
+			request: v2TaskRequest{
+				Kind: "task", Title: "Work block", PlannedOn: &plannedOn,
+				PlannedStartTime: &start, TimeZone: timeZone,
+			},
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := buildV2TaskWrite(test.request)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("buildV2TaskWrite() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestV2TaskTimeBlockAppearsOnEveryOverlappingAgendaDate(t *testing.T) {
+	plannedOn, _ := parseV2Date("2026-10-12")
+	start, duration := "23:30:00", 60
+	task := postgres.V2Task{
+		PlannedOn:        &plannedOn,
+		PlannedStartTime: &start,
+		DurationMinutes:  &duration,
+		TimeZone:         "Africa/Cairo",
+	}
+	nextDay, _ := parseV2Date("2026-10-13")
+	if !v2TaskTimeBlockOverlaps(task, nextDay, nextDay, "Africa/Cairo") {
+		t.Fatal("cross-midnight time block was omitted from the following Cairo agenda day")
+	}
+	if v2TaskTimeBlockOverlaps(task, nextDay, nextDay, "UTC") {
+		t.Fatal("time block was incorrectly included in the following UTC agenda day")
 	}
 }

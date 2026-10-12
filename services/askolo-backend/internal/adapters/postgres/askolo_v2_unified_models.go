@@ -17,6 +17,12 @@ type V2Task struct {
 	Priority         string          `json:"priority"`
 	DueOn            *time.Time      `json:"dueOn"`
 	PlannedStartAt   *time.Time      `json:"plannedStartAt"`
+	PlannedOn        *time.Time      `json:"plannedOn"`
+	PlannedStartTime *string         `json:"plannedStartTime"`
+	DurationMinutes  *int            `json:"durationMinutes"`
+	DueTime          *string         `json:"dueTime"`
+	TimeZone         string          `json:"timeZone"`
+	Label            *string         `json:"label"`
 	GoalID           *string         `json:"goalId"`
 	ParentTaskID     *string         `json:"parentTaskId"`
 	Recurrence       json.RawMessage `json:"recurrence"`
@@ -38,6 +44,12 @@ type V2TaskWrite struct {
 	Priority         string
 	DueOn            *time.Time
 	PlannedStartAt   *time.Time
+	PlannedOn        *time.Time
+	PlannedStartTime *string
+	DurationMinutes  *int
+	DueTime          *string
+	TimeZone         string
+	Label            *string
 	GoalID           *string
 	ParentTaskID     *string
 	Recurrence       json.RawMessage
@@ -190,6 +202,11 @@ type V2TaskAgendaItem struct {
 	Priority         string     `json:"priority"`
 	DueOn            *time.Time `json:"dueOn"`
 	PlannedStartAt   *time.Time `json:"plannedStartAt"`
+	PlannedOn        *time.Time `json:"plannedOn"`
+	PlannedStartTime *string    `json:"plannedStartTime"`
+	DurationMinutes  *int       `json:"durationMinutes"`
+	TimeZone         string     `json:"timeZone"`
+	Label            *string    `json:"label"`
 	AssignedToUserID *string    `json:"assignedToUserId"`
 	PlanID           *string    `json:"planId"`
 }

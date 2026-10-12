@@ -73,13 +73,23 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 		ownerSession,
 		http.MethodPost,
 		"/api/v2/workspaces/"+workspaceID+"/tasks",
-		`{"kind":"action","title":"Canonical task","status":"open","priority":"medium"}`,
+		`{"kind":"task","title":"Canonical task","status":"open","priority":"normal","plannedOn":"2026-10-12","plannedStartTime":"23:30","durationMinutes":60,"dueOn":"2026-10-15","dueTime":"09:15","timeZone":"Africa/Cairo","label":"Bills","details":"Pay before the end of the month."}`,
 	)
 	if taskResponse.Code != http.StatusCreated {
 		t.Fatalf("create task status = %d, want %d: %s", taskResponse.Code, http.StatusCreated, taskResponse.Body.String())
 	}
 	var task struct {
 		ID               string  `json:"id"`
+		Kind             string  `json:"kind"`
+		Priority         string  `json:"priority"`
+		PlannedOn        string  `json:"plannedOn"`
+		PlannedStartTime string  `json:"plannedStartTime"`
+		DurationMinutes  int     `json:"durationMinutes"`
+		DueOn            string  `json:"dueOn"`
+		DueTime          string  `json:"dueTime"`
+		TimeZone         string  `json:"timeZone"`
+		Label            string  `json:"label"`
+		Details          string  `json:"details"`
 		AssignedToUserID *string `json:"assignedToUserId"`
 	}
 	if err := json.NewDecoder(taskResponse.Body).Decode(&task); err != nil {
@@ -87,6 +97,89 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 	}
 	if task.ID == "" {
 		t.Fatal("created task has no ID")
+	}
+	if task.Kind != "task" || task.Priority != "normal" ||
+		!strings.HasPrefix(task.PlannedOn, "2026-10-12") ||
+		!strings.HasPrefix(task.PlannedStartTime, "23:30") || task.DurationMinutes != 60 ||
+		!strings.HasPrefix(task.DueOn, "2026-10-15") || !strings.HasPrefix(task.DueTime, "09:15") ||
+		task.TimeZone != "Africa/Cairo" || task.Label != "Bills" || task.Details != "Pay before the end of the month." {
+		t.Fatalf("created task contract = %#v", task)
+	}
+	nextDayAgenda := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/agenda?from=2026-10-13&to=2026-10-13&timeZone=Africa/Cairo",
+		"",
+	)
+	if nextDayAgenda.Code != http.StatusOK {
+		t.Fatalf("cross-midnight agenda status = %d, want %d: %s", nextDayAgenda.Code, http.StatusOK, nextDayAgenda.Body.String())
+	}
+	agendaDate, _ := parseV2Date("2026-10-13")
+	overlappingTasks, err := fixture.store.ListV2Tasks(fixture.ctx, workspaceID, postgres.V2TaskFilter{
+		From: &agendaDate, To: &agendaDate, TimeZone: "Africa/Cairo", Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list overlapping V2 tasks: %v", err)
+	}
+	foundInStore := false
+	for _, item := range overlappingTasks {
+		if item.ID == task.ID {
+			foundInStore = true
+		}
+	}
+	if !foundInStore {
+		t.Fatalf("store date filter omitted cross-midnight task %q: %#v", task.ID, overlappingTasks)
+	}
+	var nextDayItems struct {
+		Tasks []struct {
+			TaskID string `json:"taskId"`
+		} `json:"tasks"`
+	}
+	if err := json.NewDecoder(nextDayAgenda.Body).Decode(&nextDayItems); err != nil {
+		t.Fatalf("decode cross-midnight agenda: %v", err)
+	}
+	foundCrossMidnight := false
+	for _, item := range nextDayItems.Tasks {
+		if item.TaskID == task.ID {
+			foundCrossMidnight = true
+		}
+	}
+	if !foundCrossMidnight {
+		t.Fatalf("cross-midnight task %q is missing from the following agenda date: %#v; response=%s", task.ID, nextDayItems.Tasks, nextDayAgenda.Body.String())
+	}
+	var sourceSchema string
+	if err := fixture.pool.QueryRow(fixture.ctx, "SELECT current_schema()").Scan(&sourceSchema); err != nil {
+		t.Fatalf("read disposable source schema: %v", err)
+	}
+	v2Schema := migrations.V2SchemaName(sourceSchema)
+	legacyTaskID := "v2-legacy-task"
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+INSERT INTO "`+v2Schema+`".tasks (
+  id, workspace_id, created_by_user_id, kind, title, priority, due_on
+) VALUES ($1, $2, $3, 'chore', 'Legacy chore', 'medium', '2026-10-13')`,
+		legacyTaskID, workspaceID, ownerID); err != nil {
+		t.Fatalf("seed legacy V2 task: %v", err)
+	}
+	legacyTask, err := fixture.store.GetV2Task(fixture.ctx, workspaceID, legacyTaskID)
+	if err != nil {
+		t.Fatalf("read legacy V2 task: %v", err)
+	}
+	if legacyTask.Kind != "task" || legacyTask.Priority != "normal" ||
+		legacyTask.PlannedOn == nil || legacyTask.PlannedOn.Format("2006-01-02") != "2026-10-13" {
+		t.Fatalf("legacy V2 task normalization = %#v", legacyTask)
+	}
+	legacyTasks, err := fixture.store.ListV2Tasks(fixture.ctx, workspaceID, postgres.V2TaskFilter{Kind: "task", Limit: 10})
+	if err != nil {
+		t.Fatalf("list canonical V2 tasks: %v", err)
+	}
+	foundLegacyTask := false
+	for _, item := range legacyTasks {
+		if item.ID == legacyTaskID {
+			foundLegacyTask = item.Kind == "task" && item.Priority == "normal"
+		}
+	}
+	if !foundLegacyTask {
+		t.Fatal("canonical Task filter omitted a legacy chore row")
 	}
 	if role, err := fixture.store.V2WorkspaceRole(fixture.ctx, workspaceID, impostorID); err != nil || role != "member" {
 		t.Fatalf("non-owner owner-role mirror = %q, err=%v; want member", role, err)
@@ -113,7 +206,7 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 		ownerSession,
 		http.MethodPost,
 		"/api/v2/workspaces/"+workspaceID+"/tasks",
-		fmt.Sprintf(`{"kind":"action","title":"Invalid assignee","assignedToUserId":%q}`, revokedID),
+		fmt.Sprintf(`{"kind":"task","title":"Invalid assignee","assignedToUserId":%q}`, revokedID),
 	)
 	if inactiveAssigneeResponse.Code != http.StatusNotFound {
 		t.Fatalf("assign inactive member status = %d, want %d: %s", inactiveAssigneeResponse.Code, http.StatusNotFound, inactiveAssigneeResponse.Body.String())
@@ -202,7 +295,7 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 		http.MethodPost,
 		"/api/v2/workspaces/"+workspaceID+"/tasks",
 		fmt.Sprintf(
-			`{"kind":"habit","title":"Daily walk","status":"open","priority":"medium","recurrence":{"frequency":"daily","interval":1,"startsOn":%q,"endsOn":%q,"timeZone":"Africa/Cairo"}}`,
+			`{"kind":"habit","title":"Daily walk","status":"open","priority":"none","recurrence":{"frequency":"daily","interval":1,"startsOn":%q,"endsOn":%q,"timeZone":"Africa/Cairo"}}`,
 			plannedOn,
 			occurrenceEnd,
 		),
@@ -278,11 +371,6 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 		t.Fatalf("date-filtered task list did not include recurring task %q: %#v", recurringTask.ID, dateFilteredTasks)
 	}
 
-	var sourceSchema string
-	if err := fixture.pool.QueryRow(fixture.ctx, "SELECT current_schema()").Scan(&sourceSchema); err != nil {
-		t.Fatalf("read disposable source schema: %v", err)
-	}
-	v2Schema := migrations.V2SchemaName(sourceSchema)
 	eventStart := today.Add(10 * time.Hour)
 	eventEnd := eventStart.Add(time.Hour)
 	if _, err := fixture.pool.Exec(
@@ -485,7 +573,7 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 INSERT INTO "`+v2Schema+`".tasks (
   id, workspace_id, created_by_user_id, kind, title, due_on
 )
-SELECT 'agenda-pagination-task-' || n::text, $1, $2, 'action',
+	SELECT 'agenda-pagination-task-' || n::text, $1, $2, 'task',
        'Agenda pagination task ' || n::text, $3::date
 FROM generate_series(1, 101) AS n`,
 		workspaceID, ownerID, today.AddDate(0, 0, 35)); err != nil {

@@ -64,6 +64,12 @@ type v2TaskRequest struct {
 	Priority         string            `json:"priority"`
 	DueOn            *string           `json:"dueOn"`
 	PlannedStartAt   *time.Time        `json:"plannedStartAt"`
+	PlannedOn        *string           `json:"plannedOn"`
+	PlannedStartTime *string           `json:"plannedStartTime"`
+	DurationMinutes  *int              `json:"durationMinutes"`
+	DueTime          *string           `json:"dueTime"`
+	TimeZone         string            `json:"timeZone"`
+	Label            *string           `json:"label"`
 	GoalID           *string           `json:"goalId"`
 	ParentTaskID     *string           `json:"parentTaskId"`
 	Recurrence       *v2RecurrenceRule `json:"recurrence"`
@@ -81,6 +87,12 @@ type v2TaskPatchRequest struct {
 	Priority         v2PatchField[string]           `json:"priority"`
 	DueOn            v2PatchField[string]           `json:"dueOn"`
 	PlannedStartAt   v2PatchField[time.Time]        `json:"plannedStartAt"`
+	PlannedOn        v2PatchField[string]           `json:"plannedOn"`
+	PlannedStartTime v2PatchField[string]           `json:"plannedStartTime"`
+	DurationMinutes  v2PatchField[int]              `json:"durationMinutes"`
+	DueTime          v2PatchField[string]           `json:"dueTime"`
+	TimeZone         v2PatchField[string]           `json:"timeZone"`
+	Label            v2PatchField[string]           `json:"label"`
 	GoalID           v2PatchField[string]           `json:"goalId"`
 	ParentTaskID     v2PatchField[string]           `json:"parentTaskId"`
 	Recurrence       v2PatchField[v2RecurrenceRule] `json:"recurrence"`
@@ -403,7 +415,7 @@ func (h *Handler) v2ListTasks(w http.ResponseWriter, r *http.Request, userID, _ 
 		writeError(w, http.StatusBadRequest, "INVALID_ASSIGNEE", "A valid assignee ID is required.")
 		return
 	}
-	if filter.Kind != "" && !oneOf(filter.Kind, "action", "chore", "habit", "commitment") {
+	if filter.Kind != "" && !oneOf(filter.Kind, "task", "habit") {
 		writeError(w, http.StatusBadRequest, "INVALID_KIND", "Task kind is invalid.")
 		return
 	}
@@ -637,6 +649,11 @@ func buildV2TaskWrite(request v2TaskRequest) (postgres.V2TaskWrite, error) {
 		Status:           request.Status,
 		Priority:         request.Priority,
 		PlannedStartAt:   request.PlannedStartAt,
+		PlannedStartTime: request.PlannedStartTime,
+		DurationMinutes:  request.DurationMinutes,
+		DueTime:          request.DueTime,
+		TimeZone:         strings.TrimSpace(request.TimeZone),
+		Label:            request.Label,
 		GoalID:           request.GoalID,
 		ParentTaskID:     request.ParentTaskID,
 		SourceType:       request.SourceType,
@@ -647,7 +664,17 @@ func buildV2TaskWrite(request v2TaskRequest) (postgres.V2TaskWrite, error) {
 		input.Status = "open"
 	}
 	if input.Priority == "" {
-		input.Priority = "medium"
+		input.Priority = "none"
+	}
+	if input.TimeZone == "" {
+		input.TimeZone = "UTC"
+	}
+	if request.PlannedOn != nil {
+		date, ok := parseV2Date(*request.PlannedOn)
+		if !ok {
+			return input, errors.New("plannedOn must be a calendar date in YYYY-MM-DD format")
+		}
+		input.PlannedOn = &date
 	}
 	if request.DueOn != nil {
 		date, ok := parseV2Date(*request.DueOn)
@@ -682,6 +709,12 @@ func mergeV2TaskPatch(current postgres.V2Task, patch v2TaskPatchRequest) (postgr
 		Priority:         current.Priority,
 		DueOn:            current.DueOn,
 		PlannedStartAt:   current.PlannedStartAt,
+		PlannedOn:        current.PlannedOn,
+		PlannedStartTime: current.PlannedStartTime,
+		DurationMinutes:  current.DurationMinutes,
+		DueTime:          current.DueTime,
+		TimeZone:         current.TimeZone,
+		Label:            current.Label,
 		GoalID:           current.GoalID,
 		ParentTaskID:     current.ParentTaskID,
 		Recurrence:       current.Recurrence,
@@ -745,6 +778,50 @@ func mergeV2TaskPatch(current postgres.V2Task, patch v2TaskPatchRequest) (postgr
 			input.PlannedStartAt = &value
 		}
 	}
+	if patch.PlannedOn.Set {
+		input.PlannedOn = nil
+		if !patch.PlannedOn.Null {
+			date, ok := parseV2Date(patch.PlannedOn.Value)
+			if !ok {
+				return input, errors.New("plannedOn must be a calendar date in YYYY-MM-DD format")
+			}
+			input.PlannedOn = &date
+		}
+	}
+	if patch.PlannedStartTime.Set {
+		input.PlannedStartTime = nil
+		if !patch.PlannedStartTime.Null {
+			value := strings.TrimSpace(patch.PlannedStartTime.Value)
+			input.PlannedStartTime = &value
+		}
+	}
+	if patch.DurationMinutes.Set {
+		input.DurationMinutes = nil
+		if !patch.DurationMinutes.Null {
+			value := patch.DurationMinutes.Value
+			input.DurationMinutes = &value
+		}
+	}
+	if patch.DueTime.Set {
+		input.DueTime = nil
+		if !patch.DueTime.Null {
+			value := strings.TrimSpace(patch.DueTime.Value)
+			input.DueTime = &value
+		}
+	}
+	if patch.TimeZone.Set {
+		if patch.TimeZone.Null {
+			return input, errors.New("timeZone cannot be null")
+		}
+		input.TimeZone = strings.TrimSpace(patch.TimeZone.Value)
+	}
+	if patch.Label.Set {
+		input.Label = nil
+		if !patch.Label.Null {
+			value := strings.TrimSpace(patch.Label.Value)
+			input.Label = &value
+		}
+	}
 	if patch.GoalID.Set {
 		input.GoalID = nil
 		if !patch.GoalID.Null {
@@ -799,8 +876,8 @@ func mergeV2TaskPatch(current postgres.V2Task, patch v2TaskPatchRequest) (postgr
 }
 
 func validateV2TaskWrite(input postgres.V2TaskWrite, currentID string) error {
-	if !oneOf(input.Kind, "action", "chore", "habit", "commitment") {
-		return errors.New("kind must be action, chore, habit, or commitment")
+	if !oneOf(input.Kind, "task", "habit") {
+		return errors.New("kind must be task or habit")
 	}
 	if len(input.Title) == 0 || len([]rune(input.Title)) > 200 {
 		return errors.New("title must contain between 1 and 200 characters")
@@ -815,10 +892,53 @@ func validateV2TaskWrite(input postgres.V2TaskWrite, currentID string) error {
 		return errors.New("status is invalid")
 	}
 	if input.Priority == "" {
-		input.Priority = "medium"
+		input.Priority = "none"
 	}
-	if !oneOf(input.Priority, "low", "medium", "high") {
-		return errors.New("priority must be low, medium, or high")
+	if !oneOf(input.Priority, "none", "low", "normal", "high") {
+		return errors.New("priority must be none, low, normal, or high")
+	}
+	if input.Kind == "habit" && input.Priority != "none" {
+		return errors.New("habits do not have priority")
+	}
+	if input.Kind == "habit" && input.Details != nil {
+		return errors.New("habits do not have notes")
+	}
+	if input.TimeZone == "" || len(input.TimeZone) > 64 {
+		return errors.New("timeZone must be a valid IANA time zone")
+	}
+	if _, err := time.LoadLocation(input.TimeZone); err != nil {
+		return errors.New("timeZone must be a valid IANA time zone")
+	}
+	if input.PlannedStartTime != nil {
+		if _, err := time.Parse("15:04", *input.PlannedStartTime); err != nil {
+			return errors.New("plannedStartTime must use HH:MM")
+		}
+		if input.PlannedOn == nil {
+			return errors.New("plannedStartTime requires plannedOn")
+		}
+	}
+	if (input.PlannedStartTime == nil) != (input.DurationMinutes == nil) {
+		return errors.New("plannedStartTime and durationMinutes must be provided together")
+	}
+	if input.DurationMinutes != nil && (*input.DurationMinutes < 1 || *input.DurationMinutes > 1440) {
+		return errors.New("durationMinutes must be between 1 and 1440")
+	}
+	if input.DurationMinutes != nil && len(input.Recurrence) > 0 && string(input.Recurrence) != "null" && *input.DurationMinutes >= 1440 {
+		return errors.New("recurring task duration must be less than 24 hours")
+	}
+	if input.DueTime != nil {
+		if _, err := time.Parse("15:04", *input.DueTime); err != nil {
+			return errors.New("dueTime must use HH:MM")
+		}
+		if input.DueOn == nil {
+			return errors.New("dueTime requires dueOn")
+		}
+	}
+	if input.Label != nil && (len([]rune(strings.TrimSpace(*input.Label))) < 1 || len([]rune(*input.Label)) > 100) {
+		return errors.New("label must contain between 1 and 100 characters")
+	}
+	if input.Details != nil && len([]rune(strings.TrimSpace(*input.Details))) > 6000 {
+		return errors.New("notes cannot exceed 6000 characters")
 	}
 	for _, value := range []*string{input.AssignedToUserID, input.GoalID, input.ParentTaskID} {
 		if value != nil && !v2IdentifierPattern.MatchString(*value) {

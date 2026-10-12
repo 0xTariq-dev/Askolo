@@ -692,6 +692,40 @@ func v2DateOnly(value time.Time) time.Time {
 	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+func v2TaskTimeBlockOverlaps(task postgres.V2Task, from, to time.Time, viewerTimeZone string) bool {
+	if task.PlannedOn == nil || task.PlannedStartTime == nil || task.DurationMinutes == nil ||
+		*task.DurationMinutes <= 0 {
+		return false
+	}
+	startClock, err := time.Parse("15:04", *task.PlannedStartTime)
+	if err != nil {
+		startClock, err = time.Parse("15:04:05", *task.PlannedStartTime)
+		if err != nil {
+			return false
+		}
+	}
+	taskTimeZone := task.TimeZone
+	if taskTimeZone == "" {
+		taskTimeZone = "UTC"
+	}
+	taskLocation, err := time.LoadLocation(taskTimeZone)
+	if err != nil {
+		return false
+	}
+	viewerLocation, err := time.LoadLocation(viewerTimeZone)
+	if err != nil {
+		return false
+	}
+	start := time.Date(
+		task.PlannedOn.Year(), task.PlannedOn.Month(), task.PlannedOn.Day(),
+		startClock.Hour(), startClock.Minute(), 0, 0, taskLocation,
+	)
+	rangeStart := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, viewerLocation)
+	rangeEnd := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, viewerLocation).AddDate(0, 0, 1)
+	end := start.Add(time.Duration(*task.DurationMinutes) * time.Minute)
+	return start.Before(rangeEnd) && end.After(rangeStart)
+}
+
 func (h *Handler) v2ListReminderRules(w http.ResponseWriter, r *http.Request, userID, role string) {
 	if !v2QueryValid(r, "limit", "offset") {
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "The request contains an unsupported or repeated query parameter.")
@@ -877,7 +911,8 @@ func (h *Handler) v2GetAgenda(w http.ResponseWriter, r *http.Request, userID, ro
 	agendaTasks := make([]postgres.V2TaskAgendaItem, 0)
 	if !cursor.TasksDone {
 		tasks, err := h.store.ListV2Tasks(r.Context(), workspaceID, postgres.V2TaskFilter{
-			From: &from, To: &to, Limit: v2AgendaTaskBatchSize + 1, Offset: cursor.TaskOffset,
+			From: &from, To: &to, TimeZone: timeZone,
+			Limit: v2AgendaTaskBatchSize + 1, Offset: cursor.TaskOffset,
 		})
 		if err != nil {
 			v2HandleStoreError(w, r, h, userID, "list agenda tasks", err)
@@ -891,7 +926,14 @@ func (h *Handler) v2GetAgenda(w http.ResponseWriter, r *http.Request, userID, ro
 		for _, task := range tasks {
 			taskIDs = append(taskIDs, task.ID)
 		}
-		states, err := h.store.ListV2AgendaOccurrenceStates(r.Context(), workspaceID, taskIDs, from, to)
+		occurrenceFrom := from
+		for _, task := range tasks {
+			if task.PlannedStartTime != nil && task.DurationMinutes != nil && *task.DurationMinutes > 0 {
+				occurrenceFrom = from.AddDate(0, 0, -1)
+				break
+			}
+		}
+		states, err := h.store.ListV2AgendaOccurrenceStates(r.Context(), workspaceID, taskIDs, occurrenceFrom, to)
 		if err != nil {
 			v2HandleStoreError(w, r, h, userID, "list agenda occurrence states", err)
 			return
@@ -910,21 +952,38 @@ func (h *Handler) v2GetAgenda(w http.ResponseWriter, r *http.Request, userID, ro
 				return
 			}
 			if rule == nil {
-				if task.DueOn != nil && v2DateInRange(*task.DueOn, from, to) {
+				agendaDate := task.PlannedOn
+				if agendaDate == nil {
+					agendaDate = task.DueOn
+				}
+				if agendaDate != nil && (v2DateInRange(*agendaDate, from, to) ||
+					v2TaskTimeBlockOverlaps(task, from, to, timeZone)) {
 					agendaTasks = append(agendaTasks, postgres.V2TaskAgendaItem{
 						Kind: "task", TaskID: task.ID, Title: task.Title,
 						Status: task.Status, Priority: task.Priority, DueOn: task.DueOn,
-						PlannedStartAt: task.PlannedStartAt, AssignedToUserID: task.AssignedToUserID,
+						PlannedStartAt: task.PlannedStartAt, PlannedOn: task.PlannedOn,
+						PlannedStartTime: task.PlannedStartTime, DurationMinutes: task.DurationMinutes,
+						TimeZone: task.TimeZone, Label: task.Label, AssignedToUserID: task.AssignedToUserID,
 					})
 				}
 				continue
 			}
-			dates, err := expandV2Recurrence(*rule, from, to)
+			recurrenceFrom := from
+			if task.PlannedStartTime != nil && task.DurationMinutes != nil && *task.DurationMinutes > 0 {
+				recurrenceFrom = from.AddDate(0, 0, -1)
+			}
+			dates, err := expandV2Recurrence(*rule, recurrenceFrom, to)
 			if err != nil {
 				h.v2InternalError(w, r, userID, "expand task recurrence", err)
 				return
 			}
 			for _, date := range dates {
+				taskOccurrence := task
+				taskOccurrence.PlannedOn = &date
+				if !v2DateInRange(date, from, to) &&
+					!v2TaskTimeBlockOverlaps(taskOccurrence, from, to, timeZone) {
+					continue
+				}
 				state, exists := stateByKey[task.ID+":"+date.Format("2006-01-02")]
 				if exists && (state.Status == "cancelled" || state.Status == "skipped") {
 					continue
@@ -940,6 +999,8 @@ func (h *Handler) v2GetAgenda(w http.ResponseWriter, r *http.Request, userID, ro
 					Kind: "task_occurrence", TaskID: task.ID, OccurrenceOn: &dateCopy,
 					Title: task.Title, Status: status, Priority: task.Priority,
 					DueOn: &dateCopy, PlannedStartAt: plannedStart,
+					PlannedOn: &dateCopy, PlannedStartTime: task.PlannedStartTime,
+					DurationMinutes: task.DurationMinutes, TimeZone: task.TimeZone, Label: task.Label,
 					AssignedToUserID: task.AssignedToUserID,
 				})
 			}

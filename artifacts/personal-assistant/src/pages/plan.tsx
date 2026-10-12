@@ -58,15 +58,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const planSchema = z.object({
   title: z.string().min(1, 'Title is required'),
-  timeBlock: z.string().optional(),
-  kind: z.enum(['action', 'chore', 'habit', 'commitment']),
-  priority: z.enum(['high', 'medium', 'low']),
+  notes: z.string().max(6000).optional(),
+  label: z.string().max(100).optional(),
+  plannedStartTime: z.string().optional(),
+  durationMinutes: z.string().optional(),
+  dueOn: z.string().optional(),
+  dueTime: z.string().optional(),
+  kind: z.enum(['task', 'habit']),
+  priority: z.enum(['none', 'high', 'normal', 'low']),
+}).superRefine((values, context) => {
+  const durationText = values.durationMinutes?.trim();
+  if (durationText && (!/^\d+$/.test(durationText) || Number(durationText) < 1 || Number(durationText) > 1440)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['durationMinutes'], message: 'Enter a whole number from 1 to 1440.' });
+  }
+  if (Boolean(values.plannedStartTime) !== Boolean(durationText)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['durationMinutes'], message: 'Enter both a start time and a duration.' });
+  }
+  if (values.dueTime && !values.dueOn) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['dueOn'], message: 'Add a deadline date when you specify a time.' });
+  }
 });
 type PlanFormValues = z.infer<typeof planSchema>;
 
 const priorityStyles = {
+  none: '',
   high: 'border-s-2 border-destructive',
-  medium: 'border-s-2 border-warning',
+  normal: 'border-s-2 border-warning',
   low: 'border-s-2 border-info',
 };
 
@@ -106,7 +123,7 @@ export function PlanPage() {
 
   const form = useForm<PlanFormValues>({
     resolver: zodResolver(planSchema),
-    defaultValues: { title: '', timeBlock: '', kind: 'action', priority: 'medium' },
+    defaultValues: { title: '', kind: 'task', priority: 'none' },
   });
 
   useEffect(() => {
@@ -143,7 +160,7 @@ export function PlanPage() {
 
   const openAdd = () => {
     setTargetSpaceId(selectedSpaceId ?? '');
-    form.reset({ title: '', timeBlock: '', kind: 'action', priority: 'medium' });
+    form.reset({ title: '', kind: 'task', priority: 'none' });
     setDialogOpen(true);
   };
 
@@ -152,12 +169,14 @@ export function PlanPage() {
     taskId: task.taskId,
     workspaceId: task.workspaceId,
     occurrenceOn: task.occurrenceOn,
-    date: task.occurrenceOn?.slice(0, 10) ?? task.dueOn?.slice(0, 10) ?? task.plannedStartAt?.slice(0, 10) ?? '',
+    date: task.occurrenceOn?.slice(0, 10) ?? task.plannedOn?.slice(0, 10) ?? task.dueOn?.slice(0, 10) ?? task.plannedStartAt?.slice(0, 10) ?? '',
     title: !selectedSpaceId && task.workspaceName ? `${task.workspaceName}: ${task.title}` : task.title,
     completed: task.status === 'done',
     kind: task.kind,
-    priority: (['high', 'medium', 'low'].includes(task.priority) ? task.priority : 'medium') as PlanFormValues['priority'],
-    timeBlock: undefined,
+    priority: (['none', 'high', 'normal', 'low'].includes(task.priority) ? task.priority : 'none') as PlanFormValues['priority'],
+    timeBlock: task.plannedStartTime && task.durationMinutes
+      ? `${task.plannedStartTime.slice(0, 5)} · ${task.durationMinutes} min`
+      : undefined,
   }));
   const plans = taskItems.filter((task) =>
     task.date === dateStr && (kindFilter === 'all' || task.kind === kindFilter),
@@ -174,11 +193,27 @@ export function PlanPage() {
       await createV2Task(workspaceId, {
         kind: data.kind,
         title: data.title,
-        priority: data.priority,
-        dueOn: dateStr,
+        details: data.kind === 'task' ? data.notes?.trim() || undefined : undefined,
+        label: data.kind === 'task' ? data.label?.trim() || undefined : undefined,
+        priority: data.kind === 'habit' ? 'none' : data.priority,
+        plannedOn: data.kind === 'task' ? dateStr : undefined,
+        plannedStartTime: data.kind === 'task' ? data.plannedStartTime || undefined : undefined,
+        durationMinutes: data.kind === 'task' && data.durationMinutes
+          ? Number(data.durationMinutes)
+          : undefined,
+        dueOn: data.kind === 'task' ? data.dueOn || undefined : undefined,
+        dueTime: data.kind === 'task' ? data.dueTime || undefined : undefined,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        recurrence: data.kind === 'habit' ? {
+          frequency: 'daily',
+          interval: 1,
+          startsOn: format(new Date(), 'yyyy-MM-dd'),
+          endsOn: null,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        } : undefined,
       });
       setDialogOpen(false);
-      form.reset({ title: '', timeBlock: '', kind: 'action', priority: 'medium' });
+      form.reset({ title: '', kind: 'task', priority: 'none' });
       await reloadData();
     } catch (error) {
       setAgendaError(error instanceof Error ? error.message : 'Task could not be saved.');
@@ -258,7 +293,7 @@ export function PlanPage() {
 
   const sortedPlans = [...plans].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
-    const rank = { high: 0, medium: 1, low: 2 };
+    const rank = { high: 0, normal: 1, low: 2, none: 3 };
     return rank[a.priority] - rank[b.priority];
   });
   const loading = agendaLoading;
@@ -379,10 +414,10 @@ export function PlanPage() {
               role="group"
               aria-label={isArabic ? 'تصفية المهام حسب النوع' : 'Filter agenda by task type'}
             >
-              {(['all', 'action', 'chore', 'habit', 'commitment'] as const).map((kind) => {
+              {(['all', 'task', 'habit'] as const).map((kind) => {
                 const labels = isArabic
-                  ? { all: 'الكل', action: 'إجراءات', chore: 'أعمال منزلية', habit: 'عادات', commitment: 'التزامات' }
-                  : { all: 'All', action: 'Actions', chore: 'Chores', habit: 'Habits', commitment: 'Commitments' };
+                  ? { all: 'الكل', task: 'المهام', habit: 'العادات' }
+                  : { all: 'All', task: 'Tasks', habit: 'Habits' };
                 return (
                   <Button
                     key={kind}
@@ -500,7 +535,7 @@ export function PlanPage() {
                 {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
               </select>
             </div>}
-            <div className="space-y-2">
+              <div className="space-y-2">
               <Label htmlFor="plan-title">{isArabic ? 'المهمة أو النية' : 'Task or intention'}</Label>
               <Input id="plan-title" placeholder={isArabic ? 'مثال: مراجعة أسبوعية' : 'For example, weekly review'} {...form.register('title')} />
               {form.formState.errors.title && <p className="text-xs text-destructive">{form.formState.errors.title.message}</p>}
@@ -508,18 +543,51 @@ export function PlanPage() {
             <div className="space-y-2">
               <Label htmlFor="plan-kind">{isArabic ? 'نوع المهمة' : 'Task type'}</Label>
               <select id="plan-kind" {...form.register('kind')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                <option value="action">{isArabic ? 'إجراء' : 'Action item'}</option>
-                <option value="chore">{isArabic ? 'عمل منزلي' : 'Chore'}</option>
+                <option value="task">{isArabic ? 'مهمة' : 'Task'}</option>
                 <option value="habit">{isArabic ? 'عادة' : 'Habit'}</option>
-                <option value="commitment">{isArabic ? 'التزام' : 'Commitment'}</option>
               </select>
             </div>
-            <div className="space-y-2"><Label htmlFor="plan-time">{isArabic ? 'الفترة الزمنية (اختياري)' : 'Time block (optional)'}</Label><Input id="plan-time" placeholder="10:00 AM – 11:00 AM" {...form.register('timeBlock')} /></div>
+            {form.watch('kind') === 'task' && <>
+              <div className="space-y-2">
+                <Label htmlFor="plan-notes">{isArabic ? 'ملاحظات (اختياري)' : 'Notes (optional)'}</Label>
+                <Textarea id="plan-notes" maxLength={6000} rows={3} {...form.register('notes')} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="plan-label">{isArabic ? 'التصنيف (اختياري)' : 'Label (optional)'}</Label>
+                <Input id="plan-label" list="task-label-presets" maxLength={100} {...form.register('label')} />
+                <datalist id="task-label-presets">
+                  <option value="Home" /><option value="Bills" /><option value="Work" /><option value="Family" />
+                </datalist>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="plan-start-time">{isArabic ? 'وقت البدء' : 'Start time (optional)'}</Label>
+                  <Input id="plan-start-time" type="time" {...form.register('plannedStartTime')} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="plan-duration">{isArabic ? 'المدة بالدقائق' : 'Duration in minutes'}</Label>
+                  <Input id="plan-duration" type="number" min={1} max={1440} step={1} {...form.register('durationMinutes')} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="plan-due-on">{isArabic ? 'الموعد النهائي' : 'Deadline date (optional)'}</Label>
+                  <Input id="plan-due-on" type="date" {...form.register('dueOn')} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="plan-due-time">{isArabic ? 'وقت الموعد' : 'Deadline time (optional)'}</Label>
+                  <Input id="plan-due-time" type="time" {...form.register('dueTime')} />
+                </div>
+              </div>
+            </>}
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">{isArabic ? 'الأولوية' : 'Priority'}</legend>
-              <div className="flex flex-wrap gap-4">
-                {(['high', 'medium', 'low'] as const).map((priority) => <label key={priority} className="flex cursor-pointer items-center gap-2 text-sm"><input type="radio" value={priority} {...form.register('priority')} className="accent-primary" /><span>{isArabic ? ({ high: 'عالية', medium: 'متوسطة', low: 'منخفضة' }[priority]) : priority[0].toUpperCase() + priority.slice(1)}</span></label>)}
-              </div>
+              <select id="plan-priority" {...form.register('priority')} disabled={form.watch('kind') === 'habit'} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                <option value="none">{isArabic ? 'بدون أولوية' : 'No priority'}</option>
+                <option value="low">{isArabic ? 'منخفضة' : 'Low'}</option>
+                <option value="normal">{isArabic ? 'عادية' : 'Normal'}</option>
+                <option value="high">{isArabic ? 'عالية' : 'High'}</option>
+              </select>
             </fieldset>
             <DialogFooter className="pt-3">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>

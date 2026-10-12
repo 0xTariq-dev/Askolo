@@ -9,6 +9,11 @@ export type V2AgendaTask = {
   priority: string;
   dueOn: string | null;
   plannedStartAt: string | null;
+  plannedOn: string | null;
+  plannedStartTime: string | null;
+  durationMinutes: number | null;
+  timeZone: string;
+  label: string | null;
   assignedToUserId: string | null;
   planId: string | null;
 };
@@ -129,12 +134,26 @@ export async function getV2AgendaRange(
 }
 
 export type V2TaskCreateInput = {
-  kind: 'action' | 'chore' | 'habit' | 'commitment';
+  kind: 'task' | 'habit';
   title: string;
   details?: string;
   status?: 'open' | 'in_progress' | 'done' | 'cancelled';
-  priority?: 'low' | 'medium' | 'high';
+  priority?: 'none' | 'low' | 'normal' | 'high';
   dueOn?: string;
+  dueTime?: string;
+  plannedOn?: string;
+  plannedStartTime?: string;
+  durationMinutes?: number;
+  timeZone: string;
+  label?: string;
+  recurrence?: {
+    frequency: 'daily' | 'weekly' | 'monthly';
+    interval: number;
+    weekdays?: number[];
+    startsOn: string;
+    endsOn: string | null;
+    timeZone: string;
+  };
 };
 
 async function v2Request<T>(
@@ -176,7 +195,7 @@ export async function createV2Task(
 export function updateV2Task(
   workspaceId: string,
   taskId: string,
-  patch: { status?: 'open' | 'in_progress' | 'done' | 'cancelled'; title?: string; priority?: 'low' | 'medium' | 'high' },
+  patch: { status?: 'open' | 'in_progress' | 'done' | 'cancelled'; title?: string; priority?: 'none' | 'low' | 'normal' | 'high' },
   signal?: AbortSignal,
 ): Promise<unknown> {
   return v2Request(

@@ -24,6 +24,8 @@ The staged schema is not a complete copy of V1. It references the existing `publ
 
 There are no active users and existing data is disposable. This implementation does not convert or clean up legacy records, and it does not migrate the UI. V2 schema and API checks run against a fresh disposable PostgreSQL database.
 
+Migration 0019 adds the Task/Habit fields structurally and does not rewrite existing V2 rows during Publish. The API normalizes the staged legacy kinds (`action`, `chore`, and `commitment`) to `task`, and `medium` priority to `normal` (or `none` for a Habit) at read/filter boundaries. New writes use only the canonical kinds and priorities.
+
 The user-confirmed Home and Agenda read choices are recorded in `HOME_TODAY_PLAN_PROJECTION_BRIEF.md` and in this contract. They do not authorize creating canonical V2 views or applying staged migrations. The existing `workspace_agenda_items` and `workspace_overview` views in migration 0016 are legacy projections, not the new UI contract. Keep migration 0016 unchanged; any later change to those legacy views must be a forward migration.
 
 A screen-level brief is maintained in `HOME_TODAY_PLAN_PROJECTION_BRIEF.md`. It records product behavior; this file defines the V2 read contract. Neither document authorizes creating views or applying migrations.

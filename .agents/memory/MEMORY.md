@@ -73,6 +73,7 @@
 - [Assistant tool registry contract](assistant-tool-registry.md) — keep planner arguments registry-driven and transform them into the existing persisted confirmation format before any write.
 - [Azure assistant speech privacy](azure-assistant-speech-output.md) — Azure semi-live replies complement AssemblyAI live mode and require independent consent and owner-scoped stored responses.
 - [Askolo planning model](askolo-planning-model.md) — Task and Habit are distinct; chores are labels, recurrence expands on demand, and provider events keep account/calendar ownership.
+- [Postgres local-time strings](postgres-local-time-strings.md) — SQL `time` columns scanned as strings may include seconds even when API input uses minute precision.
 - [Space-centric product scope](workspace-first-product-scope.md) — use Spaces and Home in product UI; support family and professional Spaces, with explicit Agent scope.
 - [Askolo mark colors](askolo-mark-colors.md) — avoid flat tints; preserve the glass highlights and depth when recoloring the mark.
 
