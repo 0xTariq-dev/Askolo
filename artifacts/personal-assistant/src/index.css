@@ -398,6 +398,11 @@ input[type='search']::-webkit-search-cancel-button {
   content: none;
 }
 
+.agent-composer-input {
+  border-bottom-color: transparent !important;
+  box-shadow: 0 4px 14px -8px hsl(var(--foreground) / 28%);
+}
+
 .agent-composer-actions {
   display: inline-flex;
   align-items: center;

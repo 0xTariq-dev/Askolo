@@ -67,6 +67,7 @@
 - [Outbound cancellation test harness](outbound-cancellation-tests.md) — prefer controlled RoundTrippers for request-cancellation tests; a blocked test-server handler can stall cleanup.
 - [Askolo app UI migration](askolo-ui-migration.md) — keep lazy-route loading inside the persistent shell and verify route-level behavior changes independently.
 - [Theme prepaint bootstrap](theme-prepaint-bootstrap.md) — use a classic head script for saved mode; Vite’s merged module bootstrap cannot guarantee pre-paint execution.
+- [System appearance preference](system-appearance-preference.md) — persist the user's Light/Dark/System choice separately from the concrete mode needed to render theme tokens.
 - [Resend MCP output handling](resend-mcp-output.md) — Resend list/get tools may return formatted text blocks; parse only the needed recipient metadata and never log message bodies or codes.
 - [Node tests and Vite env](node-vite-test-environment.md) — `tsx --test` does not provide `import.meta.env`; guard Vite-only reads or use a Vite-aware test runner.
 - [Workspace-scoped package installs](workspace-package-installs.md) — the package callback may target the pnpm root; use a package-filtered install for artifact dependencies.

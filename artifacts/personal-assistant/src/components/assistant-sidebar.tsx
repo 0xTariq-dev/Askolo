@@ -1041,7 +1041,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
             </div>
 
             {/* Input */}
-            <div className={cn('shrink-0', fullPage ? 'p-4 md:px-7 md:py-5' : 'border-t border-border bg-card/50 p-3')}>
+            <div className={cn('shrink-0', fullPage ? 'px-4 pt-4 pb-2 md:px-7 md:pt-5 md:pb-3' : 'border-t border-border bg-card/50 p-3')}>
               {liveCallActive && assistantMode !== 'voice-chat' && (
                 <p className="mb-3 px-1 text-xs text-muted-foreground" role="status">
                   End Live Mode before starting Voice Chat.
@@ -1094,7 +1094,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
               )}
               <Form {...form}>
                 <form onSubmit={form.handleSubmit((data) => onSubmit(data))}>
-                  <InputGroup className="h-14 rounded-full border border-border/60 bg-muted/70 p-1.5 shadow-none dark:bg-muted/40">
+                  <InputGroup className="agent-composer-input h-14 rounded-full border border-border/60 bg-background p-1.5 shadow-sm dark:bg-muted/40">
                   <FormField
                     control={form.control}
                     name="text"

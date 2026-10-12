@@ -11,7 +11,7 @@ import {
   NotebookPen,
   UserCircle,
 } from 'lucide-react';
-import { IconMoon, IconStack2, IconSun, IconWallet } from '@tabler/icons-react';
+import { IconDeviceDesktop, IconMoon, IconPalette, IconStack2, IconSun, IconWallet } from '@tabler/icons-react';
 import logoUrl from '/logo.png';
 import { AssistantProvider } from '@/contexts/assistant-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';
@@ -95,11 +95,6 @@ function AccountMenu({
   const { t, locale } = useLocale();
   const { preferences, setMode } = useAskoloTheme();
   const amount = balanceUsdMicros === null ? '—' : formatUsdMicros(balanceUsdMicros);
-  const nextMode = preferences.mode === 'dark' ? 'light' : 'dark';
-  const modeLabel = preferences.mode === 'dark'
-    ? (locale === 'ar' ? 'داكن' : 'Dark')
-    : (locale === 'ar' ? 'فاتح' : 'Light');
-
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -158,19 +153,31 @@ function AccountMenu({
                 <bdi dir="ltr" className="font-mono text-xs font-semibold">{amount}</bdi>
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => setMode(nextMode)}
-              aria-label={`${locale === 'ar' ? 'المظهر' : 'Theme'}: ${modeLabel}. ${t(
-                nextMode === 'dark' ? 'common.switchToDark' : 'common.switchToLight',
-              )}`}
-              data-testid="menu-theme-toggle"
-            >
-              {preferences.mode === 'dark'
-                ? <IconMoon aria-hidden="true" />
-                : <IconSun aria-hidden="true" />}
-              <span>{locale === 'ar' ? 'المظهر' : 'Theme'}</span>
-              <span className="ms-auto text-xs text-muted-foreground">{modeLabel}</span>
-            </DropdownMenuItem>
+            <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+              <div className="flex items-center gap-2 text-sm">
+                <IconPalette className="size-4" aria-hidden="true" />
+                <span>{locale === 'ar' ? 'المظهر' : 'Theme'}</span>
+              </div>
+              <div role="group" aria-label={locale === 'ar' ? 'اختيار المظهر' : 'Choose theme'} className="flex items-center gap-1 rounded-xl bg-muted/70 p-1">
+                {([
+                  { id: 'light', label: locale === 'ar' ? 'فاتح' : 'Light', Icon: IconSun },
+                  { id: 'dark', label: locale === 'ar' ? 'داكن' : 'Dark', Icon: IconMoon },
+                  { id: 'system', label: locale === 'ar' ? 'النظام' : 'System', Icon: IconDeviceDesktop },
+                ] as const).map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-label={label}
+                    aria-pressed={preferences.modePreference === id}
+                    onClick={() => setMode(id)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    data-testid={`menu-theme-${id}`}
+                  >
+                    <Icon className="size-4" aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onSignOut} data-testid="menu-sign-out">
               <LogOut aria-hidden="true" />

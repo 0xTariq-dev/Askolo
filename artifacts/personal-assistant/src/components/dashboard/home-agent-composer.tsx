@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, AudioLines, Mic, PhoneCall } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { useAssistantState } from '@/contexts/assistant-context';
 import { useLocale } from '@/contexts/locale-context';
 
@@ -11,6 +11,12 @@ export function HomeAgentComposer() {
   const [, setLocation] = useLocation();
   const { openWithDraft } = useAssistantState();
   const { locale } = useLocale();
+  const hasPrompt = Boolean(prompt.trim());
+
+  const continueInAgent = () => {
+    openWithDraft(prompt.trim());
+    setLocation('/agent');
+  };
 
   const submit = () => {
     const message = prompt.trim() || (locale === 'ar'
@@ -31,7 +37,7 @@ export function HomeAgentComposer() {
       <label className="sr-only" htmlFor="home-agent-prompt">
         {locale === 'ar' ? 'ماذا تريد أن تسأل الوكيل؟' : 'What would you like to ask Agent?'}
       </label>
-      <InputGroup className="h-14 rounded-full border border-border/60 bg-muted/70 p-1.5 shadow-none dark:bg-muted/40">
+      <InputGroup className="agent-composer-input h-14 rounded-full border border-border/60 bg-background p-1.5 shadow-sm dark:bg-muted/40">
         <InputGroupInput
           id="home-agent-prompt"
           value={prompt}
@@ -43,6 +49,46 @@ export function HomeAgentComposer() {
           data-testid="input-home-agent-prompt"
         />
         <InputGroupAddon align="inline-end" className="gap-1 border-0 pe-1">
+          <div
+            className="agent-composer-actions"
+            data-hidden={hasPrompt ? 'true' : undefined}
+            aria-hidden={hasPrompt}
+            inert={hasPrompt}
+          >
+            <InputGroupButton
+              type="button"
+              size="icon-sm"
+              className="h-9 w-9 rounded-full"
+              aria-label={locale === 'ar' ? 'فتح إدخال الصوت في الوكيل' : 'Open voice input in Agent'}
+              title={locale === 'ar' ? 'إدخال صوتي' : 'Voice input'}
+              onClick={continueInAgent}
+              data-testid="button-home-voice-input"
+            >
+              <Mic className="size-5" aria-hidden="true" />
+            </InputGroupButton>
+            <InputGroupButton
+              type="button"
+              size="icon-sm"
+              className="h-9 w-9 rounded-full"
+              aria-label={locale === 'ar' ? 'فتح المحادثة الصوتية في الوكيل' : 'Open Voice Chat in Agent'}
+              title={locale === 'ar' ? 'محادثة صوتية' : 'Voice Chat'}
+              onClick={continueInAgent}
+              data-testid="button-home-voice-chat"
+            >
+              <AudioLines className="size-5" aria-hidden="true" />
+            </InputGroupButton>
+            <InputGroupButton
+              type="button"
+              size="icon-sm"
+              className="h-9 w-9 rounded-full"
+              aria-label={locale === 'ar' ? 'فتح الوضع المباشر في الوكيل' : 'Open Live Mode in Agent'}
+              title={locale === 'ar' ? 'الوضع المباشر' : 'Live Mode'}
+              onClick={continueInAgent}
+              data-testid="button-home-live-mode"
+            >
+              <PhoneCall className="size-4" aria-hidden="true" />
+            </InputGroupButton>
+          </div>
           <Button
             type="submit"
             size="icon"

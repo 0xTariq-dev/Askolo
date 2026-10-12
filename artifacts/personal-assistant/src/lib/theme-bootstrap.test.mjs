@@ -70,6 +70,31 @@ test('theme prepaint restores the saved palette, mode, and active surface', () =
   window.close();
 });
 
+test('theme prepaint resolves a saved System preference before styles render', () => {
+  const window = makeWindow();
+  Object.defineProperty(window, 'matchMedia', {
+    value: () => ({ matches: true }),
+  });
+  window.localStorage.setItem(
+    'askolo-theme-preferences',
+    JSON.stringify({
+      accountThemeId: 'warmPaper',
+      mode: 'light',
+      modePreference: 'system',
+      surfaceStyles: { light: 'soft', dark: 'tinted' },
+    }),
+  );
+
+  window.eval(themeBootstrap);
+  const root = window.document.documentElement;
+
+  assert.equal(root.classList.contains('dark'), true);
+  assert.equal(root.style.colorScheme, 'dark');
+  assert.equal(root.dataset.askoloMode, 'dark');
+  assert.equal(root.dataset.askoloSurfaceStyle, 'tinted');
+  window.close();
+});
+
 test('an explicit theme query overrides saved mode without replacing saved palette', () => {
   const window = makeWindow('?theme=light');
   window.localStorage.setItem(

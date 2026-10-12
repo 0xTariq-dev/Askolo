@@ -1,13 +1,15 @@
-import { createContext, useContext, useLayoutEffect, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react';
 import designTokens from './askolo-design-tokens.json';
 
 export type ThemeMode = 'light' | 'dark';
+export type ThemeModePreference = ThemeMode | 'system';
 export type ThemeId = 'blueHorizon' | 'warmPaper' | 'neutral';
 export type SurfaceStyleId = 'soft' | 'tinted';
 
 export interface ResolvedThemePreferences {
   accountThemeId: ThemeId;
   mode: ThemeMode;
+  modePreference: ThemeModePreference;
   surfaceStyles: Record<ThemeMode, SurfaceStyleId>;
   spaceOverrides: Record<string, ThemeId>;
 }
@@ -125,6 +127,7 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
 export const DEFAULT_THEME_PREFERENCES: ResolvedThemePreferences = {
   accountThemeId: 'neutral',
   mode: 'dark',
+  modePreference: 'dark',
   surfaceStyles: { light: 'soft', dark: 'soft' },
   spaceOverrides: {},
 };
@@ -271,7 +274,7 @@ function applyTheme(value: ResolvedThemePreferences) {
 interface ThemeContextValue {
   preferences: ResolvedThemePreferences;
   setAccountTheme: (themeId: ThemeId) => void;
-  setMode: (mode: ThemeMode) => void;
+  setMode: (mode: ThemeModePreference) => void;
   setSurfaceStyle: (surfaceStyle: SurfaceStyleId) => void;
 }
 
@@ -286,11 +289,28 @@ export function ThemeProvider({
   onChange: (next: ResolvedThemePreferences) => void;
   children: ReactNode;
 }) {
+  useEffect(() => {
+    if (value.modePreference !== 'system' || typeof window === 'undefined') return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncWithSystem = () => {
+      const mode: ThemeMode = media.matches ? 'dark' : 'light';
+      if (value.mode !== mode) onChange({ ...value, mode });
+    };
+    syncWithSystem();
+    media.addEventListener('change', syncWithSystem);
+    return () => media.removeEventListener('change', syncWithSystem);
+  }, [onChange, value]);
+
   const context = useMemo<ThemeContextValue>(
     () => ({
       preferences: value,
       setAccountTheme: (accountThemeId) => onChange({ ...value, accountThemeId }),
-      setMode: (mode) => onChange({ ...value, mode }),
+      setMode: (modePreference) => {
+        const mode: ThemeMode = modePreference === 'system'
+          ? (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : modePreference;
+        onChange({ ...value, mode, modePreference });
+      },
       setSurfaceStyle: (surfaceStyle) =>
         onChange({
           ...value,

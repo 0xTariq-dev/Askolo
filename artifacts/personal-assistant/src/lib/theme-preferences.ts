@@ -5,6 +5,8 @@ import {
   isThemeMode,
   type ResolvedThemePreferences,
   type ThemeId,
+  type ThemeMode,
+  type ThemeModePreference,
 } from '@/lib/theme';
 
 export const THEME_STORAGE_KEY = 'askolo-theme-preferences';
@@ -37,6 +39,15 @@ export function loadThemePreferences(): ResolvedThemePreferences {
   }
 
   const rawSurfaceStyles = isRecord(stored.surfaceStyles) ? stored.surfaceStyles : {};
+  const queryChoice = isThemeMode(queryMode) ? queryMode : null;
+  const storedChoice = stored.modePreference === 'system' || isThemeMode(stored.modePreference)
+    ? stored.modePreference as ThemeModePreference
+    : isThemeMode(stored.mode) ? stored.mode : defaults.modePreference;
+  const modePreference = queryChoice ?? storedChoice;
+  let mode: ThemeMode = modePreference === 'system' && typeof window !== 'undefined'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : modePreference === 'system' ? defaults.mode : modePreference;
+
   const rawSpaceOverrides = isRecord(stored.spaceOverrides) ? stored.spaceOverrides : {};
   const spaceOverrides = Object.create(null) as Record<string, ThemeId>;
   for (const [spaceId, themeId] of Object.entries(rawSpaceOverrides)) {
@@ -48,11 +59,8 @@ export function loadThemePreferences(): ResolvedThemePreferences {
 
   return {
     accountThemeId: normalizeThemeId(stored.accountThemeId) ?? defaults.accountThemeId,
-    mode: isThemeMode(queryMode)
-      ? queryMode
-      : isThemeMode(stored.mode)
-        ? stored.mode
-        : defaults.mode,
+    mode,
+    modePreference,
     surfaceStyles: {
       light: isSurfaceStyleId(rawSurfaceStyles.light)
         ? rawSurfaceStyles.light
