@@ -229,17 +229,15 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 	}
 	challenge := base64.RawURLEncoding.EncodeToString(sha256Bytes(verifier))
 	params := url.Values{
-		"client_id":              {clientID},
-		"redirect_uri":           {baseURL + callbackPath(flow)},
-		"response_type":          {"code"},
-		"scope":                  {strings.Join(scopes, " ")},
-		"access_type":            {"offline"},
-		"prompt":                 {"consent"},
-		"include_granted_scopes": {"true"},
-		"state":                  {nonce},
-		"code_challenge":         {challenge},
-		"code_challenge_method":  {"S256"},
+		"client_id":             {clientID},
+		"redirect_uri":          {baseURL + callbackPath(flow)},
+		"response_type":         {"code"},
+		"scope":                 {strings.Join(scopes, " ")},
+		"state":                 {nonce},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
 	}
+	addFlowAuthorizationOptions(params, flow)
 	http.SetCookie(w, &http.Cookie{
 		Name:     stateCookieName,
 		Value:    stateCookie,
@@ -250,6 +248,17 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 		MaxAge:   int(stateTTL.Seconds()),
 	})
 	http.Redirect(w, r, h.cfg.Google.AuthURL+"?"+params.Encode(), http.StatusFound)
+}
+
+func addFlowAuthorizationOptions(params url.Values, flow string) {
+	if flow != "integration" {
+		return
+	}
+	// Only integration authorization needs offline refresh tokens and
+	// incremental scopes. Login/link request identity claims only.
+	params.Set("access_type", "offline")
+	params.Set("prompt", "consent")
+	params.Set("include_granted_scopes", "true")
 }
 
 func (h *Handler) finishLogin(w http.ResponseWriter, r *http.Request) {

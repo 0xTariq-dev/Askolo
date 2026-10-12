@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -203,6 +204,26 @@ func TestOAuthFlowScopesStaySeparate(t *testing.T) {
 	}
 	if hasString(integrationScopes, "https://www.googleapis.com/auth/gmail.modify") {
 		t.Fatal("integration scope list must not include gmail.modify")
+	}
+}
+
+func TestOnlyIntegrationAuthorizationCarriesGrantedScopes(t *testing.T) {
+	for _, flow := range []string{"login", "link"} {
+		params := url.Values{}
+		addFlowAuthorizationOptions(params, flow)
+		for _, key := range []string{"access_type", "prompt", "include_granted_scopes"} {
+			if params.Has(key) {
+				t.Fatalf("%s authorization unexpectedly set %s=%q", flow, key, params.Get(key))
+			}
+		}
+	}
+
+	params := url.Values{}
+	addFlowAuthorizationOptions(params, "integration")
+	if params.Get("access_type") != "offline" ||
+		params.Get("prompt") != "consent" ||
+		params.Get("include_granted_scopes") != "true" {
+		t.Fatalf("integration authorization options = %v", params)
 	}
 }
 
