@@ -1094,7 +1094,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
               )}
               <Form {...form}>
                 <form onSubmit={form.handleSubmit((data) => onSubmit(data))}>
-                  <InputGroup className="agent-composer-input h-14 rounded-full border border-border/60 bg-background p-1.5 shadow-sm dark:bg-muted/40">
+                  <InputGroup className="agent-composer-input mx-auto h-14 w-full max-w-[780px] rounded-full border border-border/60 bg-background p-1.5 shadow-sm dark:bg-muted/40">
                   <FormField
                     control={form.control}
                     name="text"

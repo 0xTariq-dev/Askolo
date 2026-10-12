@@ -173,7 +173,7 @@ function AccountMenu({
                     className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     data-testid={`menu-theme-${id}`}
                   >
-                    <Icon className="size-4" aria-hidden="true" />
+                    <Icon className="size-3.5" aria-hidden="true" />
                   </button>
                 ))}
               </div>
