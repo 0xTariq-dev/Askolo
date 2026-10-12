@@ -53,10 +53,10 @@ export function ThemePresetSelector() {
           Presets control colors, typography, component style, radius, and icon library.
         </p>
       </header>
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Mode</legend>
-          <ThemeModeToggle placement="settings" />
-        </fieldset>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium">Theme</span>
+          <ThemeModeToggle placement="settings" compact />
+        </div>
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Theme preset</legend>

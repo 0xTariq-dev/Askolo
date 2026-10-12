@@ -20,17 +20,21 @@ const modes = [
 
 type ThemeModeToggleProps = {
   placement?: 'menu' | 'settings';
+  compact?: boolean;
 };
 
-export function ThemeModeToggle({ placement = 'settings' }: ThemeModeToggleProps) {
+export function ThemeModeToggle({
+  placement = 'settings',
+  compact: compactProp = false,
+}: ThemeModeToggleProps) {
   const { preferences, setMode } = useAskoloTheme();
   const { locale } = useLocale();
-  const compact = placement === 'menu';
+  const compact = placement === 'menu' || compactProp;
   const modeLabel = (id: ThemeModePreference) =>
     modes.find((mode) => mode.id === id)?.label[locale === 'ar' ? 'ar' : 'en'] ?? id;
   const groupClass = `app-border-subtle flex items-center rounded-full bg-muted/70 ${compact ? 'gap-0.5 p-0.5' : 'gap-1.5 p-1.5'}`;
   const optionClass = `app-border-subtle flex items-center justify-center rounded-full p-0 text-muted-foreground transition-colors focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
-    compact ? 'size-6' : 'size-10'
+    placement === 'menu' ? 'size-6' : compact ? 'size-7' : 'size-10'
   }`;
 
   const handleSettingsKeyDown = (
@@ -102,7 +106,7 @@ export function ThemeModeToggle({ placement = 'settings' }: ThemeModeToggleProps
                 className={`${optionClass} aria-checked:border-primary aria-checked:bg-primary aria-checked:text-primary-foreground aria-checked:hover:bg-primary hover:bg-accent`}
                 data-testid={`settings-theme-${id}`}
               >
-                <Icon className="size-4" aria-hidden="true" />
+                <Icon className={compact ? 'size-3' : 'size-4'} aria-hidden="true" />
               </Button>
             );
           })}
