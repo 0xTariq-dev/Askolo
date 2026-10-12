@@ -38,6 +38,8 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 		"AUTH_CHALLENGE_SECRET":                 "",
 		"AUTH_RATE_LIMIT_HMAC_SECRET":           "rate-limit-hmac-secret-for-tests-123456789",
 		"GOOGLE_TOKEN_ENCRYPTION_KEY":           "",
+		"GOOGLE_CLIENT_ID":                      "test-google-client-id",
+		"GOOGLE_CLIENT_SECRET":                  "test-google-client-secret",
 		"AUTH_TOTP_ENCRYPTION_KEY":              "",
 		"TURNSTILE_SECRET_KEY":                  "",
 	} {
@@ -55,6 +57,10 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 	}
 	if cfg.TurnstileSecret != "test-turnstile-secret" {
 		t.Fatalf("TurnstileSecret = %q, want configured value", cfg.TurnstileSecret)
+	}
+	if cfg.Google.LoginClientID != "test-google-client-id" ||
+		cfg.Google.LoginClientSecret != "test-google-client-secret" {
+		t.Fatal("Google login config did not use the current generic client env names")
 	}
 	if _, ok := cfg.TurnstileAllowedHostnames["localhost"]; !ok {
 		t.Fatal("development Turnstile hostname allowlist must include localhost")

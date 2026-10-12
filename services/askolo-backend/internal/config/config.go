@@ -317,8 +317,8 @@ func Load() (Config, error) {
 			ChallengeSecret: challengeSecret,
 		},
 		Google: GoogleOAuthConfig{
-			LoginClientID:       strings.TrimSpace(os.Getenv("GOOGLE_LOGIN_CLIENT_ID")),
-			LoginClientSecret:   strings.TrimSpace(os.Getenv("GOOGLE_LOGIN_CLIENT_SECRET")),
+			LoginClientID:       firstNonEmptyEnv("GOOGLE_LOGIN_CLIENT_ID", "GOOGLE_CLIENT_ID"),
+			LoginClientSecret:   firstNonEmptyEnv("GOOGLE_LOGIN_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"),
 			IntegrationClientID: strings.TrimSpace(os.Getenv("GOOGLE_INTEGRATION_CLIENT_ID")),
 			IntegrationSecret:   strings.TrimSpace(os.Getenv("GOOGLE_INTEGRATION_CLIENT_SECRET")),
 			TokenEncryptionKey:  encryptionKey,
@@ -429,6 +429,15 @@ func turnstileAllowedHostnames(environment string) map[string]struct{} {
 		hosts["127.0.0.1"] = struct{}{}
 	}
 	return hosts
+}
+
+func firstNonEmptyEnv(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func oauthHosts(environment, canonicalOrigin string) map[string]struct{} {

@@ -16,9 +16,11 @@ authenticated WebSocket contracts.
 - Generic WebSocket sequencing, replay, and resume behavior is tracked
   separately. Webhook ingress must have signature verification and application
   handling before it is enabled.
-- Google login and Google integration OAuth use separate clients configured with
-  `GOOGLE_LOGIN_CLIENT_ID`, `GOOGLE_LOGIN_CLIENT_SECRET`,
-  `GOOGLE_INTEGRATION_CLIENT_ID`, and `GOOGLE_INTEGRATION_CLIENT_SECRET`.
+- Google login reads `GOOGLE_LOGIN_CLIENT_ID` and
+  `GOOGLE_LOGIN_CLIENT_SECRET`, falling back to `GOOGLE_CLIENT_ID` and
+  `GOOGLE_CLIENT_SECRET`. Google integration OAuth uses a separate client
+  configured with `GOOGLE_INTEGRATION_CLIENT_ID` and
+  `GOOGLE_INTEGRATION_CLIENT_SECRET`.
 - `GOOGLE_TOKEN_ENCRYPTION_KEY` must decode to 32 bytes. Refresh and access
   tokens are encrypted before they are stored in `provider_credentials`.
 - `DATABASE_URL` and `SESSION_SECRET` are required for OAuth and account
