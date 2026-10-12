@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/reui/alert';
 import { Input } from '@/components/ui/input';
 import {
   Field,
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/input-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Eye, EyeOff, UserPlus } from 'lucide-react';
+import { CircleAlert, Eye, EyeOff, Info, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@workspace/api-client-react';
 import { useAppAuth } from '@/contexts/auth-context';
@@ -114,11 +115,26 @@ export function LoginPage() {
   const [recoveryMethod, setRecoveryMethod] = useState<RecoveryMethod>('primary_email');
   const [moreWaysOpen, setMoreWaysOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerAlert] = useState(() => {
+    const googleStatus = new URLSearchParams(window.location.search).get('google');
+    if (googleStatus === 'account_exists') {
+      return {
+        title: 'An account already exists',
+        description: 'Sign in with your existing method, then link Google in Profile.',
+        variant: 'warning' as const,
+      };
+    }
+    if (googleStatus === 'provider_not_linked') {
+      return {
+        title: 'Google sign-in isn’t set up for this account',
+        description: 'Sign in with your existing method, then add Google sign-in in Profile.',
+        variant: 'info' as const,
+      };
+    }
+    return null;
+  });
   const [notice, setNotice] = useState<string | null>(() => {
     const googleStatus = new URLSearchParams(window.location.search).get('google');
-    if (googleStatus === 'provider_not_linked') {
-      return 'An Askolo account already exists for this email. Sign in with the method you used for that account. If you use an email and password, sign in here, then link this Google account from Profile → Google sign-in. We do not link accounts automatically to protect your account.';
-    }
     if (googleStatus === 'error') {
       return 'Google sign-in could not be completed. Try again or sign in with your email and password.';
     }
@@ -599,6 +615,19 @@ export function LoginPage() {
                 />
               )}
               {error && <p id="auth-form-error" className="text-sm text-destructive" role="alert">{error}</p>}
+              {providerAlert && (
+                <Alert
+                  role="status"
+                  variant={providerAlert.variant}
+                  className="text-left"
+                >
+                  {providerAlert.variant === 'warning'
+                    ? <CircleAlert aria-hidden="true" />
+                    : <Info aria-hidden="true" />}
+                  <AlertTitle>{providerAlert.title}</AlertTitle>
+                  <AlertDescription>{providerAlert.description}</AlertDescription>
+                </Alert>
+              )}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
               <div className="flex justify-center">
                 <Button
@@ -861,6 +890,19 @@ export function LoginPage() {
                 />
               )}
               {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+              {providerAlert && (
+                <Alert
+                  role="status"
+                  variant={providerAlert.variant}
+                  className="text-left"
+                >
+                  {providerAlert.variant === 'warning'
+                    ? <CircleAlert aria-hidden="true" />
+                    : <Info aria-hidden="true" />}
+                  <AlertTitle>{providerAlert.title}</AlertTitle>
+                  <AlertDescription>{providerAlert.description}</AlertDescription>
+                </Alert>
+              )}
               {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
               <Button
                 type="submit"

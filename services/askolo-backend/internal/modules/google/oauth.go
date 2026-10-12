@@ -402,7 +402,7 @@ func (h *Handler) finishLoginUser(w http.ResponseWriter, r *http.Request, return
 		r.Context(), "google", info.Subject, email, info.GivenName, info.FamilyName, info.Picture,
 	)
 	if errors.Is(err, postgres.ErrEmailExists) {
-		redirectStatus(w, r, returnTo, "provider_not_linked")
+		redirectStatus(w, r, returnTo, "account_exists")
 		return
 	}
 	if err != nil {

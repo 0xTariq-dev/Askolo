@@ -455,6 +455,70 @@ func TestGoogleCallbackExistingProviderIdentitySignsInWithoutDuplicate(t *testin
 	}
 }
 
+func TestGoogleCallbackSignupExistingEmailRequiresExplicitSignIn(t *testing.T) {
+	fixture := newGoogleOAuthFixture(t)
+	info := userInfo{
+		Subject:       "google-existing-password-subject",
+		Email:         "existing-password@example.com",
+		EmailVerified: true,
+	}
+	provider, _ := newControlledGoogleProvider(t, http.StatusOK, info)
+	defer provider.Close()
+	handler := testGoogleOAuthIntegrationHandler(fixture, provider.URL+"/token", provider.URL+"/userinfo", slog.Default())
+	if _, err := fixture.pool.Exec(context.Background(), `
+		INSERT INTO users (id, email, status, email_verified_at, account_created_via)
+		VALUES ('existing-password-user', $1, 'active', NOW(), 'password')
+	`, info.Email); err != nil {
+		t.Fatalf("seed existing password account: %v", err)
+	}
+	payload, cookie := loginCallbackState(t, fixture, handler, "signup")
+
+	response := serveGoogleLoginCallback(handler, payload, cookie, url.Values{"code": {"existing-password-signup-code"}})
+
+	assertSafeGoogleRedirect(t, response, "account_exists")
+	var identityCount, sessionCount int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM provider_accounts WHERE provider = 'google' AND external_subject = $1
+	`, info.Subject).Scan(&identityCount); err != nil {
+		t.Fatalf("count provider identities: %v", err)
+	}
+	if err := fixture.pool.QueryRow(context.Background(), `SELECT count(*) FROM sessions`).Scan(&sessionCount); err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if identityCount != 0 || sessionCount != 0 {
+		t.Fatalf("signup collision created %d identities and %d sessions; want none", identityCount, sessionCount)
+	}
+}
+
+func TestGoogleCallbackSigninWithoutLinkedIdentityReturnsProviderNotLinked(t *testing.T) {
+	fixture := newGoogleOAuthFixture(t)
+	info := userInfo{
+		Subject:       "google-unlinked-signin-subject",
+		Email:         "existing-password@example.com",
+		EmailVerified: true,
+	}
+	provider, _ := newControlledGoogleProvider(t, http.StatusOK, info)
+	defer provider.Close()
+	handler := testGoogleOAuthIntegrationHandler(fixture, provider.URL+"/token", provider.URL+"/userinfo", slog.Default())
+	payload, cookie := loginCallbackState(t, fixture, handler, "")
+
+	response := serveGoogleLoginCallback(handler, payload, cookie, url.Values{"code": {"unlinked-signin-code"}})
+
+	assertSafeGoogleRedirect(t, response, "provider_not_linked")
+	var identityCount, sessionCount int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM provider_accounts WHERE provider = 'google' AND external_subject = $1
+	`, info.Subject).Scan(&identityCount); err != nil {
+		t.Fatalf("count provider identities: %v", err)
+	}
+	if err := fixture.pool.QueryRow(context.Background(), `SELECT count(*) FROM sessions`).Scan(&sessionCount); err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if identityCount != 0 || sessionCount != 0 {
+		t.Fatalf("unlinked signin created %d identities and %d sessions; want none", identityCount, sessionCount)
+	}
+}
+
 func TestGoogleCallbackSignupRequiresVerifiedEmailAndCreatesNativeSession(t *testing.T) {
 	t.Run("verified email creates session", func(t *testing.T) {
 		fixture := newGoogleOAuthFixture(t)
