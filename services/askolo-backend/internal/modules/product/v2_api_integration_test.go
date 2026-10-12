@@ -105,6 +105,15 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 		task.TimeZone != "Africa/Cairo" || task.Label != "Bills" || task.Details != "Pay before the end of the month." {
 		t.Fatalf("created task contract = %#v", task)
 	}
+	homeResponse := request(
+		ownerSession,
+		http.MethodGet,
+		"/api/v2/workspaces/"+workspaceID+"/home",
+		"",
+	)
+	if homeResponse.Code != http.StatusOK {
+		t.Fatalf("workspace Home status = %d, want %d: %s", homeResponse.Code, http.StatusOK, homeResponse.Body.String())
+	}
 	nextDayAgenda := request(
 		ownerSession,
 		http.MethodGet,
