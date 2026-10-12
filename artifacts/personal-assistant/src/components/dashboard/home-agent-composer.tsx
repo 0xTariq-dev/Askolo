@@ -37,7 +37,7 @@ export function HomeAgentComposer() {
       <label className="sr-only" htmlFor="home-agent-prompt">
         {locale === 'ar' ? 'ماذا تريد أن تسأل الوكيل؟' : 'What would you like to ask Agent?'}
       </label>
-      <InputGroup className="agent-composer-input mx-auto h-14 w-full max-w-[780px] rounded-full border border-border/60 bg-background p-1.5 shadow-sm dark:bg-muted/40">
+      <InputGroup className="agent-composer-input app-border-subtle mx-auto h-14 w-full max-w-[780px] rounded-full bg-background p-1.5 shadow-sm dark:bg-muted/40">
         <InputGroupInput
           id="home-agent-prompt"
           value={prompt}
