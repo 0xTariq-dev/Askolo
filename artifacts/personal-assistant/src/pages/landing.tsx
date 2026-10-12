@@ -174,30 +174,6 @@ export function LandingPage() {
             <BrandSloganReveal />
           </div>
 
-          {(() => {
-            const dailyPlan = features.find((feature) => feature.title === 'Daily Plan');
-            if (!dailyPlan) return null;
-            return (
-              <motion.article
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.55, delay: 0.55, ease: 'easeOut' }}
-                className="askolo-editorial-feature askolo-info-card mx-auto mb-8 max-w-4xl rounded-2xl border border-border text-start"
-              >
-                <div className="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:gap-8 sm:px-9 sm:py-7">
-                  <div className="askolo-graphite-inset flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-                    <dailyPlan.icon className="h-7 w-7 text-primary" aria-hidden="true" />
-                  </div>
-                  <div>
-                    <h2 className="mb-2 font-display text-xl font-semibold sm:text-2xl">{dailyPlan.title}</h2>
-                    <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">{dailyPlan.description}</p>
-                  </div>
-                  <span aria-hidden="true" className="ml-auto hidden select-none font-mono text-5xl font-light text-primary/30 sm:block">01</span>
-                </div>
-              </motion.article>
-            );
-          })()}
-
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -267,7 +243,7 @@ export function LandingPage() {
           </div>
 
           <ul className="grid grid-cols-1 gap-4 p-0 m-0 list-none sm:grid-cols-2 lg:grid-cols-4">
-            {features.filter((feature) => feature.title !== 'Daily Plan').map((feature, index) => (
+            {features.map((feature, index) => (
               <motion.li
                 key={feature.title}
                 initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}

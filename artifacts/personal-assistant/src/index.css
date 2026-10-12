@@ -18,15 +18,6 @@
     border-color 180ms ease;
 }
 
-.askolo-editorial-feature {
-  background:
-    linear-gradient(112deg, color-mix(in srgb, var(--primary) 14%, transparent), transparent 58%),
-    color-mix(in srgb, var(--card) 87%, var(--primary) 13%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
-    0 12px 32px color-mix(in srgb, var(--foreground) 6%, transparent);
-}
-
 .askolo-chapter {
   position: relative;
   isolation: isolate;
