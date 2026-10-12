@@ -30,6 +30,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -158,24 +160,31 @@ function AccountMenu({
                 <IconPalette className="size-4" aria-hidden="true" />
                 <span>{locale === 'ar' ? 'المظهر' : 'Theme'}</span>
               </div>
-              <div role="group" aria-label={locale === 'ar' ? 'اختيار المظهر' : 'Choose theme'} className="app-border-subtle flex items-center gap-1 rounded-full bg-muted/70 p-1">
-                {([
-                  { id: 'light', label: locale === 'ar' ? 'فاتح' : 'Light', Icon: IconSun },
-                  { id: 'dark', label: locale === 'ar' ? 'داكن' : 'Dark', Icon: IconMoon },
-                  { id: 'system', label: locale === 'ar' ? 'النظام' : 'System', Icon: IconDeviceDesktop },
-                ] as const).map(({ id, label, Icon }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-label={label}
-                    aria-pressed={preferences.modePreference === id}
-                    onClick={() => setMode(id)}
-                    className="app-border-subtle flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                    data-testid={`menu-theme-${id}`}
-                  >
-                    <Icon className="size-2.5" aria-hidden="true" />
-                  </button>
-                ))}
+              <div className="app-border-subtle rounded-full bg-muted/70 p-0.5">
+                <DropdownMenuRadioGroup
+                  aria-label={locale === 'ar' ? 'اختيار المظهر' : 'Choose theme'}
+                  value={preferences.modePreference}
+                  onValueChange={(mode) => {
+                    if (mode === 'light' || mode === 'dark' || mode === 'system') setMode(mode);
+                  }}
+                  className="flex items-center gap-0.5"
+                >
+                  {([
+                    { id: 'light', label: locale === 'ar' ? 'فاتح' : 'Light', Icon: IconSun },
+                    { id: 'dark', label: locale === 'ar' ? 'داكن' : 'Dark', Icon: IconMoon },
+                    { id: 'system', label: locale === 'ar' ? 'النظام' : 'System', Icon: IconDeviceDesktop },
+                  ] as const).map(({ id, label, Icon }) => (
+                    <DropdownMenuRadioItem
+                      key={id}
+                      value={id}
+                      className="app-border-subtle flex size-6 items-center justify-center rounded-full p-0 text-muted-foreground focus:bg-background focus:text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
+                      data-testid={`menu-theme-${id}`}
+                    >
+                      <Icon className="size-3" aria-hidden="true" />
+                      <span className="sr-only">{label}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
               </div>
             </div>
             <DropdownMenuSeparator />
