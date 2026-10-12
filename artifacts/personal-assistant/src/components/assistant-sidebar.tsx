@@ -276,6 +276,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
     resolver: zodResolver(messageSchema),
     defaultValues: { text: '' },
   });
+  const hasDraftText = Boolean(form.watch('text')?.trim());
 
   useEffect(() => {
     if (assistantVisible && messages.length > 0 && followConversationRef.current) {
@@ -1118,38 +1119,45 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                     )}
                   />
                   <InputGroupAddon align="inline-end" className="gap-1 border-0 pe-1">
-                  {assistantMode === 'chat' && (
-                    <VoiceCaptureButton
-                      voice={voice}
-                      onStart={startAssistantVoice}
-                      startText="Press and hold or activate to record voice input"
-                      stopText="Recording voice input; release or activate to stop"
-                      variant="outline"
-                      size="icon"
-                      iconOnly
-                      className="h-9 w-9 shrink-0 rounded-full"
-                      disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking || pendingActionId !== null}
-                      data-testid="button-assistant-voice"
-                    />
-                  )}
-                  <InputGroupButton
-                    type="button"
-                    size="icon-sm"
-                    className={cn('h-9 w-9 rounded-full', assistantMode === 'voice-chat' && 'bg-primary/10 text-primary')}
-                    aria-label={assistantMode === 'voice-chat' ? 'End Voice Chat' : 'Start Voice Chat'}
-                    aria-pressed={assistantMode === 'voice-chat'}
-                    disabled={voice.isBusy || voice.state === 'review' || liveCallActive}
-                    onClick={() => assistantMode === 'voice-chat' && localVoiceActivity.active ? switchToNormalChat() : startVoiceChat()}
+                  <div
+                    className="agent-composer-actions"
+                    data-hidden={hasDraftText ? 'true' : undefined}
+                    aria-hidden={hasDraftText}
+                    inert={hasDraftText}
                   >
-                    <AudioLines className="size-5" aria-hidden="true" />
-                  </InputGroupButton>
-                  {fullPage && <VoiceAgentControls
-                    voiceChatSelected={assistantMode === 'voice-chat'}
-                    onActiveChange={setLiveCallActive}
-                    compact
-                    hideProcessingLocationNotice
-                    freshConversation
-                  />}
+                    {assistantMode === 'chat' && (
+                      <VoiceCaptureButton
+                        voice={voice}
+                        onStart={startAssistantVoice}
+                        startText="Press and hold or activate to record voice input"
+                        stopText="Recording voice input; release or activate to stop"
+                        variant="outline"
+                        size="icon"
+                        iconOnly
+                        className="h-9 w-9 shrink-0 rounded-full"
+                        disabled={voice.state === 'starting' || voice.state === 'processing' || isThinking || pendingActionId !== null}
+                        data-testid="button-assistant-voice"
+                      />
+                    )}
+                    <InputGroupButton
+                      type="button"
+                      size="icon-sm"
+                      className={cn('h-9 w-9 rounded-full', assistantMode === 'voice-chat' && 'bg-primary/10 text-primary')}
+                      aria-label={assistantMode === 'voice-chat' ? 'End Voice Chat' : 'Start Voice Chat'}
+                      aria-pressed={assistantMode === 'voice-chat'}
+                      disabled={voice.isBusy || voice.state === 'review' || liveCallActive}
+                      onClick={() => assistantMode === 'voice-chat' && localVoiceActivity.active ? switchToNormalChat() : startVoiceChat()}
+                    >
+                      <AudioLines className="size-5" aria-hidden="true" />
+                    </InputGroupButton>
+                    {fullPage && <VoiceAgentControls
+                      voiceChatSelected={assistantMode === 'voice-chat'}
+                      onActiveChange={setLiveCallActive}
+                      compact
+                      hideProcessingLocationNotice
+                      freshConversation
+                    />}
+                  </div>
                   <Button
                     type="submit"
                     size="icon"

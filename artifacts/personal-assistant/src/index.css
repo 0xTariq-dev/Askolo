@@ -398,6 +398,39 @@ input[type='search']::-webkit-search-cancel-button {
   content: none;
 }
 
+.agent-composer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 14rem;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateX(0);
+  visibility: visible;
+  transition:
+    max-width 180ms ease,
+    opacity 140ms ease,
+    transform 180ms ease,
+    visibility 0s;
+}
+
+.agent-composer-actions[data-hidden='true'] {
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(0.625rem);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    max-width 180ms ease,
+    opacity 140ms ease,
+    transform 180ms ease,
+    visibility 0s linear 180ms;
+}
+
+[dir='rtl'] .agent-composer-actions[data-hidden='true'] {
+  transform: translateX(-0.625rem);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

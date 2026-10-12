@@ -50,7 +50,7 @@ export function HomeAgentComposer() {
             aria-label={locale === 'ar' ? 'إرسال الرسالة' : 'Send message'}
             data-testid="button-home-open-agent"
           >
-            <ArrowUp className="size-4" aria-hidden="true" />
+             <ArrowUp className="size-5" aria-hidden="true" />
           </Button>
         </InputGroupAddon>
       </InputGroup>
