@@ -63,7 +63,7 @@ export function ThemeModeToggle({
 
   return (
     <div className={groupClass}>
-      {compact ? (
+      {placement === 'menu' ? (
         <DropdownMenuRadioGroup
           aria-label={locale === 'ar' ? 'اختيار المظهر' : 'Appearance mode'}
           value={preferences.modePreference}
