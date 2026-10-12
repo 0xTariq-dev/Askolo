@@ -208,7 +208,10 @@ export function BrandSloganReveal() {
               >
                 {activeSegment.parts.map(({ text, accent }, index) =>
                   accent ? (
-                    <span key={`${activeSegment.id}-${index}`} className="font-bold text-primary">
+                    <span
+                      key={`${activeSegment.id}-${index}`}
+                      className="askolo-slogan-accent font-bold text-primary"
+                    >
                       {text}
                     </span>
                   ) : (
