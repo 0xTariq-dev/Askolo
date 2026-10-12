@@ -21,7 +21,6 @@ import {
   useGetTranscriptionPreferences,
   useUpdateTranscriptionPreferences,
   getGetTranscriptionPreferencesQueryKey,
-  useListGoals,
 } from '@workspace/api-client-react';
 import { useLocale } from '@/contexts/locale-context';
 import { useSpaceScope } from '@/contexts/space-context';
@@ -32,6 +31,7 @@ import {
   updateV2Task,
   updateV2TaskOccurrence,
   createV2Task,
+  getV2GoalsForScope,
   type V2AgendaTask,
 } from '@/lib/agenda-v2-api';
 import { getMonthGridAgendaRange } from '@/lib/agenda-date-range';
@@ -94,7 +94,10 @@ export function PlanPage() {
   const { selectedSpaceId, spaces } = useSpaceScope();
   const [, setLocation] = useLocation();
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [kindFilter, setKindFilter] = useState<'all' | PlanFormValues['kind']>('all');
+  const search = new URLSearchParams(window.location.search);
+  const [kindFilter, setKindFilter] = useState<'all' | PlanFormValues['kind']>(
+    search.get('kind') === 'habit' ? 'habit' : 'all',
+  );
   const [monthDate, setMonthDate] = useState(new Date());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -106,9 +109,21 @@ export function PlanPage() {
   const [agendaReloadKey, setAgendaReloadKey] = useState(0);
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [targetSpaceId, setTargetSpaceId] = useState('');
-  const [activeAgendaTab, setActiveAgendaTab] = useState('calendar');
+  const [activeAgendaTab, setActiveAgendaTab] = useState(
+    search.get('tab') === 'tasks' ? 'tasks' : 'calendar',
+  );
   const [calendarEventCount, setCalendarEventCount] = useState(0);
-  const { data: goalItems = [] } = useListGoals();
+  const [goalCount, setGoalCount] = useState<number | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setGoalCount(null);
+    getV2GoalsForScope(selectedSpaceId, controller.signal)
+      .then((items) => setGoalCount(items.length))
+      .catch(() => {
+        if (!controller.signal.aborted) setGoalCount(-1);
+      });
+    return () => controller.abort();
+  }, [selectedSpaceId]);
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [consentSaving, setConsentSaving] = useState(false);
@@ -301,7 +316,6 @@ export function PlanPage() {
   const completedCount = sortedPlans.filter((item) => item.completed).length;
   const formattedSelectedDate = formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' });
   const isArabic = locale === 'ar';
-  const goalCount = Array.isArray(goalItems) ? goalItems.length : 0;
 
   return (
     <PageTransition surface={false} className="mx-auto flex w-full max-w-[1440px] flex-col gap-5">
@@ -338,7 +352,9 @@ export function PlanPage() {
           >
             <Target className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{isArabic ? 'الأهداف' : 'Goals'}</span>
-            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{goalCount}</span>
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground" aria-label={goalCount === -1 ? 'Goals failed to load' : 'Goals'}>
+              {goalCount === null ? '…' : goalCount < 0 ? '!' : goalCount}
+            </span>
           </TabsTrigger>
           <TabsTrigger
             value="tasks"

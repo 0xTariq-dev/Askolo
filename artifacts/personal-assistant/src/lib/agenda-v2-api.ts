@@ -72,6 +72,19 @@ export type V2Workspace = {
   role: string;
 };
 
+export type V2Goal = {
+  id: string;
+  workspaceId: string;
+  createdByUserId: string;
+  title: string;
+  description: string | null;
+  targetOn: string | null;
+  status: 'active' | 'paused' | 'completed';
+  progressPercent: number;
+  category: string | null;
+  workspaceName?: string;
+};
+
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 export async function getV2Workspaces(signal?: AbortSignal): Promise<V2Workspace[]> {
@@ -84,6 +97,78 @@ export async function getV2Workspaces(signal?: AbortSignal): Promise<V2Workspace
     throw new Error(`Spaces could not be loaded (${response.status}).`);
   }
   return response.json() as Promise<V2Workspace[]>;
+}
+
+export async function getV2Goals(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<V2Goal[]> {
+  const goals: V2Goal[] = [];
+  const limit = 100;
+  for (let offset = 0; ; offset += limit) {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    const response = await fetch(
+      `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/goals?${query}`,
+      { credentials: 'include', headers: { Accept: 'application/json' }, signal },
+    );
+    if (!response.ok) throw new Error(`Goals could not be loaded (${response.status}).`);
+    const page = await response.json() as V2Goal[];
+    goals.push(...page);
+    if (page.length < limit) return goals;
+  }
+}
+
+export async function getV2GoalsForScope(
+  workspaceId: string | null,
+  signal?: AbortSignal,
+): Promise<V2Goal[]> {
+  if (workspaceId) return getV2Goals(workspaceId, signal);
+  const workspaces = await getV2Workspaces(signal);
+  const goals = await Promise.all(workspaces.map(async (workspace) =>
+    (await getV2Goals(workspace.id, signal)).map((goal) => ({
+      ...goal,
+      workspaceName: workspace.name,
+    })),
+  ));
+  return goals.flat();
+}
+
+export type V2GoalInput = {
+  title: string;
+  description?: string | null;
+  targetOn?: string | null;
+  status?: V2Goal['status'];
+  progressPercent?: number;
+  category?: string | null;
+};
+
+export async function createV2Goal(workspaceId: string, input: V2GoalInput): Promise<V2Goal> {
+  const result = await v2Request<V2Goal>(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/goals`,
+    'POST',
+    { status: 'active', progressPercent: 0, ...input },
+  );
+  if (!result?.id) throw new Error('Goal was created without an identifier.');
+  return result;
+}
+
+export function updateV2Goal(
+  workspaceId: string,
+  goalId: string,
+  patch: Partial<V2GoalInput>,
+): Promise<V2Goal | undefined> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/goals/${encodeURIComponent(goalId)}`,
+    'PATCH',
+    patch,
+  );
+}
+
+export function archiveV2Goal(workspaceId: string, goalId: string): Promise<void> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/goals/${encodeURIComponent(goalId)}`,
+    'DELETE',
+  ) as Promise<void>;
 }
 
 export async function getV2AgendaPage(

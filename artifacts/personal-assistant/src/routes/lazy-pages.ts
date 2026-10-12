@@ -14,10 +14,6 @@ export const DashboardPage = lazy(() =>
   import('@/pages/dashboard-v2').then(({ DashboardPage }) => ({ default: DashboardPage })),
 );
 
-export const HabitsPage = lazy(() =>
-  import('@/pages/habits').then(({ HabitsPage }) => ({ default: HabitsPage })),
-);
-
 export const GoalsPage = lazy(() =>
   import('@/pages/goals').then(({ GoalsPage }) => ({ default: GoalsPage })),
 );

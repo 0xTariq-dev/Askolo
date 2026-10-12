@@ -1,17 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { addDays, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns';
 import { RefreshCw, Trash2 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
 import {
-  getGetDashboardSummaryQueryKey,
-  getListEventsQueryKey,
-  useCreateEvent,
-  useDeleteEvent,
   useGetGoogleStatus,
-  useListEvents,
   useSyncGoogleCalendar,
-  useUpdateEvent,
-  type Event,
 } from '@workspace/api-client-react';
 import type { CalendarEvent } from '@/components/reui/event-calendar/event-calendar-types';
 import { Pattern } from '@/components/examples/c-event-calendar-1';
@@ -20,27 +12,34 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useLocale } from '@/contexts/locale-context';
+import { useSpaceScope } from '@/contexts/space-context';
 import { useToast } from '@/hooks/use-toast';
+import {
+  createV2CalendarEvent,
+  deleteV2CalendarEvent,
+  getV2AgendaRange,
+  updateV2CalendarEvent,
+  type V2AgendaEvent,
+} from '@/lib/agenda-v2-api';
 
 function toDate(date: string, time?: string | null) {
   return new Date(`${date.slice(0, 10)}T${time || '00:00'}:00`);
 }
 
-function toCalendarEvent(event: Event): CalendarEvent<Event> {
-  const start = toDate(event.startDate, event.startTime);
-  const endDate = event.endDate || event.startDate;
-  let end = toDate(endDate, event.endTime);
-  if (event.allDay) end = addDays(toDate(endDate), 1);
+function toCalendarEvent(event: V2AgendaEvent): CalendarEvent<V2AgendaEvent> {
+  const start = new Date(event.startsAt);
+  let end = event.endsAt ? new Date(event.endsAt) : start;
+  if (event.allDay && event.endsAt) end = new Date(event.endsAt);
   else if (end <= start) end = new Date(start.getTime() + 30 * 60_000);
   return {
-    id: String(event.id),
-    title: event.title,
+    id: `${event.workspaceId ?? ''}:${event.id}`,
+    title: event.workspaceName ? `${event.workspaceName}: ${event.title}` : event.title,
     start,
     end,
     allDay: event.allDay,
     color: event.color || 'hsl(var(--primary))',
     data: event,
-    readOnly: false,
+    readOnly: Boolean(event.sourceProvider),
     draggable: false,
     resizable: false,
   };
@@ -48,7 +47,7 @@ function toCalendarEvent(event: Event): CalendarEvent<Event> {
 
 export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { locale, weekStartsOn } = useLocale();
-  const queryClient = useQueryClient();
+  const { selectedSpaceId, spaces } = useSpaceScope();
   const { toast } = useToast();
   const [range, setRange] = useState(() => {
     const today = new Date();
@@ -56,18 +55,35 @@ export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: numb
     const to = endOfWeek(new Date(today.getFullYear(), today.getMonth() + 1, 0), { weekStartsOn });
     return { from: format(from, 'yyyy-MM-dd'), to: format(to, 'yyyy-MM-dd') };
   });
-  const [editing, setEditing] = useState<Event | null>(null);
+  const [editing, setEditing] = useState<V2AgendaEvent | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [startTime, setStartTime] = useState('');
   const [saving, setSaving] = useState(false);
-  const { data: events = [], isLoading, isError, refetch } = useListEvents(range);
+  const [events, setEvents] = useState<V2AgendaEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setIsLoading(true);
+    setIsError(false);
+    getV2AgendaRange(selectedSpaceId, {
+      ...range,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }, controller.signal)
+      .then((agenda) => setEvents(agenda.calendarEvents))
+      .catch(() => {
+        if (!controller.signal.aborted) setIsError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
+  }, [range, selectedSpaceId, refreshKey]);
   useEffect(() => onCountChange?.(events.length), [events.length, onCountChange]);
   const { data: googleStatus } = useGetGoogleStatus();
-  const createEvent = useCreateEvent();
-  const updateEvent = useUpdateEvent();
-  const deleteEvent = useDeleteEvent();
   const syncGoogle = useSyncGoogleCalendar();
   const calendarEvents = useMemo(() => events.map(toCalendarEvent), [events]);
   const isArabic = locale === 'ar';
@@ -80,37 +96,47 @@ export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: numb
     setDialogOpen(true);
   };
 
-  const openEdit = (event: Event) => {
+  const openEdit = (event: V2AgendaEvent) => {
+    if (event.sourceProvider) {
+      toast({ title: isArabic ? 'حدث من التقويم' : 'Provider event', description: isArabic ? 'هذا الحدث للقراءة فقط.' : 'Provider events are read-only here.' });
+      return;
+    }
     setEditing(event);
     setTitle(event.title);
-    setStartDate(event.startDate.slice(0, 10));
-    setStartTime(event.startTime || '');
+    const start = new Date(event.startsAt);
+    setStartDate(format(start, 'yyyy-MM-dd'));
+    setStartTime(event.allDay ? '' : format(start, 'HH:mm'));
     setDialogOpen(true);
   };
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: getListEventsQueryKey() });
-    void queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+    setRefreshKey((key) => key + 1);
   };
 
   const saveEvent = async (formEvent: React.FormEvent<HTMLFormElement>) => {
     formEvent.preventDefault();
     if (!title.trim()) return;
     setSaving(true);
+    const startsAt = new Date(`${startDate}T${startTime || '00:00'}:00`);
+    const endsAt = startTime
+      ? new Date(startsAt.getTime() + 30 * 60_000)
+      : addDays(new Date(`${startDate}T00:00:00`), 1);
     const payload = {
       title: title.trim(),
-      startDate,
-      startTime,
-      endDate: startDate,
-      endTime: startTime,
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
       allDay: !startTime,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       description: editing?.description || '',
       location: editing?.location || '',
-      color: editing?.color || 'hsl(var(--primary))',
+      color: editing?.color || '#64748b',
     };
     try {
-      if (editing) await updateEvent.mutateAsync({ id: editing.id, data: payload });
-      else await createEvent.mutateAsync({ data: payload });
+      const workspaceId = editing?.workspaceId ?? selectedSpaceId
+        ?? spaces.find((space) => space.isPersonal)?.id ?? spaces[0]?.id;
+      if (!workspaceId) throw new Error('Choose a Space before creating an event.');
+      if (editing) await updateV2CalendarEvent(workspaceId, editing.id, payload);
+      else await createV2CalendarEvent(workspaceId, payload);
       setDialogOpen(false);
       refresh();
     } catch (error) {
@@ -124,7 +150,9 @@ export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: numb
     if (!editing || !window.confirm(isArabic ? 'هل تريد حذف هذا الحدث؟' : 'Delete this event?')) return;
     setSaving(true);
     try {
-      await deleteEvent.mutateAsync({ id: editing.id });
+      const workspaceId = editing.workspaceId ?? selectedSpaceId;
+      if (!workspaceId) throw new Error('This event has no Space owner.');
+      await deleteV2CalendarEvent(workspaceId, editing.id);
       setDialogOpen(false);
       refresh();
     } catch (error) {
@@ -152,7 +180,7 @@ export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: numb
       {isError ? (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm" role="alert">
           <p className="text-destructive">{isArabic ? 'تعذر تحميل الأحداث.' : 'Calendar events could not be loaded.'}</p>
-          <Button variant="outline" size="sm" className="mt-3" onClick={() => void refetch()}>{isArabic ? 'إعادة المحاولة' : 'Try again'}</Button>
+          <Button variant="outline" size="sm" className="mt-3" onClick={refresh}>{isArabic ? 'إعادة المحاولة' : 'Try again'}</Button>
         </div>
       ) : (
         <Pattern

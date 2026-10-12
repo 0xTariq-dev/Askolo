@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -16,15 +15,14 @@ import {
   Check
 } from 'lucide-react';
 
+import { useSpaceScope } from '@/contexts/space-context';
 import {
-  useListGoals,
-  useCreateGoal,
-  useUpdateGoal,
-  useDeleteGoal,
-  getListGoalsQueryKey,
-  getGetDashboardSummaryQueryKey,
-  Goal
-} from '@workspace/api-client-react';
+  archiveV2Goal,
+  createV2Goal,
+  getV2GoalsForScope,
+  updateV2Goal,
+  type V2Goal,
+} from '@/lib/agenda-v2-api';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -35,6 +33,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Slider } from '@/components/ui/slider';
 import { PageTransition } from '@/components/ui/page-transition';
+import { useToast } from '@/hooks/use-toast';
 
 const CATEGORY_COLORS: Record<string, string> = {
   'Health': 'bg-success/10 text-success border-success/30',
@@ -56,16 +55,53 @@ const goalSchema = z.object({
 
 type GoalFormValues = z.infer<typeof goalSchema>;
 
+type Goal = {
+  id: string;
+  workspaceId: string;
+  workspaceName?: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  targetDate: string | null;
+  progress: number;
+  status: 'active' | 'paused' | 'completed';
+};
+
+const fromV2Goal = (goal: V2Goal): Goal => ({
+  id: goal.id,
+  workspaceId: goal.workspaceId,
+  workspaceName: goal.workspaceName,
+  title: goal.title,
+  description: goal.description,
+  category: goal.category,
+  targetDate: goal.targetOn,
+  progress: goal.progressPercent,
+  status: goal.status,
+});
+
 export function GoalsPage() {
-  const qc = useQueryClient();
-  const { data: goals, isLoading } = useListGoals();
-  
+  const { selectedSpaceId, spaces } = useSpaceScope();
+  const { toast } = useToast();
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
-
-  const createGoal = useCreateGoal();
-  const updateGoal = useUpdateGoal();
-  const deleteGoal = useDeleteGoal();
+  useEffect(() => {
+    const controller = new AbortController();
+    setIsLoading(true);
+    setLoadError('');
+    getV2GoalsForScope(selectedSpaceId, controller.signal)
+      .then((items) => setGoals(items.map(fromV2Goal)))
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : 'Goals could not be loaded.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
+  }, [selectedSpaceId, reloadKey]);
 
   const form = useForm<GoalFormValues>({
     resolver: zodResolver(goalSchema),
@@ -105,7 +141,7 @@ export function GoalsPage() {
     setDialogOpen(true);
   };
 
-  const onSubmit = (data: GoalFormValues) => {
+  const onSubmit = async (data: GoalFormValues) => {
     // If completed and progress < 100, auto-bump to 100
     if (data.status === 'completed' && data.progress < 100) {
       data.progress = 100;
@@ -115,85 +151,59 @@ export function GoalsPage() {
       data.status = 'completed';
     }
 
-    // Convert empty targetDate back to undefined to avoid API errors
-    const payload = { ...data };
-    if (!payload.targetDate) delete payload.targetDate;
-
-    if (editingGoal) {
-      updateGoal.mutate({
-        id: editingGoal.id,
-        data: payload,
-      }, {
-        onSuccess: () => {
-          qc.invalidateQueries({ queryKey: getListGoalsQueryKey() });
-          qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          setDialogOpen(false);
-        }
-      });
-    } else {
-      createGoal.mutate({
-        data: payload,
-      }, {
-        onSuccess: () => {
-          qc.invalidateQueries({ queryKey: getListGoalsQueryKey() });
-          qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          setDialogOpen(false);
-        }
-      });
+    const workspaceId = editingGoal?.workspaceId
+      ?? selectedSpaceId
+      ?? spaces.find((space) => space.isPersonal)?.id
+      ?? spaces[0]?.id;
+    if (!workspaceId) throw new Error('Choose a Space before creating a goal.');
+    const payload = {
+      title: data.title.trim(),
+      description: data.description?.trim() || null,
+      category: data.category || null,
+      targetOn: data.targetDate || null,
+      progressPercent: data.progress,
+      status: data.status,
+    };
+    try {
+      if (editingGoal) await updateV2Goal(workspaceId, editingGoal.id, payload);
+      else await createV2Goal(workspaceId, payload);
+      setDialogOpen(false);
+      setReloadKey((key) => key + 1);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Goal could not be saved', description: error instanceof Error ? error.message : undefined });
     }
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (goal: Goal) => {
     if (confirm("Delete this goal?")) {
-      deleteGoal.mutate({ id }, {
-        onSuccess: () => {
-          qc.invalidateQueries({ queryKey: getListGoalsQueryKey() });
-          qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-        }
-      });
+      try {
+        await archiveV2Goal(goal.workspaceId, goal.id);
+        setGoals((items) => items.filter((item) => item.id !== goal.id));
+      } catch (error) {
+        toast({ variant: 'destructive', title: 'Goal could not be deleted', description: error instanceof Error ? error.message : undefined });
+      }
     }
   };
 
-  const incrementProgress = (goal: Goal, amount: number) => {
+  const incrementProgress = async (goal: Goal, amount: number) => {
     const newProgress = Math.min(100, goal.progress + amount);
     const newStatus = newProgress === 100 ? 'completed' : goal.status;
-    
-    // Optimistic update
-    qc.setQueryData(getListGoalsQueryKey(), (old: Goal[] | undefined) => {
-      if (!old) return old;
-      return old.map(g => hIdMatch(g, goal.id, { progress: newProgress, status: newStatus }));
-    });
-
-    updateGoal.mutate({
-      id: goal.id,
-      data: { progress: newProgress, status: newStatus }
-    }, {
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: getListGoalsQueryKey() });
-        qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-      }
-    });
+    try {
+      await updateV2Goal(goal.workspaceId, goal.id, { progressPercent: newProgress, status: newStatus });
+      setGoals((items) => items.map((item) => item.id === goal.id ? { ...item, progress: newProgress, status: newStatus } : item));
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Progress could not be updated', description: error instanceof Error ? error.message : undefined });
+    }
   };
 
-  const markComplete = (goal: Goal) => {
-    // Optimistic update
-    qc.setQueryData(getListGoalsQueryKey(), (old: Goal[] | undefined) => {
-      if (!old) return old;
-      return old.map(g => hIdMatch(g, goal.id, { progress: 100, status: 'completed' }));
-    });
-
-    updateGoal.mutate({
-      id: goal.id,
-      data: { status: 'completed', progress: 100 }
-    }, {
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: getListGoalsQueryKey() });
-        qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-      }
-    });
+  const markComplete = async (goal: Goal) => {
+    try {
+      await updateV2Goal(goal.workspaceId, goal.id, { status: 'completed', progressPercent: 100 });
+      setGoals((items) => items.map((item) => item.id === goal.id ? { ...item, progress: 100, status: 'completed' } : item));
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Goal could not be completed', description: error instanceof Error ? error.message : undefined });
+    }
   };
-
-  const hIdMatch = (g: Goal, id: number, updates: any) => g.id === id ? { ...g, ...updates } : g;
 
   const sortedGoals = goals ? [...goals].sort((a, b) => {
     const statusOrder = { active: 0, paused: 1, completed: 2 };
@@ -238,11 +248,16 @@ export function GoalsPage() {
               key={goal.id} 
               goal={goal} 
               onEdit={() => openEdit(goal)}
-              onDelete={() => handleDelete(goal.id)}
+              onDelete={() => void handleDelete(goal)}
               onIncrement={() => incrementProgress(goal, 10)}
               onComplete={() => markComplete(goal)}
             />
           ))}
+        </div>
+      ) : loadError ? (
+        <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm">
+          <p className="text-destructive">{loadError}</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => setReloadKey((key) => key + 1)}>Try again</Button>
         </div>
       ) : (
         <div className="text-center py-20 bg-card/50 rounded-2xl border border-dashed border-border/60 backdrop-blur-sm">
@@ -265,6 +280,9 @@ export function GoalsPage() {
             <DialogTitle>{editingGoal ? 'Edit Goal' : 'New Goal'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+            {!selectedSpaceId && !editingGoal && (
+              <p className="text-sm text-muted-foreground">When viewing all Spaces, new goals are saved to your personal Space.</p>
+            )}
             <div className="space-y-2">
               <Label htmlFor="title">Goal Title</Label>
               <Input 

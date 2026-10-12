@@ -35,7 +35,6 @@ import {
   DashboardPage,
   EmailPage,
   GoalsPage,
-  HabitsPage,
   LandingPage,
   LoginPage,
   NotesPage,
@@ -155,7 +154,7 @@ function AuthenticatedPageRoutes() {
       <Route path="/sign-up"><Redirect to="/home" /></Route>
       <Route path="/home" component={DashboardPage} />
       <Route path="/dashboard"><Redirect to="/home" /></Route>
-      <Route path="/habits" component={HabitsPage} />
+      <Route path="/habits"><Redirect to="/agenda?tab=tasks&kind=habit" /></Route>
       <Route path="/goals" component={GoalsPage} />
       <Route path="/agenda" component={PlanPage} />
       <Route path="/plan"><Redirect to="/agenda" /></Route>

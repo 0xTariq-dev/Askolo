@@ -936,7 +936,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                         <BubbleContent><p dir="auto" className="whitespace-pre-wrap">{msg.content}</p>
                     {msg.role === 'assistant' &&
                       msg.state === 'needs_confirmation' &&
-                      ['create_action_item', 'send_gmail', 'create_calendar_event'].includes(
+                      ['send_gmail', 'create_calendar_event'].includes(
                         msg.intent?.tool ?? '',
                       ) &&
                       msg.runId &&
@@ -948,7 +948,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                               ? 'Email to send'
                               : msg.intent?.tool === 'create_calendar_event'
                                 ? 'Calendar event to create'
-                                : 'Action item to add'}
+                                : 'Action to review'}
                           </p>
                           {msg.intent?.tool === 'send_gmail' ? (
                             <div className="space-y-2 text-sm">
@@ -1007,7 +1007,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                                     ? 'Confirm sending this email'
                                     : msg.intent?.tool === 'create_calendar_event'
                                       ? 'Confirm creating this calendar event'
-                                      : `Confirm adding ${msg.intent?.title ?? 'action item'}`
+                                  : `Confirm action ${msg.intent?.title ?? ''}`
                                 }
                               >
                                 {pendingActionId === msg.runId ? (
@@ -1033,7 +1033,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
                                     ? 'Dismiss sending this email'
                                     : msg.intent?.tool === 'create_calendar_event'
                                       ? 'Dismiss creating this calendar event'
-                                      : `Dismiss adding ${msg.intent?.title ?? 'action item'}`
+                                      : `Dismiss action ${msg.intent?.title ?? ''}`
                                 }
                               >
                                 Not now

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
-	policy "askolo/backend/internal/platform/authorization"
 	"askolo/backend/internal/platform/publicws"
 )
 
@@ -99,7 +98,7 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 	}{
 		{name: "ordinary request", content: `{"intent":"none","arguments":{},"message":"I can help with that."}`, wantIntent: "none", wantMessage: "I can help with that."},
 		{name: "clarification", content: `{"intent":"clarify","arguments":{},"message":"What should I clarify?"}`, wantIntent: "clarify", wantMessage: "What should I clarify?"},
-		{name: "allow-listed action", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"I'll prepare that action item."}`, wantIntent: "create_action_item", wantTitle: "Buy milk", wantMessage: "I'll prepare that action item."},
+{name: "retired action tool", content: `{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"That tool is no longer available."}`, wantErr: true},
 		{name: "unknown tool", content: `{"intent":"send_email","arguments":{"title":"Hello"},"message":"I can't do that."}`, wantErr: true},
 		{name: "extra field", content: `{"intent":"none","arguments":{},"message":"I can help.","risk":"low"}`, wantErr: true},
 		{name: "duplicate field", content: `{"intent":"none","intent":"create_action_item","arguments":{},"message":"I can help."}`, wantErr: true},
@@ -147,46 +146,28 @@ func TestDecodeAssistantModelPlan(t *testing.T) {
 	}
 }
 
-func TestAssistantToolRegistryKeepsBuiltInToolsAndPreparesConfirmedAction(t *testing.T) {
+func TestAssistantToolRegistryExcludesLegacyActionTool(t *testing.T) {
 	registry := newAssistantToolRegistry()
 	wantTools := strings.Join([]string{
-		assistantToolCreateActionItem,
 		assistantToolCreateCalendar,
 		assistantToolSendGmail,
 	}, ",")
 	if got := strings.Join(registry.names(), ","); got != wantTools {
 		t.Fatalf("registered tools = %q, want %q", got, wantTools)
 	}
-	definition, prepared, err := registry.prepare(
-		assistantToolCreateActionItem,
-		json.RawMessage(`{"title":"  Buy milk  "}`),
-	)
-	if err != nil {
-		t.Fatalf("prepare existing action: %v", err)
+	if _, ok := registry.lookup("create_action_item"); ok {
+		t.Fatal("legacy action-item tool is still registered")
 	}
-	if definition.ResourceType != "actionItem" || definition.ResourcePermission != policy.ActionResourceCreate {
-		t.Fatalf("action authorization = %q/%q, want actionItem/create", definition.ResourceType, definition.ResourcePermission)
-	}
-	var storedIntent assistantIntent
-	if err := json.Unmarshal(prepared.Intent, &storedIntent); err != nil {
-		t.Fatalf("decode stored action intent: %v", err)
-	}
-	if storedIntent.Tool != assistantToolCreateActionItem || storedIntent.Title != "Buy milk" {
-		t.Fatalf("stored intent = %#v, want normalized action item", storedIntent)
-	}
-	if prepared.ConfirmationMessage != "I can add “Buy milk” to your action items. Confirm to save it." {
-		t.Fatalf("confirmation message = %q", prepared.ConfirmationMessage)
-	}
-	if _, _, err := registry.prepare("create_goal", json.RawMessage(`{"title":"Run"`)); err == nil {
-		t.Fatal("unregistered goal tool was accepted")
+	if _, _, err := registry.prepare("create_action_item", json.RawMessage(`{"title":"Buy milk"}`)); err == nil {
+		t.Fatal("legacy action-item tool was accepted")
 	}
 }
 
 func TestAssistantToolRegistryRejectsDuplicateAndNonStrictDefinitions(t *testing.T) {
 	registry := newAssistantToolRegistry()
-	existing, ok := registry.lookup(assistantToolCreateActionItem)
+	existing, ok := registry.lookup(assistantToolCreateCalendar)
 	if !ok {
-		t.Fatal("existing action item tool is not registered")
+		t.Fatal("calendar tool is not registered")
 	}
 	if err := registry.Register(existing); err == nil {
 		t.Fatal("duplicate tool registration was accepted")
@@ -197,7 +178,6 @@ func TestAssistantToolRegistryRejectsDuplicateAndNonStrictDefinitions(t *testing
 		t.Fatal("tool schema allowing arbitrary arguments was accepted")
 	}
 	wantTools := strings.Join([]string{
-		assistantToolCreateActionItem,
 		assistantToolCreateCalendar,
 		assistantToolSendGmail,
 	}, ",")
@@ -208,13 +188,13 @@ func TestAssistantToolRegistryRejectsDuplicateAndNonStrictDefinitions(t *testing
 
 func TestPrepareAssistantPlanOutcomeUsesRegistryAndRequiresConfirmation(t *testing.T) {
 	plan := assistantModelPlan{
-		Intent:    assistantToolCreateActionItem,
-		Arguments: json.RawMessage(`{"title":"Buy milk"}`),
+		Intent:    assistantToolCreateCalendar,
+Arguments: json.RawMessage(`{"title":"Planning","start":"2027-10-12T10:00:00Z","end":"2027-10-12T10:30:00Z"}`),
 	}
 	outcome := prepareAssistantPlanOutcome(plan, newAssistantToolRegistry())
 	if outcome.State != "needs_confirmation" ||
 		!outcome.RequiresConfirmation ||
-		outcome.ToolName != assistantToolCreateActionItem ||
+		outcome.ToolName != assistantToolCreateCalendar ||
 		outcome.RiskLevel != "write" ||
 		outcome.IntentSHA256 == "" ||
 		outcome.IntentSHA256 != outcome.ToolArgsSHA256 {
@@ -335,10 +315,10 @@ func TestOpenAIAssistantPlannerPostsConstrainedRequestAndReturnsUsage(t *testing
 			if request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "untrusted data") {
 				t.Errorf("system message does not enforce the untrusted-input boundary: %#v", request.Messages[0])
 			}
-			if !strings.Contains(request.Messages[0].Content, assistantToolCreateActionItem) ||
+			if strings.Contains(request.Messages[0].Content, "create_action_item") ||
 				!strings.Contains(request.Messages[0].Content, "arguments_schema") ||
 				strings.Contains(request.Messages[0].Content, "create_goal") {
-				t.Errorf("system message does not describe only registered tools: %q", request.Messages[0].Content)
+				t.Errorf("system message exposes an obsolete tool or omits schema details: %q", request.Messages[0].Content)
 			}
 			if request.Messages[1].Role != "user" || request.Messages[1].Content != transcript {
 				t.Errorf("user message = %#v, want the exact transcript", request.Messages[1])
@@ -355,7 +335,7 @@ func TestOpenAIAssistantPlannerPostsConstrainedRequestAndReturnsUsage(t *testing
 		_, _ = w.Write([]byte(assistantPlannerProviderEnvelope(
 			assistantPlannerModel,
 			"planner-request-test",
-			[]string{`{"intent":"create_action_item","arguments":{"title":"Buy milk"},"message":"I'll prepare that action item."}`},
+			[]string{`{"intent":"none","arguments":{},"message":"I can help."}`},
 			31,
 			8,
 		)))
@@ -380,8 +360,8 @@ func TestOpenAIAssistantPlannerPostsConstrainedRequestAndReturnsUsage(t *testing
 	if err := json.Unmarshal(plan.Arguments, &planArguments); err != nil {
 		t.Fatalf("decode plan arguments: %v", err)
 	}
-	if plan.Intent != assistantToolCreateActionItem || planArguments.Title != "Buy milk" || plan.Message != "I'll prepare that action item." {
-		t.Fatalf("plan = %#v, want create_action_item / Buy milk", plan)
+	if plan.Intent != assistantIntentNone || plan.Message != "I can help." {
+		t.Fatalf("plan = %#v, want ordinary assistant response", plan)
 	}
 	if plan.ProviderModel != assistantPlannerModel || plan.ProviderRequestID != "planner-request-test" {
 		t.Fatalf("provider metadata = model %q, request %q", plan.ProviderModel, plan.ProviderRequestID)
