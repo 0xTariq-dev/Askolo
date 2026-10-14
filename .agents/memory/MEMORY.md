@@ -79,4 +79,5 @@
 - [Space-centric product scope](workspace-first-product-scope.md) — use Spaces and Home in product UI; support family and professional Spaces, with explicit Agent scope.
 - [Retired Actions and Chores routes](retired-actions-chores.md) — remove routes and aliases outright; never redirect them or delete stored records.
 - [Askolo mark colors](askolo-mark-colors.md) — avoid flat tints; preserve the glass highlights and depth when recoloring the mark.
+- [Home Gmail incremental sync](home-gmail-incremental-sync.md) — seed only the 30 days before account linking; use a purpose-derived HMAC key for minimal thread state and rebaseline after key rotation.
 
