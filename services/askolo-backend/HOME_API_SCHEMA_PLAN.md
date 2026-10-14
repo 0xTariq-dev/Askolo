@@ -88,7 +88,7 @@ Disposable PostgreSQL verification ran before the separately approved Developmen
 2. Focused PostgreSQL, product, Google, HTTP API, migration, and migration-command Go test suites passed against the disposable test database.
 3. The live Development identity and migration ledger were verified before and after migration; the ledger now contains versions 0–18 and the Home relations exist in `public_v2`.
 4. The migration runner's `development-live` guard verified the Development database identity. The legacy `public` schema remains present, and the source file for migration 0016 is unchanged.
-5. Home summary reads use the projection table. A background provider sync writer and its freshness/retry/retention policy remain separate follow-up work.
+5. Home summary reads use the projection table. An hourly Go worker now fetches Gmail metadata under the read-only grant, claims sync work across API processes, and writes only aggregate counts and sync metadata after rechecking eligibility. Provider notifications, retention policy, overflow behavior for large inboxes, and operational freshness tuning remain follow-up work.
 
 ## Follow-up decisions
 

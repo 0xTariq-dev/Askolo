@@ -118,7 +118,7 @@ The canonical V2 responsibility routes are `/tasks` and their occurrence subrout
 
 ### Home API implemented
 
-The following Home routes and payloads are implemented in the Go API. Email-summary reads use the projection table; a background provider sync writer and its freshness/retry/retention policy remain follow-up work.
+The following Home routes and payloads are implemented in the Go API. Email-summary reads use the V2 projection table. A lifecycle-managed hourly Gmail summary worker now refreshes eligible connections with the separate read-only grant, rechecks access before writes, bounds work, and persists only aggregate counts and sync metadata. It does not persist message content. Provider notifications, retention policy, and operational freshness tuning remain separate follow-up work.
 
 | Method and path | Purpose |
 | --- | --- |

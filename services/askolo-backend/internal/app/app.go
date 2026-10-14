@@ -34,6 +34,7 @@ type App struct {
 	environment               string
 	serviceName               string
 	shutdownRealtimeSessions  func(context.Context) error
+	runHomeEmailSummarySync   func(context.Context)
 }
 
 func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
@@ -42,7 +43,7 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 	}
 
 	cleanupState := &emailChallengeCleanupState{}
-	handler, shutdownRealtimeSessions := httpapi.NewWithShutdown(cfg, logger, store, cleanupState.readiness)
+	handler, shutdownRealtimeSessions, runHomeEmailSummarySync := httpapi.NewWithShutdown(cfg, logger, store, cleanupState.readiness)
 	return &App{
 		logger:                    logger,
 		store:                     store,
@@ -51,6 +52,7 @@ func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
 		environment:               cfg.Environment,
 		serviceName:               cfg.ServiceName,
 		shutdownRealtimeSessions:  shutdownRealtimeSessions,
+		runHomeEmailSummarySync:   runHomeEmailSummarySync,
 		server: &http.Server{
 			Addr:              cfg.Host + ":" + strconv.Itoa(cfg.Port),
 			Handler:           handler,
@@ -134,9 +136,17 @@ func (a *App) Run(ctx context.Context) error {
 	cleanupContext, cancelCleanup := context.WithCancel(ctx)
 	cleanupDone := make(chan struct{})
 	go a.runEmailChallengeCleanup(cleanupContext, cleanupDone)
+	homeSyncDone := make(chan struct{})
+	go func() {
+		defer close(homeSyncDone)
+		if a.runHomeEmailSummarySync != nil {
+			a.runHomeEmailSummarySync(cleanupContext)
+		}
+	}()
 	defer func() {
 		cancelCleanup()
 		<-cleanupDone
+		<-homeSyncDone
 	}()
 
 	go func() {
@@ -156,6 +166,7 @@ func (a *App) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		cancelCleanup()
 		<-cleanupDone
+		<-homeSyncDone
 		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		return a.shutdown(shutdownContext)

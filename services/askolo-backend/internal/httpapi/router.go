@@ -171,7 +171,7 @@ func New(
 	store *postgres.Store,
 	cleanupReadinessProviders ...EmailChallengeCleanupReadinessProvider,
 ) http.Handler {
-	handler, _ := NewWithShutdown(cfg, logger, store, cleanupReadinessProviders...)
+	handler, _, _ := NewWithShutdown(cfg, logger, store, cleanupReadinessProviders...)
 	return handler
 }
 
@@ -180,7 +180,7 @@ func NewWithShutdown(
 	logger *slog.Logger,
 	store *postgres.Store,
 	cleanupReadinessProviders ...EmailChallengeCleanupReadinessProvider,
-) (http.Handler, func(context.Context) error) {
+) (http.Handler, func(context.Context) error, func(context.Context)) {
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
 	authHandler := authmodule.NewHandler(cfg, store, logger)
@@ -379,7 +379,7 @@ func NewWithShutdown(
 	mux.Handle(PublishedAPIPath+"/", apiMux)
 	mux.HandleFunc("/", notFound)
 
-	return httpx.Middleware(logger, mux), productHandler.ShutdownRealtimeSessions
+	return httpx.Middleware(logger, mux), productHandler.ShutdownRealtimeSessions, googleHandler.RunHomeEmailSummarySync
 }
 
 func dependencyReadinessStatus(
