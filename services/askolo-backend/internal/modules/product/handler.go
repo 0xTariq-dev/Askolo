@@ -921,7 +921,10 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		"habits": habitRows, "goals": goalRows, "todayPlan": planRows, "upcomingEvents": limit(eventRows, 5),
 		"pendingChores": limit(choreRows, 5), "openActionItems": limit(actionRows, 10),
 		"habitsCompletedToday": habitsCompleted, "habitsTotal": len(habitRows), "goalsActive": activeGoals, "goalsCompleted": completedGoals,
-		"googleConnection": map[string]any{"connected": false, "scopes": []string{}, "calendarConnected": false, "gmailConnected": false},
+		"googleConnection": map[string]any{
+			"connected": false, "scopes": []string{}, "calendarConnected": false,
+			"gmailConnected": false, "gmailActionRequired": false,
+		},
 	})
 }
 

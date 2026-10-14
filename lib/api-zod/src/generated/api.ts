@@ -1306,7 +1306,8 @@ export const GetDashboardSummaryResponse = zod.object({
   "connected": zod.boolean(),
   "scopes": zod.array(zod.string()).optional(),
   "calendarConnected": zod.boolean(),
-  "gmailConnected": zod.boolean()
+  "gmailConnected": zod.boolean(),
+  "gmailActionRequired": zod.boolean()
 })
 })
 
@@ -2077,7 +2078,8 @@ export const GetGoogleStatusResponse = zod.object({
   "connected": zod.boolean(),
   "scopes": zod.array(zod.string()).optional(),
   "calendarConnected": zod.boolean(),
-  "gmailConnected": zod.boolean()
+  "gmailConnected": zod.boolean(),
+  "gmailActionRequired": zod.boolean()
 })
 
 

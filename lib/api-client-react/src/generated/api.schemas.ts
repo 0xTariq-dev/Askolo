@@ -726,6 +726,7 @@ export interface GoogleConnectionStatus {
   scopes?: string[];
   calendarConnected: boolean;
   gmailConnected: boolean;
+  gmailActionRequired: boolean;
 }
 
 export interface DashboardSummary {

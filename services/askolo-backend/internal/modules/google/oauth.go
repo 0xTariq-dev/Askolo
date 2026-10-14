@@ -519,13 +519,20 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connected, calendarConnected, gmailConnected, scopes := summarizeGoogleConnections(connections)
+	gmailActionRequired, err := h.store.HasV2HomeEmailActionRequired(r.Context(), userID)
+	if err != nil {
+		h.logger.Error("Google Gmail action-required lookup failed", "user_id", userID)
+		writeError(w, http.StatusInternalServerError, "GOOGLE_STATUS_FAILED", "Google connection status is unavailable.")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"accounts":          response,
-		"connected":         connected,
-		"scopes":            scopes,
-		"calendarConnected": calendarConnected,
-		"gmailConnected":    gmailConnected,
-		"defaults":          defaults,
+		"accounts":            response,
+		"connected":           connected,
+		"scopes":              scopes,
+		"calendarConnected":   calendarConnected,
+		"gmailConnected":      gmailConnected,
+		"gmailActionRequired": gmailActionRequired,
+		"defaults":            defaults,
 	})
 }
 

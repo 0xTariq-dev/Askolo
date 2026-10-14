@@ -17,3 +17,16 @@ func TestHomeEmailThreadTokenIsPurposeScopedAndStable(t *testing.T) {
 		t.Fatal("token must not expose the raw Gmail thread ID")
 	}
 }
+
+func TestHomeEmailThreadKeyFingerprintDetectsRootRotation(t *testing.T) {
+	first := homeEmailThreadKeyFingerprint("test-auth-hmac-secret-with-at-least-32-bytes")
+	if first == "" || first != homeEmailThreadKeyFingerprint("test-auth-hmac-secret-with-at-least-32-bytes") {
+		t.Fatal("fingerprint must be stable for the same root secret")
+	}
+	if first == homeEmailThreadKeyFingerprint("rotated-auth-hmac-secret-with-at-least-32-bytes") {
+		t.Fatal("fingerprint must change when the root secret rotates")
+	}
+	if len(first) != 64 {
+		t.Fatalf("fingerprint length = %d, want 64 hex characters", len(first))
+	}
+}

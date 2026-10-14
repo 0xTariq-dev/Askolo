@@ -81,7 +81,9 @@ func (h *Handler) syncHomeEmailSummaries(ctx context.Context) {
 		cancel()
 		if err != nil {
 			errorCtx, errorCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = h.store.MarkV2HomeEmailSummaryError(errorCtx, target)
+			_ = h.store.MarkV2HomeEmailSummaryError(
+				errorCtx, target, isHomeEmailActionRequired(err),
+			)
 			errorCancel()
 			h.logger.Warn("Home Gmail summary sync failed",
 				"operation", "home_gmail_summary_sync",
@@ -99,66 +101,17 @@ func (h *Handler) syncHomeEmailSummaries(ctx context.Context) {
 	)
 }
 
+func isHomeEmailActionRequired(err error) bool {
+	var provider operationError
+	return errors.As(err, &provider) &&
+		(provider.status == http.StatusUnauthorized ||
+			provider.status == http.StatusForbidden ||
+			provider.code == "GOOGLE_AUTHORIZATION_EXPIRED" ||
+			provider.code == "GOOGLE_PERMISSION_REQUIRED")
+}
+
 func (h *Handler) syncHomeEmailSummary(ctx context.Context, target postgres.V2HomeEmailSyncTarget) error {
-	if target.OwnerEmail == "" {
-		return errors.New("connected account email is unavailable")
-	}
-	_, token, err := h.connectionToken(ctx, target.OwnerUserID, target.ConnectionID, "gmail.read")
-	if err != nil {
-		return err
-	}
-	threads, err := h.listHomeInboxThreads(ctx, token)
-	if err != nil {
-		return err
-	}
-	inboxMetadata := make([]homeEmailThreadMetadata, 0, len(threads))
-	var unread int64
-	for _, threadID := range threads {
-		thread, err := h.fetchHomeSummaryThread(ctx, token, threadID)
-		if err != nil {
-			return err
-		}
-		metadata := homeEmailThreadMetadata{ID: threadID}
-		for _, message := range thread.Messages {
-			from := ""
-			for _, header := range message.Payload.Headers {
-				if header.Name == "From" || header.Name == "from" {
-					from = header.Value
-					break
-				}
-			}
-			metadata.Messages = append(metadata.Messages, homeEmailMessageMetadata{
-				ThreadID: message.ThreadID, InternalDate: message.InternalDate, From: from,
-			})
-			if hasString(message.LabelIDs, "INBOX") && hasString(message.LabelIDs, "UNREAD") {
-				unread++
-			}
-		}
-		inboxMetadata = append(inboxMetadata, metadata)
-	}
-	starred, err := h.listHomeFlaggedMessages(ctx, token, "STARRED")
-	if err != nil {
-		return err
-	}
-	important, err := h.listHomeFlaggedMessages(ctx, token, "IMPORTANT")
-	if err != nil {
-		return err
-	}
-	flagged := append(starred, important...)
-	counts, err := calculateHomeEmailCounts(target.OwnerEmail, unread, inboxMetadata, flagged)
-	if err != nil {
-		return err
-	}
-	saved, err := h.store.SaveV2HomeEmailSummary(
-		ctx, target, counts.UnreadInboxCount, counts.ActionNeededCount,
-	)
-	if err != nil {
-		return err
-	}
-	if !saved {
-		return errors.New("Home Gmail account is no longer eligible")
-	}
-	return nil
+	return h.syncHomeEmailSummaryIncremental(ctx, target)
 }
 
 func (h *Handler) listHomeInboxThreads(ctx context.Context, token string) ([]string, error) {

@@ -365,9 +365,25 @@ func (h *Handler) googleRequest(ctx context.Context, method, endpoint, accessTok
 		return nil, operationError{http.StatusBadGateway, "GOOGLE_PROVIDER_UNAVAILABLE", "Google is temporarily unavailable."}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		response.Body.Close()
 		if response.StatusCode == http.StatusUnauthorized {
+			response.Body.Close()
 			return nil, operationError{http.StatusUnauthorized, "GOOGLE_AUTHORIZATION_EXPIRED", "Reconnect this Google account before using it."}
+		}
+		isGmailAPI := request.URL.Host == "gmail.googleapis.com"
+		if response.StatusCode == http.StatusForbidden && isGmailAPI {
+			reason := googleProviderErrorReason(response)
+			response.Body.Close()
+			if reason == "insufficientPermissions" || reason == "insufficientAuthenticationScopes" {
+				return nil, operationError{http.StatusForbidden, "GOOGLE_PERMISSION_REQUIRED", "Restore Gmail read permission for this Google account."}
+			}
+			return nil, operationError{http.StatusBadGateway, "GOOGLE_PROVIDER_FAILED", "Google could not complete the request."}
+		}
+		response.Body.Close()
+		if response.StatusCode == http.StatusNotFound && isGmailAPI && strings.Contains(request.URL.Path, "/history") {
+			return nil, operationError{http.StatusBadGateway, "GOOGLE_HISTORY_CURSOR_EXPIRED", "The Gmail history cursor expired."}
+		}
+		if response.StatusCode == http.StatusNotFound && isGmailAPI && strings.Contains(request.URL.Path, "/threads/") {
+			return nil, operationError{http.StatusNotFound, "GOOGLE_RESOURCE_NOT_FOUND", "The Gmail thread is no longer available."}
 		}
 		if response.StatusCode == http.StatusPreconditionFailed {
 			return nil, operationError{http.StatusConflict, "CALENDAR_CONFLICT", "This Google Calendar event changed elsewhere. Refresh it before retrying."}
@@ -375,6 +391,27 @@ func (h *Handler) googleRequest(ctx context.Context, method, endpoint, accessTok
 		return nil, operationError{http.StatusBadGateway, "GOOGLE_PROVIDER_FAILED", "Google could not complete the request."}
 	}
 	return response, nil
+}
+
+func googleProviderErrorReason(response *http.Response) string {
+	if response == nil || response.Body == nil {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 8<<10))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Error struct {
+			Errors []struct {
+				Reason string `json:"reason"`
+			} `json:"errors"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) != nil || len(payload.Error.Errors) == 0 {
+		return ""
+	}
+	return payload.Error.Errors[0].Reason
 }
 
 func (h *Handler) writeOperationError(w http.ResponseWriter, err error) {

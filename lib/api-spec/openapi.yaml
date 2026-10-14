@@ -3495,7 +3495,7 @@ components:
 
     GoogleConnectionStatus:
       type: object
-      required: [connected, calendarConnected, gmailConnected]
+      required: [connected, calendarConnected, gmailConnected, gmailActionRequired]
       properties:
         connected:
           type: boolean
@@ -3506,6 +3506,8 @@ components:
         calendarConnected:
           type: boolean
         gmailConnected:
+          type: boolean
+        gmailActionRequired:
           type: boolean
 
     GoogleCalendarSyncRequest:

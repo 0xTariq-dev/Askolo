@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,6 +14,39 @@ type V2HomeEmailSyncTarget struct {
 	ConnectionID string
 	OwnerUserID  string
 	OwnerEmail   string
+	LinkedAt     time.Time
+}
+
+func (s *Store) HasV2HomeEmailActionRequired(ctx context.Context, userID string) (bool, error) {
+	schema, err := s.v2Schema(ctx)
+	if err != nil {
+		return false, err
+	}
+	var required bool
+	err = s.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM `+v2Table(schema, "workspace_provider_account_access")+` a
+  JOIN `+v2Table(schema, "workspace_email_summaries")+` e
+    ON e.workspace_id = a.workspace_id
+   AND e.provider_connection_id = a.provider_connection_id
+  JOIN provider_connections c
+    ON c.id = a.provider_connection_id
+   AND c.user_id = a.owner_user_id
+   AND c.provider = 'google'
+   AND c.status = 'active'
+  JOIN `+v2Table(schema, "workspace_memberships")+` m
+    ON m.workspace_id = a.workspace_id
+   AND m.user_id = $1
+   AND m.status = 'active'
+  WHERE a.owner_user_id = $1
+    AND a.home_summary_enabled
+    AND e.sync_action_required
+)`, userID).Scan(&required)
+	if err != nil {
+		return false, fmt.Errorf("check Gmail action-required state: %w", err)
+	}
+	return required, nil
 }
 
 // ListV2HomeEmailSyncTargets returns only active, explicitly Gmail-read-enabled
@@ -26,7 +60,7 @@ func (s *Store) ListV2HomeEmailSyncTargets(ctx context.Context, limit int) ([]V2
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT a.workspace_id, a.provider_connection_id, a.owner_user_id, COALESCE(pa.email, '')
+SELECT a.workspace_id, a.provider_connection_id, a.owner_user_id, COALESCE(pa.email, ''), c.created_at
 FROM `+v2Table(schema, "workspace_provider_account_access")+` a
 JOIN provider_connections c
   ON c.id = a.provider_connection_id
@@ -54,7 +88,10 @@ LIMIT $2`, "https://www.googleapis.com/auth/gmail.readonly", limit)
 	targets := make([]V2HomeEmailSyncTarget, 0)
 	for rows.Next() {
 		var target V2HomeEmailSyncTarget
-		if err := rows.Scan(&target.WorkspaceID, &target.ConnectionID, &target.OwnerUserID, &target.OwnerEmail); err != nil {
+		if err := rows.Scan(
+			&target.WorkspaceID, &target.ConnectionID, &target.OwnerUserID,
+			&target.OwnerEmail, &target.LinkedAt,
+		); err != nil {
 			return nil, fmt.Errorf("read Home email sync target: %w", err)
 		}
 		targets = append(targets, target)
@@ -158,14 +195,16 @@ RETURNING 1`,
 	return claimed == 1, nil
 }
 
-func (s *Store) MarkV2HomeEmailSummaryError(ctx context.Context, target V2HomeEmailSyncTarget) error {
+func (s *Store) MarkV2HomeEmailSummaryError(
+	ctx context.Context, target V2HomeEmailSyncTarget, actionRequired bool,
+) error {
 	schema, err := s.v2Schema(ctx)
 	if err != nil {
 		return err
 	}
 	_, err = s.pool.Exec(ctx, `
 UPDATE `+v2Table(schema, "workspace_email_summaries")+` s
-SET sync_state = 'error', updated_at = now()
+SET sync_state = 'error', sync_action_required = $5, updated_at = now()
 WHERE s.workspace_id = $1 AND s.provider_connection_id = $2
   AND EXISTS (
     SELECT 1
@@ -186,7 +225,7 @@ WHERE s.workspace_id = $1 AND s.provider_connection_id = $2
       AND a.owner_user_id = $4
       AND a.home_summary_enabled
   )`, target.WorkspaceID, target.ConnectionID,
-		"https://www.googleapis.com/auth/gmail.readonly", target.OwnerUserID)
+		"https://www.googleapis.com/auth/gmail.readonly", target.OwnerUserID, actionRequired)
 	if err != nil {
 		return fmt.Errorf("mark Home email summary sync error: %w", err)
 	}
