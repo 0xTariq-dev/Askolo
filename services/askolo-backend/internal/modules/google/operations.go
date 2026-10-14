@@ -109,9 +109,12 @@ func (h *Handler) createCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "PROVIDER_WRITE_OPT_IN_REQUIRED", "Explicit Google Calendar write approval is required.")
 		return
 	}
-	_, token, err := h.connectionToken(r.Context(), userID, input.ConnectionID, "calendar")
+	connection, token, err := h.connectionToken(r.Context(), userID, input.ConnectionID, "calendar")
 	if err != nil {
 		h.writeOperationError(w, err)
+		return
+	}
+	if !requireCalendarWrite(w, connection) {
 		return
 	}
 	response, err := h.googleRequest(r.Context(), http.MethodPost,
@@ -153,9 +156,12 @@ func (h *Handler) updateCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "PROVIDER_WRITE_OPT_IN_REQUIRED", "Explicit Google Calendar write approval is required.")
 		return
 	}
-	_, token, err := h.connectionToken(r.Context(), userID, input.ConnectionID, "calendar")
+	connection, token, err := h.connectionToken(r.Context(), userID, input.ConnectionID, "calendar")
 	if err != nil {
 		h.writeOperationError(w, err)
+		return
+	}
+	if !requireCalendarWrite(w, connection) {
 		return
 	}
 	response, err := h.googleRequest(r.Context(), http.MethodPatch,
@@ -188,9 +194,12 @@ func (h *Handler) deleteCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_EVENT", "calendarId and eventId are required.")
 		return
 	}
-	_, token, err := h.connectionToken(r.Context(), userID, r.URL.Query().Get("connectionId"), "calendar")
+	connection, token, err := h.connectionToken(r.Context(), userID, r.URL.Query().Get("connectionId"), "calendar")
 	if err != nil {
 		h.writeOperationError(w, err)
+		return
+	}
+	if !requireCalendarWrite(w, connection) {
 		return
 	}
 	response, err := h.googleRequest(r.Context(), http.MethodDelete,
@@ -202,6 +211,14 @@ func (h *Handler) deleteCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	response.Body.Close()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func requireCalendarWrite(w http.ResponseWriter, connection postgres.ProviderConnection) bool {
+	if hasString(connection.Scopes, scopeCalendarWrite) {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "GOOGLE_CALENDAR_READ_ONLY", "This Google Calendar connection is read-only.")
+	return false
 }
 
 func (h *Handler) sendGmail(w http.ResponseWriter, r *http.Request) {

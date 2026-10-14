@@ -1,6 +1,12 @@
 package google
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"askolo/backend/internal/adapters/postgres"
+)
 
 func TestGmailReadScopeDoesNotGrantSendCapability(t *testing.T) {
 	scopes, err := requestedScopes("gmail.read")
@@ -43,5 +49,35 @@ func TestGrantedScopesTrustNonemptyTokenScope(t *testing.T) {
 	got := grantedScopesFromToken("openid email profile", []string{scopeGmailRead})
 	if hasString(got, scopeGmailRead) {
 		t.Fatalf("fallback added an unreported scope to nonempty provider response: %v", got)
+	}
+}
+
+func TestNewGoogleIntegrationScopesAreReadOnly(t *testing.T) {
+	for _, selector := range []string{"", "all", "calendar", "gmail", "gmail.read"} {
+		scopes, err := requestedScopes(selector)
+		if err != nil {
+			t.Fatalf("requestedScopes(%q): %v", selector, err)
+		}
+		if hasString(scopes, scopeGmailSend) || hasString(scopes, scopeCalendarWrite) {
+			t.Errorf("requestedScopes(%q) includes a write scope: %v", selector, scopes)
+		}
+	}
+	if _, err := requestedScopes("gmail.send"); err == nil {
+		t.Fatal("gmail.send selector must not be available during the read-only phase")
+	}
+}
+
+func TestReadOnlyCalendarConnectionCannotWriteProviderEvents(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	if requireCalendarWrite(recorder, postgres.ProviderConnection{Scopes: []string{scopeCalendar}}) {
+		t.Fatal("read-only Calendar scope unexpectedly allowed provider writes")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("read-only Calendar write status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+
+	recorder = httptest.NewRecorder()
+	if !requireCalendarWrite(recorder, postgres.ProviderConnection{Scopes: []string{scopeCalendarWrite}}) {
+		t.Fatal("existing Calendar write grant should remain usable")
 	}
 }

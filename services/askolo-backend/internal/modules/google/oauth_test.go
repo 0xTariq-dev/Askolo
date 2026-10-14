@@ -120,22 +120,25 @@ func TestRequestedScopesNeverIncludesRestrictedMailboxScope(t *testing.T) {
 			t.Fatal("release-1 scope list must not include gmail.modify")
 		}
 	}
-	if !hasString(scopes, scopeGmailSend) || !hasString(scopes, scopeGmailRead) || !hasString(scopes, scopeCalendar) {
-		t.Fatalf("expected release-1 service scopes, got %v", scopes)
+	if !hasString(scopes, scopeGmailRead) || !hasString(scopes, scopeCalendar) {
+		t.Fatalf("expected read-only release-1 service scopes, got %v", scopes)
+	}
+	if hasString(scopes, scopeGmailSend) || hasString(scopes, scopeCalendarWrite) {
+		t.Fatalf("release-1 must not request provider write scopes, got %v", scopes)
 	}
 }
 
-func TestGmailIntegrationRequestsSeparateReadAndSendCapabilities(t *testing.T) {
+func TestGmailIntegrationRequestsReadOnlyCapability(t *testing.T) {
 	scopes, err := requestedScopes("gmail")
 	if err != nil {
 		t.Fatalf("Gmail integration scopes: %v", err)
 	}
-	if !hasString(scopes, scopeGmailRead) || !hasString(scopes, scopeGmailSend) {
-		t.Fatalf("Gmail integration scopes = %v; want Gmail read and send scopes", scopes)
+	if !hasString(scopes, scopeGmailRead) || hasString(scopes, scopeGmailSend) {
+		t.Fatalf("Gmail integration scopes = %v; want only Gmail read scope", scopes)
 	}
 	capabilities := capabilitiesForScopes(scopes)
-	if !hasString(capabilities, "gmail.read") || !hasString(capabilities, "gmail.send") {
-		t.Fatalf("Gmail integration capabilities = %v; want gmail.read and gmail.send", capabilities)
+	if len(capabilities) != 1 || capabilities[0] != "gmail.read" {
+		t.Fatalf("Gmail integration capabilities = %v; want only gmail.read", capabilities)
 	}
 	if hasString(scopes, "https://www.googleapis.com/auth/gmail.modify") {
 		t.Fatal("Gmail integration must not request the broader gmail.modify scope")
@@ -158,8 +161,8 @@ func TestGoogleConnectionStatusMatchesLegacyClientContract(t *testing.T) {
 		},
 	}
 	connected, calendarConnected, gmailConnected, scopes := summarizeGoogleConnections(connections)
-	if !connected || !calendarConnected || gmailConnected {
-		t.Fatalf("status = connected:%v calendar:%v gmail:%v; want true, true, false", connected, calendarConnected, gmailConnected)
+	if !connected || !calendarConnected || !gmailConnected {
+		t.Fatalf("status = connected:%v calendar:%v gmail:%v; want true, true, true", connected, calendarConnected, gmailConnected)
 	}
 	if !hasString(scopes, scopeCalendar) || !hasString(scopes, scopeGmailRead) || hasString(scopes, scopeGmailSend) {
 		t.Fatalf("status scopes = %v; want active scopes only", scopes)
@@ -202,8 +205,15 @@ func TestOAuthFlowScopesStaySeparate(t *testing.T) {
 	if !reflect.DeepEqual(integrationScopes, wantIntegrationScopes) {
 		t.Fatalf("expected calendar integration scopes %v, got %v", wantIntegrationScopes, integrationScopes)
 	}
-	if hasString(integrationScopes, "https://www.googleapis.com/auth/gmail.modify") {
-		t.Fatal("integration scope list must not include gmail.modify")
+	if hasString(integrationScopes, scopeCalendarWrite) {
+		t.Fatal("calendar integration must not request calendar write scope")
+	}
+	gmailScopes, err := scopesForFlow("integration", "gmail")
+	if err != nil {
+		t.Fatalf("gmail integration scopes: %v", err)
+	}
+	if !hasString(gmailScopes, scopeGmailRead) || hasString(gmailScopes, scopeGmailSend) {
+		t.Fatalf("gmail integration scopes must be read-only, got %v", gmailScopes)
 	}
 }
 

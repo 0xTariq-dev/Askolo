@@ -31,13 +31,14 @@ const (
 )
 
 const (
-	scopeOpenID    = "openid"
-	scopeEmail     = "email"
-	scopeProfile   = "profile"
-	scopeGmailSend = "https://www.googleapis.com/auth/gmail.send"
-	scopeGmailRead = "https://www.googleapis.com/auth/gmail.readonly"
-	scopeGmail     = scopeGmailSend
-	scopeCalendar  = "https://www.googleapis.com/auth/calendar"
+	scopeOpenID        = "openid"
+	scopeEmail         = "email"
+	scopeProfile       = "profile"
+	scopeGmailSend     = "https://www.googleapis.com/auth/gmail.send"
+	scopeGmailRead     = "https://www.googleapis.com/auth/gmail.readonly"
+	scopeGmail         = scopeGmailSend
+	scopeCalendar      = "https://www.googleapis.com/auth/calendar.readonly"
+	scopeCalendarWrite = "https://www.googleapis.com/auth/calendar"
 )
 
 type Handler struct {
@@ -537,7 +538,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 }
 
 func summarizeGoogleConnections(connections []postgres.ProviderConnection) (connected, calendarConnected, gmailConnected bool, scopes []string) {
-	var gmailRead, gmailSend bool
+	var gmailRead bool
 	for _, connection := range connections {
 		if connection.Status != "active" {
 			continue
@@ -545,12 +546,11 @@ func summarizeGoogleConnections(connections []postgres.ProviderConnection) (conn
 		connected = true
 		calendarConnected = calendarConnected || hasString(connection.Capabilities, "calendar")
 		gmailRead = gmailRead || hasString(connection.Capabilities, "gmail.read")
-		gmailSend = gmailSend || hasString(connection.Capabilities, "gmail.send")
 		for _, scope := range connection.Scopes {
 			scopes = appendUnique(scopes, scope)
 		}
 	}
-	gmailConnected = gmailRead && gmailSend
+	gmailConnected = gmailRead
 	return connected, calendarConnected, gmailConnected, scopes
 }
 
@@ -990,15 +990,11 @@ func callbackPath(flow string) string {
 func requestedScopes(value string) ([]string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "all":
-		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar, scopeGmailSend, scopeGmailRead}, nil
+		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar, scopeGmailRead}, nil
 	case "calendar":
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeCalendar}, nil
 	case "gmail":
-		// The user-facing Gmail integration provides inbox triage and reply
-		// sending, which require distinct read-only and send capabilities.
-		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailRead, scopeGmailSend}, nil
-	case "gmail.send":
-		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailSend}, nil
+		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailRead}, nil
 	case "gmail.read":
 		return []string{scopeOpenID, scopeEmail, scopeProfile, scopeGmailRead}, nil
 	default:
@@ -1026,6 +1022,8 @@ func capabilitiesForScopes(scopes []string) []string {
 	}
 	var capabilities []string
 	if _, ok := set[scopeCalendar]; ok {
+		capabilities = append(capabilities, "calendar")
+	} else if _, ok := set[scopeCalendarWrite]; ok {
 		capabilities = append(capabilities, "calendar")
 	}
 	if _, ok := set[scopeGmailSend]; ok {
