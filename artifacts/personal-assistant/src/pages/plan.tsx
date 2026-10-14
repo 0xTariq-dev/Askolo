@@ -14,6 +14,7 @@ import {
   CalendarDays,
   ListTodo,
   Plus,
+  Pencil,
   Sparkles,
   Target,
   Trash2,
@@ -27,12 +28,20 @@ import { useLocale } from '@/contexts/locale-context';
 import { useSpaceScope } from '@/contexts/space-context';
 import { useAssistantState } from '@/contexts/assistant-context';
 import {
-  archiveV2Action,
+  archiveV2Task,
   getV2AgendaRange,
-  updateV2Action,
-  updateV2ActionOccurrence,
-  createV2Action,
+  getV2Task,
+  getV2TaskReminderRules,
+  updateV2TaskReminderRule,
+  createV2TaskReminderRule,
+  deleteV2TaskReminderRule,
+  updateV2Task,
+  updateV2TaskOccurrence,
+  createV2Task,
   getV2GoalsForScope,
+  type V2Goal,
+  type V2TaskRecord,
+  type V2TaskReminderRule,
   type V2AgendaTask,
 } from '@/lib/agenda-v2-api';
 import { getMonthGridAgendaRange } from '@/lib/agenda-date-range';
@@ -67,6 +76,19 @@ const planSchema = z.object({
   dueTime: z.string().optional(),
   kind: z.enum(['task', 'habit']),
   priority: z.enum(['none', 'high', 'normal', 'low']),
+  goalId: z.string().optional(),
+  hasRecurrence: z.boolean(),
+  frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
+  interval: z.string(),
+  weekdays: z.array(z.number().int().min(1).max(7)),
+  startsOn: z.string(),
+  endMode: z.enum(['never', 'date', 'count']),
+  endsOn: z.string().optional(),
+  count: z.string().optional(),
+  habitTime: z.string().optional(),
+  reminder1: z.object({ enabled: z.boolean(), basis: z.enum(['start', 'due', 'daily_brief']), minutesBefore: z.string(), localTime: z.string() }),
+  reminder2: z.object({ enabled: z.boolean(), basis: z.enum(['start', 'due', 'daily_brief']), minutesBefore: z.string(), localTime: z.string() }),
+  reminder3: z.object({ enabled: z.boolean(), basis: z.enum(['start', 'due', 'daily_brief']), minutesBefore: z.string(), localTime: z.string() }),
 }).superRefine((values, context) => {
   const durationText = values.durationMinutes?.trim();
   if (durationText && (!/^\d+$/.test(durationText) || Number(durationText) < 1 || Number(durationText) > 1440)) {
@@ -78,8 +100,39 @@ const planSchema = z.object({
   if (values.dueTime && !values.dueOn) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['dueOn'], message: 'Add a deadline date when you specify a time.' });
   }
+  if (!/^[1-9]\d*$/.test(values.interval) || Number(values.interval) > 366) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['interval'], message: 'Enter an interval from 1 to 366.' });
+  }
+  if ((values.hasRecurrence || values.kind === 'habit') && values.endMode === 'date' && !values.endsOn) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['endsOn'], message: 'Choose an end date.' });
+  }
+  if ((values.hasRecurrence || values.kind === 'habit') && values.endMode === 'count' && (!/^[1-9]\d*$/.test(values.count ?? '') || Number(values.count) > 3660)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['count'], message: 'Enter between 1 and 3660 occurrences.' });
+  }
+  if ((values.kind === 'habit' || values.hasRecurrence) && values.frequency === 'weekly' && values.weekdays.length === 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['weekdays'], message: 'Choose at least one weekday.' });
+  }
+  for (const field of ['reminder1', 'reminder2', 'reminder3'] as const) {
+    const reminder = values[field];
+    if (!reminder.enabled) continue;
+    if (reminder.basis === 'daily_brief' && !reminder.localTime) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [field, 'localTime'], message: 'Choose a daily brief time.' });
+    }
+    if (reminder.basis !== 'daily_brief' && (!/^\d+$/.test(reminder.minutesBefore) || Number(reminder.minutesBefore) > 10080)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [field, 'minutesBefore'], message: 'Enter 0 to 10080 minutes.' });
+    }
+  }
 });
 type PlanFormValues = z.infer<typeof planSchema>;
+
+const emptyReminder = () => ({ enabled: false, basis: 'due' as const, minutesBefore: '15', localTime: '09:00' });
+const newPlanValues = (date: string): PlanFormValues => ({
+  title: '', notes: '', label: '', plannedStartTime: '', durationMinutes: '',
+  dueOn: '', dueTime: '', kind: 'task', priority: 'none', goalId: '',
+  hasRecurrence: false, frequency: 'daily', interval: '1', weekdays: [],
+  startsOn: date, endMode: 'never', endsOn: '', count: '', habitTime: '',
+  reminder1: emptyReminder(), reminder2: emptyReminder(), reminder3: emptyReminder(),
+});
 
 const priorityStyles = {
   none: '',
@@ -111,18 +164,29 @@ export function PlanPage() {
   const [agendaReloadKey, setAgendaReloadKey] = useState(0);
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [targetSpaceId, setTargetSpaceId] = useState('');
+  const [editingItem, setEditingItem] = useState<V2AgendaTask | null>(null);
+  const [editingRecord, setEditingRecord] = useState<V2TaskRecord | null>(null);
+  const [editingReminderRules, setEditingReminderRules] = useState<V2TaskReminderRule[]>([]);
+  const [seriesEditMode, setSeriesEditMode] = useState<'all' | 'this_and_following' | 'this'>('all');
   const [activeAgendaTab, setActiveAgendaTab] = useState(
-    search.get('tab') === 'actions' || search.get('tab') === 'tasks' ? 'actions' : 'calendar',
+    search.get('tab') === 'actions' || search.get('tab') === 'tasks' ? 'tasks' : 'calendar',
   );
   const [calendarEventCount, setCalendarEventCount] = useState(0);
   const [goalCount, setGoalCount] = useState<number | null>(null);
+  const [goals, setGoals] = useState<V2Goal[]>([]);
   useEffect(() => {
     const controller = new AbortController();
     setGoalCount(null);
     getV2GoalsForScope(selectedSpaceId, controller.signal)
-      .then((items) => setGoalCount(items.length))
+      .then((items) => {
+        setGoals(items);
+        setGoalCount(items.length);
+      })
       .catch(() => {
-        if (!controller.signal.aborted) setGoalCount(-1);
+        if (!controller.signal.aborted) {
+          setGoals([]);
+          setGoalCount(-1);
+        }
       });
     return () => controller.abort();
   }, [selectedSpaceId]);
@@ -140,7 +204,7 @@ export function PlanPage() {
 
   const form = useForm<PlanFormValues>({
     resolver: zodResolver(planSchema),
-    defaultValues: { title: '', kind: 'task', priority: 'none' },
+    defaultValues: newPlanValues(format(new Date(), 'yyyy-MM-dd')),
   });
 
   useEffect(() => {
@@ -177,8 +241,71 @@ export function PlanPage() {
 
   const openAdd = () => {
     setTargetSpaceId(selectedSpaceId ?? '');
-    form.reset({ title: '', kind: 'task', priority: 'none' });
+    setEditingItem(null);
+    setEditingRecord(null);
+    setEditingReminderRules([]);
+    setSeriesEditMode('all');
+    form.reset(newPlanValues(dateStr));
     setDialogOpen(true);
+  };
+
+  const openEdit = async (item: (typeof taskItems)[number]) => {
+    const workspaceId = item.workspaceId ?? selectedSpaceId;
+    if (!workspaceId) return;
+    setIsSavingTask(true);
+    setAgendaError(null);
+    try {
+      const [record, rules] = await Promise.all([
+        getV2Task(workspaceId, item.taskId),
+        getV2TaskReminderRules(workspaceId),
+      ]);
+      const recurrence = record.recurrence ?? undefined;
+      const reminders = rules.filter((rule) => rule.kind === 'task' && rule.rule.targetId === record.id);
+      const defaults = newPlanValues(
+        item.occurrenceOn?.slice(0, 10) ?? record.plannedOn?.slice(0, 10) ?? dateStr,
+      );
+      const reminderValues = reminders.slice(0, 3).map((entry) => ({
+        enabled: entry.status !== 'disabled',
+        basis: entry.rule.basis ?? 'due' as const,
+        minutesBefore: String(entry.rule.minutesBefore ?? 15),
+        localTime: entry.rule.localTime ?? '09:00',
+      }));
+      form.reset({
+        ...defaults,
+        title: record.title,
+        notes: record.details ?? '',
+        label: record.label ?? '',
+        plannedStartTime: record.plannedStartTime?.slice(0, 5) ?? '',
+        durationMinutes: record.durationMinutes == null ? '' : String(record.durationMinutes),
+        dueOn: record.dueOn?.slice(0, 10) ?? '',
+        dueTime: record.dueTime?.slice(0, 5) ?? '',
+        kind: record.kind === 'habit' ? 'habit' : 'task',
+        priority: record.priority as PlanFormValues['priority'],
+        goalId: record.goalId ?? '',
+        hasRecurrence: !!recurrence,
+        frequency: recurrence?.frequency ?? 'daily',
+        interval: String(recurrence?.interval ?? 1),
+        weekdays: recurrence?.weekdays ?? [],
+        startsOn: recurrence?.startsOn ?? defaults.startsOn,
+        endMode: recurrence?.count ? 'count' : recurrence?.endsOn ? 'date' : 'never',
+        endsOn: recurrence?.endsOn ?? '',
+        count: recurrence?.count ? String(recurrence.count) : '',
+        habitTime: recurrence?.timeOfDay ?? '',
+        reminder1: reminderValues[0] ?? emptyReminder(),
+        reminder2: reminderValues[1] ?? emptyReminder(),
+        reminder3: reminderValues[2] ?? emptyReminder(),
+      });
+      setEditingItem(item as unknown as V2AgendaTask);
+      setEditingRecord(record);
+      setEditingReminderRules(reminders);
+      setTargetSpaceId(workspaceId);
+      setSeriesEditMode('all');
+      setDialogOpen(true);
+    } catch (error) {
+      setAgendaError(error instanceof Error ? error.message : 'Task could not be opened for editing.');
+    } finally {
+      setIsSavingTask(false);
+    }
   };
 
   const taskItems = agendaTasks.map((task) => ({
@@ -207,30 +334,122 @@ export function PlanPage() {
     }
     setIsSavingTask(true);
     try {
-      await createV2Action(workspaceId, {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      let habitEndsOn: string | null = null;
+      if (data.kind === 'habit' && data.endMode === 'count') {
+        const finalHabitDay = new Date(`${data.startsOn || dateStr}T12:00:00`);
+        finalHabitDay.setDate(finalHabitDay.getDate() + Number(data.count) - 1);
+        habitEndsOn = format(finalHabitDay, 'yyyy-MM-dd');
+      }
+      const recurrence = data.kind === 'habit' || data.hasRecurrence ? {
+        frequency: data.frequency,
+        interval: Number(data.interval),
+        ...(data.frequency === 'weekly' ? { weekdays: data.weekdays } : {}),
+        startsOn: data.startsOn || dateStr,
+        endsOn: data.endMode === 'date' ? data.endsOn || null : habitEndsOn,
+        ...(data.endMode === 'count' && data.kind === 'task' ? { count: Number(data.count) } : {}),
+        ...(data.kind === 'habit' && data.habitTime ? { timeOfDay: data.habitTime } : {}),
+        timeZone,
+      } : null;
+      const payload = {
         kind: data.kind,
         title: data.title,
-        details: data.kind === 'task' ? data.notes?.trim() || undefined : undefined,
-        label: data.kind === 'task' ? data.label?.trim() || undefined : undefined,
+        details: data.kind === 'task' ? data.notes?.trim() || null : null,
+        label: data.kind === 'task' ? data.label?.trim() || null : null,
         priority: data.kind === 'habit' ? 'none' : data.priority,
-        plannedOn: data.kind === 'task' ? dateStr : undefined,
-        plannedStartTime: data.kind === 'task' ? data.plannedStartTime || undefined : undefined,
+        goalId: data.goalId || null,
+        plannedOn: data.kind === 'task'
+          ? (editingRecord && seriesEditMode === 'all'
+            ? editingRecord.plannedOn?.slice(0, 10) ?? dateStr
+            : editingItem?.occurrenceOn?.slice(0, 10) ?? dateStr)
+          : null,
+        plannedStartTime: data.kind === 'task' ? data.plannedStartTime || null : null,
         durationMinutes: data.kind === 'task' && data.durationMinutes
           ? Number(data.durationMinutes)
-          : undefined,
-        dueOn: data.kind === 'task' ? data.dueOn || undefined : undefined,
-        dueTime: data.kind === 'task' ? data.dueTime || undefined : undefined,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        recurrence: data.kind === 'habit' ? {
-          frequency: 'daily',
-          interval: 1,
-          startsOn: format(new Date(), 'yyyy-MM-dd'),
-          endsOn: null,
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        } : undefined,
-      });
+          : null,
+        dueOn: data.kind === 'task' ? data.dueOn || null : null,
+        dueTime: data.kind === 'task' ? data.dueTime || null : null,
+        timeZone,
+        recurrence,
+      };
+      const reminders = [data.reminder1, data.reminder2, data.reminder3]
+        .filter((entry) => entry.enabled)
+        .map((entry) => entry.basis === 'daily_brief'
+          ? { targetId: 'pending', basis: entry.basis, localTime: entry.localTime, timeZone }
+          : { targetId: 'pending', basis: entry.basis, minutesBefore: Number(entry.minutesBefore) });
+
+      let savedTaskId = editingRecord?.id;
+      if (!editingRecord) {
+        const created = await createV2Task(workspaceId, payload);
+        savedTaskId = created.id;
+      } else if (editingItem?.occurrenceOn && seriesEditMode !== 'all') {
+        const occurrenceOn = editingItem.occurrenceOn.slice(0, 10);
+        if (seriesEditMode === 'this') {
+          const oneOff = {
+            ...payload,
+            recurrence: data.kind === 'habit' ? {
+              frequency: data.frequency, interval: Number(data.interval), startsOn: occurrenceOn,
+              endsOn: occurrenceOn, timeZone, ...(data.kind === 'habit' && data.habitTime ? { timeOfDay: data.habitTime } : {}),
+            } : null,
+          };
+          const created = await createV2Task(workspaceId, oneOff);
+          savedTaskId = created.id;
+          try {
+            await updateV2TaskOccurrence(workspaceId, editingRecord.id, occurrenceOn, { status: 'cancelled' });
+          } catch (error) {
+            await archiveV2Task(workspaceId, created.id).catch(() => undefined);
+            throw error;
+          }
+        } else {
+          const created = await createV2Task(workspaceId, {
+            ...payload,
+            recurrence: recurrence ? { ...recurrence, startsOn: occurrenceOn } : null,
+          });
+          savedTaskId = created.id;
+          const previousDate = format(new Date(`${occurrenceOn}T12:00:00`).setDate(new Date(`${occurrenceOn}T12:00:00`).getDate() - 1), 'yyyy-MM-dd');
+          try {
+            const oldRecurrence = editingRecord.recurrence;
+            await updateV2Task(workspaceId, editingRecord.id, {
+              recurrence: oldRecurrence ? { ...oldRecurrence, endsOn: previousDate, count: undefined } : null,
+            });
+          } catch (error) {
+            await archiveV2Task(workspaceId, created.id).catch(() => undefined);
+            throw error;
+          }
+        }
+      } else if (editingRecord) {
+        await updateV2Task(workspaceId, editingRecord.id, payload);
+      }
+      let reminderSaveError = false;
+      if (savedTaskId) {
+        const oldRules = editingReminderRules.filter((rule) => rule.rule.targetId === editingRecord?.id);
+        const prepared = reminders.map((entry) => ({ ...entry, targetId: savedTaskId! }));
+        try {
+          for (let index = 0; index < prepared.length; index += 1) {
+            const old = oldRules[index];
+            if (old && seriesEditMode === 'all') {
+              await updateV2TaskReminderRule(workspaceId, old.id, prepared[index]);
+            } else {
+              await createV2TaskReminderRule(workspaceId, prepared[index]);
+            }
+          }
+          if (seriesEditMode === 'all') {
+            for (const obsolete of oldRules.slice(prepared.length)) {
+              await deleteV2TaskReminderRule(workspaceId, obsolete.id);
+            }
+          }
+        } catch {
+          reminderSaveError = true;
+        }
+      }
       setDialogOpen(false);
-      form.reset({ title: '', kind: 'task', priority: 'none' });
+      form.reset(newPlanValues(dateStr));
+      setEditingItem(null);
+      setEditingRecord(null);
+      setEditingReminderRules([]);
+      if (reminderSaveError) {
+        setAgendaError(isArabic ? 'تم حفظ المهمة لكن تعذر حفظ تذكيراتها.' : 'The task was saved, but one or more reminders could not be saved.');
+      }
       await reloadData();
     } catch (error) {
       setAgendaError(error instanceof Error ? error.message : 'Task could not be saved.');
@@ -245,9 +464,9 @@ export function PlanPage() {
     const status = item.completed ? 'open' : 'done';
     try {
       if (item.occurrenceOn) {
-        await updateV2ActionOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status });
+        await updateV2TaskOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status });
       } else {
-        await updateV2Action(workspaceId, item.taskId, { status });
+        await updateV2Task(workspaceId, item.taskId, { status });
       }
       await reloadData();
     } catch (error) {
@@ -261,9 +480,9 @@ export function PlanPage() {
     if (!workspaceId) return;
     try {
       if (item.occurrenceOn) {
-        await updateV2ActionOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status: 'cancelled' });
+        await updateV2TaskOccurrence(workspaceId, item.taskId, item.occurrenceOn.slice(0, 10), { status: 'cancelled' });
       } else {
-        await archiveV2Action(workspaceId, item.taskId);
+        await archiveV2Task(workspaceId, item.taskId);
       }
       await reloadData();
     } catch (error) {
@@ -360,11 +579,11 @@ export function PlanPage() {
             </span>
           </TabsTrigger>
           <TabsTrigger
-            value="actions"
+            value="tasks"
             className="!h-7 min-w-0 gap-1 rounded-[10px] !border-0 px-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:shadow-none dark:data-[state=active]:!bg-foreground/10"
           >
             <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{isArabic ? 'الإجراءات' : 'Actions'}</span>
+            <span className="truncate">{isArabic ? 'المهام' : 'Tasks'}</span>
             <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{sortedPlans.length}</span>
           </TabsTrigger>
         </TabsList>
@@ -374,7 +593,7 @@ export function PlanPage() {
         <TabsContent value="goals" className="mt-5 min-w-0">
           <GoalsPage />
         </TabsContent>
-        <TabsContent value="actions" className="mt-5 min-w-0">
+        <TabsContent value="tasks" className="mt-5 min-w-0">
       {hasError && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3" role="alert">
           <p className="text-sm text-destructive">{agendaError ?? (isArabic ? 'تعذر تحميل بعض بيانات الخطة.' : 'Some plan data could not be loaded.')}</p>
@@ -470,6 +689,9 @@ export function PlanPage() {
                       <p dir="auto" className={cn('truncate text-sm font-medium', plan.completed && 'line-through text-muted-foreground')}>{plan.title}</p>
                       {plan.timeBlock && <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><Clock3 className="size-3" />{plan.timeBlock}</p>}
                     </div>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => void openEdit(plan)} aria-label={`Edit ${plan.title}`} className="size-9 shrink-0 text-muted-foreground" data-testid={`button-edit-plan-${plan.taskId}`}>
+                      <Pencil className="size-4" />
+                    </Button>
                     <Button type="button" variant="ghost" size="icon" onClick={() => handleDelete(plan)} aria-label={`Delete ${plan.title}`} className="size-9 shrink-0 text-muted-foreground hover:text-destructive">
                       <Trash2 className="size-4" />
                     </Button>
@@ -544,9 +766,9 @@ export function PlanPage() {
 
       <VoiceConsentDialog open={consentOpen} onOpenChange={setConsentOpen} onConfirm={() => void saveVoiceConsent()} saving={consentSaving} error={consentError} />
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader><DialogTitle>{isArabic ? 'إضافة إلى الخطة' : 'Add to your plan'}</DialogTitle></DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader><DialogTitle>{editingRecord ? (isArabic ? 'تعديل المهمة' : 'Edit task') : (isArabic ? 'إضافة إلى الخطة' : 'Add to your plan')}</DialogTitle></DialogHeader>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 py-4">
             {!selectedSpaceId && <div className="space-y-2">
               <Label htmlFor="plan-space">{isArabic ? 'المساحة' : 'Space'}</Label>
               <select id="plan-space" value={targetSpaceId} onChange={(event) => setTargetSpaceId(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
@@ -555,13 +777,23 @@ export function PlanPage() {
               </select>
             </div>}
               <div className="space-y-2">
-              <Label htmlFor="plan-title">{isArabic ? 'المهمة أو النية' : 'Task or intention'}</Label>
+              <Label htmlFor="plan-title">{form.watch('kind') === 'habit' ? (isArabic ? 'اسم العادة' : 'Habit name') : (isArabic ? 'عنوان المهمة' : 'Task title')}</Label>
               <Input id="plan-title" placeholder={isArabic ? 'مثال: مراجعة أسبوعية' : 'For example, weekly review'} {...form.register('title')} />
               {form.formState.errors.title && <p className="text-xs text-destructive">{form.formState.errors.title.message}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="plan-kind">{isArabic ? 'نوع المهمة' : 'Task type'}</Label>
-              <select id="plan-kind" {...form.register('kind')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+              <select id="plan-kind" {...form.register('kind', { onChange: (event) => {
+                if (event.target.value === 'habit') {
+                  form.setValue('hasRecurrence', true);
+                  form.setValue('priority', 'none');
+                  form.setValue('notes', '');
+                  form.setValue('label', '');
+                  if (!form.getValues('reminder1.enabled')) {
+                    form.setValue('reminder1', { enabled: true, basis: 'daily_brief', minutesBefore: '15', localTime: '09:00' });
+                  }
+                }
+              } })} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                 <option value="task">{isArabic ? 'مهمة' : 'Task'}</option>
                 <option value="habit">{isArabic ? 'عادة' : 'Habit'}</option>
               </select>
@@ -598,6 +830,11 @@ export function PlanPage() {
                   <Input id="plan-due-time" type="time" {...form.register('dueTime')} />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="plan-label">{isArabic ? 'التصنيف (اختياري)' : 'Label (optional)'}</Label>
+                <Input id="plan-label" list="task-label-presets" maxLength={100} {...form.register('label')} />
+                <datalist id="task-label-presets"><option value="Home" /><option value="Bills" /><option value="Work" /><option value="Family" /></datalist>
+              </div>
             </>}
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">{isArabic ? 'الأولوية' : 'Priority'}</legend>
@@ -608,9 +845,111 @@ export function PlanPage() {
                 <option value="high">{isArabic ? 'عالية' : 'High'}</option>
               </select>
             </fieldset>
+            <div className="space-y-2">
+              <Label htmlFor="plan-goal">{isArabic ? 'الهدف المرتبط (اختياري)' : 'Linked goal (optional)'}</Label>
+              <select id="plan-goal" {...form.register('goalId')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="select-plan-goal">
+                <option value="">{isArabic ? 'لا يوجد هدف' : 'No goal'}</option>
+        {goals.filter((goal) => selectedSpaceId ? goal.workspaceId === selectedSpaceId : !targetSpaceId || goal.workspaceId === targetSpaceId)
+          .map((goal) => <option key={`${goal.workspaceId}-${goal.id}`} value={goal.id}>{goal.workspaceName ? `${goal.workspaceName}: ` : ''}{goal.title}</option>)}
+              </select>
+            </div>
+            <fieldset className="space-y-3 rounded-xl border border-border p-3">
+              <legend className="px-1 text-sm font-medium">{isArabic ? 'التكرار' : 'Recurrence'}</legend>
+              {form.watch('kind') === 'task' && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={form.watch('hasRecurrence')} onChange={(event) => form.setValue('hasRecurrence', event.target.checked)} data-testid="checkbox-task-recurrence" />
+                  {isArabic ? 'تكرار المهمة' : 'Repeat this task'}
+                </label>
+              )}
+              {(form.watch('kind') === 'habit' || form.watch('hasRecurrence')) && <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="plan-frequency">{isArabic ? 'الوتيرة' : 'Cadence'}</Label>
+                    <select id="plan-frequency" {...form.register('frequency')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="select-plan-frequency">
+                      <option value="daily">{isArabic ? 'يوميًا' : 'Daily'}</option>
+                      <option value="weekly">{isArabic ? 'أيام محددة / أسبوعيًا' : 'Selected weekdays / weekly'}</option>
+                      {form.watch('kind') === 'task' && <><option value="monthly">{isArabic ? 'شهريًا' : 'Monthly'}</option><option value="yearly">{isArabic ? 'سنويًا' : 'Yearly'}</option></>}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="plan-interval">{isArabic ? 'كل عدد من الفترات' : 'Every N intervals'}</Label>
+                    <Input id="plan-interval" type="number" min={1} max={366} {...form.register('interval')} />
+                    {form.formState.errors.interval && <p role="alert" className="text-xs text-destructive">{form.formState.errors.interval.message}</p>}
+                  </div>
+                </div>
+                {form.watch('frequency') === 'weekly' && (
+                  <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium">{form.watch('kind') === 'habit' ? (isArabic ? 'أيام ممارسة العادة' : 'Habit practice days') : (isArabic ? 'أيام التكرار' : 'Repeat on')}</legend>
+                    <div className="flex flex-wrap gap-3">
+                      {[
+                        { value: 1, label: isArabic ? 'اثن' : 'Mon' }, { value: 2, label: isArabic ? 'ثلا' : 'Tue' },
+                        { value: 3, label: isArabic ? 'أرب' : 'Wed' }, { value: 4, label: isArabic ? 'خمي' : 'Thu' },
+                        { value: 5, label: isArabic ? 'جمع' : 'Fri' }, { value: 6, label: isArabic ? 'سب' : 'Sat' },
+                        { value: 7, label: isArabic ? 'أحد' : 'Sun' },
+                      ].map((day) => {
+                        const checked = form.watch('weekdays').includes(day.value);
+                        return <label key={day.value} className="flex min-h-9 items-center gap-2 text-sm">
+                          <input type="checkbox" checked={checked} onChange={() => {
+                            const current = form.getValues('weekdays');
+                            form.setValue('weekdays', checked ? current.filter((value) => value !== day.value) : [...current, day.value].sort());
+                          }} data-testid={`checkbox-weekday-${day.value}`} />
+                          {day.label}
+                        </label>;
+                      })}
+                    </div>
+                    {form.formState.errors.weekdays && <p role="alert" className="text-xs text-destructive">{form.formState.errors.weekdays.message}</p>}
+                  </fieldset>
+                )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2"><Label htmlFor="plan-starts-on">{isArabic ? 'تاريخ البدء' : 'Starts on'}</Label><Input id="plan-starts-on" type="date" {...form.register('startsOn')} /></div>
+                  <div className="space-y-2">
+                    <Label htmlFor="plan-end-mode">{isArabic ? 'نهاية التكرار' : 'Ends'}</Label>
+                    <select id="plan-end-mode" {...form.register('endMode')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="never">{isArabic ? 'لا ينتهي' : 'Never'}</option><option value="date">{isArabic ? 'في تاريخ' : 'On a date'}</option><option value="count">{form.watch('kind') === 'habit' ? (isArabic ? 'بعد عدد من الأيام' : 'After N days') : (isArabic ? 'بعد عدد من المرات' : 'After N occurrences')}</option>
+                    </select>
+                  </div>
+                </div>
+                {form.watch('endMode') === 'date' && <div className="space-y-2"><Label htmlFor="plan-ends-on">{isArabic ? 'ينتهي في' : 'Ends on'}</Label><Input id="plan-ends-on" type="date" {...form.register('endsOn')} />{form.formState.errors.endsOn && <p role="alert" className="text-xs text-destructive">{form.formState.errors.endsOn.message}</p>}</div>}
+                {form.watch('endMode') === 'count' && <div className="space-y-2"><Label htmlFor="plan-count">{isArabic ? 'عدد المرات' : 'Number of occurrences'}</Label><Input id="plan-count" type="number" min={1} max={3660} {...form.register('count')} />{form.formState.errors.count && <p role="alert" className="text-xs text-destructive">{form.formState.errors.count.message}</p>}</div>}
+                {form.watch('kind') === 'habit' && <div className="space-y-2"><Label htmlFor="plan-habit-time">{isArabic ? 'وقت ممارسة العادة (اختياري)' : 'Habit time (optional)'}</Label><Input id="plan-habit-time" type="time" {...form.register('habitTime')} /></div>}
+              </>}
+            </fieldset>
+            <fieldset className="space-y-3 rounded-xl border border-border p-3">
+              <legend className="px-1 text-sm font-medium">{isArabic ? 'التذكيرات (حتى ٣)' : 'Reminders (up to 3)'}</legend>
+              {(['reminder1', 'reminder2', 'reminder3'] as const).map((field, index) => {
+                const reminder = form.watch(field);
+                return <div key={field} className="space-y-2 rounded-lg bg-muted/40 p-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" {...form.register(`${field}.enabled`)} data-testid={`checkbox-reminder-${index + 1}`} />
+                    {isArabic ? `تذكير ${index + 1}` : `Reminder ${index + 1}`}
+                  </label>
+                  {reminder.enabled && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor={`${field}-basis`}>{isArabic ? 'التوقيت' : 'Timing'}</Label>
+                      <select id={`${field}-basis`} {...form.register(`${field}.basis`)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                        <option value="start">{isArabic ? 'قبل وقت البدء' : 'Before start'}</option><option value="due">{isArabic ? 'قبل الموعد النهائي' : 'Before deadline'}</option><option value="daily_brief">{isArabic ? 'في الملخص اليومي' : 'At daily brief'}</option>
+                      </select>
+                    </div>
+                    {reminder.basis === 'daily_brief'
+                      ? <div className="space-y-2"><Label htmlFor={`${field}-time`}>{isArabic ? 'الوقت المحلي' : 'Local time'}</Label><Input id={`${field}-time`} type="time" {...form.register(`${field}.localTime`)} />{form.formState.errors[field]?.localTime && <p role="alert" className="text-xs text-destructive">{form.formState.errors[field]?.localTime?.message}</p>}</div>
+                      : <div className="space-y-2"><Label htmlFor={`${field}-minutes`}>{isArabic ? 'دقائق قبل الموعد' : 'Minutes before'}</Label><Input id={`${field}-minutes`} type="number" min={0} max={10080} {...form.register(`${field}.minutesBefore`)} />{form.formState.errors[field]?.minutesBefore && <p role="alert" className="text-xs text-destructive">{form.formState.errors[field]?.minutesBefore?.message}</p>}</div>}
+                  </div>}
+                </div>;
+              })}
+              <p className="text-xs text-muted-foreground">{isArabic ? 'التذكيرات محفوظة كإعدادات؛ الإرسال الآلي غير مفعّل بعد.' : 'Reminder rules are saved as configuration; delivery is not active yet.'}</p>
+            </fieldset>
+            {editingItem?.occurrenceOn && editingRecord?.recurrence && <div className="space-y-2">
+              <Label htmlFor="plan-series-mode">{isArabic ? 'نطاق التعديل' : 'Apply edits to'}</Label>
+              <select id="plan-series-mode" value={seriesEditMode} onChange={(event) => setSeriesEditMode(event.target.value as typeof seriesEditMode)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="select-series-edit-mode">
+                <option value="all">{isArabic ? 'كل السلسلة' : 'All occurrences'}</option>
+                <option value="this_and_following">{isArabic ? 'هذه وكل ما يليها' : 'This and following'}</option>
+                <option value="this">{isArabic ? 'هذه المرة فقط' : 'Just this one'}</option>
+              </select>
+              <p className="text-xs text-muted-foreground">{isArabic ? 'تُنشأ السلسلة الجديدة ثم تُقصَر القديمة. إذا تعذر التحديث، تُزال السلسلة الجديدة.' : 'The new series is created first; the old series is then shortened. A failed update triggers cleanup of the new series.'}</p>
+            </div>}
             <DialogFooter className="pt-3">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
-              <Button type="submit" disabled={isSavingTask}>{isSavingTask ? (isArabic ? 'جارٍ الإضافة…' : 'Adding…') : (isArabic ? 'إضافة المهمة' : 'Add task')}</Button>
+              <Button type="submit" disabled={isSavingTask}>{isSavingTask ? (isArabic ? 'جارٍ الحفظ…' : 'Saving…') : (editingRecord ? (isArabic ? 'حفظ التغييرات' : 'Save changes') : (isArabic ? 'إضافة المهمة' : 'Add task'))}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

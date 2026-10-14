@@ -35,13 +35,31 @@ func TestExpandV2RecurrenceBoundaries(t *testing.T) {
 			expected: []string{"2026-10-09", "2026-10-19", "2026-10-23"},
 		},
 		{
-			name: "monthly skips missing month days",
+			name: "monthly clamps missing month days",
 			rule: v2RecurrenceRule{
 				Frequency: "monthly", Interval: 1, StartsOn: "2026-01-31",
 				TimeZone: "UTC",
 			},
 			from: "2026-01-31", to: "2026-04-30",
-			expected: []string{"2026-01-31", "2026-03-31"},
+			expected: []string{"2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"},
+		},
+		{
+			name: "count stops a daily series",
+			rule: v2RecurrenceRule{
+				Frequency: "daily", Interval: 1, StartsOn: "2026-10-10",
+				Count: intPointer(3), TimeZone: "UTC",
+			},
+			from: "2026-10-10", to: "2026-10-20",
+			expected: []string{"2026-10-10", "2026-10-11", "2026-10-12"},
+		},
+		{
+			name: "yearly cadence",
+			rule: v2RecurrenceRule{
+				Frequency: "yearly", Interval: 2, StartsOn: "2024-02-29",
+				TimeZone: "UTC",
+			},
+			from: "2024-01-01", to: "2029-12-31",
+			expected: []string{"2024-02-29", "2026-02-28", "2028-02-29"},
 		},
 	}
 
@@ -61,6 +79,24 @@ func TestExpandV2RecurrenceBoundaries(t *testing.T) {
 				t.Fatalf("expanded dates = %v, want %v", got, test.expected)
 			}
 		})
+	}
+}
+
+func intPointer(value int) *int { return &value }
+
+func TestNormalizeV2TimeForWriteAcceptsPostgresTimeStrings(t *testing.T) {
+	for input, want := range map[string]string{
+		"23:30:00": "23:30",
+		"09:15:00": "09:15",
+		"09:15":    "09:15",
+	} {
+		got := normalizeV2TimeForWrite(&input)
+		if got == nil || *got != want {
+			t.Errorf("normalizeV2TimeForWrite(%q) = %v, want %q", input, got, want)
+		}
+	}
+	if normalizeV2TimeForWrite(nil) != nil {
+		t.Fatal("normalizeV2TimeForWrite(nil) should remain nil")
 	}
 }
 

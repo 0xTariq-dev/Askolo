@@ -26,11 +26,9 @@ import { LocaleProvider } from '@/contexts/locale-context';
 import { SpaceProvider } from '@/contexts/space-context';
 import type { Locale } from '@/lib/locale';
 import {
-  ActionsPage,
   AgentPage,
   AdminCreditsPage,
   CalendarPage,
-  ChoresPage,
   CreditsPage,
   DashboardPage,
   EmailPage,
@@ -154,14 +152,14 @@ function AuthenticatedPageRoutes() {
       <Route path="/sign-up"><Redirect to="/home" /></Route>
       <Route path="/home" component={DashboardPage} />
       <Route path="/dashboard"><Redirect to="/home" /></Route>
-      <Route path="/habits"><Redirect to="/agenda?tab=actions&kind=habit" /></Route>
+      <Route path="/habits"><Redirect to="/agenda?tab=tasks&kind=habit" /></Route>
       <Route path="/goals" component={GoalsPage} />
       <Route path="/agenda" component={PlanPage} />
       <Route path="/plan"><Redirect to="/agenda" /></Route>
       <Route path="/calendar" component={CalendarPage} />
-      <Route path="/chores" component={ChoresPage} />
+      <Route path="/chores"><Redirect to="/agenda?tab=tasks" /></Route>
       <Route path="/notes" component={NotesPage} />
-      <Route path="/actions" component={ActionsPage} />
+      <Route path="/actions"><Redirect to="/agenda?tab=tasks" /></Route>
        <Route path="/agent" component={AgentPage} />
        <Route path="/assistant"><Redirect to="/agent" /></Route>
       <Route path="/email" component={EmailPage} />

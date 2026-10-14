@@ -52,6 +52,8 @@ type v2RecurrenceRule struct {
 	Weekdays  []int   `json:"weekdays,omitempty"`
 	StartsOn  string  `json:"startsOn"`
 	EndsOn    *string `json:"endsOn"`
+	Count     *int    `json:"count,omitempty"`
+	TimeOfDay string  `json:"timeOfDay,omitempty"`
 	TimeZone  string  `json:"timeZone"`
 }
 
@@ -323,6 +325,12 @@ func v2HandleStoreError(w http.ResponseWriter, r *http.Request, h *Handler, user
 	default:
 		var databaseError *pgconn.PgError
 		if errors.As(err, &databaseError) {
+			h.logger.Warn(
+				"V2 request rejected by database constraint",
+				"operation", operation,
+				"constraint", databaseError.ConstraintName,
+				"sql_state", databaseError.Code,
+			)
 			switch databaseError.Code {
 			case "23505":
 				writeError(w, http.StatusConflict, "RESOURCE_CONFLICT", "The requested resource conflicts with existing data.")
@@ -756,14 +764,14 @@ func mergeV2TaskPatch(current postgres.V2Task, patch v2TaskPatchRequest) (postgr
 		DueOn:            current.DueOn,
 		PlannedStartAt:   current.PlannedStartAt,
 		PlannedOn:        current.PlannedOn,
-		PlannedStartTime: current.PlannedStartTime,
+		PlannedStartTime: normalizeV2TimeForWrite(current.PlannedStartTime),
 		DurationMinutes:  current.DurationMinutes,
-		DueTime:          current.DueTime,
+		DueTime:          normalizeV2TimeForWrite(current.DueTime),
 		TimeZone:         current.TimeZone,
 		Label:            current.Label,
 		GoalID:           current.GoalID,
 		ParentTaskID:     current.ParentTaskID,
-		Recurrence:       current.Recurrence,
+		Recurrence:       normalizeV2NullableJSON(current.Recurrence),
 		SourceType:       current.SourceType,
 		SourceReference:  current.SourceReference,
 		Dependencies:     current.Dependencies,
@@ -921,6 +929,24 @@ func mergeV2TaskPatch(current postgres.V2Task, patch v2TaskPatchRequest) (postgr
 	return input, nil
 }
 
+func normalizeV2TimeForWrite(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	normalized := strings.TrimSpace(*value)
+	if parsed, err := time.Parse("15:04:05", normalized); err == nil {
+		normalized = parsed.Format("15:04")
+	}
+	return &normalized
+}
+
+func normalizeV2NullableJSON(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return nil
+	}
+	return value
+}
+
 func validateV2TaskWrite(input postgres.V2TaskWrite, currentID string) error {
 	if !oneOf(input.Kind, "task", "habit") {
 		return errors.New("kind must be task or habit")
@@ -1036,8 +1062,8 @@ func validateV2TaskWrite(input postgres.V2TaskWrite, currentID string) error {
 }
 
 func validateV2Recurrence(rule v2RecurrenceRule) error {
-	if !oneOf(rule.Frequency, "daily", "weekly", "monthly") {
-		return errors.New("recurrence frequency must be daily, weekly, or monthly")
+	if !oneOf(rule.Frequency, "daily", "weekly", "monthly", "yearly") {
+		return errors.New("recurrence frequency must be daily, weekly, monthly, or yearly")
 	}
 	if rule.Interval < 1 || rule.Interval > 366 {
 		return errors.New("recurrence interval must be between 1 and 366")
@@ -1058,11 +1084,19 @@ func validateV2Recurrence(rule v2RecurrenceRule) error {
 			return errors.New("recurrence endsOn must be on or after startsOn")
 		}
 	}
+	if rule.Count != nil && (*rule.Count < 1 || *rule.Count > 3660 || rule.EndsOn != nil) {
+		return errors.New("recurrence count must be between 1 and 3660 and cannot be combined with endsOn")
+	}
 	if rule.Frequency != "weekly" && len(rule.Weekdays) > 0 {
 		return errors.New("weekdays are only valid for weekly recurrence")
 	}
 	if len(rule.Weekdays) > 7 {
 		return errors.New("weekly recurrence cannot contain more than seven weekdays")
+	}
+	if rule.TimeOfDay != "" {
+		if _, err := time.Parse("15:04", rule.TimeOfDay); err != nil {
+			return errors.New("timeOfDay must use HH:MM")
+		}
 	}
 	seen := make(map[int]struct{}, len(rule.Weekdays))
 	for _, day := range rule.Weekdays {
@@ -1155,21 +1189,54 @@ func v2RecurrenceOccursWithWeekdays(rule v2RecurrenceRule, date, start time.Time
 			return false
 		}
 	}
+	matches := false
 	switch rule.Frequency {
 	case "daily":
-		return int(date.Sub(start).Hours()/24)%rule.Interval == 0
+		matches = int(date.Sub(start).Hours()/24)%rule.Interval == 0
 	case "weekly":
 		startWeek := start.AddDate(0, 0, -(isoWeekday(start) - 1))
 		dateWeek := date.AddDate(0, 0, -(isoWeekday(date) - 1))
 		weeks := int(dateWeek.Sub(startWeek).Hours() / 24 / 7)
 		_, matchesDay := weekdays[isoWeekday(date)]
-		return weeks >= 0 && weeks%rule.Interval == 0 && matchesDay
+		matches = weeks >= 0 && weeks%rule.Interval == 0 && matchesDay
 	case "monthly":
 		months := (date.Year()-start.Year())*12 + int(date.Month()-start.Month())
-		return months >= 0 && months%rule.Interval == 0 && date.Day() == start.Day()
+		day := start.Day()
+		lastDay := time.Date(date.Year(), date.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+		if day > lastDay {
+			day = lastDay
+		}
+		matches = months >= 0 && months%rule.Interval == 0 && date.Day() == day
+	case "yearly":
+		years := date.Year() - start.Year()
+		day := start.Day()
+		lastDay := time.Date(date.Year(), start.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+		if day > lastDay {
+			day = lastDay
+		}
+		matches = years >= 0 && years%rule.Interval == 0 && date.Month() == start.Month() && date.Day() == day
 	default:
 		return false
 	}
+	if !matches || rule.Count == nil {
+		return matches
+	}
+	ordinal := 0
+	for candidate := start; !candidate.After(date); candidate = candidate.AddDate(0, 0, 1) {
+		candidate = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), 0, 0, 0, 0, time.UTC)
+		if v2RecurrenceOccursWithWeekdaysWithoutCount(rule, candidate, start, weekdays) {
+			ordinal++
+			if ordinal > *rule.Count {
+				return false
+			}
+		}
+	}
+	return ordinal > 0
+}
+
+func v2RecurrenceOccursWithWeekdaysWithoutCount(rule v2RecurrenceRule, date, start time.Time, weekdays map[int]struct{}) bool {
+	rule.Count = nil
+	return v2RecurrenceOccursWithWeekdays(rule, date, start, weekdays)
 }
 
 func isoWeekday(date time.Time) int {

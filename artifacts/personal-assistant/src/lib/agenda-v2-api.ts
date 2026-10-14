@@ -223,27 +223,58 @@ export async function getV2AgendaRange(
   return combined;
 }
 
+export type V2TaskRecurrence = {
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval: number;
+  weekdays?: number[];
+  startsOn: string;
+  endsOn: string | null;
+  count?: number;
+  timeOfDay?: string;
+  timeZone: string;
+};
+
 export type V2TaskCreateInput = {
   kind: 'task' | 'habit';
   title: string;
-  details?: string;
+  details?: string | null;
   status?: 'open' | 'in_progress' | 'done' | 'cancelled';
   priority?: 'none' | 'low' | 'normal' | 'high';
-  dueOn?: string;
-  dueTime?: string;
-  plannedOn?: string;
-  plannedStartTime?: string;
-  durationMinutes?: number;
+  dueOn?: string | null;
+  dueTime?: string | null;
+  plannedOn?: string | null;
+  plannedStartTime?: string | null;
+  durationMinutes?: number | null;
   timeZone: string;
-  label?: string;
-  recurrence?: {
-    frequency: 'daily' | 'weekly' | 'monthly';
-    interval: number;
-    weekdays?: number[];
-    startsOn: string;
-    endsOn: string | null;
-    timeZone: string;
+  label?: string | null;
+  goalId?: string | null;
+  recurrence?: V2TaskRecurrence | null;
+};
+
+export type V2TaskRecord = V2TaskCreateInput & {
+  id: string;
+  workspaceId: string;
+  createdByUserId: string;
+  assignedToUserId: string | null;
+  parentTaskId: string | null;
+  completedAt: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type V2TaskReminderRule = {
+  id: string;
+  workspaceId: string;
+  kind: 'task';
+  rule: {
+    targetId: string;
+    basis: 'start' | 'due' | 'daily_brief';
+    minutesBefore?: number;
+    localTime?: string;
+    timeZone?: string;
   };
+  status: 'pending_automation' | 'disabled';
 };
 
 async function v2Request<T>(
@@ -325,10 +356,23 @@ export async function createV2Task(
   return result;
 }
 
+export async function getV2Task(
+  workspaceId: string,
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<V2TaskRecord> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`,
+    { credentials: 'include', headers: { Accept: 'application/json' }, signal },
+  );
+  if (!response.ok) throw new Error(`Task could not be loaded (${response.status}).`);
+  return response.json() as Promise<V2TaskRecord>;
+}
+
 export function updateV2Task(
   workspaceId: string,
   taskId: string,
-  patch: { status?: 'open' | 'in_progress' | 'done' | 'cancelled'; title?: string; priority?: 'none' | 'low' | 'normal' | 'high' },
+  patch: Partial<V2TaskCreateInput>,
   signal?: AbortSignal,
 ): Promise<unknown> {
   return v2Request(
@@ -337,6 +381,55 @@ export function updateV2Task(
     patch,
     signal,
   );
+}
+
+export async function getV2TaskReminderRules(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<V2TaskReminderRule[]> {
+  const rules: V2TaskReminderRule[] = [];
+  const limit = 100;
+  for (let offset = 0; ; offset += limit) {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    const response = await fetch(
+      `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/reminder-rules?${query}`,
+      { credentials: 'include', headers: { Accept: 'application/json' }, signal },
+    );
+    if (!response.ok) throw new Error(`Reminders could not be loaded (${response.status}).`);
+    const page = await response.json() as V2TaskReminderRule[];
+    rules.push(...page);
+    if (page.length < limit) return rules;
+  }
+}
+
+export function createV2TaskReminderRule(
+  workspaceId: string,
+  rule: V2TaskReminderRule['rule'],
+): Promise<V2TaskReminderRule | undefined> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/reminder-rules`,
+    'POST',
+    { kind: 'task', rule, status: 'pending_automation' },
+  );
+}
+
+export function updateV2TaskReminderRule(
+  workspaceId: string,
+  ruleId: string,
+  rule: V2TaskReminderRule['rule'],
+): Promise<V2TaskReminderRule | undefined> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/reminder-rules/${encodeURIComponent(ruleId)}`,
+    'PATCH',
+    { rule, status: 'pending_automation' },
+  );
+}
+
+export function deleteV2TaskReminderRule(workspaceId: string, ruleId: string): Promise<void> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/reminder-rules/${encodeURIComponent(ruleId)}`,
+    'DELETE',
+  ) as Promise<void>;
 }
 
 export function updateV2TaskOccurrence(

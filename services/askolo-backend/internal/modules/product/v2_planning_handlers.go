@@ -830,12 +830,18 @@ func (h *Handler) validateV2ReminderRule(r *http.Request, workspaceID, kind stri
 		var target struct {
 			TargetID      string `json:"targetId"`
 			MinutesBefore int    `json:"minutesBefore"`
+			Basis         string `json:"basis"`
+			LocalTime     string `json:"localTime"`
+			TimeZone      string `json:"timeZone"`
 		}
 		if err := decodeStrictRawJSON(rule, &target); err != nil {
-			return errors.New("rule must contain targetId and minutesBefore")
+			return errors.New("rule must contain a valid target and reminder schedule")
 		}
-		if !v2IdentifierPattern.MatchString(target.TargetID) || target.MinutesBefore < 0 || target.MinutesBefore > 10080 {
-			return errors.New("targetId or minutesBefore is invalid")
+		if target.Basis == "" {
+			target.Basis = "due"
+		}
+		if !v2IdentifierPattern.MatchString(target.TargetID) {
+			return errors.New("targetId is invalid")
 		}
 		if kind == "task" {
 			if _, err := h.store.GetV2Task(r.Context(), workspaceID, target.TargetID); err != nil {
@@ -843,6 +849,22 @@ func (h *Handler) validateV2ReminderRule(r *http.Request, workspaceID, kind stri
 			}
 		} else if _, err := h.store.GetV2Goal(r.Context(), workspaceID, target.TargetID); err != nil {
 			return errors.New("targetId must identify a goal in this workspace")
+		}
+		switch target.Basis {
+		case "start", "due":
+			if target.MinutesBefore < 0 || target.MinutesBefore > 10080 {
+				return errors.New("minutesBefore must be between 0 and 10080")
+			}
+		case "daily_brief":
+			if _, err := time.Parse("15:04", target.LocalTime); err != nil ||
+				target.TimeZone == "" || len(target.TimeZone) > 64 {
+				return errors.New("localTime or timeZone is invalid")
+			}
+			if _, err := time.LoadLocation(target.TimeZone); err != nil {
+				return errors.New("timeZone must be a valid IANA time zone")
+			}
+		default:
+			return errors.New("basis must be start, due, or daily_brief")
 		}
 	case "daily_brief":
 		var schedule struct {
