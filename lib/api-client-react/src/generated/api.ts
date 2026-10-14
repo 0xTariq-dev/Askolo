@@ -35,10 +35,6 @@ import type {
   AudioTranscriptionResponse,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
-  Chore,
-  ChoreCompleteInput,
-  ChoreInput,
-  ChoreUpdate,
   CoachingInput,
   DailyPlan,
   DailyPlanInput,
@@ -64,6 +60,8 @@ import type {
   GoogleCalendarEvent,
   GoogleCalendarEventDeleteRequest,
   GoogleCalendarEventInput,
+  GoogleCalendarProviderDelete,
+  GoogleCalendarProviderUpdate,
   GoogleCalendarSyncRequest,
   GoogleCalendarSyncResponse,
   GoogleConnectionStatus,
@@ -4646,476 +4644,6 @@ export const useDeleteEvent = <TError = ErrorType<unknown>,
       return useMutation(getDeleteEventMutationOptions(options));
     }
 
-export const getListChoresUrl = () => {
-
-
-
-
-  return `/api/chores`
-}
-
-/**
- * @summary List all chores
- */
-export const listChores = async ( options?: Parameters<typeof customFetch>[1]): Promise<Chore[]> => {
-
-  return customFetch<Chore[]>(getListChoresUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListChoresQueryKey = () => {
-    return [
-    `/api/chores`
-    ] as const;
-    }
-
-
-export const getListChoresQueryOptions = <TData = Awaited<ReturnType<typeof listChores>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChores>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListChoresQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listChores>>> = ({ signal }) => listChores({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listChores>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type ListChoresQueryResult = NonNullable<Awaited<ReturnType<typeof listChores>>>
-export type ListChoresQueryError = ErrorType<unknown>
-
-
-/**
- * @summary List all chores
- */
-
-export function useListChores<TData = Awaited<ReturnType<typeof listChores>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChores>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getListChoresQueryOptions(options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-
-export const getCreateChoreUrl = () => {
-
-
-
-
-  return `/api/chores`
-}
-
-/**
- * @summary Create a new chore
- */
-export const createChore = async (choreInput: ChoreInput, options?: Parameters<typeof customFetch>[1]): Promise<Chore> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<Chore>(getCreateChoreUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(choreInput)
-  }
-);}
-
-
-
-
-
-export const getCreateChoreMutationKey = () => ['createChore'] as const;
-
-export const getCreateChoreMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChore>>, TError,CreateChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createChore>>, TError,CreateChoreMutationVariables, TContext> => {
-
-const mutationKey = getCreateChoreMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createChore>>, CreateChoreMutationVariables> = (props) => {
-          const {data} = props ?? {};
-
-          return  createChore(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreateChoreMutationResult = NonNullable<Awaited<ReturnType<typeof createChore>>>
-    export type CreateChoreMutationBody = BodyType<ChoreInput>
-    export type CreateChoreMutationError = ErrorType<unknown>
-    export type CreateChoreMutationVariables = {data: BodyType<ChoreInput>}
-
-    /**
- * @summary Create a new chore
- */
-export const useCreateChore = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChore>>, TError,CreateChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof createChore>>,
-        TError,
-        CreateChoreMutationVariables,
-        TContext
-      > => {
-      return useMutation(getCreateChoreMutationOptions(options));
-    }
-
-export const getGetChoreUrl = (id: number,) => {
-
-
-
-
-  return `/api/chores/${id}`
-}
-
-/**
- * @summary Get a chore by ID
- */
-export const getChore = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<Chore> => {
-
-  return customFetch<Chore>(getGetChoreUrl(id),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetChoreQueryKey = (id: number,) => {
-    return [
-    `/api/chores/${id}`
-    ] as const;
-    }
-
-
-export const getGetChoreQueryOptions = <TData = Awaited<ReturnType<typeof getChore>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChore>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetChoreQueryKey(id);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChore>>> = ({ signal }) => getChore(id, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChore>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type GetChoreQueryResult = NonNullable<Awaited<ReturnType<typeof getChore>>>
-export type GetChoreQueryError = ErrorType<ErrorEnvelope>
-
-
-/**
- * @summary Get a chore by ID
- */
-
-export function useGetChore<TData = Awaited<ReturnType<typeof getChore>>, TError = ErrorType<ErrorEnvelope>>(
- id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChore>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getGetChoreQueryOptions(id,options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-
-export const getUpdateChoreUrl = (id: number,) => {
-
-
-
-
-  return `/api/chores/${id}`
-}
-
-/**
- * @summary Update a chore
- */
-export const updateChore = async (id: number,
-    choreUpdate: ChoreUpdate, options?: Parameters<typeof customFetch>[1]): Promise<Chore> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<Chore>(getUpdateChoreUrl(id),
-  {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(choreUpdate)
-  }
-);}
-
-
-
-
-
-export const getUpdateChoreMutationKey = () => ['updateChore'] as const;
-
-export const getUpdateChoreMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChore>>, TError,UpdateChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateChore>>, TError,UpdateChoreMutationVariables, TContext> => {
-
-const mutationKey = getUpdateChoreMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateChore>>, UpdateChoreMutationVariables> = (props) => {
-          const {id,data} = props ?? {};
-
-          return  updateChore(id,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type UpdateChoreMutationResult = NonNullable<Awaited<ReturnType<typeof updateChore>>>
-    export type UpdateChoreMutationBody = BodyType<ChoreUpdate>
-    export type UpdateChoreMutationError = ErrorType<ErrorEnvelope>
-    export type UpdateChoreMutationVariables = {id: number;data: BodyType<ChoreUpdate>}
-
-    /**
- * @summary Update a chore
- */
-export const useUpdateChore = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChore>>, TError,UpdateChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof updateChore>>,
-        TError,
-        UpdateChoreMutationVariables,
-        TContext
-      > => {
-      return useMutation(getUpdateChoreMutationOptions(options));
-    }
-
-export const getDeleteChoreUrl = (id: number,) => {
-
-
-
-
-  return `/api/chores/${id}`
-}
-
-/**
- * @summary Delete a chore
- */
-export const deleteChore = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
-
-  return customFetch<void>(getDeleteChoreUrl(id),
-  {
-    ...options,
-    method: 'DELETE'
-
-
-  }
-);}
-
-
-
-
-
-export const getDeleteChoreMutationKey = () => ['deleteChore'] as const;
-
-export const getDeleteChoreMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChore>>, TError,DeleteChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteChore>>, TError,DeleteChoreMutationVariables, TContext> => {
-
-const mutationKey = getDeleteChoreMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteChore>>, DeleteChoreMutationVariables> = (props) => {
-          const {id} = props ?? {};
-
-          return  deleteChore(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type DeleteChoreMutationResult = NonNullable<Awaited<ReturnType<typeof deleteChore>>>
-
-    export type DeleteChoreMutationError = ErrorType<unknown>
-    export type DeleteChoreMutationVariables = {id: number}
-
-    /**
- * @summary Delete a chore
- */
-export const useDeleteChore = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChore>>, TError,DeleteChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof deleteChore>>,
-        TError,
-        DeleteChoreMutationVariables,
-        TContext
-      > => {
-      return useMutation(getDeleteChoreMutationOptions(options));
-    }
-
-export const getCompleteChoreUrl = (id: number,) => {
-
-
-
-
-  return `/api/chores/${id}/complete`
-}
-
-/**
- * @summary Mark a chore as completed
- */
-export const completeChore = async (id: number,
-    choreCompleteInput: ChoreCompleteInput, options?: Parameters<typeof customFetch>[1]): Promise<Chore> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<Chore>(getCompleteChoreUrl(id),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(choreCompleteInput)
-  }
-);}
-
-
-
-
-
-export const getCompleteChoreMutationKey = () => ['completeChore'] as const;
-
-export const getCompleteChoreMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeChore>>, TError,CompleteChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof completeChore>>, TError,CompleteChoreMutationVariables, TContext> => {
-
-const mutationKey = getCompleteChoreMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeChore>>, CompleteChoreMutationVariables> = (props) => {
-          const {id,data} = props ?? {};
-
-          return  completeChore(id,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CompleteChoreMutationResult = NonNullable<Awaited<ReturnType<typeof completeChore>>>
-    export type CompleteChoreMutationBody = BodyType<ChoreCompleteInput>
-    export type CompleteChoreMutationError = ErrorType<ErrorEnvelope>
-    export type CompleteChoreMutationVariables = {id: number;data: BodyType<ChoreCompleteInput>}
-
-    /**
- * @summary Mark a chore as completed
- */
-export const useCompleteChore = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeChore>>, TError,CompleteChoreMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof completeChore>>,
-        TError,
-        CompleteChoreMutationVariables,
-        TContext
-      > => {
-      return useMutation(getCompleteChoreMutationOptions(options));
-    }
-
 export const getListNotesUrl = () => {
 
 
@@ -7239,18 +6767,19 @@ export function useGetGoogleStatus<TData = Awaited<ReturnType<typeof getGoogleSt
 
 
 
-export const getSyncGoogleCalendarUrl = () => {
+export const getSyncGoogleCalendarUrl = (workspaceId: string,) => {
 
 
 
 
-  return `/api/google/calendar/sync`
+  return `/api/v2/workspaces/${workspaceId}/google-calendar/sync`
 }
 
 /**
- * @summary Sync Google Calendar events into the local Aura calendar
+ * @summary Reconcile a connected Google Calendar into the selected workspace
  */
-export const syncGoogleCalendar = async (googleCalendarSyncRequest: GoogleCalendarSyncRequest, options?: Parameters<typeof customFetch>[1]): Promise<GoogleCalendarSyncResponse> => {
+export const syncGoogleCalendar = async (workspaceId: string,
+    googleCalendarSyncRequest: GoogleCalendarSyncRequest, options?: Parameters<typeof customFetch>[1]): Promise<GoogleCalendarSyncResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -7258,7 +6787,7 @@ export const syncGoogleCalendar = async (googleCalendarSyncRequest: GoogleCalend
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<GoogleCalendarSyncResponse>(getSyncGoogleCalendarUrl(),
+return customFetch<GoogleCalendarSyncResponse>(getSyncGoogleCalendarUrl(workspaceId),
   {
     ...options,
     method: 'POST',
@@ -7288,9 +6817,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncGoogleCalendar>>, SyncGoogleCalendarMutationVariables> = (props) => {
-          const {data} = props ?? {};
+          const {workspaceId,data} = props ?? {};
 
-          return  syncGoogleCalendar(data,requestOptions)
+          return  syncGoogleCalendar(workspaceId,data,requestOptions)
         }
 
 
@@ -7303,10 +6832,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SyncGoogleCalendarMutationResult = NonNullable<Awaited<ReturnType<typeof syncGoogleCalendar>>>
     export type SyncGoogleCalendarMutationBody = BodyType<GoogleCalendarSyncRequest>
     export type SyncGoogleCalendarMutationError = ErrorType<ErrorEnvelope>
-    export type SyncGoogleCalendarMutationVariables = {data: BodyType<GoogleCalendarSyncRequest>}
+    export type SyncGoogleCalendarMutationVariables = {workspaceId: string;data: BodyType<GoogleCalendarSyncRequest>}
 
     /**
- * @summary Sync Google Calendar events into the local Aura calendar
+ * @summary Reconcile a connected Google Calendar into the selected workspace
  */
 export const useSyncGoogleCalendar = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncGoogleCalendar>>, TError,SyncGoogleCalendarMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -7317,6 +6846,172 @@ export const useSyncGoogleCalendar = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSyncGoogleCalendarMutationOptions(options));
+    }
+
+export const getUpdateV2GoogleCalendarEventUrl = (workspaceId: string,
+    eventID: string,) => {
+
+
+
+
+  return `/api/v2/workspaces/${workspaceId}/google-calendar/events/${eventID}`
+}
+
+/**
+ * @summary Update a synced Google Calendar event if its ETag is current
+ */
+export const updateV2GoogleCalendarEvent = async (workspaceId: string,
+    eventID: string,
+    googleCalendarProviderUpdate: GoogleCalendarProviderUpdate, options?: Parameters<typeof customFetch>[1]): Promise<GoogleCalendarEvent> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<GoogleCalendarEvent>(getUpdateV2GoogleCalendarEventUrl(workspaceId,eventID),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(googleCalendarProviderUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateV2GoogleCalendarEventMutationKey = () => ['updateV2GoogleCalendarEvent'] as const;
+
+export const getUpdateV2GoogleCalendarEventMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateV2GoogleCalendarEvent>>, TError,UpdateV2GoogleCalendarEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateV2GoogleCalendarEvent>>, TError,UpdateV2GoogleCalendarEventMutationVariables, TContext> => {
+
+const mutationKey = getUpdateV2GoogleCalendarEventMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateV2GoogleCalendarEvent>>, UpdateV2GoogleCalendarEventMutationVariables> = (props) => {
+          const {workspaceId,eventID,data} = props ?? {};
+
+          return  updateV2GoogleCalendarEvent(workspaceId,eventID,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateV2GoogleCalendarEventMutationResult = NonNullable<Awaited<ReturnType<typeof updateV2GoogleCalendarEvent>>>
+    export type UpdateV2GoogleCalendarEventMutationBody = BodyType<GoogleCalendarProviderUpdate>
+    export type UpdateV2GoogleCalendarEventMutationError = ErrorType<ErrorEnvelope>
+    export type UpdateV2GoogleCalendarEventMutationVariables = {workspaceId: string;eventID: string;data: BodyType<GoogleCalendarProviderUpdate>}
+
+    /**
+ * @summary Update a synced Google Calendar event if its ETag is current
+ */
+export const useUpdateV2GoogleCalendarEvent = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateV2GoogleCalendarEvent>>, TError,UpdateV2GoogleCalendarEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateV2GoogleCalendarEvent>>,
+        TError,
+        UpdateV2GoogleCalendarEventMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateV2GoogleCalendarEventMutationOptions(options));
+    }
+
+export const getDeleteV2GoogleCalendarEventUrl = (workspaceId: string,
+    eventID: string,) => {
+
+
+
+
+  return `/api/v2/workspaces/${workspaceId}/google-calendar/events/${eventID}`
+}
+
+/**
+ * @summary Delete a synced Google Calendar event if its ETag is current
+ */
+export const deleteV2GoogleCalendarEvent = async (workspaceId: string,
+    eventID: string,
+    googleCalendarProviderDelete: GoogleCalendarProviderDelete, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<void>(getDeleteV2GoogleCalendarEventUrl(workspaceId,eventID),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(googleCalendarProviderDelete)
+  }
+);}
+
+
+
+
+
+export const getDeleteV2GoogleCalendarEventMutationKey = () => ['deleteV2GoogleCalendarEvent'] as const;
+
+export const getDeleteV2GoogleCalendarEventMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteV2GoogleCalendarEvent>>, TError,DeleteV2GoogleCalendarEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteV2GoogleCalendarEvent>>, TError,DeleteV2GoogleCalendarEventMutationVariables, TContext> => {
+
+const mutationKey = getDeleteV2GoogleCalendarEventMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteV2GoogleCalendarEvent>>, DeleteV2GoogleCalendarEventMutationVariables> = (props) => {
+          const {workspaceId,eventID,data} = props ?? {};
+
+          return  deleteV2GoogleCalendarEvent(workspaceId,eventID,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteV2GoogleCalendarEventMutationResult = NonNullable<Awaited<ReturnType<typeof deleteV2GoogleCalendarEvent>>>
+    export type DeleteV2GoogleCalendarEventMutationBody = BodyType<GoogleCalendarProviderDelete>
+    export type DeleteV2GoogleCalendarEventMutationError = ErrorType<ErrorEnvelope>
+    export type DeleteV2GoogleCalendarEventMutationVariables = {workspaceId: string;eventID: string;data: BodyType<GoogleCalendarProviderDelete>}
+
+    /**
+ * @summary Delete a synced Google Calendar event if its ETag is current
+ */
+export const useDeleteV2GoogleCalendarEvent = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteV2GoogleCalendarEvent>>, TError,DeleteV2GoogleCalendarEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteV2GoogleCalendarEvent>>,
+        TError,
+        DeleteV2GoogleCalendarEventMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteV2GoogleCalendarEventMutationOptions(options));
     }
 
 export const getCreateGoogleCalendarEventUrl = () => {

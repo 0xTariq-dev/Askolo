@@ -351,6 +351,9 @@ func NewWithShutdown(
 	// frontend's requests instead of the password-auth mux returning 404.
 	apiMux.Handle("/api/auth/google", googleRoutes)
 	apiMux.Handle("/api/auth/google/", googleRoutes)
+	apiMux.Handle("POST /api/v2/workspaces/{workspaceId}/google-calendar/sync", googleRoutes)
+	apiMux.Handle("PATCH /api/v2/workspaces/{workspaceId}/google-calendar/events/{eventID}", googleRoutes)
+	apiMux.Handle("DELETE /api/v2/workspaces/{workspaceId}/google-calendar/events/{eventID}", googleRoutes)
 	apiMux.Handle("/api/auth/", authHandler.Routes())
 	apiMux.Handle("/api/auth/github", githubRoutes)
 	apiMux.Handle("/api/auth/github/", githubRoutes)
@@ -361,7 +364,6 @@ func NewWithShutdown(
 			strings.HasPrefix(r.URL.Path, "/api/goals"),
 			strings.HasPrefix(r.URL.Path, "/api/daily-plans"),
 			strings.HasPrefix(r.URL.Path, "/api/events"),
-			strings.HasPrefix(r.URL.Path, "/api/chores"),
 			strings.HasPrefix(r.URL.Path, "/api/notes"),
 			strings.HasPrefix(r.URL.Path, "/api/action-items"),
 			strings.HasPrefix(r.URL.Path, "/api/dashboard"),

@@ -131,6 +131,10 @@ func (h *Handler) updateCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventID := r.PathValue("eventID")
+	if strings.TrimSpace(r.Header.Get("If-Match")) == "" {
+		writeError(w, http.StatusPreconditionRequired, "ETAG_REQUIRED", "Refresh the event before updating it.")
+		return
+	}
 	if !providerIDPattern.MatchString(eventID) {
 		writeError(w, http.StatusBadRequest, "INVALID_EVENT", "A valid eventId is required.")
 		return
@@ -156,7 +160,7 @@ func (h *Handler) updateCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.googleRequest(r.Context(), http.MethodPatch,
 		"https://www.googleapis.com/calendar/v3/calendars/"+url.PathEscape(input.CalendarID)+"/events/"+url.PathEscape(eventID),
-		token, input.Event)
+		token, input.Event, r.Header.Get("If-Match"))
 	if err != nil {
 		h.writeOperationError(w, err)
 		return
@@ -171,6 +175,10 @@ func (h *Handler) deleteCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eventID := r.PathValue("eventID")
+	if strings.TrimSpace(r.Header.Get("If-Match")) == "" {
+		writeError(w, http.StatusPreconditionRequired, "ETAG_REQUIRED", "Refresh the event before deleting it.")
+		return
+	}
 	calendarID := r.URL.Query().Get("calendarId")
 	if r.URL.Query().Get("providerWriteOptIn") != "true" {
 		writeError(w, http.StatusForbidden, "PROVIDER_WRITE_OPT_IN_REQUIRED", "Explicit Google Calendar write approval is required.")
@@ -187,7 +195,7 @@ func (h *Handler) deleteCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.googleRequest(r.Context(), http.MethodDelete,
 		"https://www.googleapis.com/calendar/v3/calendars/"+url.PathEscape(calendarID)+"/events/"+url.PathEscape(eventID),
-		token, nil)
+		token, nil, r.Header.Get("If-Match"))
 	if err != nil {
 		h.writeOperationError(w, err)
 		return
@@ -334,7 +342,7 @@ func (h *Handler) refreshAccessToken(ctx context.Context, refreshToken string) (
 	return refreshed, nil
 }
 
-func (h *Handler) googleRequest(ctx context.Context, method, endpoint, accessToken string, body []byte) (*http.Response, error) {
+func (h *Handler) googleRequest(ctx context.Context, method, endpoint, accessToken string, body []byte, ifMatch ...string) (*http.Response, error) {
 	requestContext, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	var reader io.Reader
@@ -349,6 +357,9 @@ func (h *Handler) googleRequest(ctx context.Context, method, endpoint, accessTok
 	if len(body) > 0 {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	if len(ifMatch) > 0 && strings.TrimSpace(ifMatch[0]) != "" {
+		request.Header.Set("If-Match", ifMatch[0])
+	}
 	response, err := h.client.Do(request)
 	if err != nil {
 		return nil, operationError{http.StatusBadGateway, "GOOGLE_PROVIDER_UNAVAILABLE", "Google is temporarily unavailable."}
@@ -357,6 +368,9 @@ func (h *Handler) googleRequest(ctx context.Context, method, endpoint, accessTok
 		response.Body.Close()
 		if response.StatusCode == http.StatusUnauthorized {
 			return nil, operationError{http.StatusUnauthorized, "GOOGLE_AUTHORIZATION_EXPIRED", "Reconnect this Google account before using it."}
+		}
+		if response.StatusCode == http.StatusPreconditionFailed {
+			return nil, operationError{http.StatusConflict, "CALENDAR_CONFLICT", "This Google Calendar event changed elsewhere. Refresh it before retrying."}
 		}
 		return nil, operationError{http.StatusBadGateway, "GOOGLE_PROVIDER_FAILED", "Google could not complete the request."}
 	}

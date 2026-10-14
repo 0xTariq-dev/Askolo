@@ -98,48 +98,56 @@ func TestV2WorkspacePlansTasksAndReminderRules(t *testing.T) {
 	if task.ID == "" {
 		t.Fatal("created task has no ID")
 	}
-	actionsResponse := request(
+	tasksResponse := request(
 		ownerSession,
 		http.MethodGet,
-		"/api/v2/workspaces/"+workspaceID+"/actions?kind=task",
+		"/api/v2/workspaces/"+workspaceID+"/tasks?kind=task",
 		"",
 	)
-	if actionsResponse.Code != http.StatusOK {
-		t.Fatalf("list actions status = %d, want %d: %s", actionsResponse.Code, http.StatusOK, actionsResponse.Body.String())
+	if tasksResponse.Code != http.StatusOK {
+		t.Fatalf("list tasks status = %d, want %d: %s", tasksResponse.Code, http.StatusOK, tasksResponse.Body.String())
 	}
-	var actions []struct {
+	var listedTasks []struct {
 		ID   string `json:"id"`
 		Kind string `json:"kind"`
 	}
-	if err := json.NewDecoder(actionsResponse.Body).Decode(&actions); err != nil {
-		t.Fatalf("decode actions: %v", err)
+	if err := json.NewDecoder(tasksResponse.Body).Decode(&listedTasks); err != nil {
+		t.Fatalf("decode tasks: %v", err)
 	}
-	foundTaskAction := false
-	for _, action := range actions {
-		if action.ID == task.ID && action.Kind == "task" {
-			foundTaskAction = true
+	foundTask := false
+	for _, listedTask := range listedTasks {
+		if listedTask.ID == task.ID && listedTask.Kind == "task" {
+			foundTask = true
 		}
 	}
-	if !foundTaskAction {
-		t.Fatalf("Actions route omitted the canonical Task record %q: %#v", task.ID, actions)
+	if !foundTask {
+		t.Fatalf("Tasks route omitted the canonical Task record %q: %#v", task.ID, listedTasks)
 	}
-	actionResponse := request(
+	retiredActionsResponse := request(ownerSession, http.MethodGet, "/api/v2/workspaces/"+workspaceID+"/actions", "")
+	if retiredActionsResponse.Code != http.StatusNotFound {
+		t.Fatalf("retired Actions route status = %d, want %d", retiredActionsResponse.Code, http.StatusNotFound)
+	}
+	retiredChoresResponse := request(ownerSession, http.MethodGet, "/api/chores", "")
+	if retiredChoresResponse.Code != http.StatusNotFound {
+		t.Fatalf("retired Chores route status = %d, want %d", retiredChoresResponse.Code, http.StatusNotFound)
+	}
+	taskResponse = request(
 		ownerSession,
 		http.MethodGet,
-		"/api/v2/workspaces/"+workspaceID+"/actions/"+task.ID,
+		"/api/v2/workspaces/"+workspaceID+"/tasks/"+task.ID,
 		"",
 	)
-	if actionResponse.Code != http.StatusOK {
-		t.Fatalf("get action status = %d, want %d: %s", actionResponse.Code, http.StatusOK, actionResponse.Body.String())
+	if taskResponse.Code != http.StatusOK {
+		t.Fatalf("get task status = %d, want %d: %s", taskResponse.Code, http.StatusOK, taskResponse.Body.String())
 	}
-	actionUpdateResponse := request(
+	taskUpdateResponse := request(
 		ownerSession,
 		http.MethodPatch,
-		"/api/v2/workspaces/"+workspaceID+"/actions/"+task.ID,
+		"/api/v2/workspaces/"+workspaceID+"/tasks/"+task.ID,
 		`{"title":"Canonical task"}`,
 	)
-	if actionUpdateResponse.Code != http.StatusOK {
-		t.Fatalf("update action status = %d, want %d: %s", actionUpdateResponse.Code, http.StatusOK, actionUpdateResponse.Body.String())
+	if taskUpdateResponse.Code != http.StatusOK {
+		t.Fatalf("update task status = %d, want %d: %s", taskUpdateResponse.Code, http.StatusOK, taskUpdateResponse.Body.String())
 	}
 	if task.Kind != "task" || task.Priority != "normal" ||
 		!strings.HasPrefix(task.PlannedOn, "2026-10-12") ||
@@ -345,7 +353,7 @@ INSERT INTO "`+v2Schema+`".tasks (
 	recurringTaskResponse := request(
 		ownerSession,
 		http.MethodPost,
-		"/api/v2/workspaces/"+workspaceID+"/actions",
+		"/api/v2/workspaces/"+workspaceID+"/tasks",
 		fmt.Sprintf(
 			`{"kind":"habit","title":"Daily walk","status":"open","priority":"none","recurrence":{"frequency":"daily","interval":1,"startsOn":%q,"endsOn":%q,"timeZone":"Africa/Cairo"}}`,
 			plannedOn,
@@ -364,7 +372,7 @@ INSERT INTO "`+v2Schema+`".tasks (
 	occurrencesResponse := request(
 		ownerSession,
 		http.MethodGet,
-		"/api/v2/workspaces/"+workspaceID+"/actions/"+recurringTask.ID+"/occurrences?from="+plannedOn+"&to="+occurrenceEnd,
+		"/api/v2/workspaces/"+workspaceID+"/tasks/"+recurringTask.ID+"/occurrences?from="+plannedOn+"&to="+occurrenceEnd,
 		"",
 	)
 	if occurrencesResponse.Code != http.StatusOK {
@@ -380,7 +388,7 @@ INSERT INTO "`+v2Schema+`".tasks (
 	if len(occurrences) != 3 || occurrences[0].Status != "open" {
 		t.Fatalf("generated occurrences = %#v, want three open daily occurrences", occurrences)
 	}
-	occurrencePath := "/api/v2/workspaces/" + workspaceID + "/actions/" + recurringTask.ID + "/occurrences/" + plannedOn
+	occurrencePath := "/api/v2/workspaces/" + workspaceID + "/tasks/" + recurringTask.ID + "/occurrences/" + plannedOn
 	for attempt := 0; attempt < 2; attempt++ {
 		completionResponse := request(ownerSession, http.MethodPatch, occurrencePath, `{"status":"done"}`)
 		if completionResponse.Code != http.StatusOK {
@@ -401,11 +409,11 @@ INSERT INTO "`+v2Schema+`".tasks (
 	archiveActionResponse := request(
 		ownerSession,
 		http.MethodPost,
-		"/api/v2/workspaces/"+workspaceID+"/actions",
-		`{"kind":"task","title":"Archive alias check","status":"open","priority":"none","timeZone":"Africa/Cairo"}`,
+		"/api/v2/workspaces/"+workspaceID+"/tasks",
+		`{"kind":"task","title":"Archive task check","status":"open","priority":"none","timeZone":"Africa/Cairo"}`,
 	)
 	if archiveActionResponse.Code != http.StatusCreated {
-		t.Fatalf("create action for archive alias status = %d, want %d: %s", archiveActionResponse.Code, http.StatusCreated, archiveActionResponse.Body.String())
+		t.Fatalf("create task for archive check status = %d, want %d: %s", archiveActionResponse.Code, http.StatusCreated, archiveActionResponse.Body.String())
 	}
 	var archiveAction struct {
 		ID string `json:"id"`
@@ -416,7 +424,7 @@ INSERT INTO "`+v2Schema+`".tasks (
 	archiveResponse := request(
 		ownerSession,
 		http.MethodDelete,
-		"/api/v2/workspaces/"+workspaceID+"/actions/"+archiveAction.ID,
+		"/api/v2/workspaces/"+workspaceID+"/tasks/"+archiveAction.ID,
 		"",
 	)
 	if archiveResponse.Code != http.StatusNoContent {

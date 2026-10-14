@@ -118,13 +118,6 @@ func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/tasks/{taskId}", h.v2Protect(true, h.v2ArchiveTask))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/tasks/{taskId}/occurrences", h.v2Protect(false, h.v2ListTaskOccurrences))
 	mux.HandleFunc("PATCH /api/v2/workspaces/{workspaceId}/tasks/{taskId}/occurrences/{date}", h.v2Protect(true, h.v2UpdateTaskOccurrence))
-	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/actions", h.v2Protect(false, h.v2ListActions))
-	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/actions", h.v2Protect(true, h.v2CreateAction))
-	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/actions/{actionId}", h.v2Protect(false, h.v2GetAction))
-	mux.HandleFunc("PATCH /api/v2/workspaces/{workspaceId}/actions/{actionId}", h.v2Protect(true, h.v2UpdateAction))
-	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/actions/{actionId}", h.v2Protect(true, h.v2ArchiveAction))
-	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/actions/{actionId}/occurrences", h.v2Protect(false, h.v2ListActionOccurrences))
-	mux.HandleFunc("PATCH /api/v2/workspaces/{workspaceId}/actions/{actionId}/occurrences/{date}", h.v2Protect(true, h.v2UpdateActionOccurrence))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/goals", h.v2Protect(false, h.v2ListGoals))
 	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/goals", h.v2Protect(true, h.v2CreateGoal))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/goals/{goalId}", h.v2Protect(false, h.v2GetGoal))
@@ -657,41 +650,6 @@ func (h *Handler) v2UpdateTaskOccurrence(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	writeJSON(w, http.StatusOK, occurrence)
-}
-
-// Action routes are aliases for the Plan view. Task and Habit remain the
-// canonical data kinds and continue to use the existing V2 task store.
-func (h *Handler) v2ListActions(w http.ResponseWriter, r *http.Request, userID, role string) {
-	h.v2ListTasks(w, r, userID, role)
-}
-
-func (h *Handler) v2CreateAction(w http.ResponseWriter, r *http.Request, userID, role string) {
-	h.v2CreateTask(w, r, userID, role)
-}
-
-func (h *Handler) v2GetAction(w http.ResponseWriter, r *http.Request, userID, role string) {
-	r.SetPathValue("taskId", r.PathValue("actionId"))
-	h.v2GetTask(w, r, userID, role)
-}
-
-func (h *Handler) v2UpdateAction(w http.ResponseWriter, r *http.Request, userID, role string) {
-	r.SetPathValue("taskId", r.PathValue("actionId"))
-	h.v2UpdateTask(w, r, userID, role)
-}
-
-func (h *Handler) v2ArchiveAction(w http.ResponseWriter, r *http.Request, userID, role string) {
-	r.SetPathValue("taskId", r.PathValue("actionId"))
-	h.v2ArchiveTask(w, r, userID, role)
-}
-
-func (h *Handler) v2ListActionOccurrences(w http.ResponseWriter, r *http.Request, userID, role string) {
-	r.SetPathValue("taskId", r.PathValue("actionId"))
-	h.v2ListTaskOccurrences(w, r, userID, role)
-}
-
-func (h *Handler) v2UpdateActionOccurrence(w http.ResponseWriter, r *http.Request, userID, role string) {
-	r.SetPathValue("taskId", r.PathValue("actionId"))
-	h.v2UpdateTaskOccurrence(w, r, userID, role)
 }
 
 func buildV2TaskWrite(request v2TaskRequest) (postgres.V2TaskWrite, error) {

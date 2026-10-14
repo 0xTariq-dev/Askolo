@@ -1272,11 +1272,15 @@ export interface GoogleCalendarSyncRequest {
   from: string;
   /** ISO date or date-time for the end of the range */
   to: string;
+  connectionId?: string;
+  calendarId?: string;
 }
 
 export interface GoogleCalendarSyncResponse {
   synced: number;
+  deleted: number;
   calendarId: string;
+  workspaceId: string;
 }
 
 export interface GoogleCalendarEvent {
@@ -1319,6 +1323,21 @@ export interface GoogleCalendarEventInput {
 
 export interface GoogleCalendarEventDeleteRequest {
   calendarId: string;
+}
+
+export type GoogleCalendarProviderUpdateEvent = { [key: string]: unknown };
+
+export interface GoogleCalendarProviderUpdate {
+  connectionId: string;
+  calendarId: string;
+  providerWriteOptIn: boolean;
+  event: GoogleCalendarProviderUpdateEvent;
+}
+
+export interface GoogleCalendarProviderDelete {
+  connectionId: string;
+  calendarId: string;
+  providerWriteOptIn: boolean;
 }
 
 export type GmailMessagePriority = typeof GmailMessagePriority[keyof typeof GmailMessagePriority];

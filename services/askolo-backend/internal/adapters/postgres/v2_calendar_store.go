@@ -12,7 +12,7 @@ import (
 
 const v2CalendarEventColumns = `id, workspace_id, created_by_user_id, updated_by_user_id,
  title, description, starts_at, ends_at, all_day, time_zone, location, color,
- source_provider, source_connection_id, source_calendar_id, source_event_id, created_at, updated_at`
+ source_provider, source_connection_id, source_calendar_id, source_event_id, provider_etag, created_at, updated_at`
 
 func scanV2CalendarEvent(row pgx.Row) (V2CalendarEventRecord, error) {
 	var event V2CalendarEventRecord
@@ -20,7 +20,7 @@ func scanV2CalendarEvent(row pgx.Row) (V2CalendarEventRecord, error) {
 		&event.ID, &event.WorkspaceID, &event.CreatedByUserID, &event.UpdatedByUserID,
 		&event.Title, &event.Description, &event.StartsAt, &event.EndsAt, &event.AllDay,
 		&event.TimeZone, &event.Location, &event.Color, &event.SourceProvider,
-		&event.SourceConnectionID, &event.SourceCalendarID, &event.SourceEventID,
+		&event.SourceConnectionID, &event.SourceCalendarID, &event.SourceEventID, &event.ProviderETag,
 		&event.CreatedAt, &event.UpdatedAt,
 	)
 	return event, err

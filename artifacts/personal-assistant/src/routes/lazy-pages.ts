@@ -30,16 +30,8 @@ export const CalendarPage = lazy(() =>
   import('@/pages/calendar').then(({ CalendarPage }) => ({ default: CalendarPage })),
 );
 
-export const ChoresPage = lazy(() =>
-  import('@/pages/chores').then(({ ChoresPage }) => ({ default: ChoresPage })),
-);
-
 export const NotesPage = lazy(() =>
   import('@/pages/notes').then(({ NotesPage }) => ({ default: NotesPage })),
-);
-
-export const ActionsPage = lazy(() =>
-  import('@/pages/actions').then(({ ActionsPage }) => ({ default: ActionsPage })),
 );
 
 export const EmailPage = lazy(() =>

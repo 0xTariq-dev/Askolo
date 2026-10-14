@@ -4,7 +4,6 @@ import { addDays, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns'
 import { RefreshCw, Trash2 } from 'lucide-react';
 import {
   useGetGoogleStatus,
-  useSyncGoogleCalendar,
 } from '@workspace/api-client-react';
 import type { CalendarEvent } from '@/components/reui/event-calendar/event-calendar-types';
 import { Pattern } from '@/components/examples/c-event-calendar-1';
@@ -19,6 +18,7 @@ import {
   createV2CalendarEvent,
   deleteV2CalendarEvent,
   getV2AgendaRange,
+  syncV2GoogleCalendar,
   updateV2CalendarEvent,
   type V2AgendaEvent,
 } from '@/lib/agenda-v2-api';
@@ -86,7 +86,8 @@ export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: numb
   }, [range, selectedSpaceId, refreshKey]);
   useEffect(() => onCountChange?.(events.length), [events.length, onCountChange]);
   const { data: googleStatus } = useGetGoogleStatus();
-  const syncGoogle = useSyncGoogleCalendar();
+  const personalWorkspaceId = spaces.find((space) => space.isPersonal)?.id;
+  const syncWorkspaceId = selectedSpaceId ?? personalWorkspaceId;
   const calendarEvents = useMemo(() => events.map(toCalendarEvent), [events]);
   const isArabic = locale === 'ar';
 
@@ -178,8 +179,18 @@ export function AgendaCalendar({ onCountChange }: { onCountChange?: (count: numb
         </div>
         <div className="flex flex-wrap gap-2">
           {googleStatus?.calendarConnected && (
-            <Button type="button" variant="outline" size="sm" onClick={() => syncGoogle.mutate({ data: { from: new Date(Date.now() - 30 * 86400000).toISOString(), to: new Date(Date.now() + 30 * 86400000).toISOString() } }, { onSuccess: refresh })} disabled={syncGoogle.isPending}>
-              <RefreshCw className={`me-2 size-4 ${syncGoogle.isPending ? 'animate-spin' : ''}`} />{isArabic ? 'مزامنة' : 'Sync Google'}
+            <Button type="button" variant="outline" size="sm" onClick={() => {
+              if (!syncWorkspaceId) return;
+              void syncV2GoogleCalendar(syncWorkspaceId, {
+                from: new Date(Date.now() - 30 * 86400000).toISOString(),
+                to: new Date(Date.now() + 30 * 86400000).toISOString(),
+              }).then(refresh).catch((error: unknown) => toast({
+                variant: 'destructive',
+                title: isArabic ? 'تعذرت المزامنة' : 'Sync failed',
+                description: error instanceof Error ? error.message : undefined,
+              }));
+            }} disabled={!syncWorkspaceId}>
+              <RefreshCw className="me-2 size-4" />{isArabic ? 'مزامنة' : 'Sync Google'}
             </Button>
           )}
         </div>

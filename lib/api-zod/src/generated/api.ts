@@ -1041,146 +1041,6 @@ export const DeleteEventResponse = zod.void()
 
 
 /**
- * @summary List all chores
- */
-export const ListChoresResponseItem = zod.object({
-  "id": zod.number().int(),
-  "userId": zod.string(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "assignedTo": zod.string().nullish(),
-  "frequency": zod.enum(['daily', 'weekly', 'monthly', 'once']),
-  "dueDate": zod.string().nullish(),
-  "completed": zod.boolean(),
-  "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
-})
-export const ListChoresResponse = zod.array(ListChoresResponseItem)
-
-
-/**
- * @summary Create a new chore
- */
-
-
-
-export const CreateChoreBody = zod.object({
-  "title": zod.string().min(1),
-  "description": zod.string().optional(),
-  "assignedTo": zod.string().optional(),
-  "frequency": zod.enum(['daily', 'weekly', 'monthly', 'once']).optional(),
-  "dueDate": zod.string().optional()
-})
-
-export const CreateChoreResponse = zod.object({
-  "id": zod.number().int(),
-  "userId": zod.string(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "assignedTo": zod.string().nullish(),
-  "frequency": zod.enum(['daily', 'weekly', 'monthly', 'once']),
-  "dueDate": zod.string().nullish(),
-  "completed": zod.boolean(),
-  "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
-})
-
-
-/**
- * @summary Get a chore by ID
- */
-export const GetChoreParams = zod.object({
-  "id": zod.coerce.number().int()
-})
-
-export const GetChoreResponse = zod.object({
-  "id": zod.number().int(),
-  "userId": zod.string(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "assignedTo": zod.string().nullish(),
-  "frequency": zod.enum(['daily', 'weekly', 'monthly', 'once']),
-  "dueDate": zod.string().nullish(),
-  "completed": zod.boolean(),
-  "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
-})
-
-
-/**
- * @summary Update a chore
- */
-export const UpdateChoreParams = zod.object({
-  "id": zod.coerce.number().int()
-})
-
-
-
-
-export const UpdateChoreBody = zod.object({
-  "title": zod.string().min(1).optional(),
-  "description": zod.string().optional(),
-  "assignedTo": zod.string().optional(),
-  "frequency": zod.enum(['daily', 'weekly', 'monthly', 'once']).optional(),
-  "dueDate": zod.string().optional(),
-  "completed": zod.boolean().optional()
-})
-
-export const UpdateChoreResponse = zod.object({
-  "id": zod.number().int(),
-  "userId": zod.string(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "assignedTo": zod.string().nullish(),
-  "frequency": zod.enum(['daily', 'weekly', 'monthly', 'once']),
-  "dueDate": zod.string().nullish(),
-  "completed": zod.boolean(),
-  "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
-})
-
-
-/**
- * @summary Delete a chore
- */
-export const DeleteChoreParams = zod.object({
-  "id": zod.coerce.number().int()
-})
-
-export const DeleteChoreResponse = zod.void()
-
-
-/**
- * @summary Mark a chore as completed
- */
-export const CompleteChoreParams = zod.object({
-  "id": zod.coerce.number().int()
-})
-
-export const CompleteChoreBody = zod.object({
-  "completedAt": zod.coerce.date().optional()
-})
-
-export const CompleteChoreResponse = zod.object({
-  "id": zod.number().int(),
-  "userId": zod.string(),
-  "title": zod.string(),
-  "description": zod.string().nullish(),
-  "assignedTo": zod.string().nullish(),
-  "frequency": zod.enum(['daily', 'weekly', 'monthly', 'once']),
-  "dueDate": zod.string().nullish(),
-  "completed": zod.boolean(),
-  "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
-})
-
-
-/**
  * @summary List all notes
  */
 export const ListNotesResponseItem = zod.object({
@@ -2222,17 +2082,79 @@ export const GetGoogleStatusResponse = zod.object({
 
 
 /**
- * @summary Sync Google Calendar events into the local Aura calendar
+ * @summary Reconcile a connected Google Calendar into the selected workspace
  */
+export const SyncGoogleCalendarParams = zod.object({
+  "workspaceId": zod.coerce.string()
+})
+
 export const SyncGoogleCalendarBody = zod.object({
   "from": zod.string().describe('ISO date or date-time for the start of the range'),
-  "to": zod.string().describe('ISO date or date-time for the end of the range')
+  "to": zod.string().describe('ISO date or date-time for the end of the range'),
+  "connectionId": zod.string().optional(),
+  "calendarId": zod.string().optional()
 })
 
 export const SyncGoogleCalendarResponse = zod.object({
   "synced": zod.number().int(),
-  "calendarId": zod.string()
+  "deleted": zod.number().int(),
+  "calendarId": zod.string(),
+  "workspaceId": zod.string()
 })
+
+
+/**
+ * @summary Update a synced Google Calendar event if its ETag is current
+ */
+export const UpdateV2GoogleCalendarEventParams = zod.object({
+  "workspaceId": zod.coerce.string(),
+  "eventID": zod.coerce.string()
+})
+
+export const UpdateV2GoogleCalendarEventHeader = zod.object({
+  "If-Match": zod.string()
+})
+
+export const UpdateV2GoogleCalendarEventBody = zod.object({
+  "connectionId": zod.string(),
+  "calendarId": zod.string(),
+  "providerWriteOptIn": zod.boolean(),
+  "event": zod.record(zod.string(), zod.unknown())
+})
+
+export const UpdateV2GoogleCalendarEventResponse = zod.object({
+  "googleEventId": zod.string().optional(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "startDate": zod.string(),
+  "startTime": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "endTime": zod.string().nullish(),
+  "allDay": zod.boolean(),
+  "location": zod.string().nullish(),
+  "attendees": zod.string().nullish()
+})
+
+
+/**
+ * @summary Delete a synced Google Calendar event if its ETag is current
+ */
+export const DeleteV2GoogleCalendarEventParams = zod.object({
+  "workspaceId": zod.coerce.string(),
+  "eventID": zod.coerce.string()
+})
+
+export const DeleteV2GoogleCalendarEventHeader = zod.object({
+  "If-Match": zod.string()
+})
+
+export const DeleteV2GoogleCalendarEventBody = zod.object({
+  "connectionId": zod.string(),
+  "calendarId": zod.string(),
+  "providerWriteOptIn": zod.boolean()
+})
+
+export const DeleteV2GoogleCalendarEventResponse = zod.void()
 
 
 /**

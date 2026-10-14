@@ -11,4 +11,6 @@ export interface GoogleCalendarSyncRequest {
   from: string;
   /** ISO date or date-time for the end of the range */
   to: string;
+  connectionId?: string;
+  calendarId?: string;
 }

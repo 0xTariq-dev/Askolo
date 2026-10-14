@@ -21,6 +21,7 @@ type providerCalendarDateTime struct {
 
 type providerCalendarEvent struct {
 	ID          string                   `json:"id"`
+	ETag        string                   `json:"etag"`
 	Status      string                   `json:"status"`
 	Summary     string                   `json:"summary"`
 	Description string                   `json:"description"`
@@ -78,7 +79,7 @@ func legacyCalendarEvent(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) v2CalendarSync(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
 	if status != http.StatusOK {
 		writeError(w, status, "UNAUTHORIZED", "Sign in before using Calendar.")
@@ -100,8 +101,24 @@ func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_RANGE", "Provide a valid time range of no more than 93 days.")
 		return
 	}
+	workspaceID := r.PathValue("workspaceId")
+	workspaces, err := h.store.ListV2HomeWorkspaces(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "V2_NOT_READY", "The versioned calendar is temporarily unavailable.")
+		return
+	}
+	workspaceAllowed := false
+	for _, workspace := range workspaces {
+		if workspace.ID == workspaceID {
+			workspaceAllowed = true
+			break
+		}
+	}
+	if !workspaceAllowed {
+		writeError(w, http.StatusNotFound, "WORKSPACE_NOT_FOUND", "The selected Space is unavailable.")
+		return
+	}
 	connectionID := input.ConnectionID
-	var err error
 	if connectionID == "" {
 		connectionID, err = h.legacyConnectionID(r, userID, "calendar")
 		if err != nil {
@@ -156,24 +173,8 @@ func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "GOOGLE_PROVIDER_FAILED", "Google returned an invalid calendar.")
 		return
 	}
-	workspaces, err := h.store.ListV2HomeWorkspaces(r.Context(), userID)
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "V2_NOT_READY", "The versioned calendar is temporarily unavailable.")
-		return
-	}
-	workspaceID := ""
-	for _, workspace := range workspaces {
-		if workspace.IsPersonal {
-			workspaceID = workspace.ID
-			break
-		}
-	}
-	if workspaceID == "" {
-		writeError(w, http.StatusNotFound, "WORKSPACE_NOT_FOUND", "The personal Space is unavailable.")
-		return
-	}
-
 	events := make([]postgres.V2ProviderCalendarEvent, 0)
+	deletedEventIDs := make([]string, 0)
 	const maxPages = 10
 	pageToken := ""
 	for page := 0; page < maxPages; page++ {
@@ -202,12 +203,7 @@ func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if item.Status == "cancelled" {
-				if deleteErr := h.store.DeleteV2GoogleCalendarEvent(
-					r.Context(), workspaceID, connectionID, calendarID, item.ID,
-				); deleteErr != nil {
-					writeError(w, http.StatusServiceUnavailable, "CALENDAR_SYNC_FAILED", "Calendar changes could not be saved.")
-					return
-				}
+				deletedEventIDs = append(deletedEventIDs, item.ID)
 				continue
 			}
 			mapped, valid := mapGoogleCalendarEvent(item)
@@ -226,13 +222,68 @@ func (h *Handler) legacyCalendarSync(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := h.store.UpsertV2GoogleCalendarEvents(r.Context(), workspaceID, userID, events); err != nil {
+	if err := h.store.ReconcileV2GoogleCalendarEvents(r.Context(), workspaceID, userID, connectionID, calendarID, events, deletedEventIDs); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "CALENDAR_SYNC_FAILED", "Calendar changes could not be saved.")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"synced": len(events), "calendarId": calendarID, "workspaceId": workspaceID,
+		"synced": len(events), "deleted": len(deletedEventIDs), "calendarId": calendarID, "workspaceId": workspaceID,
 	})
+}
+
+func (h *Handler) v2UpdateProviderCalendarEvent(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before using Calendar.")
+		return
+	}
+	if !h.v2WorkspaceMember(w, r, userID) {
+		return
+	}
+	h.updateCalendarEvent(w, r)
+}
+
+func (h *Handler) v2DeleteProviderCalendarEvent(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Sign in before using Calendar.")
+		return
+	}
+	if !h.v2WorkspaceMember(w, r, userID) {
+		return
+	}
+	var input struct {
+		ConnectionID       string `json:"connectionId"`
+		CalendarID         string `json:"calendarId"`
+		ProviderWriteOptIn bool   `json:"providerWriteOptIn"`
+	}
+	if err := decodeBody(r, &input, 4096); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_EVENT", "The calendar event request is invalid.")
+		return
+	}
+	query := r.URL.Query()
+	query.Set("connectionId", input.ConnectionID)
+	query.Set("calendarId", input.CalendarID)
+	if input.ProviderWriteOptIn {
+		query.Set("providerWriteOptIn", "true")
+	}
+	r.URL.RawQuery = query.Encode()
+	h.deleteCalendarEvent(w, r)
+}
+
+func (h *Handler) v2WorkspaceMember(w http.ResponseWriter, r *http.Request, userID string) bool {
+	workspaces, err := h.store.ListV2HomeWorkspaces(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "V2_NOT_READY", "The versioned calendar is temporarily unavailable.")
+		return false
+	}
+	for _, workspace := range workspaces {
+		if workspace.ID == r.PathValue("workspaceId") {
+			return true
+		}
+	}
+	writeError(w, http.StatusNotFound, "WORKSPACE_NOT_FOUND", "The selected Space is unavailable.")
+	return false
 }
 
 func mapGoogleCalendarEvent(item providerCalendarEvent) (postgres.V2ProviderCalendarEvent, bool) {
@@ -248,7 +299,7 @@ func mapGoogleCalendarEvent(item providerCalendarEvent) (postgres.V2ProviderCale
 		zone = "UTC"
 	}
 	event := postgres.V2ProviderCalendarEvent{
-		ProviderEventID: item.ID, Title: title, TimeZone: zone,
+		ProviderEventID: item.ID, ProviderETag: item.ETag, Title: title, TimeZone: zone,
 	}
 	if value := strings.TrimSpace(item.Description); value != "" {
 		if len(value) > 4000 {

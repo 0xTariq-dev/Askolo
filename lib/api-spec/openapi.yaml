@@ -20,8 +20,6 @@ tags:
     description: Daily planning
   - name: events
     description: Calendar events
-  - name: chores
-    description: Chore management
   - name: notes
     description: Notes
   - name: actionItems
@@ -1031,137 +1029,6 @@ paths:
         "204":
           description: Deleted
 
-  # ─── CHORES ───────────────────────────────────────────────────────────────
-  /chores:
-    get:
-      operationId: listChores
-      tags: [chores]
-      summary: List all chores
-      responses:
-        "200":
-          description: List of chores
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Chore"
-    post:
-      operationId: createChore
-      tags: [chores]
-      summary: Create a new chore
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ChoreInput"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Chore"
-
-  /chores/{id}:
-    get:
-      operationId: getChore
-      tags: [chores]
-      summary: Get a chore by ID
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Chore
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Chore"
-        "404":
-          description: Not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-    patch:
-      operationId: updateChore
-      tags: [chores]
-      summary: Update a chore
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ChoreUpdate"
-      responses:
-        "200":
-          description: Updated chore
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Chore"
-        "404":
-          description: Not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-    delete:
-      operationId: deleteChore
-      tags: [chores]
-      summary: Delete a chore
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "204":
-          description: Deleted
-
-  /chores/{id}/complete:
-    post:
-      operationId: completeChore
-      tags: [chores]
-      summary: Mark a chore as completed
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ChoreCompleteInput"
-      responses:
-        "200":
-          description: Chore marked complete
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Chore"
-        "404":
-          description: Not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
   # ─── NOTES ────────────────────────────────────────────────────────────────
   /notes:
     get:
@@ -1945,11 +1812,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
-  /google/calendar/sync:
+  /v2/workspaces/{workspaceId}/google-calendar/sync:
     post:
       operationId: syncGoogleCalendar
       tags: [google]
-      summary: Sync Google Calendar events into the local Aura calendar
+      summary: Reconcile a connected Google Calendar into the selected workspace
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1965,6 +1838,66 @@ paths:
                 $ref: "#/components/schemas/GoogleCalendarSyncResponse"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v2/workspaces/{workspaceId}/google-calendar/events/{eventID}:
+    parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: eventID
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateV2GoogleCalendarEvent
+      tags: [google]
+      summary: Update a synced Google Calendar event if its ETag is current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleCalendarProviderUpdate"
+      responses:
+        "200":
+          description: Updated provider event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleCalendarEvent"
+        "409":
+          description: The provider event changed since it was synced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteV2GoogleCalendarEvent
+      tags: [google]
+      summary: Delete a synced Google Calendar event if its ETag is current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleCalendarProviderDelete"
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: The provider event changed since it was synced
           content:
             application/json:
               schema:
@@ -3585,14 +3518,22 @@ components:
         to:
           type: string
           description: ISO date or date-time for the end of the range
+        connectionId:
+          type: string
+        calendarId:
+          type: string
 
     GoogleCalendarSyncResponse:
       type: object
-      required: [synced, calendarId]
+      required: [synced, deleted, calendarId, workspaceId]
       properties:
         synced:
           type: integer
+        deleted:
+          type: integer
         calendarId:
+          type: string
+        workspaceId:
           type: string
 
     GoogleCalendarEvent:
@@ -3651,6 +3592,31 @@ components:
       properties:
         calendarId:
           type: string
+
+    GoogleCalendarProviderUpdate:
+      type: object
+      required: [connectionId, calendarId, providerWriteOptIn, event]
+      properties:
+        connectionId:
+          type: string
+        calendarId:
+          type: string
+        providerWriteOptIn:
+          type: boolean
+        event:
+          type: object
+          additionalProperties: true
+
+    GoogleCalendarProviderDelete:
+      type: object
+      required: [connectionId, calendarId, providerWriteOptIn]
+      properties:
+        connectionId:
+          type: string
+        calendarId:
+          type: string
+        providerWriteOptIn:
+          type: boolean
 
     GmailMessageList:
       type: object

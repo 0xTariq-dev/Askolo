@@ -52,6 +52,7 @@ export type V2AgendaEvent = {
   sourceConnectionId: string | null;
   sourceCalendarId: string | null;
   sourceEventId: string | null;
+  sourceEventEtag: string | null;
 };
 
 export type V2AgendaPage = {
@@ -282,20 +283,66 @@ async function v2Request<T>(
   method: 'POST' | 'PATCH' | 'DELETE',
   body?: unknown,
   signal?: AbortSignal,
+  extraHeaders?: HeadersInit,
 ): Promise<T | undefined> {
   const response = await fetch(`${basePath}${path}`, {
     method,
     credentials: 'include',
-    headers: body === undefined ? { Accept: 'application/json' } : {
+    headers: body === undefined ? { Accept: 'application/json', ...extraHeaders } : {
       Accept: 'application/json',
       'Content-Type': 'application/json',
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
-  if (!response.ok) throw new Error(`Request could not be completed (${response.status}).`);
+  if (!response.ok) {
+    if (response.status === 409) throw new Error('Google Calendar changed this event elsewhere. Refresh the calendar before retrying.');
+    throw new Error(`Request could not be completed (${response.status}).`);
+  }
   if (response.status === 204) return undefined;
   return response.json() as Promise<T>;
+}
+
+export function syncV2GoogleCalendar(
+  workspaceId: string,
+  input: { from: string; to: string; connectionId?: string; calendarId?: string },
+): Promise<{ synced: number; deleted: number }> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/google-calendar/sync`,
+    'POST',
+    input,
+  ) as Promise<{ synced: number; deleted: number }>;
+}
+
+export function updateV2GoogleCalendarEvent(
+  workspaceId: string,
+  eventId: string,
+  etag: string,
+  input: unknown,
+): Promise<unknown> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/google-calendar/events/${encodeURIComponent(eventId)}`,
+    'PATCH',
+    input,
+    undefined,
+    { 'If-Match': etag },
+  );
+}
+
+export function deleteV2GoogleCalendarEvent(
+  workspaceId: string,
+  eventId: string,
+  etag: string,
+  input: unknown,
+): Promise<void> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/google-calendar/events/${encodeURIComponent(eventId)}`,
+    'DELETE',
+    input,
+    undefined,
+    { 'If-Match': etag },
+  ) as Promise<void>;
 }
 
 export type V2CalendarEventInput = {
@@ -454,53 +501,3 @@ export function archiveV2Task(workspaceId: string, taskId: string): Promise<void
   ) as Promise<void>;
 }
 
-export async function createV2Action(
-  workspaceId: string,
-  input: V2TaskCreateInput,
-  signal?: AbortSignal,
-): Promise<{ id: string }> {
-  const result = await v2Request<{ id: string }>(
-    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions`,
-    'POST',
-    input,
-    signal,
-  );
-  if (!result?.id) throw new Error('Action was created without an identifier.');
-  return result;
-}
-
-export function updateV2Action(
-  workspaceId: string,
-  actionId: string,
-  patch: { status?: 'open' | 'in_progress' | 'done' | 'cancelled'; title?: string; priority?: 'none' | 'low' | 'normal' | 'high' },
-  signal?: AbortSignal,
-): Promise<unknown> {
-  return v2Request(
-    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions/${encodeURIComponent(actionId)}`,
-    'PATCH',
-    patch,
-    signal,
-  );
-}
-
-export function updateV2ActionOccurrence(
-  workspaceId: string,
-  actionId: string,
-  date: string,
-  patch: { status: 'open' | 'in_progress' | 'done' | 'cancelled' },
-  signal?: AbortSignal,
-): Promise<unknown> {
-  return v2Request(
-    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions/${encodeURIComponent(actionId)}/occurrences/${encodeURIComponent(date)}`,
-    'PATCH',
-    patch,
-    signal,
-  );
-}
-
-export function archiveV2Action(workspaceId: string, actionId: string): Promise<void> {
-  return v2Request(
-    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/actions/${encodeURIComponent(actionId)}`,
-    'DELETE',
-  ) as Promise<void>;
-}

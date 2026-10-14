@@ -24,9 +24,6 @@ import {
 } from 'lucide-react';
 import {
   useGetGoogleStatus,
-  useSyncGoogleCalendar,
-  useUpdateGoogleCalendarEvent,
-  useDeleteGoogleCalendarEvent,
   type Event,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
@@ -47,9 +44,12 @@ import { useLocale } from '@/contexts/locale-context';
 import { useSpaceScope } from '@/contexts/space-context';
 import {
   createV2CalendarEvent,
+  deleteV2GoogleCalendarEvent,
   deleteV2CalendarEvent,
   getV2AgendaRange,
   getV2Workspaces,
+  syncV2GoogleCalendar,
+  updateV2GoogleCalendarEvent,
   updateV2CalendarEvent,
   type V2AgendaEvent,
   type V2AgendaPage,
@@ -135,6 +135,7 @@ function toCalendarEvent(event: V2AgendaEvent, labelSpace: boolean): Event {
   const title = labelSpace && event.workspaceName ? `${event.workspaceName}: ${event.title}` : event.title;
   return {
     id: `v2:${event.workspaceId ?? ''}:${event.id}`,
+    workspaceId: event.workspaceId,
     title,
     description: event.description ?? '',
     startDate: format(startsAt, 'yyyy-MM-dd'),
@@ -148,6 +149,7 @@ function toCalendarEvent(event: V2AgendaEvent, labelSpace: boolean): Event {
     sourceProvider: event.sourceProvider ?? undefined,
     sourceConnectionId: event.sourceConnectionId ?? undefined,
     sourceCalendarId: event.sourceCalendarId ?? undefined,
+    sourceEventEtag: event.sourceEventEtag ?? undefined,
   } as unknown as Event;
 }
 
@@ -243,6 +245,7 @@ export function CalendarPage() {
   const [, setLocation] = useLocation();
   const { selectedSpaceId } = useSpaceScope();
   const [personalWorkspaceId, setPersonalWorkspaceId] = useState<string | null>(null);
+  const syncWorkspaceId = selectedSpaceId ?? personalWorkspaceId;
   const [v2Agenda, setV2Agenda] = useState<V2AgendaPage | null>(null);
   const [agendaError, setAgendaError] = useState<string | null>(null);
   const [agendaLoading, setAgendaLoading] = useState(false);
@@ -292,9 +295,6 @@ export function CalendarPage() {
     .map((event) => toCalendarEvent(event, !selectedSpaceId));
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const syncGoogleCalendar = useSyncGoogleCalendar();
-  const updateGoogleEvent = useUpdateGoogleCalendarEvent();
-  const deleteGoogleEvent = useDeleteGoogleCalendarEvent();
 
   // ── Form ──────────────────────────────────────────────────────────────────
   const form = useHookForm<EventFormValues>({
@@ -378,30 +378,27 @@ export function CalendarPage() {
       return;
     }
     if (providerEventID && providerWriteOptIn) {
-      // The generated client still types this legacy route as a local Event form;
-      // the backend adapter forwards the provider-native Google event shape.
-      const providerSource = editingEvent as Event & { sourceCalendarId?: string; sourceConnectionId?: string };
+      const providerSource = editingEvent as Event & { sourceCalendarId?: string; sourceConnectionId?: string; sourceEventEtag?: string };
+      if (!providerSource.sourceEventEtag) {
+        handleMutationError('update Google Calendar event', new Error('Refresh the event before updating it.'));
+        return;
+      }
       const calendarId = providerSource.sourceCalendarId || 'primary';
       const connectionId = providerSource.sourceConnectionId || '';
       const providerData = {
         calendarId,
         connectionId,
         providerWriteOptIn: true,
-        ...toGoogleCalendarInput(data, timeZone),
+        event: toGoogleCalendarInput(data, timeZone),
       } as never;
       const refreshProviderEvents = () => {
-        syncGoogleCalendar.mutate(
-          { data: providerSyncRange(data.startDate, data.endDate || data.startDate, connectionId, calendarId) as never },
-          {
-            onSuccess: () => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); },
-            onError: (error) => handleMutationError('refresh Google Calendar events', error),
-          },
-        );
+        void syncV2GoogleCalendar(workspaceId, providerSyncRange(data.startDate, data.endDate || data.startDate, connectionId, calendarId))
+          .then(() => { invalidateCalendar(); setDialogOpen(false); setIsSaving(false); })
+          .catch((error: unknown) => handleMutationError('refresh Google Calendar events', error instanceof Error ? error : new Error('Please try again.')));
       };
-      updateGoogleEvent.mutate(
-        { eventId: providerEventID, data: providerData },
-        { onSuccess: refreshProviderEvents, onError: (error) => handleMutationError('update Google Calendar event', error) },
-      );
+      void updateV2GoogleCalendarEvent(workspaceId, providerEventID, providerSource.sourceEventEtag, providerData)
+        .then(refreshProviderEvents)
+        .catch((error: unknown) => handleMutationError('update Google Calendar event', error instanceof Error ? error : new Error('Please try again.')));
       return;
     }
     const mutation = reference
@@ -423,28 +420,25 @@ export function CalendarPage() {
         toast({ title: 'Google write required', description: 'Enable the Google write option before deleting this provider event.' });
         return;
       }
-      const source = event as Event & { sourceCalendarId?: string; sourceConnectionId?: string };
-      if (!source.sourceCalendarId || !source.sourceConnectionId) {
+      const source = event as Event & { sourceCalendarId?: string; sourceConnectionId?: string; sourceEventEtag?: string; workspaceId?: string };
+      if (!source.sourceCalendarId || !source.sourceConnectionId || !source.sourceEventEtag) {
         toast({ title: 'Calendar event', description: 'This event is missing its source account details and remains read-only.' });
         return;
       }
-      const providerDeleteQuery = {
+      const providerDeleteBody = {
         calendarId: source.sourceCalendarId || 'primary',
         connectionId: source.sourceConnectionId,
         providerWriteOptIn: true,
       };
-      deleteGoogleEvent.mutate(
-        { eventId: event.googleEventId, data: providerDeleteQuery as { calendarId: string } },
-        {
-          onSuccess: () => {
-            syncGoogleCalendar.mutate(
-              { data: providerSyncRange(event.startDate, event.endDate || event.startDate, source.sourceConnectionId!, source.sourceCalendarId!) as never },
-              { onSuccess: invalidateCalendar, onError: (error) => handleMutationError('refresh Google Calendar events', error) },
-            );
-          },
-          onError: (error) => handleMutationError('delete Google Calendar event', error),
-        },
-      );
+      const workspaceId = source.workspaceId ?? selectedSpaceId ?? personalWorkspaceId;
+      if (!workspaceId) {
+        handleMutationError('delete Google Calendar event', new Error('Choose a Space before deleting this event.'));
+        return;
+      }
+      void deleteV2GoogleCalendarEvent(workspaceId, event.googleEventId, source.sourceEventEtag, providerDeleteBody)
+        .then(() => syncV2GoogleCalendar(workspaceId, providerSyncRange(event.startDate, event.endDate || event.startDate, source.sourceConnectionId!, source.sourceCalendarId!)))
+        .then(invalidateCalendar)
+        .catch((error: unknown) => handleMutationError('delete Google Calendar event', error instanceof Error ? error : new Error('Please try again.')));
       return;
     }
     const reference = v2EventReference(event);
@@ -460,14 +454,11 @@ export function CalendarPage() {
   const handleSync = useCallback(() => {
     const start = new Date(Date.now() - 30 * 86400000).toISOString();
     const end = new Date(Date.now() + 30 * 86400000).toISOString();
-    syncGoogleCalendar.mutate(
-      { data: { from: start, to: end } },
-      {
-        onSuccess: () => { invalidateCalendar(); setLastSyncedAt(new Date()); },
-        onError: (e) => handleMutationError('sync Google Calendar', e),
-      },
-    );
-  }, [syncGoogleCalendar, invalidateCalendar]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!syncWorkspaceId) return;
+    void syncV2GoogleCalendar(syncWorkspaceId, { from: start, to: end })
+      .then(() => { invalidateCalendar(); setLastSyncedAt(new Date()); })
+      .catch((error: unknown) => handleMutationError('sync Google Calendar', error instanceof Error ? error : new Error('Please try again.')));
+  }, [syncWorkspaceId, invalidateCalendar]); // eslint-disable-line react-hooks/exhaustive-deps
 
   syncRef.current = handleSync;
 
@@ -550,11 +541,11 @@ export function CalendarPage() {
             <Button
               variant="outline"
               onClick={handleSync}
-              disabled={syncGoogleCalendar.isPending || !calendarConnected}
+              disabled={!calendarConnected || !syncWorkspaceId}
               title={!calendarConnected ? 'Google Calendar is not connected — sync is unavailable' : undefined}
               className="shrink-0"
             >
-              <RefreshCw className={cn('h-4 w-4 mr-2', syncGoogleCalendar.isPending && 'animate-spin')} />
+              <RefreshCw className="h-4 w-4 mr-2" />
               {calendarConnected ? 'Sync Google' : 'Google not connected'}
             </Button>
             <Button onClick={() => openAdd()} className="shrink-0" data-testid="button-add-event">
@@ -563,9 +554,7 @@ export function CalendarPage() {
           </div>
           {calendarConnected && (
             <p className="text-xs text-muted-foreground">
-              {syncGoogleCalendar.isPending
-                ? 'Syncing…'
-                : lastSyncedAt
+              {lastSyncedAt
                   ? t('calendar.lastSynced', { time: formatRelativeDate(lastSyncedAt) })
                   : t('calendar.notSynced')}
             </p>
@@ -627,7 +616,7 @@ export function CalendarPage() {
             </div>
           </div>
         ) : displayEvents.length === 0 && visiblePlans.length === 0 && view === 'month' ? (
-          <EmptyState calendarConnected={calendarConnected} onSync={handleSync} onAdd={() => openAdd()} isPending={syncGoogleCalendar.isPending} />
+          <EmptyState calendarConnected={calendarConnected} onSync={handleSync} onAdd={() => openAdd()} isPending={false} />
         ) : view === 'month' ? (
           <MonthGrid
             currentDate={currentDate}

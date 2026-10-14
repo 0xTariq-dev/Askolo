@@ -157,9 +157,7 @@ function AuthenticatedPageRoutes() {
       <Route path="/agenda" component={PlanPage} />
       <Route path="/plan"><Redirect to="/agenda" /></Route>
       <Route path="/calendar" component={CalendarPage} />
-      <Route path="/chores"><Redirect to="/agenda?tab=tasks" /></Route>
       <Route path="/notes" component={NotesPage} />
-      <Route path="/actions"><Redirect to="/agenda?tab=tasks" /></Route>
        <Route path="/agent" component={AgentPage} />
        <Route path="/assistant"><Redirect to="/agent" /></Route>
       <Route path="/email" component={EmailPage} />

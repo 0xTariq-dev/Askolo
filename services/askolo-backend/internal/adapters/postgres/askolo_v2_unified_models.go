@@ -194,6 +194,7 @@ type V2CalendarEventAgendaItem struct {
 	SourceConnectionID *string    `json:"sourceConnectionId"`
 	SourceCalendarID   *string    `json:"sourceCalendarId"`
 	SourceEventID      *string    `json:"sourceEventId"`
+	SourceEventETag    *string    `json:"sourceEventEtag"`
 }
 
 type V2CalendarEventRecord struct {
@@ -213,6 +214,7 @@ type V2CalendarEventRecord struct {
 	SourceConnectionID *string    `json:"sourceConnectionId"`
 	SourceCalendarID   *string    `json:"sourceCalendarId"`
 	SourceEventID      *string    `json:"sourceEventId"`
+	ProviderETag       *string    `json:"providerEtag"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
 }
@@ -232,6 +234,7 @@ type V2ProviderCalendarEvent struct {
 	ProviderConnectionID string
 	ProviderCalendarID   string
 	ProviderEventID      string
+	ProviderETag         string
 	Title                string
 	Description          *string
 	StartsAt             time.Time

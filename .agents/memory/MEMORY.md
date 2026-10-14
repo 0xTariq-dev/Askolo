@@ -77,5 +77,6 @@
 - [Askolo planning model](askolo-planning-model.md) — Task and Habit are distinct; chores are labels, recurrence expands on demand, and provider events keep account/calendar ownership.
 - [Postgres local-time strings](postgres-local-time-strings.md) — SQL `time` columns scanned as strings may include seconds even when API input uses minute precision.
 - [Space-centric product scope](workspace-first-product-scope.md) — use Spaces and Home in product UI; support family and professional Spaces, with explicit Agent scope.
+- [Retired Actions and Chores routes](retired-actions-chores.md) — remove routes and aliases outright; never redirect them or delete stored records.
 - [Askolo mark colors](askolo-mark-colors.md) — avoid flat tints; preserve the glass highlights and depth when recoloring the mark.
 

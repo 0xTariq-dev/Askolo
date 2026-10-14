@@ -8,5 +8,7 @@
 
 export interface GoogleCalendarSyncResponse {
   synced: number;
+  deleted: number;
   calendarId: string;
+  workspaceId: string;
 }

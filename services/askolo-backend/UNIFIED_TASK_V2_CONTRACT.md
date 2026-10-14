@@ -114,7 +114,7 @@ Task, Plan, and Agenda endpoints are session-authenticated and workspace-scoped.
 | `GET, POST /api/v2/workspaces/{workspaceId}/reminder-rules` | List and create inactive reminder definitions. |
 | `PATCH, DELETE /api/v2/workspaces/{workspaceId}/reminder-rules/{ruleId}` | Update or delete an inactive definition; activation is not supported. |
 
-The canonical V2 responsibility routes are `/tasks` and their occurrence subroutes. The server also currently mounts a parallel `/actions` V2 route family for the same unified Task/Habit records, and the Plan UI still calls it. Treat `/actions` as a cutover gap, not a second canonical contract; move app callers to `/tasks` before declaring the V2 cutover complete.
+The canonical V2 responsibility routes are `/tasks` and their occurrence subroutes. Actions and Chores are retired concepts and have no V2 routes; use Task and Habit kinds through `/tasks`.
 
 ### Home API implemented
 

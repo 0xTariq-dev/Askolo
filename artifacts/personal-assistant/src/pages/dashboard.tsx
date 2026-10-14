@@ -257,7 +257,7 @@ export function DashboardPage() {
                 <Zap className="h-5 w-5 text-warning" />
                 Open Actions
               </CardTitle>
-              <Link href="/actions" className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 group">
+              <Link href="/agenda?tab=tasks" className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 group">
                 View all <ArrowRight className="h-3 w-3 group-hover:translate-x-1 transition-transform" />
               </Link>
             </CardHeader>
