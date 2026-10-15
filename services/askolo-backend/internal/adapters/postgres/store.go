@@ -552,6 +552,21 @@ func (s *Store) EncryptedTOTPSecret(ctx context.Context, userID string) (string,
 	return encryptedSecret, err
 }
 
+func (s *Store) ReplaceEncryptedTOTPSecret(ctx context.Context, userID, expected, replacement string) error {
+	if s == nil {
+		return errors.New("database is not configured")
+	}
+	if expected == "" || replacement == "" {
+		return errors.New("encrypted TOTP secret is empty")
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE auth_totp
+		SET secret_encrypted = $3, updated_at = NOW()
+		WHERE user_id = $1 AND secret_encrypted = $2
+	`, userID, expected, replacement)
+	return err
+}
+
 func (s *Store) ConfirmTOTPEnrollment(
 	ctx context.Context,
 	userID string,
@@ -607,6 +622,9 @@ func (s *Store) ConfirmTOTPEnrollment(
 		`, codeID, userID, codeHash); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE sess->>'userId' = $1`, userID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

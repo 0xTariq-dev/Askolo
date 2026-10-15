@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -67,10 +68,12 @@ func setupMFARecoveryUser(t *testing.T, fixture *emailAuthFixture, email, recove
 
 func TestPasswordLoginRequiresMFAAndCompletesPendingSessionIntegration(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
-	fixture.authConfig.TOTPEncryptionKey = []byte(recoveryTestTOTPKey)
+	rotatedKey := []byte("11234567890123456789012345678901")
+	fixture.authConfig.TOTPEncryptionKey = rotatedKey
+	fixture.authConfig.TOTPEncryptionKeyFallback = []byte(recoveryTestTOTPKey)
 	const email = "mfa-login-primary@example.test"
 	const password = "mfa-login-password-9!"
-	setupMFARecoveryUser(t, fixture, email, "mfa-login-recovery@example.test", password)
+	userID := setupMFARecoveryUser(t, fixture, email, "mfa-login-recovery@example.test", password)
 	handler := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
 
 	login := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login",
@@ -100,6 +103,17 @@ func TestPasswordLoginRequiresMFAAndCompletesPendingSessionIntegration(t *testin
 	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), `"status":"authenticated"`) {
 		t.Fatalf("TOTP challenge verification = %d %s, want authenticated", verified.Code, verified.Body.String())
 	}
+	reencryptedSecret, err := fixture.store.EncryptedTOTPSecret(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("read migrated TOTP secret: %v", err)
+	}
+	plainSecret, err := authcrypto.Open(rotatedKey, reencryptedSecret)
+	if err != nil || string(plainSecret) != "JBSWY3DPEHPK3PXP" {
+		t.Fatalf("TOTP secret was not re-encrypted with the active key: open error=%v", err)
+	}
+	for i := range plainSecret {
+		plainSecret[i] = 0
+	}
 	authenticatedUser := plainRequest(handler, http.MethodGet, "/api/auth/user", cookie)
 	if authenticatedUser.Code != http.StatusOK ||
 		strings.Contains(authenticatedUser.Body.String(), `"mfaRequired":true`) ||
@@ -116,6 +130,92 @@ func TestPasswordLoginRequiresMFAAndCompletesPendingSessionIntegration(t *testin
 		map[string]string{"code": code}, sessionCookie(t, replayLogin), "192.0.2.81:1234")
 	if replay.Code != http.StatusUnauthorized || !strings.Contains(replay.Body.String(), "INVALID_MFA") {
 		t.Fatalf("reused TOTP step = %d %s, want replay rejection", replay.Code, replay.Body.String())
+	}
+}
+
+func TestConfirmMFAEnrollmentRevokesAllActiveSessionsIntegration(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	fixture.authConfig.TOTPEncryptionKey = []byte(recoveryTestTOTPKey)
+	const email = "mfa-enrollment-primary@example.test"
+	const recoveryEmail = "mfa-enrollment-recovery@example.test"
+	const password = "mfa-enrollment-password-9!"
+	hash, err := HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash test password: %v", err)
+	}
+	userID, err := fixture.store.CreatePasswordUser(context.Background(), email, hash)
+	if err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		UPDATE users SET status = 'active', email_verified_at = NOW() WHERE id = $1
+	`, userID); err != nil {
+		t.Fatalf("activate test user: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		INSERT INTO auth_recovery_methods
+		(id, user_id, kind, address, verified_at)
+		VALUES ('recovery-method-' || $1, $1, 'email', $2, NOW())
+	`, userID, recoveryEmail); err != nil {
+		t.Fatalf("insert recovery method: %v", err)
+	}
+	currentSession, err := fixture.store.CreateSession(context.Background(), userID, "password", time.Hour)
+	if err != nil {
+		t.Fatalf("create current session: %v", err)
+	}
+	otherSession, err := fixture.store.CreateSession(context.Background(), userID, "google", time.Hour)
+	if err != nil {
+		t.Fatalf("create other-device session: %v", err)
+	}
+	cookie := &http.Cookie{Name: fixture.authConfig.SessionCookieName, Value: currentSession}
+	handler := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+	enrollment := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/enroll",
+		map[string]string{"currentPassword": password}, cookie, "192.0.2.82:1234")
+	if enrollment.Code != http.StatusOK {
+		t.Fatalf("MFA enrollment = %d %s, want success", enrollment.Code, enrollment.Body.String())
+	}
+	var enrollmentPayload struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(enrollment.Body.Bytes(), &enrollmentPayload); err != nil || enrollmentPayload.Secret == "" {
+		t.Fatalf("decode enrollment secret: err=%v", err)
+	}
+	storedCiphertext, err := fixture.store.EncryptedTOTPSecret(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("read encrypted enrollment secret: %v", err)
+	}
+	if storedCiphertext == enrollmentPayload.Secret {
+		t.Fatal("enrollment secret was stored in plaintext")
+	}
+	storedPlaintext, err := authcrypto.Open(fixture.authConfig.TOTPEncryptionKey, storedCiphertext)
+	if err != nil || string(storedPlaintext) != enrollmentPayload.Secret {
+		t.Fatalf("stored enrollment secret could not be decrypted: %v", err)
+	}
+	for i := range storedPlaintext {
+		storedPlaintext[i] = 0
+	}
+	code, err := totpCode(enrollmentPayload.Secret, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate enrollment confirmation code: %v", err)
+	}
+	confirmed := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/confirm",
+		map[string]string{"code": code}, cookie, "192.0.2.82:1234")
+	if confirmed.Code != http.StatusOK || !strings.Contains(confirmed.Body.String(), `"status":"enabled"`) {
+		t.Fatalf("confirm MFA enrollment = %d %s, want enabled", confirmed.Code, confirmed.Body.String())
+	}
+	clearedCurrentCookie := false
+	for _, resultCookie := range confirmed.Result().Cookies() {
+		if resultCookie.Name == fixture.authConfig.SessionCookieName && resultCookie.MaxAge < 0 {
+			clearedCurrentCookie = true
+		}
+	}
+	if !clearedCurrentCookie {
+		t.Fatal("MFA confirmation did not clear the current session cookie")
+	}
+	for _, sessionID := range []string{currentSession, otherSession} {
+		if _, err := fixture.store.SessionUserID(context.Background(), sessionID); !errors.Is(err, postgres.ErrNotFound) {
+			t.Fatalf("session %q remained valid after enabling MFA: %v", sessionID, err)
+		}
 	}
 }
 

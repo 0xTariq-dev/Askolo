@@ -1337,16 +1337,11 @@ func (h *Handler) confirmMFA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_MFA", "Enter a valid authenticator code.")
 		return
 	}
-	encryptedSecret, err := h.store.EncryptedTOTPSecret(r.Context(), userID)
+	secretBytes, err := h.decryptTOTPSecret(r.Context(), userID)
 	if errors.Is(err, postgres.ErrMFANotEnrolled) {
 		writeError(w, http.StatusBadRequest, "MFA_ENROLLMENT_REQUIRED", "Start MFA enrollment before confirming it.")
 		return
 	}
-	if err != nil {
-		h.writeStoreError(w, "MFA secret lookup failed", err)
-		return
-	}
-	secretBytes, err := authcrypto.Open(h.cfg.TOTPEncryptionKey, encryptedSecret)
 	if err != nil {
 		h.logger.Error("MFA secret decryption failed", "operation", "mfa_confirmation", "request_id", requestID(r), "user_id", userID, "error", err)
 		h.recordSecurityEvent(r, userID, "mfa_decryption_failed", map[string]any{"operation": "mfa_confirmation"})
@@ -1375,6 +1370,7 @@ func (h *Handler) confirmMFA(w http.ResponseWriter, r *http.Request) {
 		h.writeStoreError(w, "MFA enrollment confirmation failed", err)
 		return
 	}
+	h.clearSessionCookie(w, r)
 	h.recordSecurityEvent(r, userID, "mfa_enabled", map[string]any{"recovery_code_count": len(displayCodes)})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":        "enabled",
@@ -1425,12 +1421,7 @@ func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	code := strings.TrimSpace(input.Code)
 	if validChallengeCode(code) {
-		encryptedSecret, err := h.store.EncryptedTOTPSecret(r.Context(), state.UserID)
-		if err != nil {
-			h.writeStoreError(w, "MFA challenge secret lookup failed", err)
-			return
-		}
-		secretBytes, err := authcrypto.Open(h.cfg.TOTPEncryptionKey, encryptedSecret)
+		secretBytes, err := h.decryptTOTPSecret(r.Context(), state.UserID)
 		if err != nil {
 			h.logger.Error("MFA challenge secret decryption failed", "operation", "mfa_challenge", "request_id", requestID(r), "user_id", state.UserID, "error", err)
 			h.recordSecurityEvent(r, state.UserID, "mfa_decryption_failed", map[string]any{"operation": "mfa_challenge"})

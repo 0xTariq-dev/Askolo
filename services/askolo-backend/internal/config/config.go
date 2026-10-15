@@ -41,6 +41,7 @@ type Config struct {
 	ParentReleaseTag              string
 	EmailChallengeCleanupInterval time.Duration
 	TOTPEncryptionKey             []byte
+	TOTPEncryptionKeyFallback     []byte
 	Email                         EmailConfig
 	Google                        GoogleOAuthConfig
 	GitHub                        GitHubOAuthConfig
@@ -220,9 +221,13 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if len(totpEncryptionKey) == 0 && sessionSecret != "" {
+	var legacyTOTPEncryptionKey []byte
+	if sessionSecret != "" {
 		derived := sha256.Sum256([]byte("askolo-auth-totp:" + sessionSecret))
-		totpEncryptionKey = derived[:]
+		legacyTOTPEncryptionKey = derived[:]
+		if len(totpEncryptionKey) == 0 {
+			totpEncryptionKey = legacyTOTPEncryptionKey
+		}
 	}
 	challengeSecret := strings.TrimSpace(os.Getenv("AUTH_CHALLENGE_SECRET"))
 	if challengeSecret == "" {
@@ -311,6 +316,7 @@ func Load() (Config, error) {
 		ReleaseMode:               releaseMode,
 		ParentReleaseTag:          parentReleaseTag,
 		TOTPEncryptionKey:         totpEncryptionKey,
+		TOTPEncryptionKeyFallback: legacyTOTPEncryptionKey,
 		Email: EmailConfig{
 			ResendAPIKey:    strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
 			FromAddress:     strings.TrimSpace(os.Getenv("AUTH_EMAIL_FROM")),

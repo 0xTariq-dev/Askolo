@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -61,6 +62,19 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 	if cfg.Google.LoginClientID != "test-google-client-id" ||
 		cfg.Google.LoginClientSecret != "test-google-client-secret" {
 		t.Fatal("Google login config did not use the current generic client env names")
+	}
+	if len(cfg.TOTPEncryptionKey) != 32 || !bytes.Equal(cfg.TOTPEncryptionKey, cfg.TOTPEncryptionKeyFallback) {
+		t.Fatal("without a dedicated TOTP key, configuration should use the session-derived key for current and legacy ciphertext")
+	}
+	t.Setenv("AUTH_TOTP_ENCRYPTION_KEY", "11234567890123456789012345678901")
+	rotated, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with dedicated TOTP key: %v", err)
+	}
+	if len(rotated.TOTPEncryptionKey) != 32 ||
+		!bytes.Equal(rotated.TOTPEncryptionKeyFallback, cfg.TOTPEncryptionKey) ||
+		bytes.Equal(rotated.TOTPEncryptionKey, rotated.TOTPEncryptionKeyFallback) {
+		t.Fatal("dedicated TOTP key should be active while retaining the session-derived legacy key")
 	}
 	if _, ok := cfg.TurnstileAllowedHostnames["localhost"]; !ok {
 		t.Fatal("development Turnstile hostname allowlist must include localhost")

@@ -58,6 +58,7 @@
 - [Publish path smoke isolation](publish-path-smoke-isolation.md) — release smoke checks must choose their own ports and never stop the managed preview API.
 - [Native auth validation timing](native-email-auth-validation.md) — the synthetic cleanup harness can race on fake PostgreSQL pid handoff; distinguish it from backend failures.
 - [MFA recovery throttling](mfa-recovery-rate-limits.md) — enforce recovery request and verification buckets in shared PostgreSQL state using hashed client keys only.
+- [TOTP key and session transitions](totp-key-and-session-transitions.md) — keep legacy MFA ciphertext readable during key migration, and revoke all sessions atomically when MFA is enabled.
 - [Authentication proxy client IP](auth-proxy-client-ip.md) — the development artifact proxy removes caller-supplied XFF and reaches Go through a trusted peer; production Autoscale remains unverified.
 - [PostgreSQL test process control](pgctl-test-process-control.md) — redirect restarted server logs when invoking `pg_ctl` through Go command output capture.
 - [Planning scope boundaries](planning-scope-boundaries.md) — preserve ownership distinctions; read Linear for current task status and dependencies.

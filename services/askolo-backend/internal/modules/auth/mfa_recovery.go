@@ -13,7 +13,6 @@ import (
 
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
-	authcrypto "askolo/backend/internal/platform/crypto"
 )
 
 var errInvalidFreshTOTP = errors.New("fresh authenticator code is invalid")
@@ -261,11 +260,7 @@ func (h *Handler) verifyFreshTOTP(r *http.Request, userID, code string) error {
 	if !validChallengeCode(code) {
 		return errInvalidFreshTOTP
 	}
-	encryptedSecret, err := h.store.EncryptedTOTPSecret(r.Context(), userID)
-	if err != nil {
-		return err
-	}
-	secretBytes, err := authcrypto.Open(h.cfg.TOTPEncryptionKey, encryptedSecret)
+	secretBytes, err := h.decryptTOTPSecret(r.Context(), userID)
 	if err != nil {
 		h.logger.Error("MFA secret decryption failed", "operation", "sensitive_action", "request_id", requestID(r), "user_id", userID, "error", err)
 		h.recordSecurityEvent(r, userID, "mfa_decryption_failed", map[string]any{"operation": "sensitive_action"})

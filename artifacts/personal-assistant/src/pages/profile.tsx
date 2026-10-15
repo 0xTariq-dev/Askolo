@@ -353,7 +353,10 @@ export function ProfilePage() {
       setMfaCode('');
       setMfaRecoveryCodes(payload.recoveryCodes);
       setMfaStep('codes');
-      toast({ title: 'MFA enabled', description: 'Save your recovery codes before leaving this page.' });
+      toast({
+        title: 'MFA enabled',
+        description: 'All sessions were signed out. Save your recovery codes, then sign in again.',
+      });
     } catch (err) {
       toast({
         title: getApiErrorMessage(err, 'MFA confirmation failed'),
@@ -777,8 +780,15 @@ export function ProfilePage() {
                   <code key={code} className="text-sm font-mono text-foreground">{code}</code>
                 ))}
               </div>
-              <Button size="sm" onClick={() => { setMfaRecoveryCodes([]); setMfaStep('idle'); }}>
-                I saved my recovery codes
+              <Button
+                size="sm"
+                onClick={() => {
+                  setMfaRecoveryCodes([]);
+                  setMfaStep('idle');
+                  void signOut({ redirectUrl: toPublicUrl('/login') });
+                }}
+              >
+                I saved my recovery codes — sign in again
               </Button>
             </>
           ) : !mfaEnabled && mfaStep === 'confirm' ? (
