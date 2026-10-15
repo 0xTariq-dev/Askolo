@@ -69,8 +69,40 @@ export type V2AgendaPage = {
 export type V2Workspace = {
   id: string;
   name: string;
+  description: string | null;
+  imageObjectPath: string | null;
+  timeZone: string;
+  slug: string | null;
   isPersonal: boolean;
   role: string;
+};
+
+export type V2WorkspaceSettingsInput = Pick<
+  V2Workspace,
+  'name' | 'description' | 'imageObjectPath' | 'timeZone' | 'slug'
+>;
+
+export type V2NotificationPreference = {
+  eventKey: 'assignments' | 'reminders' | 'membership';
+  emailEnabled: boolean;
+  inAppEnabled: boolean;
+};
+
+export type V2SpaceMember = {
+  userId: string;
+  name: string | null;
+  email?: string | null;
+  role: string;
+  joinedAt: string | null;
+};
+
+export type V2WorkspaceInvitation = {
+  id: string;
+  email: string;
+  role: 'admin' | 'member';
+  status: 'pending';
+  expiresAt: string;
+  createdAt: string;
 };
 
 export type V2Goal = {
@@ -98,6 +130,185 @@ export async function getV2Workspaces(signal?: AbortSignal): Promise<V2Workspace
     throw new Error(`Spaces could not be loaded (${response.status}).`);
   }
   return response.json() as Promise<V2Workspace[]>;
+}
+
+export async function getV2WorkspaceSettings(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<V2Workspace> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}`,
+    { credentials: 'include', headers: { Accept: 'application/json' }, signal },
+  );
+  if (!response.ok) throw new Error(`Space settings could not be loaded (${response.status}).`);
+  return response.json() as Promise<V2Workspace>;
+}
+
+export async function updateV2WorkspaceSettings(
+  workspaceId: string,
+  input: V2WorkspaceSettingsInput,
+): Promise<V2Workspace> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}`,
+    {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) {
+    if (response.status === 409) throw new Error('That Space link is already in use.');
+    throw new Error(`Space settings could not be saved (${response.status}).`);
+  }
+  return response.json() as Promise<V2Workspace>;
+}
+
+export async function getV2NotificationPreferences(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<V2NotificationPreference[]> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/notification-preferences`,
+    { credentials: 'include', headers: { Accept: 'application/json' }, signal },
+  );
+  if (!response.ok) throw new Error(`Notification preferences could not be loaded (${response.status}).`);
+  return response.json() as Promise<V2NotificationPreference[]>;
+}
+
+export async function updateV2NotificationPreferences(
+  workspaceId: string,
+  preferences: V2NotificationPreference[],
+): Promise<V2NotificationPreference[]> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/notification-preferences`,
+    {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preferences }),
+    },
+  );
+  if (!response.ok) throw new Error(`Notification preferences could not be saved (${response.status}).`);
+  return response.json() as Promise<V2NotificationPreference[]>;
+}
+
+export async function getV2SpaceMembers(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<V2SpaceMember[]> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/members`,
+    { credentials: 'include', headers: { Accept: 'application/json' }, signal },
+  );
+  if (!response.ok) throw new Error(`Space members could not be loaded (${response.status}).`);
+  return response.json() as Promise<V2SpaceMember[]>;
+}
+
+export async function updateV2SpaceMemberRole(
+  workspaceId: string,
+  userId: string,
+  role: 'admin' | 'member',
+): Promise<void> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}/role`,
+    {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    },
+  );
+  if (!response.ok) throw new Error(`Member role could not be changed (${response.status}).`);
+}
+
+export async function leaveV2Workspace(workspaceId: string): Promise<void> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/membership`,
+    { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json' } },
+  );
+  if (!response.ok) throw new Error(`You could not leave this Space (${response.status}).`);
+}
+
+export async function deleteV2Workspace(workspaceId: string): Promise<void> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}`,
+    { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json' } },
+  );
+  if (!response.ok) throw new Error(`This Space could not be deleted (${response.status}).`);
+}
+
+export async function getV2WorkspaceInvitations(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<V2WorkspaceInvitation[]> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/invitations`,
+    { credentials: 'include', headers: { Accept: 'application/json' }, signal },
+  );
+  if (!response.ok) throw new Error(`Space invitations could not be loaded (${response.status}).`);
+  return response.json() as Promise<V2WorkspaceInvitation[]>;
+}
+
+export async function createV2WorkspaceInvitation(
+  workspaceId: string,
+  email: string,
+  role: 'admin' | 'member',
+): Promise<V2WorkspaceInvitation> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/invitations`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
+    },
+  );
+  if (!response.ok) {
+    if (response.status === 409) throw new Error('That address is already a Space member.');
+    if (response.status === 502) throw new Error('Email delivery failed. Retry to send a fresh invitation link.');
+    throw new Error(`Invitation could not be sent (${response.status}).`);
+  }
+  return response.json() as Promise<V2WorkspaceInvitation>;
+}
+
+export async function cancelV2WorkspaceInvitation(workspaceId: string, invitationId: string): Promise<void> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
+    { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json' } },
+  );
+  if (!response.ok) throw new Error(`Invitation could not be cancelled (${response.status}).`);
+}
+
+export async function acceptV2WorkspaceInvitation(token: string): Promise<{ workspaceId: string; role: string }> {
+  const response = await fetch(`${basePath}/api/v2/invitations/accept`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) {
+    if (response.status === 403) throw new Error('Sign in with the email address the invitation was sent to.');
+    if (response.status === 409) throw new Error('You already belong to this Space.');
+    if (response.status === 404) throw new Error('This invitation is expired or no longer available.');
+    throw new Error(`Invitation could not be accepted (${response.status}).`);
+  }
+  return response.json() as Promise<{ workspaceId: string; role: string }>;
+}
+
+export async function declineV2WorkspaceInvitation(token: string): Promise<{ workspaceId: string }> {
+  const response = await fetch(`${basePath}/api/v2/invitations/decline`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) {
+    if (response.status === 403) throw new Error('Sign in with the email address the invitation was sent to.');
+    if (response.status === 404) throw new Error('This invitation is expired or no longer available.');
+    throw new Error(`Invitation could not be declined (${response.status}).`);
+  }
+  return response.json() as Promise<{ workspaceId: string }>;
 }
 
 export async function getV2Goals(

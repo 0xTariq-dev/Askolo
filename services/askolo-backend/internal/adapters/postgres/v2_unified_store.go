@@ -45,6 +45,9 @@ func (s *Store) V2SchemaReady(ctx context.Context) error {
 		"plan_entries", "calendar_events", "reminder_rules", "api_request_limits",
 		"member_preferences", "workspace_provider_account_access",
 		"workspace_email_summaries", "home_focus_selections",
+		"workspace_groups", "workspace_group_members", "workspace_group_permissions",
+		"workspace_invitations", "workspace_notification_preferences",
+		"workspace_notifications",
 	} {
 		var exists bool
 		if err := s.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil {
@@ -68,15 +71,20 @@ func (s *Store) V2WorkspaceRole(ctx context.Context, workspaceID, userID string)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var ownerUserID, workspaceName, workspaceStatus, sourceRole, memberStatus string
+	var ownerUserID, workspaceName, workspaceStatus, sourceRole, memberStatus, timeZone string
+	var description, imageObjectPath, slug *string
 	var isPersonal bool
 	err = tx.QueryRow(ctx, `
-SELECT w.owner_user_id, w.name, w.status, w.is_personal, m.role, m.status
+SELECT w.owner_user_id, w.name, w.status, w.is_personal, m.role, m.status,
+       w.description, w.image_object_path, w.time_zone, w.slug
 FROM workspaces w
 JOIN workspace_memberships m ON m.workspace_id = w.id
 WHERE w.id = $1 AND m.user_id = $2`,
 		workspaceID, userID,
-	).Scan(&ownerUserID, &workspaceName, &workspaceStatus, &isPersonal, &sourceRole, &memberStatus)
+	).Scan(
+		&ownerUserID, &workspaceName, &workspaceStatus, &isPersonal,
+		&sourceRole, &memberStatus, &description, &imageObjectPath, &timeZone, &slug,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -93,16 +101,22 @@ WHERE w.id = $1 AND m.user_id = $2`,
 	// roles without making the V2 schema a stale, independently managed ACL.
 	if _, err := tx.Exec(ctx, `
 INSERT INTO `+v2Table(schema, "workspaces")+` (
-  id, owner_user_id, owner_role, name, status, is_personal
-) VALUES ($1, $2, 'owner', $3, 'active', $4)
+  id, owner_user_id, owner_role, name, status, is_personal,
+  description, image_object_path, time_zone, slug
+) VALUES ($1, $2, 'owner', $3, 'active', $4, $5, $6, $7, $8)
 ON CONFLICT (id) DO UPDATE SET
   owner_user_id = EXCLUDED.owner_user_id,
   owner_role = 'owner',
   name = EXCLUDED.name,
   status = EXCLUDED.status,
   is_personal = EXCLUDED.is_personal,
+  description = EXCLUDED.description,
+  image_object_path = EXCLUDED.image_object_path,
+  time_zone = EXCLUDED.time_zone,
+  slug = EXCLUDED.slug,
   updated_at = now()`,
 		workspaceID, ownerUserID, workspaceName, isPersonal,
+		description, imageObjectPath, timeZone, slug,
 	); err != nil {
 		return "", fmt.Errorf("synchronize versioned workspace: %w", err)
 	}

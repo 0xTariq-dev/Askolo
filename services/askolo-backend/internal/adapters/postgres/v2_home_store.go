@@ -16,10 +16,14 @@ var (
 )
 
 type V2HomeWorkspace struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	IsPersonal bool   `json:"isPersonal"`
-	Role       string `json:"role"`
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	Description     *string `json:"description"`
+	ImageObjectPath *string `json:"imageObjectPath"`
+	TimeZone        string  `json:"timeZone"`
+	Slug            *string `json:"slug"`
+	IsPersonal      bool    `json:"isPersonal"`
+	Role            string  `json:"role"`
 }
 
 type V2HomeFocusReference struct {
@@ -52,7 +56,8 @@ type V2HomeProviderConnection struct {
 
 func (s *Store) ListV2HomeWorkspaces(ctx context.Context, userID string) ([]V2HomeWorkspace, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT w.id, w.name, w.is_personal, m.role
+SELECT w.id, w.name, w.description, w.image_object_path, w.time_zone,
+       w.slug, w.is_personal, m.role
 FROM workspaces w
 JOIN workspace_memberships m ON m.workspace_id = w.id
 WHERE m.user_id = $1 AND m.status = 'active' AND w.status = 'active'
@@ -66,7 +71,11 @@ LIMIT 101`, userID)
 	workspaces := make([]V2HomeWorkspace, 0)
 	for rows.Next() {
 		var workspace V2HomeWorkspace
-		if err := rows.Scan(&workspace.ID, &workspace.Name, &workspace.IsPersonal, &workspace.Role); err != nil {
+		if err := rows.Scan(
+			&workspace.ID, &workspace.Name, &workspace.Description,
+			&workspace.ImageObjectPath, &workspace.TimeZone, &workspace.Slug,
+			&workspace.IsPersonal, &workspace.Role,
+		); err != nil {
 			return nil, fmt.Errorf("read Home workspace: %w", err)
 		}
 		workspaces = append(workspaces, workspace)
@@ -78,6 +87,84 @@ LIMIT 101`, userID)
 		return nil, ErrV2HomeSpaceLimit
 	}
 	return workspaces, nil
+}
+
+func (s *Store) GetV2HomeWorkspace(ctx context.Context, workspaceID, userID string) (V2HomeWorkspace, error) {
+	var workspace V2HomeWorkspace
+	err := s.pool.QueryRow(ctx, `
+SELECT w.id, w.name, w.description, w.image_object_path, w.time_zone,
+       w.slug, w.is_personal, m.role
+FROM workspaces w
+JOIN workspace_memberships m ON m.workspace_id = w.id
+WHERE w.id = $1 AND m.user_id = $2
+  AND m.status = 'active' AND w.status = 'active'`,
+		workspaceID, userID,
+	).Scan(
+		&workspace.ID, &workspace.Name, &workspace.Description,
+		&workspace.ImageObjectPath, &workspace.TimeZone, &workspace.Slug,
+		&workspace.IsPersonal, &workspace.Role,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return V2HomeWorkspace{}, ErrNotFound
+	}
+	if err != nil {
+		return V2HomeWorkspace{}, fmt.Errorf("read Space settings: %w", err)
+	}
+	return workspace, nil
+}
+
+func (s *Store) UpdateV2HomeWorkspace(
+	ctx context.Context,
+	workspaceID, actorUserID string,
+	name string,
+	description, imageObjectPath, slug *string,
+	timeZone string,
+) (V2HomeWorkspace, error) {
+	schema, err := s.v2Schema(ctx)
+	if err != nil {
+		return V2HomeWorkspace{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return V2HomeWorkspace{}, fmt.Errorf("begin Space settings update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+UPDATE workspaces w
+SET name = $3, description = $4, image_object_path = $5,
+    time_zone = $6, slug = $7, updated_at = now()
+WHERE w.id = $1 AND w.status = 'active'
+  AND EXISTS (
+    SELECT 1 FROM workspace_memberships m
+    WHERE m.workspace_id = w.id AND m.user_id = $2
+      AND m.status = 'active' AND m.role IN ('owner', 'admin')
+  )`,
+		workspaceID, actorUserID, name, description, imageObjectPath, timeZone, slug,
+	)
+	if err != nil {
+		return V2HomeWorkspace{}, fmt.Errorf("update Space details: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return V2HomeWorkspace{}, ErrNotFound
+	}
+	tag, err = tx.Exec(ctx, `
+UPDATE `+v2Table(schema, "workspaces")+`
+SET name = $2, description = $3, image_object_path = $4,
+    time_zone = $5, slug = $6, updated_at = now()
+WHERE id = $1 AND status = 'active'`,
+		workspaceID, name, description, imageObjectPath, timeZone, slug,
+	)
+	if err != nil {
+		return V2HomeWorkspace{}, fmt.Errorf("mirror Space details: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return V2HomeWorkspace{}, ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return V2HomeWorkspace{}, fmt.Errorf("commit Space settings update: %w", err)
+	}
+	return s.GetV2HomeWorkspace(ctx, workspaceID, actorUserID)
 }
 
 func (s *Store) V2HomeTimeZone(ctx context.Context, userID string) (string, error) {

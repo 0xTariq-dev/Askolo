@@ -3,11 +3,16 @@ package product
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,9 +32,18 @@ const (
 
 var v2IdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 var v2WorkspaceIdentifierPattern = regexp.MustCompile(`^(?:[A-Za-z0-9_-]{1,128}|personal:[A-Za-z0-9_-]{1,128})$`)
+var v2SpaceSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 type v2ActorHandler func(http.ResponseWriter, *http.Request, string, string)
 type v2AllActorHandler func(http.ResponseWriter, *http.Request, string)
+
+type v2WorkspaceSettingsRequest struct {
+	Name            string  `json:"name"`
+	Description     *string `json:"description"`
+	ImageObjectPath *string `json:"imageObjectPath"`
+	TimeZone        string  `json:"timeZone"`
+	Slug            *string `json:"slug"`
+}
 
 type v2PatchField[T any] struct {
 	Set   bool
@@ -111,6 +125,19 @@ type v2OccurrencePatchRequest struct {
 func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/healthz", h.v2Health)
 	mux.HandleFunc("GET /api/v2/workspaces", h.v2ProtectAll(h.v2ListWorkspaces))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}", h.v2Protect(false, h.v2GetWorkspaceSettings))
+	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}", h.v2Protect(true, h.v2UpdateWorkspaceSettings))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/notification-preferences", h.v2Protect(false, h.v2GetNotificationPreferences))
+	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/notification-preferences", h.v2Protect(true, h.v2UpdateNotificationPreferences))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/members", h.v2Protect(false, h.v2ListSpaceMembers))
+	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/members/{userId}/role", h.v2Protect(true, h.v2UpdateSpaceMemberRole))
+	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/membership", h.v2Protect(true, h.v2LeaveWorkspace))
+	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}", h.v2Protect(true, h.v2DeleteWorkspace))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/invitations", h.v2Protect(false, h.v2ListSpaceInvitations))
+	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/invitations", h.v2Protect(true, h.v2CreateSpaceInvitation))
+	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/invitations/{invitationId}", h.v2Protect(true, h.v2CancelSpaceInvitation))
+	mux.HandleFunc("POST /api/v2/invitations/accept", h.v2ProtectAll(h.v2AcceptSpaceInvitation))
+	mux.HandleFunc("POST /api/v2/invitations/decline", h.v2ProtectAll(h.v2DeclineSpaceInvitation))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/tasks", h.v2Protect(false, h.v2ListTasks))
 	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/tasks", h.v2Protect(true, h.v2CreateTask))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/tasks/{taskId}", h.v2Protect(false, h.v2GetTask))
@@ -152,6 +179,440 @@ func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/email-read-consent", h.v2Protect(true, h.v2RevokeHomeEmailReadConsent))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages", h.v2Protect(false, h.v2ListSharedEmailMessages))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages/{messageId}", h.v2Protect(false, h.v2GetSharedEmailMessage))
+}
+
+func (h *Handler) v2GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, userID, _ string) {
+	workspace, err := h.store.GetV2HomeWorkspace(r.Context(), r.PathValue("workspaceId"), userID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Space not found.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "read Space settings", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+func (h *Handler) v2UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" && role != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can change these settings.")
+		return
+	}
+	var input v2WorkspaceSettingsRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if len(input.Name) < 1 || len(input.Name) > 120 {
+		writeError(w, http.StatusBadRequest, "INVALID_NAME", "Space name must contain 1 to 120 characters.")
+		return
+	}
+	if input.Description != nil {
+		description := strings.TrimSpace(*input.Description)
+		if len(description) > 2000 {
+			writeError(w, http.StatusBadRequest, "INVALID_DESCRIPTION", "Space description must be at most 2,000 characters.")
+			return
+		}
+		if description == "" {
+			input.Description = nil
+		} else {
+			input.Description = &description
+		}
+	}
+	if input.ImageObjectPath != nil {
+		objectPath := strings.TrimSpace(*input.ImageObjectPath)
+		if objectPath == "" {
+			input.ImageObjectPath = nil
+		} else if len(objectPath) > 500 || !strings.HasPrefix(objectPath, "/objects/") ||
+			strings.Contains(objectPath, "..") || strings.ContainsAny(objectPath, "?#\r\n") {
+			writeError(w, http.StatusBadRequest, "INVALID_IMAGE_PATH", "Space image must use a valid App Storage object path.")
+			return
+		} else {
+			input.ImageObjectPath = &objectPath
+		}
+	}
+	input.TimeZone = strings.TrimSpace(input.TimeZone)
+	if input.TimeZone == "" {
+		input.TimeZone = "UTC"
+	}
+	if _, err := time.LoadLocation(input.TimeZone); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_TIME_ZONE", "Choose a valid time zone.")
+		return
+	}
+	if input.Slug != nil {
+		slug := strings.ToLower(strings.TrimSpace(*input.Slug))
+		if slug == "" {
+			input.Slug = nil
+		} else if len(slug) > 63 || !v2SpaceSlugPattern.MatchString(slug) {
+			writeError(w, http.StatusBadRequest, "INVALID_SLUG", "Space link must use lowercase letters, numbers, and single hyphens.")
+			return
+		} else {
+			input.Slug = &slug
+		}
+	}
+	workspace, err := h.store.UpdateV2HomeWorkspace(
+		r.Context(), r.PathValue("workspaceId"), userID, input.Name,
+		input.Description, input.ImageObjectPath, input.Slug, input.TimeZone,
+	)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Space not found.")
+		return
+	}
+	var databaseError *pgconn.PgError
+	if errors.As(err, &databaseError) && databaseError.Code == "23505" {
+		writeError(w, http.StatusConflict, "SLUG_TAKEN", "That Space link is already in use.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "update Space settings", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+func (h *Handler) v2GetNotificationPreferences(w http.ResponseWriter, r *http.Request, userID, role string) {
+	preferences, err := h.store.ListV2NotificationPreferences(
+		r.Context(), r.PathValue("workspaceId"), userID, role,
+	)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Space not found.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "read Space notification preferences", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preferences)
+}
+
+type v2NotificationPreferencesRequest struct {
+	Preferences []postgres.V2NotificationPreference `json:"preferences"`
+}
+
+func (h *Handler) v2UpdateNotificationPreferences(w http.ResponseWriter, r *http.Request, userID, role string) {
+	var input v2NotificationPreferencesRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	if len(input.Preferences) < 2 || len(input.Preferences) > 3 {
+		writeError(w, http.StatusBadRequest, "INVALID_PREFERENCES", "Choose notification settings for assignments, reminders, and membership where available.")
+		return
+	}
+	seen := make(map[string]bool, len(input.Preferences))
+	for _, preference := range input.Preferences {
+		if preference.EventKey != "assignments" && preference.EventKey != "reminders" &&
+			preference.EventKey != "membership" {
+			writeError(w, http.StatusBadRequest, "INVALID_PREFERENCES", "A notification category is invalid.")
+			return
+		}
+		if seen[preference.EventKey] {
+			writeError(w, http.StatusBadRequest, "INVALID_PREFERENCES", "A notification category was repeated.")
+			return
+		}
+		if preference.EventKey == "membership" && role != "owner" && role != "admin" {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "Membership notifications are available only to Space owners and admins.")
+			return
+		}
+		seen[preference.EventKey] = true
+	}
+	if !seen["assignments"] || !seen["reminders"] {
+		writeError(w, http.StatusBadRequest, "INVALID_PREFERENCES", "Assignment and reminder settings are required.")
+		return
+	}
+	if (role == "owner" || role == "admin") && !seen["membership"] {
+		writeError(w, http.StatusBadRequest, "INVALID_PREFERENCES", "Membership settings are required for Space owners and admins.")
+		return
+	}
+	if err := h.store.ReplaceV2NotificationPreferences(
+		r.Context(), r.PathValue("workspaceId"), userID, input.Preferences,
+	); errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Space not found.")
+		return
+	} else if err != nil {
+		h.v2InternalError(w, r, userID, "update Space notification preferences", err)
+		return
+	}
+	preferences, err := h.store.ListV2NotificationPreferences(
+		r.Context(), r.PathValue("workspaceId"), userID, role,
+	)
+	if err != nil {
+		h.v2InternalError(w, r, userID, "read updated Space notification preferences", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preferences)
+}
+
+func (h *Handler) v2ListSpaceMembers(w http.ResponseWriter, r *http.Request, userID, role string) {
+	members, err := h.store.ListV2SpaceMembers(r.Context(), r.PathValue("workspaceId"), role)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Space not found.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "list Space members", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, members)
+}
+
+type v2SpaceMemberRoleRequest struct {
+	Role string `json:"role"`
+}
+
+func (h *Handler) v2UpdateSpaceMemberRole(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only the Space owner can change member roles.")
+		return
+	}
+	targetUserID := r.PathValue("userId")
+	if !v2IdentifierPattern.MatchString(targetUserID) {
+		writeError(w, http.StatusBadRequest, "INVALID_MEMBER_ID", "A valid member is required.")
+		return
+	}
+	var input v2SpaceMemberRoleRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	input.Role = strings.TrimSpace(input.Role)
+	if input.Role != "admin" && input.Role != "member" {
+		writeError(w, http.StatusBadRequest, "INVALID_ROLE", "Choose Admin or Member.")
+		return
+	}
+	err := h.store.UpdateV2SpaceMemberRole(
+		r.Context(), r.PathValue("workspaceId"), userID, targetUserID, input.Role,
+	)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Active Space member not found.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2Forbidden) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "The Space owner cannot be changed or removed here.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "change Space member role", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) v2LeaveWorkspace(w http.ResponseWriter, r *http.Request, userID, _ string) {
+	err := h.store.LeaveV2Workspace(r.Context(), r.PathValue("workspaceId"), userID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Active Space membership not found.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2Forbidden) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Owners cannot leave their Space. Personal Spaces cannot be left.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "leave Space", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) v2DeleteWorkspace(w http.ResponseWriter, r *http.Request, userID, _ string) {
+	err := h.store.DeleteV2Workspace(r.Context(), r.PathValue("workspaceId"), userID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Active Space not found.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2Forbidden) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only the owner can delete a shared Space.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "delete Space", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type v2SpaceInvitationRequest struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+func (h *Handler) v2ListSpaceInvitations(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" && role != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can view invitations.")
+		return
+	}
+	invitations, err := h.store.ListV2WorkspaceInvitations(r.Context(), r.PathValue("workspaceId"))
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Space not found.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "list Space invitations", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, invitations)
+}
+
+func (h *Handler) v2CreateSpaceInvitation(w http.ResponseWriter, r *http.Request, userID, actorRole string) {
+	if actorRole != "owner" && actorRole != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can invite members.")
+		return
+	}
+	if h.spaceInviteMailer == nil || strings.TrimSpace(h.canonicalOrigin) == "" {
+		writeError(w, http.StatusServiceUnavailable, "INVITATIONS_UNAVAILABLE", "Invitation email is not configured.")
+		return
+	}
+	var input v2SpaceInvitationRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	input.Email = strings.TrimSpace(input.Email)
+	parsed, err := mail.ParseAddress(input.Email)
+	if err != nil || parsed.Address != input.Email || len(input.Email) > 320 ||
+		strings.ContainsAny(input.Email, "\r\n") {
+		writeError(w, http.StatusBadRequest, "INVALID_EMAIL", "Enter a valid email address.")
+		return
+	}
+	input.Role = strings.TrimSpace(input.Role)
+	if input.Role == "" {
+		input.Role = "member"
+	}
+	if input.Role != "member" && input.Role != "admin" {
+		writeError(w, http.StatusBadRequest, "INVALID_ROLE", "Choose Member or Admin.")
+		return
+	}
+	if input.Role == "admin" && actorRole != "owner" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only the Space owner can invite an admin.")
+		return
+	}
+
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		h.v2InternalError(w, r, userID, "create Space invitation token", err)
+		return
+	}
+	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
+	tokenDigest := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(tokenDigest[:])
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	invitation, err := h.store.CreateV2WorkspaceInvitation(
+		r.Context(), r.PathValue("workspaceId"), userID, input.Email,
+		strings.ToLower(input.Email), input.Role, tokenHash, expiresAt,
+	)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Space is unavailable.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2Forbidden) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "You cannot invite members to this Space.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2AlreadyMember) {
+		writeError(w, http.StatusConflict, "ALREADY_MEMBER", "That email already belongs to a Space member.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "create Space invitation", err)
+		return
+	}
+	inviteURL := strings.TrimRight(h.canonicalOrigin, "/") + "/invite/" + token
+	body := "You have been invited to join a Space in Askolo.\n\n" +
+		"Open this link to review the invitation after signing in with " + input.Email + ":\n" +
+		inviteURL + "\n\nThis invitation expires in 7 days. If you were not expecting it, you can ignore this message."
+	if err := h.spaceInviteMailer(r.Context(), input.Email, "You’re invited to join an Askolo Space", body); err != nil {
+		if h.logger != nil {
+			h.logger.Warn("Space invitation email delivery failed", "workspace_id", r.PathValue("workspaceId"))
+		}
+		writeError(w, http.StatusBadGateway, "INVITATION_EMAIL_FAILED", "The invitation could not be delivered. Retry to send a fresh link.")
+		return
+	}
+	writeJSON(w, http.StatusCreated, invitation)
+}
+
+func (h *Handler) v2CancelSpaceInvitation(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" && role != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can cancel invitations.")
+		return
+	}
+	invitationID := r.PathValue("invitationId")
+	if !v2IdentifierPattern.MatchString(invitationID) {
+		writeError(w, http.StatusBadRequest, "INVALID_INVITATION_ID", "A valid invitation is required.")
+		return
+	}
+	err := h.store.CancelV2WorkspaceInvitation(r.Context(), r.PathValue("workspaceId"), invitationID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Pending invitation not found.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "cancel Space invitation", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type v2AcceptSpaceInvitationRequest struct {
+	Token string `json:"token"`
+}
+
+func (h *Handler) v2AcceptSpaceInvitation(w http.ResponseWriter, r *http.Request, userID string) {
+	var input v2AcceptSpaceInvitationRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	tokenBytes, err := base64.RawURLEncoding.DecodeString(input.Token)
+	if err != nil || len(tokenBytes) != 32 {
+		writeError(w, http.StatusBadRequest, "INVALID_INVITATION", "The invitation link is invalid.")
+		return
+	}
+	tokenDigest := sha256.Sum256([]byte(input.Token))
+	tokenHash := hex.EncodeToString(tokenDigest[:])
+	workspaceID, role, err := h.store.AcceptV2WorkspaceInvitation(r.Context(), tokenHash, userID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "INVITATION_UNAVAILABLE", "This invitation is expired or no longer available.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2Forbidden) {
+		writeError(w, http.StatusForbidden, "INVITATION_EMAIL_MISMATCH", "Sign in with the email address this invitation was sent to.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2AlreadyMember) {
+		writeError(w, http.StatusConflict, "ALREADY_MEMBER", "You already belong to this Space.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "accept Space invitation", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"workspaceId": workspaceID, "role": role})
+}
+
+func (h *Handler) v2DeclineSpaceInvitation(w http.ResponseWriter, r *http.Request, userID string) {
+	var input v2AcceptSpaceInvitationRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	tokenBytes, err := base64.RawURLEncoding.DecodeString(input.Token)
+	if err != nil || len(tokenBytes) != 32 {
+		writeError(w, http.StatusBadRequest, "INVALID_INVITATION", "The invitation link is invalid.")
+		return
+	}
+	tokenDigest := sha256.Sum256([]byte(input.Token))
+	tokenHash := hex.EncodeToString(tokenDigest[:])
+	workspaceID, err := h.store.DeclineV2WorkspaceInvitation(r.Context(), tokenHash, userID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "INVITATION_UNAVAILABLE", "This invitation is expired or no longer available.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2Forbidden) {
+		writeError(w, http.StatusForbidden, "INVITATION_EMAIL_MISMATCH", "Sign in with the email address this invitation was sent to.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "decline Space invitation", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"workspaceId": workspaceID})
 }
 
 func (h *Handler) v2ProtectAll(next v2AllActorHandler) http.HandlerFunc {

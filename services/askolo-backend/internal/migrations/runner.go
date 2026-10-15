@@ -357,7 +357,7 @@ const logicalFingerprintPrefix = "inventory-v2:"
 const workspaceFingerprintPrefix = "workspace-inventory-v1:"
 const askoloV2FingerprintPrefix = "askolo-schema-set-v1:"
 const askoloV2MigrationVersion = 16
-const operationalMigrationVersion = 23
+const operationalMigrationVersion = 24
 const askoloV2SchemaToken = "@ASKOLO_V2_SCHEMA@"
 
 func ValidateBaseline(ctx context.Context, tx pgx.Tx) error {

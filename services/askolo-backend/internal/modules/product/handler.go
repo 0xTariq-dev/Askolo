@@ -99,8 +99,17 @@ type Handler struct {
 	assistantTools          *assistantToolRegistry
 	assistantActionExecutor AssistantActionExecutor
 	sharedEmailReader       SharedEmailReader
+	spaceInviteMailer       SpaceInviteMailer
 	realtimeMeters          sync.Map
 	activeRealtimeSessions  sync.Map
+}
+
+type SpaceInviteMailer func(context.Context, string, string, string) error
+
+func (h *Handler) SetSpaceInviteMailer(mailer SpaceInviteMailer) {
+	if h != nil {
+		h.spaceInviteMailer = mailer
+	}
 }
 
 func (h *Handler) registerRealtimeSession(key any, closeSession func()) func() {

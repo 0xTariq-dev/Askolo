@@ -512,7 +512,7 @@ export function ProfilePage() {
         <Link href="/settings/account/profile" aria-current="page" className="min-h-11 border-b-2 border-primary px-3 py-2 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           Account
         </Link>
-        <Link href="/settings/space/usage" className="min-h-11 border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href="/settings/space/details" className="min-h-11 border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           Space
         </Link>
       </nav>

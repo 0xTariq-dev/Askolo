@@ -42,6 +42,23 @@ export const ProfilePage = lazy(() =>
   import('@/pages/profile').then(({ ProfilePage }) => ({ default: ProfilePage })),
 );
 
+export const SpaceDetailsPage = lazy(() =>
+  import('@/pages/space-details').then(({ SpaceDetailsPage }) => ({ default: SpaceDetailsPage })),
+);
+export const SpaceSlugRoute = lazy(() =>
+  import('@/pages/space-slug-route').then(({ SpaceSlugRoute }) => ({ default: SpaceSlugRoute })),
+);
+export const SpaceNotificationsPage = lazy(() =>
+  import('@/pages/space-notifications').then(({ SpaceNotificationsPage }) => ({ default: SpaceNotificationsPage })),
+);
+export const SpaceMembersPage = lazy(() =>
+  import('@/pages/space-members').then(({ SpaceMembersPage }) => ({ default: SpaceMembersPage })),
+);
+
+export const InviteAcceptancePage = lazy(() =>
+  import('@/pages/invite-acceptance').then(({ InviteAcceptancePage }) => ({ default: InviteAcceptancePage })),
+);
+
 export const CreditsPage = lazy(() =>
   import('@/pages/credits').then(({ CreditsPage }) => ({ default: CreditsPage })),
 );

@@ -33,12 +33,17 @@ import {
   DashboardPage,
   EmailPage,
   GoalsPage,
+  InviteAcceptancePage,
   LandingPage,
   LoginPage,
   NotesPage,
   PlanPage,
   PrivacyPage,
   ProfilePage,
+  SpaceDetailsPage,
+  SpaceSlugRoute,
+  SpaceNotificationsPage,
+  SpaceMembersPage,
   SidebarAppLayout,
   TermsPage,
 } from '@/routes/lazy-pages';
@@ -164,6 +169,11 @@ function AuthenticatedPageRoutes() {
       <Route path="/profile"><Redirect to="/settings/account/profile" /></Route>
       <Route path="/settings/account/profile" component={ProfilePage} />
       <Route path="/settings/account/security" component={ProfilePage} />
+       <Route path="/settings/space/details" component={SpaceDetailsPage} />
+      <Route path="/settings/space/notifications" component={SpaceNotificationsPage} />
+      <Route path="/settings/space/members" component={SpaceMembersPage} />
+      <Route path="/invite/:token" component={InviteAcceptancePage} />
+      <Route path="/s/:slug" component={SpaceSlugRoute} />
       <Route path="/credits"><Redirect to="/settings/space/usage" /></Route>
       <Route path="/settings/space/usage" component={CreditsPage} />
       <Route path="/settings/space/billing" component={CreditsPage} />

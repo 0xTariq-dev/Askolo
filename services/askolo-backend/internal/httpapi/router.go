@@ -332,6 +332,10 @@ func NewWithShutdown(
 
 	googleHandler := googleoauth.NewHandler(cfg, store, logger)
 	productHandler := productmodule.NewHandler(cfg, store, logger, cfg.SessionCookieName)
+	inviteEmailSender := authmodule.NewResendEmailSender(cfg)
+	productHandler.SetSpaceInviteMailer(func(ctx context.Context, to, subject, body string) error {
+		return inviteEmailSender.Send(ctx, authmodule.EmailMessage{To: to, Subject: subject, Body: body})
+	})
 	productHandler.SetAssistantActionExecutor(googleHandler)
 	productHandler.SetSharedEmailReader(googleHandler)
 	websocketHandler := websocket.New(
