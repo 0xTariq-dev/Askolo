@@ -35,13 +35,49 @@ func TestTOTPMatchesRFC6238SHA1Vectors(t *testing.T) {
 
 func TestVerifyTOTPAllowsOneClockStepButRejectsBadInput(t *testing.T) {
 	at := time.Unix(1_700_000_000, 0).UTC()
-	code, err := totpCode("JBSWY3DPEHPK3PXP", at.Add(-totpPeriod))
+	secret := "JBSWY3DPEHPK3PXP"
+	code, err := totpCode(secret, at.Add(-totpPeriod))
 	if err != nil {
 		t.Fatalf("totpCode() error = %v", err)
 	}
 	step, valid := verifyTOTP("JBSWY3DPEHPK3PXP", code, at)
 	if !valid || step != totpStep(at)-1 {
 		t.Fatalf("verifyTOTP() = (%d, %t), want previous step", step, valid)
+	}
+	code, err = totpCode(secret, at.Add(totpPeriod))
+	if err != nil {
+		t.Fatalf("totpCode() future step error = %v", err)
+	}
+	step, valid = verifyTOTP(secret, code, at)
+	if !valid || step != totpStep(at)+1 {
+		t.Fatalf("verifyTOTP() future step = (%d, %t), want next step", step, valid)
+	}
+	for _, offset := range []time.Duration{-2 * totpPeriod, 2 * totpPeriod} {
+		outsideWindowCode, err := totpCode(secret, at.Add(offset))
+		if err != nil {
+			t.Fatalf("totpCode() outside-window error = %v", err)
+		}
+		if _, valid := verifyTOTP(secret, outsideWindowCode, at); valid {
+			t.Fatalf("verifyTOTP() accepted a code %s outside the skew window", offset)
+		}
+	}
+
+	boundary := time.Unix((totpStep(at)+1)*int64(totpPeriod/time.Second), 0).UTC()
+	beforeBoundaryCode, err := totpCode(secret, boundary)
+	if err != nil {
+		t.Fatalf("totpCode() boundary error = %v", err)
+	}
+	step, valid = verifyTOTP(secret, beforeBoundaryCode, boundary.Add(-time.Nanosecond))
+	if !valid || step != totpStep(boundary) {
+		t.Fatalf("verifyTOTP() immediately before boundary = (%d, %t), want next-step code accepted", step, valid)
+	}
+	previousBoundaryCode, err := totpCode(secret, boundary.Add(-totpPeriod))
+	if err != nil {
+		t.Fatalf("totpCode() previous boundary step error = %v", err)
+	}
+	step, valid = verifyTOTP(secret, previousBoundaryCode, boundary)
+	if !valid || step != totpStep(boundary)-1 {
+		t.Fatalf("verifyTOTP() at boundary = (%d, %t), want previous-step code accepted", step, valid)
 	}
 	if _, valid := verifyTOTP("JBSWY3DPEHPK3PXP", "12345", at); valid {
 		t.Fatal("verifyTOTP accepted a short code")

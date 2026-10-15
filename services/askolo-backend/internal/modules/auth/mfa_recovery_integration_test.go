@@ -65,6 +65,60 @@ func setupMFARecoveryUser(t *testing.T, fixture *emailAuthFixture, email, recove
 	return userID
 }
 
+func TestPasswordLoginRequiresMFAAndCompletesPendingSessionIntegration(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	fixture.authConfig.TOTPEncryptionKey = []byte(recoveryTestTOTPKey)
+	const email = "mfa-login-primary@example.test"
+	const password = "mfa-login-password-9!"
+	setupMFARecoveryUser(t, fixture, email, "mfa-login-recovery@example.test", password)
+	handler := testAuthHandler(fixture, &captureEmailSender{}, slog.Default())
+
+	login := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]string{"email": email, "password": password}, nil, "192.0.2.80:1234")
+	if login.Code != http.StatusOK || !strings.Contains(login.Body.String(), `"status":"mfa_required"`) {
+		t.Fatalf("MFA-enabled password login = %d %s, want MFA challenge", login.Code, login.Body.String())
+	}
+	cookie := sessionCookie(t, login)
+
+	pendingUser := plainRequest(handler, http.MethodGet, "/api/auth/user", cookie)
+	if pendingUser.Code != http.StatusOK ||
+		!strings.Contains(pendingUser.Body.String(), `"mfaRequired":true`) ||
+		!strings.Contains(pendingUser.Body.String(), `"user":null`) {
+		t.Fatalf("pending-session user response = %d %s, want MFA-required with no user", pendingUser.Code, pendingUser.Body.String())
+	}
+	protected := plainRequest(handler, http.MethodGet, "/api/auth/mfa/status", cookie)
+	if protected.Code != http.StatusForbidden {
+		t.Fatalf("protected MFA status with pending session = %d %s, want forbidden", protected.Code, protected.Body.String())
+	}
+
+	code, err := totpCode("JBSWY3DPEHPK3PXP", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate integration TOTP: %v", err)
+	}
+	verified := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/verify",
+		map[string]string{"code": code}, cookie, "192.0.2.80:1234")
+	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), `"status":"authenticated"`) {
+		t.Fatalf("TOTP challenge verification = %d %s, want authenticated", verified.Code, verified.Body.String())
+	}
+	authenticatedUser := plainRequest(handler, http.MethodGet, "/api/auth/user", cookie)
+	if authenticatedUser.Code != http.StatusOK ||
+		strings.Contains(authenticatedUser.Body.String(), `"mfaRequired":true`) ||
+		strings.Contains(authenticatedUser.Body.String(), `"user":null`) {
+		t.Fatalf("verified-session user response = %d %s, want authenticated user", authenticatedUser.Code, authenticatedUser.Body.String())
+	}
+
+	replayLogin := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]string{"email": email, "password": password}, nil, "192.0.2.81:1234")
+	if replayLogin.Code != http.StatusOK || !strings.Contains(replayLogin.Body.String(), `"status":"mfa_required"`) {
+		t.Fatalf("second password login = %d %s, want a new MFA challenge", replayLogin.Code, replayLogin.Body.String())
+	}
+	replay := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/verify",
+		map[string]string{"code": code}, sessionCookie(t, replayLogin), "192.0.2.81:1234")
+	if replay.Code != http.StatusUnauthorized || !strings.Contains(replay.Body.String(), "INVALID_MFA") {
+		t.Fatalf("reused TOTP step = %d %s, want replay rejection", replay.Code, replay.Body.String())
+	}
+}
+
 func TestMFARecoveryVerifiedEmailTransitionIntegration(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	fixture.authConfig.TOTPEncryptionKey = []byte(recoveryTestTOTPKey)
