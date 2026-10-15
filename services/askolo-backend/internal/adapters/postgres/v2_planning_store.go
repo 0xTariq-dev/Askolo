@@ -439,7 +439,7 @@ FOR UPDATE`, workspaceID, planID).Scan(&owner, &visibility); err != nil {
 		if taskCreator != actorUserID && role != "owner" && role != "admin" {
 			return V2PlanEntry{}, ErrV2Forbidden
 		}
-		if _, err := tx.Exec(ctx, `UPDATE `+v2Table(schema, "tasks")+` SET assigned_to_user_id=$3, updated_at=now() WHERE workspace_id=$1 AND id=$2`, workspaceID, input.TaskID, input.AssignedToUserID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE `+v2Table(schema, "tasks")+` SET assigned_to_user_id=$3, assigned_to_group_id=NULL, updated_at=now() WHERE workspace_id=$1 AND id=$2`, workspaceID, input.TaskID, input.AssignedToUserID); err != nil {
 			return V2PlanEntry{}, fmt.Errorf("assign canonical task from plan: %w", err)
 		}
 	}
@@ -542,7 +542,7 @@ FOR UPDATE OF p, e`, workspaceID, planID, entryID).Scan(&owner, &visibility, &st
 		if taskCreator != actorUserID && role != "owner" && role != "admin" {
 			return V2PlanEntry{}, ErrV2Forbidden
 		}
-		if _, err := tx.Exec(ctx, `UPDATE `+v2Table(schema, "tasks")+` SET assigned_to_user_id=$3, updated_at=now() WHERE workspace_id=$1 AND id=$2`, workspaceID, input.TaskID, input.AssignedToUserID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE `+v2Table(schema, "tasks")+` SET assigned_to_user_id=$3, assigned_to_group_id=NULL, updated_at=now() WHERE workspace_id=$1 AND id=$2`, workspaceID, input.TaskID, input.AssignedToUserID); err != nil {
 			return V2PlanEntry{}, fmt.Errorf("assign canonical task from plan: %w", err)
 		}
 	}

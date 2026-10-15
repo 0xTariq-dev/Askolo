@@ -319,7 +319,7 @@ func (s *Store) GetV2Task(ctx context.Context, workspaceID, taskID string) (V2Ta
 		return V2Task{}, err
 	}
 	task, err := scanV2Task(s.pool.QueryRow(ctx, `
-SELECT id, workspace_id, created_by_user_id, assigned_to_user_id, kind,
+SELECT id, workspace_id, created_by_user_id, assigned_to_user_id, assigned_to_group_id, kind,
        title, details, status, priority, due_on, planned_start_at, goal_id,
        parent_task_id, recurrence, source_type, source_reference,
        planned_on, planned_start_time, duration_minutes, due_time, time_zone, label,
@@ -345,7 +345,7 @@ WHERE workspace_id = $1 AND id = $2`, workspaceID, taskID))
 func scanV2Task(row pgx.Row) (V2Task, error) {
 	var task V2Task
 	err := row.Scan(
-		&task.ID, &task.WorkspaceID, &task.CreatedByUserID, &task.AssignedToUserID,
+		&task.ID, &task.WorkspaceID, &task.CreatedByUserID, &task.AssignedToUserID, &task.AssignedToGroupID,
 		&task.Kind, &task.Title, &task.Details, &task.Status, &task.Priority,
 		&task.DueOn, &task.PlannedStartAt, &task.GoalID, &task.ParentTaskID,
 		&task.Recurrence, &task.SourceType, &task.SourceReference,
@@ -381,6 +381,23 @@ func scanV2Task(row pgx.Row) (V2Task, error) {
 	return task, err
 }
 
+func requireActiveV2WorkspaceGroup(ctx context.Context, tx pgx.Tx, schema, workspaceID, groupID string) error {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM `+v2Table(schema, "workspace_groups")+` g
+  JOIN `+v2Table(schema, "workspaces")+` w ON w.id = g.workspace_id
+  WHERE g.workspace_id=$1 AND g.id=$2 AND w.status='active' AND NOT w.is_personal
+)`, workspaceID, groupID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("verify active Space group: %w", err)
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) v2TaskDependencies(ctx context.Context, schema, workspaceID, taskID string) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT depends_on_task_id
@@ -413,7 +430,7 @@ func (s *Store) ListV2Tasks(ctx context.Context, workspaceID string, filter V2Ta
 	if filter.Offset < 0 {
 		filter.Offset = 0
 	}
-	query := `SELECT id, workspace_id, created_by_user_id, assigned_to_user_id, kind,
+	query := `SELECT id, workspace_id, created_by_user_id, assigned_to_user_id, assigned_to_group_id, kind,
  title, details, status, priority, due_on, planned_start_at, goal_id,
  parent_task_id, recurrence, source_type, source_reference,
  planned_on, planned_start_time, duration_minutes, due_time, time_zone, label,
@@ -543,8 +560,16 @@ func (s *Store) CreateV2Task(ctx context.Context, workspaceID, actorUserID strin
 		return V2Task{}, fmt.Errorf("begin task create: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if input.AssignedToUserID != nil && input.AssignedToGroupID != nil {
+		return V2Task{}, ErrV2Forbidden
+	}
 	if input.AssignedToUserID != nil {
 		if err := requireActiveV2WorkspaceMember(ctx, tx, workspaceID, *input.AssignedToUserID); err != nil {
+			return V2Task{}, err
+		}
+	}
+	if input.AssignedToGroupID != nil {
+		if err := requireActiveV2WorkspaceGroup(ctx, tx, schema, workspaceID, *input.AssignedToGroupID); err != nil {
 			return V2Task{}, err
 		}
 	}
@@ -558,13 +583,13 @@ func (s *Store) CreateV2Task(ctx context.Context, workspaceID, actorUserID strin
 	}
 	_, err = tx.Exec(ctx, `
 INSERT INTO `+v2Table(schema, "tasks")+` (
-  id, workspace_id, created_by_user_id, assigned_to_user_id, kind, title,
+  id, workspace_id, created_by_user_id, assigned_to_user_id, assigned_to_group_id, kind, title,
   details, status, priority, due_on, planned_start_at,
   planned_on, planned_start_time, duration_minutes, due_time, time_zone, label,
   goal_id, parent_task_id, recurrence, source_type, source_reference,
   completed_at, archived_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
-		taskID, workspaceID, actorUserID, input.AssignedToUserID, input.Kind,
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
+		taskID, workspaceID, actorUserID, input.AssignedToUserID, input.AssignedToGroupID, input.Kind,
 		input.Title, input.Details, input.Status, input.Priority, input.DueOn,
 		input.PlannedStartAt, input.PlannedOn, input.PlannedStartTime, input.DurationMinutes,
 		input.DueTime, input.TimeZone, input.Label, input.GoalID, input.ParentTaskID, input.Recurrence,
@@ -603,6 +628,9 @@ func (s *Store) UpdateV2Task(ctx context.Context, workspaceID, taskID, actorUser
 		return V2Task{}, fmt.Errorf("begin task update: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if input.AssignedToUserID != nil && input.AssignedToGroupID != nil {
+		return V2Task{}, ErrV2Forbidden
+	}
 	var lockedTaskID string
 	if err := tx.QueryRow(ctx, `
 SELECT id FROM `+v2Table(schema, "tasks")+`
@@ -614,6 +642,11 @@ WHERE workspace_id = $1 AND id = $2 FOR UPDATE`, workspaceID, taskID).Scan(&lock
 	}
 	if input.AssignedToUserID != nil {
 		if err := requireActiveV2WorkspaceMember(ctx, tx, workspaceID, *input.AssignedToUserID); err != nil {
+			return V2Task{}, err
+		}
+	}
+	if input.AssignedToGroupID != nil {
+		if err := requireActiveV2WorkspaceGroup(ctx, tx, schema, workspaceID, *input.AssignedToGroupID); err != nil {
 			return V2Task{}, err
 		}
 	}
@@ -652,13 +685,13 @@ SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = $3)`,
 	}
 	tag, err := tx.Exec(ctx, `
 UPDATE `+v2Table(schema, "tasks")+`
-SET assigned_to_user_id=$3, kind=$4, title=$5, details=$6, status=$7,
-    priority=$8, due_on=$9, planned_start_at=$10,
-    planned_on=$11, planned_start_time=$12, duration_minutes=$13, due_time=$14,
-    time_zone=$15, label=$16, goal_id=$17, parent_task_id=$18, recurrence=$19,
-    source_type=$20, source_reference=$21, completed_at=$22, archived_at=$23, updated_at=now()
+SET assigned_to_user_id=$3, assigned_to_group_id=$4, kind=$5, title=$6, details=$7, status=$8,
+    priority=$9, due_on=$10, planned_start_at=$11,
+    planned_on=$12, planned_start_time=$13, duration_minutes=$14, due_time=$15,
+    time_zone=$16, label=$17, goal_id=$18, parent_task_id=$19, recurrence=$20,
+    source_type=$21, source_reference=$22, completed_at=$23, archived_at=$24, updated_at=now()
 WHERE workspace_id=$1 AND id=$2`,
-		workspaceID, taskID, input.AssignedToUserID, input.Kind, input.Title,
+		workspaceID, taskID, input.AssignedToUserID, input.AssignedToGroupID, input.Kind, input.Title,
 		input.Details, input.Status, input.Priority, input.DueOn, input.PlannedStartAt,
 		input.PlannedOn, input.PlannedStartTime, input.DurationMinutes, input.DueTime,
 		input.TimeZone, input.Label, input.GoalID, input.ParentTaskID, input.Recurrence,

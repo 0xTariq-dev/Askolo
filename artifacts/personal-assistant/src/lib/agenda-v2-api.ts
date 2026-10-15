@@ -96,6 +96,17 @@ export type V2SpaceMember = {
   joinedAt: string | null;
 };
 
+export type V2WorkspaceGroup = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string | null;
+  memberUserIds: string[];
+  permissions: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type V2WorkspaceInvitation = {
   id: string;
   email: string;
@@ -203,6 +214,33 @@ export async function getV2SpaceMembers(
   );
   if (!response.ok) throw new Error(`Space members could not be loaded (${response.status}).`);
   return response.json() as Promise<V2SpaceMember[]>;
+}
+
+export async function getV2WorkspaceGroups(workspaceId: string, signal?: AbortSignal): Promise<V2WorkspaceGroup[]> {
+  const response = await fetch(`${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/groups`, {
+    credentials: 'include', headers: { Accept: 'application/json' }, signal,
+  });
+  if (!response.ok) throw new Error(`Space groups could not be loaded (${response.status}).`);
+  return response.json() as Promise<V2WorkspaceGroup[]>;
+}
+
+export function saveV2WorkspaceGroup(
+  workspaceId: string,
+  input: Pick<V2WorkspaceGroup, 'name' | 'description' | 'memberUserIds' | 'permissions'>,
+  groupId?: string,
+): Promise<V2WorkspaceGroup | undefined> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/groups${groupId ? `/${encodeURIComponent(groupId)}` : ''}`,
+    groupId ? 'PUT' : 'POST',
+    input,
+  );
+}
+
+export function deleteV2WorkspaceGroup(workspaceId: string, groupId: string): Promise<void> {
+  return v2Request(
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}/groups/${encodeURIComponent(groupId)}`,
+    'DELETE',
+  ) as Promise<void>;
 }
 
 export async function updateV2SpaceMemberRole(
@@ -447,6 +485,8 @@ export type V2TaskRecurrence = {
 };
 
 export type V2TaskCreateInput = {
+  assignedToUserId?: string | null;
+  assignedToGroupId?: string | null;
   kind: 'task' | 'habit';
   title: string;
   details?: string | null;
@@ -468,6 +508,7 @@ export type V2TaskRecord = V2TaskCreateInput & {
   workspaceId: string;
   createdByUserId: string;
   assignedToUserId: string | null;
+  assignedToGroupId: string | null;
   parentTaskId: string | null;
   completedAt: string | null;
   archivedAt: string | null;
@@ -491,7 +532,7 @@ export type V2TaskReminderRule = {
 
 async function v2Request<T>(
   path: string,
-  method: 'POST' | 'PATCH' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   body?: unknown,
   signal?: AbortSignal,
   extraHeaders?: HeadersInit,

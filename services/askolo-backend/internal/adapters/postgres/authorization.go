@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -238,6 +239,37 @@ func (s *Store) Authorize(ctx context.Context, input authorization.Input) (autho
 		return authorization.Decision{}, err
 	} else {
 		membership.Revoked = revokedAt != nil
+		if membership.Status == "active" && !membership.Revoked {
+			schema, schemaErr := s.v2Schema(ctx)
+			if schemaErr != nil {
+				return authorization.Decision{}, schemaErr
+			}
+			groupRows, queryErr := s.pool.Query(ctx, `
+SELECT DISTINCT gp.permission_key
+FROM `+v2Table(schema, "workspace_group_members")+` gm
+JOIN `+v2Table(schema, "workspace_group_permissions")+` gp
+  ON gp.workspace_id = gm.workspace_id AND gp.group_id = gm.group_id
+JOIN `+v2Table(schema, "workspace_memberships")+` vm
+  ON vm.workspace_id = gm.workspace_id AND vm.user_id = gm.user_id
+WHERE gm.workspace_id = $1 AND gm.user_id = $2
+  AND vm.status = 'active'`, input.WorkspaceID, input.ActorUserID)
+			if queryErr != nil {
+				return authorization.Decision{}, fmt.Errorf("load additive group permissions: %w", queryErr)
+			}
+			for groupRows.Next() {
+				var permission string
+				if scanErr := groupRows.Scan(&permission); scanErr != nil {
+					groupRows.Close()
+					return authorization.Decision{}, scanErr
+				}
+				membership.Permissions = append(membership.Permissions, permission)
+			}
+			if queryErr := groupRows.Err(); queryErr != nil {
+				groupRows.Close()
+				return authorization.Decision{}, queryErr
+			}
+			groupRows.Close()
+		}
 		membershipPtr = &membership
 	}
 

@@ -72,49 +72,51 @@ type v2RecurrenceRule struct {
 }
 
 type v2TaskRequest struct {
-	AssignedToUserID *string           `json:"assignedToUserId"`
-	Kind             string            `json:"kind"`
-	Title            string            `json:"title"`
-	Details          *string           `json:"details"`
-	Status           string            `json:"status"`
-	Priority         string            `json:"priority"`
-	DueOn            *string           `json:"dueOn"`
-	PlannedStartAt   *time.Time        `json:"plannedStartAt"`
-	PlannedOn        *string           `json:"plannedOn"`
-	PlannedStartTime *string           `json:"plannedStartTime"`
-	DurationMinutes  *int              `json:"durationMinutes"`
-	DueTime          *string           `json:"dueTime"`
-	TimeZone         string            `json:"timeZone"`
-	Label            *string           `json:"label"`
-	GoalID           *string           `json:"goalId"`
-	ParentTaskID     *string           `json:"parentTaskId"`
-	Recurrence       *v2RecurrenceRule `json:"recurrence"`
-	SourceType       *string           `json:"sourceType"`
-	SourceReference  *string           `json:"sourceReference"`
-	Dependencies     []string          `json:"dependencies"`
+	AssignedToUserID  *string           `json:"assignedToUserId"`
+	AssignedToGroupID *string           `json:"assignedToGroupId"`
+	Kind              string            `json:"kind"`
+	Title             string            `json:"title"`
+	Details           *string           `json:"details"`
+	Status            string            `json:"status"`
+	Priority          string            `json:"priority"`
+	DueOn             *string           `json:"dueOn"`
+	PlannedStartAt    *time.Time        `json:"plannedStartAt"`
+	PlannedOn         *string           `json:"plannedOn"`
+	PlannedStartTime  *string           `json:"plannedStartTime"`
+	DurationMinutes   *int              `json:"durationMinutes"`
+	DueTime           *string           `json:"dueTime"`
+	TimeZone          string            `json:"timeZone"`
+	Label             *string           `json:"label"`
+	GoalID            *string           `json:"goalId"`
+	ParentTaskID      *string           `json:"parentTaskId"`
+	Recurrence        *v2RecurrenceRule `json:"recurrence"`
+	SourceType        *string           `json:"sourceType"`
+	SourceReference   *string           `json:"sourceReference"`
+	Dependencies      []string          `json:"dependencies"`
 }
 
 type v2TaskPatchRequest struct {
-	AssignedToUserID v2PatchField[string]           `json:"assignedToUserId"`
-	Kind             v2PatchField[string]           `json:"kind"`
-	Title            v2PatchField[string]           `json:"title"`
-	Details          v2PatchField[string]           `json:"details"`
-	Status           v2PatchField[string]           `json:"status"`
-	Priority         v2PatchField[string]           `json:"priority"`
-	DueOn            v2PatchField[string]           `json:"dueOn"`
-	PlannedStartAt   v2PatchField[time.Time]        `json:"plannedStartAt"`
-	PlannedOn        v2PatchField[string]           `json:"plannedOn"`
-	PlannedStartTime v2PatchField[string]           `json:"plannedStartTime"`
-	DurationMinutes  v2PatchField[int]              `json:"durationMinutes"`
-	DueTime          v2PatchField[string]           `json:"dueTime"`
-	TimeZone         v2PatchField[string]           `json:"timeZone"`
-	Label            v2PatchField[string]           `json:"label"`
-	GoalID           v2PatchField[string]           `json:"goalId"`
-	ParentTaskID     v2PatchField[string]           `json:"parentTaskId"`
-	Recurrence       v2PatchField[v2RecurrenceRule] `json:"recurrence"`
-	SourceType       v2PatchField[string]           `json:"sourceType"`
-	SourceReference  v2PatchField[string]           `json:"sourceReference"`
-	Dependencies     v2PatchField[[]string]         `json:"dependencies"`
+	AssignedToUserID  v2PatchField[string]           `json:"assignedToUserId"`
+	AssignedToGroupID v2PatchField[string]           `json:"assignedToGroupId"`
+	Kind              v2PatchField[string]           `json:"kind"`
+	Title             v2PatchField[string]           `json:"title"`
+	Details           v2PatchField[string]           `json:"details"`
+	Status            v2PatchField[string]           `json:"status"`
+	Priority          v2PatchField[string]           `json:"priority"`
+	DueOn             v2PatchField[string]           `json:"dueOn"`
+	PlannedStartAt    v2PatchField[time.Time]        `json:"plannedStartAt"`
+	PlannedOn         v2PatchField[string]           `json:"plannedOn"`
+	PlannedStartTime  v2PatchField[string]           `json:"plannedStartTime"`
+	DurationMinutes   v2PatchField[int]              `json:"durationMinutes"`
+	DueTime           v2PatchField[string]           `json:"dueTime"`
+	TimeZone          v2PatchField[string]           `json:"timeZone"`
+	Label             v2PatchField[string]           `json:"label"`
+	GoalID            v2PatchField[string]           `json:"goalId"`
+	ParentTaskID      v2PatchField[string]           `json:"parentTaskId"`
+	Recurrence        v2PatchField[v2RecurrenceRule] `json:"recurrence"`
+	SourceType        v2PatchField[string]           `json:"sourceType"`
+	SourceReference   v2PatchField[string]           `json:"sourceReference"`
+	Dependencies      v2PatchField[[]string]         `json:"dependencies"`
 }
 
 type v2OccurrencePatchRequest struct {
@@ -133,6 +135,10 @@ func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/members/{userId}/role", h.v2Protect(true, h.v2UpdateSpaceMemberRole))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/membership", h.v2Protect(true, h.v2LeaveWorkspace))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}", h.v2Protect(true, h.v2DeleteWorkspace))
+	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/groups", h.v2Protect(false, h.v2ListWorkspaceGroups))
+	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/groups", h.v2Protect(true, h.v2CreateWorkspaceGroup))
+	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/groups/{groupId}", h.v2Protect(true, h.v2UpdateWorkspaceGroup))
+	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/groups/{groupId}", h.v2Protect(true, h.v2DeleteWorkspaceGroup))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/invitations", h.v2Protect(false, h.v2ListSpaceInvitations))
 	mux.HandleFunc("POST /api/v2/workspaces/{workspaceId}/invitations", h.v2Protect(true, h.v2CreateSpaceInvitation))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/invitations/{invitationId}", h.v2Protect(true, h.v2CancelSpaceInvitation))
@@ -429,6 +435,178 @@ func (h *Handler) v2DeleteWorkspace(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type v2WorkspaceGroupRequest struct {
+	Name        string   `json:"name"`
+	Description *string  `json:"description"`
+	MemberIDs   []string `json:"memberUserIds"`
+	Permissions []string `json:"permissions"`
+}
+
+func (h *Handler) v2ListWorkspaceGroups(w http.ResponseWriter, r *http.Request, userID, _ string) {
+	groups, err := h.store.ListV2WorkspaceGroups(r.Context(), r.PathValue("workspaceId"))
+	if err != nil {
+		h.v2InternalError(w, r, userID, "list Space groups", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
+func (h *Handler) v2CreateWorkspaceGroup(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" && role != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can manage groups.")
+		return
+	}
+	var input v2WorkspaceGroupRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	if !validateV2WorkspaceGroup(w, &input) {
+		return
+	}
+	group, err := h.store.CreateV2WorkspaceGroup(r.Context(), r.PathValue("workspaceId"), userID, input.Name, input.Description)
+	if err != nil {
+		if errors.Is(err, postgres.ErrV2Forbidden) {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "Groups are available only in shared Spaces.")
+		} else {
+			h.v2InternalError(w, r, userID, "create Space group", err)
+		}
+		return
+	}
+	if err := h.store.ReplaceV2WorkspaceGroup(r.Context(), group.WorkspaceID, group.ID, userID, input.Name, input.Description, input.MemberIDs, input.Permissions); err != nil {
+		h.v2InternalError(w, r, userID, "set new Space group details", err)
+		return
+	}
+	groups, err := h.store.ListV2WorkspaceGroups(r.Context(), group.WorkspaceID)
+	if err != nil {
+		h.v2InternalError(w, r, userID, "read created Space group", err)
+		return
+	}
+	for _, saved := range groups {
+		if saved.ID == group.ID {
+			writeJSON(w, http.StatusCreated, saved)
+			return
+		}
+	}
+	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "The group was created but could not be read.")
+}
+
+func (h *Handler) v2UpdateWorkspaceGroup(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" && role != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can manage groups.")
+		return
+	}
+	if !validV2Identifier(r.PathValue("groupId")) {
+		writeError(w, http.StatusBadRequest, "INVALID_GROUP_ID", "A valid group is required.")
+		return
+	}
+	var input v2WorkspaceGroupRequest
+	if !decodeV2JSON(w, r, &input) {
+		return
+	}
+	if !validateV2WorkspaceGroup(w, &input) {
+		return
+	}
+	err := h.store.ReplaceV2WorkspaceGroup(r.Context(), r.PathValue("workspaceId"), r.PathValue("groupId"), userID,
+		input.Name, input.Description, input.MemberIDs, input.Permissions)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Group not found or unavailable.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "update Space group", err)
+		return
+	}
+	groups, err := h.store.ListV2WorkspaceGroups(r.Context(), r.PathValue("workspaceId"))
+	if err != nil {
+		h.v2InternalError(w, r, userID, "read updated Space group", err)
+		return
+	}
+	for _, group := range groups {
+		if group.ID == r.PathValue("groupId") {
+			writeJSON(w, http.StatusOK, group)
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "NOT_FOUND", "Group not found.")
+}
+
+func (h *Handler) v2DeleteWorkspaceGroup(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" && role != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can manage groups.")
+		return
+	}
+	if !validV2Identifier(r.PathValue("groupId")) {
+		writeError(w, http.StatusBadRequest, "INVALID_GROUP_ID", "A valid group is required.")
+		return
+	}
+	err := h.store.DeleteV2WorkspaceGroup(r.Context(), r.PathValue("workspaceId"), r.PathValue("groupId"), userID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Group not found or unavailable.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "delete Space group", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func validateV2WorkspaceGroup(w http.ResponseWriter, input *v2WorkspaceGroupRequest) bool {
+	input.Name = strings.TrimSpace(input.Name)
+	if len([]rune(input.Name)) < 1 || len([]rune(input.Name)) > 80 {
+		writeError(w, http.StatusBadRequest, "INVALID_GROUP", "Group name must contain 1 to 80 characters.")
+		return false
+	}
+	if input.Description != nil {
+		value := strings.TrimSpace(*input.Description)
+		if len([]rune(value)) > 500 {
+			writeError(w, http.StatusBadRequest, "INVALID_GROUP", "Group description must be at most 500 characters.")
+			return false
+		}
+		if value == "" {
+			input.Description = nil
+		} else {
+			input.Description = &value
+		}
+	}
+	if len(input.MemberIDs) > 500 || len(input.Permissions) > 40 {
+		writeError(w, http.StatusBadRequest, "INVALID_GROUP", "Group member or permission limit exceeded.")
+		return false
+	}
+	input.MemberIDs = uniqueV2Strings(input.MemberIDs)
+	input.Permissions = uniqueV2Strings(input.Permissions)
+	for _, memberID := range input.MemberIDs {
+		if !validV2Identifier(memberID) {
+			writeError(w, http.StatusBadRequest, "INVALID_GROUP", "A group member ID is invalid.")
+			return false
+		}
+	}
+	for _, permission := range input.Permissions {
+		if len(permission) > 100 || !regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){1,2}$`).MatchString(permission) {
+			writeError(w, http.StatusBadRequest, "INVALID_GROUP", "A permission key is invalid.")
+			return false
+		}
+	}
+	return true
+}
+
+func uniqueV2Strings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 type v2SpaceInvitationRequest struct {
@@ -956,7 +1134,22 @@ func (h *Handler) v2UpdateTask(w http.ResponseWriter, r *http.Request, userID, r
 		v2HandleStoreError(w, r, h, userID, "read task before update", err)
 		return
 	}
-	if current.CreatedByUserID != userID && role != "owner" && role != "admin" {
+	canUpdate := current.CreatedByUserID == userID || role == "owner" || role == "admin"
+	if !canUpdate && current.AssignedToGroupID != nil {
+		canUpdate, err = h.store.IsActiveV2GroupMember(r.Context(), current.WorkspaceID, *current.AssignedToGroupID, userID)
+		if err != nil {
+			h.v2InternalError(w, r, userID, "check group task access", err)
+			return
+		}
+	}
+	if !canUpdate {
+		canUpdate, err = h.store.V2WorkspaceHasPermission(r.Context(), current.WorkspaceID, userID, "resource.update.any")
+		if err != nil {
+			h.v2InternalError(w, r, userID, "check additive task permission", err)
+			return
+		}
+	}
+	if !canUpdate {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", "You are not allowed to change this task.")
 		return
 	}
@@ -984,7 +1177,22 @@ func (h *Handler) v2ArchiveTask(w http.ResponseWriter, r *http.Request, userID, 
 		v2HandleStoreError(w, r, h, userID, "read task before archive", err)
 		return
 	}
-	if task.CreatedByUserID != userID && role != "owner" && role != "admin" {
+	canArchive := task.CreatedByUserID == userID || role == "owner" || role == "admin"
+	if !canArchive && task.AssignedToGroupID != nil {
+		canArchive, err = h.store.IsActiveV2GroupMember(r.Context(), task.WorkspaceID, *task.AssignedToGroupID, userID)
+		if err != nil {
+			h.v2InternalError(w, r, userID, "check group task access", err)
+			return
+		}
+	}
+	if !canArchive {
+		canArchive, err = h.store.V2WorkspaceHasPermission(r.Context(), task.WorkspaceID, userID, "resource.delete.any")
+		if err != nil {
+			h.v2InternalError(w, r, userID, "check additive task permission", err)
+			return
+		}
+	}
+	if !canArchive {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", "You are not allowed to change this task.")
 		return
 	}
@@ -1115,23 +1323,24 @@ func (h *Handler) v2UpdateTaskOccurrence(w http.ResponseWriter, r *http.Request,
 
 func buildV2TaskWrite(request v2TaskRequest) (postgres.V2TaskWrite, error) {
 	input := postgres.V2TaskWrite{
-		AssignedToUserID: request.AssignedToUserID,
-		Kind:             request.Kind,
-		Title:            strings.TrimSpace(request.Title),
-		Details:          request.Details,
-		Status:           request.Status,
-		Priority:         request.Priority,
-		PlannedStartAt:   request.PlannedStartAt,
-		PlannedStartTime: request.PlannedStartTime,
-		DurationMinutes:  request.DurationMinutes,
-		DueTime:          request.DueTime,
-		TimeZone:         strings.TrimSpace(request.TimeZone),
-		Label:            request.Label,
-		GoalID:           request.GoalID,
-		ParentTaskID:     request.ParentTaskID,
-		SourceType:       request.SourceType,
-		SourceReference:  request.SourceReference,
-		Dependencies:     request.Dependencies,
+		AssignedToUserID:  request.AssignedToUserID,
+		AssignedToGroupID: request.AssignedToGroupID,
+		Kind:              request.Kind,
+		Title:             strings.TrimSpace(request.Title),
+		Details:           request.Details,
+		Status:            request.Status,
+		Priority:          request.Priority,
+		PlannedStartAt:    request.PlannedStartAt,
+		PlannedStartTime:  request.PlannedStartTime,
+		DurationMinutes:   request.DurationMinutes,
+		DueTime:           request.DueTime,
+		TimeZone:          strings.TrimSpace(request.TimeZone),
+		Label:             request.Label,
+		GoalID:            request.GoalID,
+		ParentTaskID:      request.ParentTaskID,
+		SourceType:        request.SourceType,
+		SourceReference:   request.SourceReference,
+		Dependencies:      request.Dependencies,
 	}
 	if input.Status == "" {
 		input.Status = "open"
@@ -1174,26 +1383,27 @@ func buildV2TaskWrite(request v2TaskRequest) (postgres.V2TaskWrite, error) {
 
 func mergeV2TaskPatch(current postgres.V2Task, patch v2TaskPatchRequest) (postgres.V2TaskWrite, error) {
 	input := postgres.V2TaskWrite{
-		AssignedToUserID: current.AssignedToUserID,
-		Kind:             current.Kind,
-		Title:            current.Title,
-		Details:          current.Details,
-		Status:           current.Status,
-		Priority:         current.Priority,
-		DueOn:            current.DueOn,
-		PlannedStartAt:   current.PlannedStartAt,
-		PlannedOn:        current.PlannedOn,
-		PlannedStartTime: normalizeV2TimeForWrite(current.PlannedStartTime),
-		DurationMinutes:  current.DurationMinutes,
-		DueTime:          normalizeV2TimeForWrite(current.DueTime),
-		TimeZone:         current.TimeZone,
-		Label:            current.Label,
-		GoalID:           current.GoalID,
-		ParentTaskID:     current.ParentTaskID,
-		Recurrence:       normalizeV2NullableJSON(current.Recurrence),
-		SourceType:       current.SourceType,
-		SourceReference:  current.SourceReference,
-		Dependencies:     current.Dependencies,
+		AssignedToUserID:  current.AssignedToUserID,
+		AssignedToGroupID: current.AssignedToGroupID,
+		Kind:              current.Kind,
+		Title:             current.Title,
+		Details:           current.Details,
+		Status:            current.Status,
+		Priority:          current.Priority,
+		DueOn:             current.DueOn,
+		PlannedStartAt:    current.PlannedStartAt,
+		PlannedOn:         current.PlannedOn,
+		PlannedStartTime:  normalizeV2TimeForWrite(current.PlannedStartTime),
+		DurationMinutes:   current.DurationMinutes,
+		DueTime:           normalizeV2TimeForWrite(current.DueTime),
+		TimeZone:          current.TimeZone,
+		Label:             current.Label,
+		GoalID:            current.GoalID,
+		ParentTaskID:      current.ParentTaskID,
+		Recurrence:        normalizeV2NullableJSON(current.Recurrence),
+		SourceType:        current.SourceType,
+		SourceReference:   current.SourceReference,
+		Dependencies:      current.Dependencies,
 	}
 	if patch.AssignedToUserID.Set {
 		if patch.AssignedToUserID.Null {
@@ -1201,6 +1411,16 @@ func mergeV2TaskPatch(current postgres.V2Task, patch v2TaskPatchRequest) (postgr
 		} else {
 			value := strings.TrimSpace(patch.AssignedToUserID.Value)
 			input.AssignedToUserID = &value
+			input.AssignedToGroupID = nil
+		}
+	}
+	if patch.AssignedToGroupID.Set {
+		if patch.AssignedToGroupID.Null {
+			input.AssignedToGroupID = nil
+		} else {
+			value := strings.TrimSpace(patch.AssignedToGroupID.Value)
+			input.AssignedToGroupID = &value
+			input.AssignedToUserID = nil
 		}
 	}
 	if patch.Kind.Set {
@@ -1431,7 +1651,7 @@ func validateV2TaskWrite(input postgres.V2TaskWrite, currentID string) error {
 	if input.Details != nil && len([]rune(strings.TrimSpace(*input.Details))) > 6000 {
 		return errors.New("notes cannot exceed 6000 characters")
 	}
-	for _, value := range []*string{input.AssignedToUserID, input.GoalID, input.ParentTaskID} {
+	for _, value := range []*string{input.AssignedToUserID, input.AssignedToGroupID, input.GoalID, input.ParentTaskID} {
 		if value != nil && !v2IdentifierPattern.MatchString(*value) {
 			return errors.New("task relationship contains an invalid identifier")
 		}

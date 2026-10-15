@@ -6,56 +6,58 @@ import (
 )
 
 type V2Task struct {
-	ID               string          `json:"id"`
-	WorkspaceID      string          `json:"workspaceId"`
-	CreatedByUserID  string          `json:"createdByUserId"`
-	AssignedToUserID *string         `json:"assignedToUserId"`
-	Kind             string          `json:"kind"`
-	Title            string          `json:"title"`
-	Details          *string         `json:"details"`
-	Status           string          `json:"status"`
-	Priority         string          `json:"priority"`
-	DueOn            *time.Time      `json:"dueOn"`
-	PlannedStartAt   *time.Time      `json:"plannedStartAt"`
-	PlannedOn        *time.Time      `json:"plannedOn"`
-	PlannedStartTime *string         `json:"plannedStartTime"`
-	DurationMinutes  *int            `json:"durationMinutes"`
-	DueTime          *string         `json:"dueTime"`
-	TimeZone         string          `json:"timeZone"`
-	Label            *string         `json:"label"`
-	GoalID           *string         `json:"goalId"`
-	ParentTaskID     *string         `json:"parentTaskId"`
-	Recurrence       json.RawMessage `json:"recurrence"`
-	SourceType       *string         `json:"sourceType"`
-	SourceReference  *string         `json:"sourceReference"`
-	CompletedAt      *time.Time      `json:"completedAt"`
-	ArchivedAt       *time.Time      `json:"archivedAt"`
-	Dependencies     []string        `json:"dependencies"`
-	CreatedAt        time.Time       `json:"createdAt"`
-	UpdatedAt        time.Time       `json:"updatedAt"`
+	ID                string          `json:"id"`
+	WorkspaceID       string          `json:"workspaceId"`
+	CreatedByUserID   string          `json:"createdByUserId"`
+	AssignedToUserID  *string         `json:"assignedToUserId"`
+	AssignedToGroupID *string         `json:"assignedToGroupId"`
+	Kind              string          `json:"kind"`
+	Title             string          `json:"title"`
+	Details           *string         `json:"details"`
+	Status            string          `json:"status"`
+	Priority          string          `json:"priority"`
+	DueOn             *time.Time      `json:"dueOn"`
+	PlannedStartAt    *time.Time      `json:"plannedStartAt"`
+	PlannedOn         *time.Time      `json:"plannedOn"`
+	PlannedStartTime  *string         `json:"plannedStartTime"`
+	DurationMinutes   *int            `json:"durationMinutes"`
+	DueTime           *string         `json:"dueTime"`
+	TimeZone          string          `json:"timeZone"`
+	Label             *string         `json:"label"`
+	GoalID            *string         `json:"goalId"`
+	ParentTaskID      *string         `json:"parentTaskId"`
+	Recurrence        json.RawMessage `json:"recurrence"`
+	SourceType        *string         `json:"sourceType"`
+	SourceReference   *string         `json:"sourceReference"`
+	CompletedAt       *time.Time      `json:"completedAt"`
+	ArchivedAt        *time.Time      `json:"archivedAt"`
+	Dependencies      []string        `json:"dependencies"`
+	CreatedAt         time.Time       `json:"createdAt"`
+	UpdatedAt         time.Time       `json:"updatedAt"`
 }
 
 type V2TaskWrite struct {
-	AssignedToUserID *string
-	Kind             string
-	Title            string
-	Details          *string
-	Status           string
-	Priority         string
-	DueOn            *time.Time
-	PlannedStartAt   *time.Time
-	PlannedOn        *time.Time
-	PlannedStartTime *string
-	DurationMinutes  *int
-	DueTime          *string
-	TimeZone         string
-	Label            *string
-	GoalID           *string
-	ParentTaskID     *string
-	Recurrence       json.RawMessage
-	SourceType       *string
-	SourceReference  *string
-	Dependencies     []string
+	AssignedToUserID  *string
+	AssignedToGroupID *string
+	Kind              string
+	Title             string
+	Details           *string
+	Status            string
+	Priority          string
+	DueOn             *time.Time
+	PlannedStartAt    *time.Time
+	PlannedOn         *time.Time
+	PlannedStartTime  *string
+	DurationMinutes   *int
+	DueTime           *string
+	TimeZone          string
+	Label             *string
+	GoalID            *string
+	ParentTaskID      *string
+	Recurrence        json.RawMessage
+	SourceType        *string
+	SourceReference   *string
+	Dependencies      []string
 }
 
 type V2TaskFilter struct {

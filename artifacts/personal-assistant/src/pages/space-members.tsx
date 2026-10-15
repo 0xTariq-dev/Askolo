@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
 import { SpaceSettingsNavigation } from '@/components/settings/space-settings-navigation';
+import { SpaceGroupsPanel } from '@/components/settings/space-groups-panel';
 import { useSpaceScope } from '@/contexts/space-context';
 import {
   cancelV2WorkspaceInvitation,
@@ -237,6 +238,14 @@ export function SpaceMembersPage() {
       </header>
 
       <SpaceSettingsNavigation active="members" />
+
+      {selectedSpace && !selectedSpace.isPersonal && selectedSpaceId && loadedForSpaceId === selectedSpaceId && !error && (
+        <SpaceGroupsPanel
+          workspaceId={selectedSpaceId}
+          members={members}
+          canManage={selectedRole === 'owner' || selectedRole === 'admin'}
+        />
+      )}
 
       {(spacesError || error) && (
         <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm">

@@ -39,7 +39,9 @@ import {
   updateV2TaskOccurrence,
   createV2Task,
   getV2GoalsForScope,
+  getV2WorkspaceGroups,
   type V2Goal,
+  type V2WorkspaceGroup,
   type V2TaskRecord,
   type V2TaskReminderRule,
   type V2AgendaTask,
@@ -68,6 +70,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const planSchema = z.object({
   title: z.string().min(1, 'Title is required'),
+  assignedToGroupId: z.string().optional(),
   notes: z.string().max(6000).optional(),
   label: z.string().max(100).optional(),
   plannedStartTime: z.string().optional(),
@@ -127,7 +130,7 @@ type PlanFormValues = z.infer<typeof planSchema>;
 
 const emptyReminder = () => ({ enabled: false, basis: 'due' as const, minutesBefore: '15', localTime: '09:00' });
 const newPlanValues = (date: string): PlanFormValues => ({
-  title: '', notes: '', label: '', plannedStartTime: '', durationMinutes: '',
+  title: '', assignedToGroupId: '', notes: '', label: '', plannedStartTime: '', durationMinutes: '',
   dueOn: '', dueTime: '', kind: 'task', priority: 'none', goalId: '',
   hasRecurrence: false, frequency: 'daily', interval: '1', weekdays: [],
   startsOn: date, endMode: 'never', endsOn: '', count: '', habitTime: '',
@@ -164,6 +167,7 @@ export function PlanPage() {
   const [agendaReloadKey, setAgendaReloadKey] = useState(0);
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [targetSpaceId, setTargetSpaceId] = useState('');
+  const [assignmentGroups, setAssignmentGroups] = useState<V2WorkspaceGroup[]>([]);
   const [editingItem, setEditingItem] = useState<V2AgendaTask | null>(null);
   const [editingRecord, setEditingRecord] = useState<V2TaskRecord | null>(null);
   const [editingReminderRules, setEditingReminderRules] = useState<V2TaskReminderRule[]>([]);
@@ -193,6 +197,17 @@ export function PlanPage() {
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentError, setConsentError] = useState('');
   const [consentSaving, setConsentSaving] = useState(false);
+  useEffect(() => {
+    if (!targetSpaceId) {
+      setAssignmentGroups([]);
+      return;
+    }
+    const controller = new AbortController();
+    getV2WorkspaceGroups(targetSpaceId, controller.signal)
+      .then(setAssignmentGroups)
+      .catch(() => { if (!controller.signal.aborted) setAssignmentGroups([]); });
+    return () => controller.abort();
+  }, [targetSpaceId]);
   const [voiceReviewText, setVoiceReviewText] = useState('');
   const [voiceApplied, setVoiceApplied] = useState(false);
   const dateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -273,6 +288,7 @@ export function PlanPage() {
       form.reset({
         ...defaults,
         title: record.title,
+        assignedToGroupId: record.assignedToGroupId ?? '',
         notes: record.details ?? '',
         label: record.label ?? '',
         plannedStartTime: record.plannedStartTime?.slice(0, 5) ?? '',
@@ -352,6 +368,7 @@ export function PlanPage() {
         timeZone,
       } : null;
       const payload = {
+        assignedToGroupId: data.assignedToGroupId || null,
         kind: data.kind,
         title: data.title,
         details: data.kind === 'task' ? data.notes?.trim() || null : null,
@@ -781,6 +798,16 @@ export function PlanPage() {
               <Input id="plan-title" placeholder={isArabic ? 'مثال: مراجعة أسبوعية' : 'For example, weekly review'} {...form.register('title')} />
               {form.formState.errors.title && <p className="text-xs text-destructive">{form.formState.errors.title.message}</p>}
             </div>
+            {form.watch('kind') === 'task' && assignmentGroups.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="plan-group-assignee">{isArabic ? 'إسناد إلى مجموعة' : 'Assign to group'}</Label>
+                <select id="plan-group-assignee" {...form.register('assignedToGroupId')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="">{isArabic ? 'بدون مجموعة' : 'No group'}</option>
+                  {assignmentGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                </select>
+                <p className="text-xs text-muted-foreground">Only active members of this Space group can act on its tasks.</p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="plan-kind">{isArabic ? 'نوع المهمة' : 'Task type'}</Label>
               <select id="plan-kind" {...form.register('kind', { onChange: (event) => {
