@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Camera,
@@ -70,6 +71,8 @@ function formatDeviceDate(
 }
 
 export function ProfilePage() {
+  const [location] = useLocation();
+  const securityTab = location.endsWith('/security');
   const {
     user,
     isLoaded,
@@ -92,6 +95,7 @@ export function ProfilePage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get('google');
+    const githubStatus = params.get('github');
     if (status === 'linked') {
       setGoogleSignInNotice('Google sign-in is linked to this account.');
     } else if (status === 'provider_not_linked') {
@@ -99,8 +103,16 @@ export function ProfilePage() {
     } else if (status === 'error') {
       setGoogleSignInNotice('Google sign-in could not be linked. Please try again.');
     }
-    if (status) {
+    if (githubStatus === 'linked') {
+      setGoogleSignInNotice('GitHub sign-in is linked to this account.');
+    } else if (githubStatus === 'provider_not_linked') {
+      setGoogleSignInNotice('That GitHub account is already linked to a different Askolo account.');
+    } else if (githubStatus === 'error') {
+      setGoogleSignInNotice('GitHub sign-in could not be linked. Please try again.');
+    }
+    if (status || githubStatus) {
       params.delete('google');
+      params.delete('github');
       const search = params.toString();
       window.history.replaceState(
         window.history.state,
@@ -437,9 +449,16 @@ export function ProfilePage() {
   };
 
   const linkGoogleSignIn = () => {
-    const returnTo = `${basePath}/profile?google=linked`;
+    const returnTo = `${basePath}/settings/account/security?google=linked`;
     window.location.assign(
       `${basePath}/api/auth/google/link?returnTo=${encodeURIComponent(returnTo)}`,
+    );
+  };
+
+  const linkGitHubSignIn = () => {
+    const returnTo = `${basePath}/settings/account/security?github=linked`;
+    window.location.assign(
+      `${basePath}/api/auth/github/link?returnTo=${encodeURIComponent(returnTo)}`,
     );
   };
 
@@ -483,16 +502,40 @@ export function ProfilePage() {
   const gmailConnected = googleStatus?.gmailConnected ?? false;
 
   return (
-    <PageTransition surface={false} className="max-w-2xl mx-auto space-y-6">
+    <PageTransition surface={false} className="mx-auto max-w-4xl space-y-6">
       <header className="mb-2">
-        <h1 className="text-2xl font-display font-bold tracking-tight">Profile</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage your identity, connections, and account.</p>
+        <h1 className="text-2xl font-display font-bold tracking-tight">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">Manage your account profile and security.</p>
       </header>
 
-      <ThemePresetSelector />
-      <LanguageSelector />
+      <nav aria-label="Settings sections" className="flex gap-2 border-b border-border">
+        <Link href="/settings/account/profile" aria-current="page" className="min-h-11 border-b-2 border-primary px-3 py-2 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          Account
+        </Link>
+        <Link href="/settings/space/usage" className="min-h-11 border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          Space
+        </Link>
+      </nav>
+      <nav aria-label="Account settings" className="flex gap-2 border-b border-border">
+        <Link
+          href="/settings/account/profile"
+          aria-current={!securityTab ? 'page' : undefined}
+          className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${!securityTab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          Profile
+        </Link>
+        <Link
+          href="/settings/account/security"
+          aria-current={securityTab ? 'page' : undefined}
+          className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${securityTab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          Security
+        </Link>
+      </nav>
 
-      <Card aria-labelledby="keyboard-shortcuts-title">
+      {!securityTab && <><ThemePresetSelector /><LanguageSelector /></>}
+
+      <Card aria-labelledby="keyboard-shortcuts-title" hidden={securityTab}>
         <CardHeader>
           <CardTitle id="keyboard-shortcuts-title" className="text-base">
             Keyboard shortcuts
@@ -535,7 +578,7 @@ export function ProfilePage() {
       </Card>
 
       {/* ── Identity ───────────────────────────────────────────────────────── */}
-      <Card>
+      <Card hidden={securityTab}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <User className="h-4 w-4 text-primary" /> Identity
@@ -654,7 +697,7 @@ export function ProfilePage() {
       </Card>
 
       {/* ── Recovery email ────────────────────────────────────────────────── */}
-      <Card>
+      <Card hidden={!securityTab}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <ShieldCheck className="h-4 w-4 text-primary" /> Independent recovery
@@ -758,7 +801,7 @@ export function ProfilePage() {
       </Card>
 
       {/* ── Multi-factor authentication ───────────────────────────────────── */}
-      <Card>
+      <Card hidden={!securityTab}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <ShieldCheck className="h-4 w-4 text-primary" /> Multi-factor authentication
@@ -893,7 +936,7 @@ export function ProfilePage() {
 
       {/* ── Trusted devices ────────────────────────────────────────────────── */}
       {mfaEnabled && (
-        <Card>
+        <Card hidden={!securityTab}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Monitor className="h-4 w-4 text-primary" /> Trusted devices
@@ -986,11 +1029,11 @@ export function ProfilePage() {
         </Card>
       )}
 
-      <Card>
+      <Card hidden={!securityTab}>
         <CardHeader>
-          <CardTitle className="text-base">Google sign-in</CardTitle>
+          <CardTitle className="text-base">Connected sign-in accounts</CardTitle>
           <CardDescription>
-            Link Google as a way to sign in to this Askolo account. This requests basic identity only; it does not connect Calendar or Gmail.
+            Link Google or GitHub as additional ways to sign in. Linking requires an active Askolo session; provider email addresses do not need to match.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -999,14 +1042,15 @@ export function ProfilePage() {
               {googleSignInNotice}
             </p>
           )}
-          <Button onClick={linkGoogleSignIn} className="min-h-11 w-full sm:w-auto">
-            Link Google sign-in
-          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button onClick={linkGoogleSignIn} className="min-h-11 w-full sm:w-auto">Link Google</Button>
+            <Button onClick={linkGitHubSignIn} variant="outline" className="min-h-11 w-full sm:w-auto">Link GitHub</Button>
+          </div>
         </CardContent>
       </Card>
 
       {/* ── Google Connections ─────────────────────────────────────────────── */}
-      <Card>
+      <Card hidden={securityTab}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <PlugZap className="h-4 w-4 text-primary" /> Google Connections

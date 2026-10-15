@@ -234,7 +234,7 @@ export function AdminCreditsPage() {
           </p>
         </div>
         <Link
-          href="/credits"
+          href="/settings/space/billing"
           className="inline-flex min-h-10 items-center rounded-md border border-border px-4 text-sm font-medium"
         >
           <WalletCards className="me-2 h-4 w-4" />

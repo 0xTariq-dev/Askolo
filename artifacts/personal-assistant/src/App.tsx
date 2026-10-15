@@ -161,8 +161,12 @@ function AuthenticatedPageRoutes() {
        <Route path="/agent" component={AgentPage} />
        <Route path="/assistant"><Redirect to="/agent" /></Route>
       <Route path="/email" component={EmailPage} />
-      <Route path="/profile" component={ProfilePage} />
-      <Route path="/credits" component={CreditsPage} />
+      <Route path="/profile"><Redirect to="/settings/account/profile" /></Route>
+      <Route path="/settings/account/profile" component={ProfilePage} />
+      <Route path="/settings/account/security" component={ProfilePage} />
+      <Route path="/credits"><Redirect to="/settings/space/usage" /></Route>
+      <Route path="/settings/space/usage" component={CreditsPage} />
+      <Route path="/settings/space/billing" component={CreditsPage} />
       <Route path="/admin/credits" component={AdminCreditsPage} />
     </Switch>
   );

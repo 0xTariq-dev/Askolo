@@ -136,16 +136,16 @@ function AccountMenu({
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem asChild data-testid="menu-profile">
-                <Link href="/profile">
+                <Link href="/settings/account/profile">
                   <UserCircle aria-hidden="true" />
-                  {t('profile.account')}
+                  Settings
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild data-testid="menu-balance">
               <Link
-                href="/credits"
+                href="/settings/space/billing"
                 aria-label={`${t('nav.aiCredits')}: ${amount}`}
                 className="flex items-center"
               >

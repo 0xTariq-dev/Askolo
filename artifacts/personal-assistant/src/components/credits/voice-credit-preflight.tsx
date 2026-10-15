@@ -50,7 +50,7 @@ export function VoiceCreditPreflight({
             Refresh
           </Button>
           {showWalletLink && (
-            <Link href="/credits" className="inline-flex min-h-9 items-center rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Link href="/settings/space/billing" className="inline-flex min-h-9 items-center rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               View Balance
             </Link>
           )}

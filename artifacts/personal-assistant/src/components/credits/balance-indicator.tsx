@@ -21,7 +21,7 @@ export function BalanceIndicator({
 
   return (
     <Link
-      href="/credits"
+      href="/settings/space/billing"
       aria-label={accessibleName}
       title={accessibleName}
       data-testid="balance-indicator"

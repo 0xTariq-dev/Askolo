@@ -161,7 +161,7 @@ function NavigationPanel({
 
       <div className="shrink-0 border-t border-border bg-sidebar p-4">
         <Link
-          href="/profile"
+          href="/settings/account/profile"
           onClick={onNavigate}
           className="group mb-4 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
@@ -432,7 +432,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
                       label: t(item.labelKey),
                       icon: item.icon,
                     })),
-                    { href: '/profile', label: 'Profile', icon: UserCircle },
+                    { href: '/settings/account/profile', label: 'Settings', icon: UserCircle },
                   ]}
                 />
                 <BalanceIndicator

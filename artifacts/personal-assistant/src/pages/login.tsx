@@ -120,14 +120,14 @@ export function LoginPage() {
     if (googleStatus === 'account_exists') {
       return {
         title: 'An account already exists',
-        description: 'Sign in with your existing method, then link Google in Profile.',
+        description: 'Sign in with your existing method, then link Google in Settings.',
         variant: 'warning' as const,
       };
     }
     if (googleStatus === 'provider_not_linked') {
       return {
         title: 'Google sign-in isn’t set up for this account',
-        description: 'Sign in with your existing method, then add Google sign-in in Profile.',
+        description: 'Sign in with your existing method, then add Google sign-in in Settings.',
         variant: 'info' as const,
       };
     }

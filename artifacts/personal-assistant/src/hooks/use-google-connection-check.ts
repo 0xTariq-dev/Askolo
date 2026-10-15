@@ -36,8 +36,8 @@ export function useGoogleConnectionCheck() {
       addNotification({
         type: 'action',
         title: 'Google Calendar not connected',
-        body: 'Connect Calendar on your Profile page to sync events and get smarter scheduling.',
-        action: { label: 'Go to Profile', href: '/profile' },
+        body: 'Connect Calendar in Settings to sync events and get smarter scheduling.',
+        action: { label: 'Open Settings', href: '/settings/account/profile' },
         suppressKey: 'google-connection:calendar',
       });
     }
@@ -45,8 +45,8 @@ export function useGoogleConnectionCheck() {
       addNotification({
         type: 'action',
         title: 'Gmail not connected',
-        body: 'Connect Gmail on your Profile page to enable email triage and AI reply drafting.',
-        action: { label: 'Go to Profile', href: '/profile' },
+        body: 'Connect Gmail in Settings to enable email triage and AI reply drafting.',
+        action: { label: 'Open Settings', href: '/settings/account/profile' },
         suppressKey: 'google-connection:gmail',
       });
     }
@@ -62,8 +62,8 @@ export function useGoogleConnectionCheck() {
     addNotification({
       type: 'action',
       title: 'Gmail access needs attention',
-      body: 'Reconnect Gmail or restore read permission on your Profile page to resume Home summaries.',
-      action: { label: 'Review Gmail access', href: '/profile' },
+      body: 'Reconnect Gmail or restore read permission in Settings to resume Home summaries.',
+      action: { label: 'Review Gmail access', href: '/settings/account/profile' },
       suppressKey: 'google-connection:gmail-action-required',
     });
   }, [data?.gmailActionRequired, addNotification]);

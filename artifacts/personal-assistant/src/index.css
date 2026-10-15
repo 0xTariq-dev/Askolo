@@ -66,6 +66,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html,
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .askolo-info-card,
   .askolo-chapter::before {
     transition: none;
