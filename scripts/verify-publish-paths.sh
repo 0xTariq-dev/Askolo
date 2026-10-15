@@ -337,19 +337,20 @@ frontend_pid=$!
     -u DATABASE_URL \
     ASKOLO_ENVIRONMENT=development \
     ASKOLO_INTERNAL_TOKEN=publish-smoke-token \
+    ASKOLO_CANONICAL_ORIGIN="http://127.0.0.1:$router_port" \
     BACKEND_HOST=127.0.0.1 \
     PORT="$api_port" \
     "$repo_root/services/askolo-backend/bin/askolo-backend"
 ) >"$smoke_dir/api.log" 2>&1 &
 api_pid=$!
 
-node - "$frontend_port" "$api_port" "$router_port" >"$smoke_dir/router.log" 2>&1 <<'NODE' &
+node - "$frontend_port" "$api_port" "$router_port" "${backend_route_paths_array[@]}" >"$smoke_dir/router.log" 2>&1 <<'NODE' &
 const http = require("node:http");
 
 const frontendPort = Number(process.argv[2]);
 const apiPort = Number(process.argv[3]);
 const routerPort = Number(process.argv[4]);
-const apiPrefixes = ["/api", "/healthz", "/readyz", "/ws", "/webhooks"];
+const apiPrefixes = process.argv.slice(5);
 
 const isApiPath = (requestUrl) => {
   const pathname = new URL(requestUrl, "http://published-smoke").pathname;
@@ -404,15 +405,66 @@ curl --fail --silent --show-error "http://127.0.0.1:$router_port/dashboard" >"$r
 grep -Fq "<!doctype html>" "$route_body" ||
   die "published SPA route did not receive the frontend fallback"
 
-curl --fail --silent --show-error "http://127.0.0.1:$router_port/healthz" >"$health_body" ||
-  die "published API health path failed"
-grep -Fq '"status":"ok"' "$health_body" ||
-  die "published API health path did not return the API health response"
+check_forwarded_api_prefix() {
+  local prefix="$1"
+  local request_path="$2"
+  local method="$3"
+  local expected_status="$4"
+  local body_file="$smoke_dir/route-${prefix//\//_}.body"
+  local status
+  local -a curl_args=(--silent --show-error --max-time 5 -o "$body_file" -w "%{http_code}" -X "$method")
 
-curl --fail --silent --show-error "http://127.0.0.1:$router_port/api/healthz" >"$api_health_body" ||
-  die "published API health alias failed"
-grep -Fq '"status":"ok"' "$api_health_body" ||
-  die "published API health alias did not return the API health response"
+  case "$prefix" in
+    /ws)
+      curl_args+=(-H "Origin: http://127.0.0.1:$router_port")
+      ;;
+    /webhooks)
+      curl_args+=(-H "Content-Type: application/json" --data "")
+      ;;
+  esac
+
+  if ! status="$(curl "${curl_args[@]}" "http://127.0.0.1:$router_port$request_path")"; then
+    die "published API prefix $prefix failed to return an HTTP response at $request_path"
+  fi
+  [[ "$status" == "$expected_status" ]] ||
+    die "published API prefix $prefix reached $request_path with HTTP $status; expected $expected_status"
+}
+
+for prefix in "${backend_route_paths_array[@]}"; do
+  case "$prefix" in
+    /api)
+      check_forwarded_api_prefix "$prefix" "/api/healthz" GET 200
+      grep -Fq '"status":"ok"' "$smoke_dir/route-_api.body" ||
+        die "published API prefix /api did not return the API health response"
+      ;;
+    /healthz)
+      check_forwarded_api_prefix "$prefix" "/healthz" GET 200
+      grep -Fq '"status":"ok"' "$smoke_dir/route-_healthz.body" ||
+        die "published API prefix /healthz did not return the API health response"
+      ;;
+    /readyz)
+      # The smoke API intentionally has no database, so a valid readiness
+      # response is degraded/503; a 404 or proxy failure is not.
+      check_forwarded_api_prefix "$prefix" "/readyz" GET 503
+      grep -Fq '"status":"degraded"' "$smoke_dir/route-_readyz.body" ||
+        die "published API prefix /readyz did not return the expected degraded readiness response"
+      ;;
+    /ws)
+      # A valid loopback origin and missing session must reach the handler;
+      # the isolated smoke server has no database-backed session.
+      check_forwarded_api_prefix "$prefix" "/ws" GET 503
+      ;;
+    /webhooks)
+      # Empty, unsigned POST is intentionally inert and returns the
+      # configured-not-implemented response without accepting webhook data.
+      check_forwarded_api_prefix "$prefix" "/webhooks/assemblyai" POST 501
+      ;;
+    *)
+      die "no safe forwarding probe is defined for published API prefix $prefix"
+      ;;
+  esac
+  echo "Published API prefix $prefix responded through forwarding"
+done
 
 echo "Published frontend/API routing smoke check passed"
 
