@@ -13,8 +13,8 @@ import {
 
 const descriptions: Record<V2NotificationPreference['eventKey'], { title: string; detail: string }> = {
   assignments: {
-    title: 'Task assignments and mentions',
-    detail: 'When someone assigns a task to you or mentions you in a task.',
+    title: 'Task assignments',
+    detail: 'When someone assigns a task to you directly or through a group.',
   },
   reminders: {
     title: 'Task and habit reminders',

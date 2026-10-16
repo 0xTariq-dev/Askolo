@@ -260,6 +260,14 @@ export async function updateV2SpaceMemberRole(
   if (!response.ok) throw new Error(`Member role could not be changed (${response.status}).`);
 }
 
+export async function removeV2SpaceMember(workspaceId: string, userId: string): Promise<void> {
+  const response = await fetch(
+    `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json' } },
+  );
+  if (!response.ok) throw new Error(`Member could not be removed (${response.status}).`);
+}
+
 export async function leaveV2Workspace(workspaceId: string): Promise<void> {
   const response = await fetch(
     `${basePath}/api/v2/workspaces/${encodeURIComponent(workspaceId)}/membership`,

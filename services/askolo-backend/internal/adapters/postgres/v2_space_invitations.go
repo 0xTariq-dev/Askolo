@@ -233,6 +233,9 @@ WHERE workspace_id = $1 AND token_hash = $3 AND status = 'pending'`,
 	if tag.RowsAffected() != 1 {
 		return "", "", ErrNotFound
 	}
+	if err := insertV2MembershipNotifications(ctx, tx, schema, workspaceID, userID, userID); err != nil {
+		return "", "", fmt.Errorf("create invitation acceptance notifications: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", "", fmt.Errorf("commit Space invitation acceptance: %w", err)
 	}

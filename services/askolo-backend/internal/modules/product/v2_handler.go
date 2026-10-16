@@ -126,6 +126,10 @@ type v2OccurrencePatchRequest struct {
 
 func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/healthz", h.v2Health)
+	mux.HandleFunc("GET /api/v2/notifications", h.v2ProtectAll(h.v2ListNotifications))
+	mux.HandleFunc("POST /api/v2/notifications/read-all", h.v2ProtectAll(h.v2MarkAllNotificationsRead))
+	mux.HandleFunc("DELETE /api/v2/notifications", h.v2ProtectAll(h.v2ClearNotifications))
+	mux.HandleFunc("POST /api/v2/notifications/{notificationId}/read", h.v2ProtectAll(h.v2MarkNotificationRead))
 	mux.HandleFunc("GET /api/v2/workspaces", h.v2ProtectAll(h.v2ListWorkspaces))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}", h.v2Protect(false, h.v2GetWorkspaceSettings))
 	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}", h.v2Protect(true, h.v2UpdateWorkspaceSettings))
@@ -133,6 +137,7 @@ func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/notification-preferences", h.v2Protect(true, h.v2UpdateNotificationPreferences))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/members", h.v2Protect(false, h.v2ListSpaceMembers))
 	mux.HandleFunc("PUT /api/v2/workspaces/{workspaceId}/members/{userId}/role", h.v2Protect(true, h.v2UpdateSpaceMemberRole))
+	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/members/{userId}", h.v2Protect(true, h.v2RemoveSpaceMember))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/membership", h.v2Protect(true, h.v2LeaveWorkspace))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}", h.v2Protect(true, h.v2DeleteWorkspace))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/groups", h.v2Protect(false, h.v2ListWorkspaceGroups))
@@ -185,6 +190,47 @@ func (h *Handler) mountV2(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/email-read-consent", h.v2Protect(true, h.v2RevokeHomeEmailReadConsent))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages", h.v2Protect(false, h.v2ListSharedEmailMessages))
 	mux.HandleFunc("GET /api/v2/workspaces/{workspaceId}/provider-connections/{connectionId}/messages/{messageId}", h.v2Protect(false, h.v2GetSharedEmailMessage))
+}
+
+func (h *Handler) v2ListNotifications(w http.ResponseWriter, r *http.Request, userID string) {
+	notifications, err := h.store.ListV2Notifications(r.Context(), userID)
+	if err != nil {
+		h.v2InternalError(w, r, userID, "list notifications", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, notifications)
+}
+
+func (h *Handler) v2MarkNotificationRead(w http.ResponseWriter, r *http.Request, userID string) {
+	notificationID := r.PathValue("notificationId")
+	if !validV2Identifier(notificationID) {
+		writeError(w, http.StatusBadRequest, "INVALID_NOTIFICATION_ID", "A valid notification is required.")
+		return
+	}
+	if err := h.store.MarkV2NotificationRead(r.Context(), userID, notificationID); errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Notification not found.")
+		return
+	} else if err != nil {
+		h.v2InternalError(w, r, userID, "mark notification read", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) v2MarkAllNotificationsRead(w http.ResponseWriter, r *http.Request, userID string) {
+	if err := h.store.MarkAllV2NotificationsRead(r.Context(), userID); err != nil {
+		h.v2InternalError(w, r, userID, "mark notifications read", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) v2ClearNotifications(w http.ResponseWriter, r *http.Request, userID string) {
+	if err := h.store.ClearV2Notifications(r.Context(), userID); err != nil {
+		h.v2InternalError(w, r, userID, "clear notifications", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) v2GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, userID, _ string) {
@@ -400,6 +446,34 @@ func (h *Handler) v2UpdateSpaceMemberRole(w http.ResponseWriter, r *http.Request
 		h.v2InternalError(w, r, userID, "change Space member role", err)
 		return
 	}
+	h.sendV2MembershipEmails(r.Context(), r.PathValue("workspaceId"), userID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) v2RemoveSpaceMember(w http.ResponseWriter, r *http.Request, userID, role string) {
+	if role != "owner" && role != "admin" {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Only Space owners and admins can remove members.")
+		return
+	}
+	targetUserID := r.PathValue("userId")
+	if !v2IdentifierPattern.MatchString(targetUserID) {
+		writeError(w, http.StatusBadRequest, "INVALID_MEMBER_ID", "A valid member is required.")
+		return
+	}
+	err := h.store.RemoveV2SpaceMember(r.Context(), r.PathValue("workspaceId"), userID, targetUserID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Active Space member not found.")
+		return
+	}
+	if errors.Is(err, postgres.ErrV2Forbidden) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "You cannot remove this Space member.")
+		return
+	}
+	if err != nil {
+		h.v2InternalError(w, r, userID, "remove Space member", err)
+		return
+	}
+	h.sendV2MembershipEmails(r.Context(), r.PathValue("workspaceId"), userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -417,6 +491,7 @@ func (h *Handler) v2LeaveWorkspace(w http.ResponseWriter, r *http.Request, userI
 		h.v2InternalError(w, r, userID, "leave Space", err)
 		return
 	}
+	h.sendV2MembershipEmails(r.Context(), r.PathValue("workspaceId"), userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -762,6 +837,7 @@ func (h *Handler) v2AcceptSpaceInvitation(w http.ResponseWriter, r *http.Request
 		h.v2InternalError(w, r, userID, "accept Space invitation", err)
 		return
 	}
+	h.sendV2MembershipEmails(r.Context(), workspaceID, userID)
 	writeJSON(w, http.StatusOK, map[string]string{"workspaceId": workspaceID, "role": role})
 }
 
@@ -1107,7 +1183,80 @@ func (h *Handler) v2CreateTask(w http.ResponseWriter, r *http.Request, userID, _
 		v2HandleStoreError(w, r, h, userID, "create task", err)
 		return
 	}
+	h.sendV2AssignmentEmails(r.Context(), userID, task)
 	writeJSON(w, http.StatusCreated, task)
+}
+
+func (h *Handler) sendV2AssignmentEmails(ctx context.Context, actorID string, task postgres.V2Task) {
+	if h.spaceInviteMailer == nil || (task.AssignedToUserID == nil && task.AssignedToGroupID == nil) {
+		return
+	}
+	recipients, err := h.store.ListV2AssignmentEmailRecipients(
+		ctx, task.WorkspaceID, actorID, task.AssignedToUserID, task.AssignedToGroupID,
+	)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Warn("task assignment email recipients unavailable", "workspace_id", task.WorkspaceID)
+		}
+		return
+	}
+	if len(recipients) > 50 {
+		if h.logger != nil {
+			h.logger.Warn("task assignment email recipient limit reached", "workspace_id", task.WorkspaceID)
+		}
+		recipients = recipients[:50]
+	}
+	body := "A task was assigned to you in Askolo:\n\n" + task.Title
+	if strings.TrimSpace(h.canonicalOrigin) != "" {
+		body += "\n\nOpen Askolo: " + strings.TrimRight(h.canonicalOrigin, "/") + "/agenda"
+	}
+	for _, recipient := range recipients {
+		sendCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		err := h.spaceInviteMailer(sendCtx, recipient, "A task was assigned to you", body)
+		cancel()
+		if err != nil && h.logger != nil {
+			h.logger.Warn("task assignment email delivery failed", "workspace_id", task.WorkspaceID)
+		}
+	}
+}
+
+func (h *Handler) sendV2MembershipEmails(ctx context.Context, workspaceID, actorID string) {
+	if h.spaceInviteMailer == nil {
+		return
+	}
+	recipients, err := h.store.ListV2MembershipEmailRecipients(ctx, workspaceID, actorID)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Warn("Space membership email recipients unavailable", "workspace_id", workspaceID)
+		}
+		return
+	}
+	if len(recipients) > 50 {
+		if h.logger != nil {
+			h.logger.Warn("Space membership email recipient limit reached", "workspace_id", workspaceID)
+		}
+		recipients = recipients[:50]
+	}
+	for _, recipient := range recipients {
+		sendCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		err := h.spaceInviteMailer(sendCtx, recipient, "Space membership update", "A member or role change occurred in one of your Askolo Spaces.")
+		cancel()
+		if err != nil && h.logger != nil {
+			h.logger.Warn("Space membership email delivery failed", "workspace_id", workspaceID)
+		}
+	}
+}
+
+func v2TaskAssignmentChanged(a, b postgres.V2Task) bool {
+	return !sameV2NullableString(a.AssignedToUserID, b.AssignedToUserID) ||
+		!sameV2NullableString(a.AssignedToGroupID, b.AssignedToGroupID)
+}
+
+func sameV2NullableString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func (h *Handler) v2GetTask(w http.ResponseWriter, r *http.Request, userID, _ string) {
@@ -1166,6 +1315,9 @@ func (h *Handler) v2UpdateTask(w http.ResponseWriter, r *http.Request, userID, r
 	if err != nil {
 		v2HandleStoreError(w, r, h, userID, "update task", err)
 		return
+	}
+	if v2TaskAssignmentChanged(current, task) {
+		h.sendV2AssignmentEmails(r.Context(), userID, task)
 	}
 	writeJSON(w, http.StatusOK, task)
 }

@@ -83,4 +83,5 @@
 - [Askolo mark colors](askolo-mark-colors.md) — avoid flat tints; preserve the glass highlights and depth when recoloring the mark.
 - [Home Gmail incremental sync](home-gmail-incremental-sync.md) — seed only the 30 days before account linking; use a purpose-derived HMAC key for minimal thread state and rebaseline after key rotation.
 - [Space notification preferences](space-notification-preferences.md) — membership notices are for owners/admins; task and reminder channels follow saved preferences, with reminder delivery inactive until approved.
+- [Space profile scope](space-profile-scope.md) — Space image upload and serving are explicitly excluded from the approved settings scope.
 

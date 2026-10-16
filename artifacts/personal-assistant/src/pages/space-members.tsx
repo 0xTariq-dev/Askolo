@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Archive, AlertCircle, Clock3, LoaderCircle, LogOut, Mail, Send, ShieldCheck, UserPlus, UsersRound } from 'lucide-react';
+import { Archive, AlertCircle, Clock3, LoaderCircle, LogOut, Mail, Send, ShieldCheck, UserMinus, UserPlus, UsersRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
   getV2SpaceMembers,
   getV2WorkspaceInvitations,
   leaveV2Workspace,
+  removeV2SpaceMember,
   updateV2SpaceMemberRole,
   type V2SpaceMember,
   type V2WorkspaceInvitation,
@@ -35,7 +36,7 @@ export function SpaceMembersPage() {
   } = useSpaceScope();
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId);
   const selectedRole = selectedSpace?.role.trim().toLowerCase() ?? '';
-  const canManageRoles = selectedRole === 'owner';
+  const canManageRoles = ['owner', 'admin'].includes(selectedRole);
   const canViewEmails = ['owner', 'admin'].includes(selectedRole);
   const canInvite = canViewEmails;
   const canInviteAdmins = selectedRole === 'owner';
@@ -136,6 +137,23 @@ export function SpaceMembersPage() {
       setNotice(`${member.name || member.email || 'Member'} is now a ${roleLabel(role).toLowerCase()}.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Member role could not be changed.');
+    } finally {
+      setSavingUserId(null);
+    }
+  };
+
+  const removeMember = async (member: V2SpaceMember) => {
+    if (!selectedSpaceId || savingUserId) return;
+    if (!window.confirm(`Remove ${member.name || member.email || 'this member'} from ${selectedSpace?.name || 'this Space'}? They will lose access immediately.`)) return;
+    setSavingUserId(member.userId);
+    setError(null);
+    setNotice(null);
+    try {
+      await removeV2SpaceMember(selectedSpaceId, member.userId);
+      setMembers((current) => current.filter((candidate) => candidate.userId !== member.userId));
+      setNotice(`${member.name || member.email || 'Member'} was removed from the Space.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Member could not be removed.');
     } finally {
       setSavingUserId(null);
     }
@@ -418,9 +436,9 @@ export function SpaceMembersPage() {
                 <CardTitle className="text-lg">Space members</CardTitle>
                 <CardDescription className="mt-1">
                   {canManageRoles
-                    ? 'Only the owner can change roles. Email addresses are visible to owners and admins.'
+                    ? 'Owners and admins can change eligible member roles. Email addresses are visible to owners and admins.'
                     : canViewEmails
-                      ? 'You can review members and their contact emails. Role changes are reserved for the owner.'
+                      ? 'You can review members and their contact emails and manage eligible member roles.'
                       : 'You can review member names and roles. Email addresses are visible only to owners and admins.'}
                 </CardDescription>
               </div>
@@ -466,6 +484,21 @@ export function SpaceMembersPage() {
                   </label>
                 ) : (
                   <span className="inline-flex min-h-9 items-center rounded-full bg-muted px-3 text-xs font-semibold">{roleLabel(member.role)}</span>
+                )}
+                {(canManageRoles || (selectedRole === 'admin' && member.role === 'member')) && member.role !== 'owner' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={savingUserId === member.userId}
+                    onClick={() => void removeMember(member)}
+                    aria-label={`Remove ${member.name || member.email || 'member'} from this Space`}
+                  >
+                    {savingUserId === member.userId
+                      ? <LoaderCircle aria-hidden="true" className="me-2 size-4 animate-spin" />
+                      : <UserMinus aria-hidden="true" className="me-2 size-4" />}
+                    Remove
+                  </Button>
                 )}
               </div>
             ))}

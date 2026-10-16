@@ -598,6 +598,10 @@ INSERT INTO `+v2Table(schema, "tasks")+` (
 	if err != nil {
 		return V2Task{}, fmt.Errorf("create versioned task: %w", err)
 	}
+	if err := insertV2AssignmentNotifications(ctx, tx, schema, workspaceID, actorUserID, taskID,
+		input.AssignedToUserID, input.AssignedToGroupID, input.Title); err != nil {
+		return V2Task{}, fmt.Errorf("create task assignment notifications: %w", err)
+	}
 	for _, dependencyID := range input.Dependencies {
 		dependencyIDRow, err := id.New()
 		if err != nil {
@@ -632,9 +636,10 @@ func (s *Store) UpdateV2Task(ctx context.Context, workspaceID, taskID, actorUser
 		return V2Task{}, ErrV2Forbidden
 	}
 	var lockedTaskID string
+	var previousUserID, previousGroupID *string
 	if err := tx.QueryRow(ctx, `
-SELECT id FROM `+v2Table(schema, "tasks")+`
-WHERE workspace_id = $1 AND id = $2 FOR UPDATE`, workspaceID, taskID).Scan(&lockedTaskID); err != nil {
+SELECT id, assigned_to_user_id, assigned_to_group_id FROM `+v2Table(schema, "tasks")+`
+WHERE workspace_id = $1 AND id = $2 FOR UPDATE`, workspaceID, taskID).Scan(&lockedTaskID, &previousUserID, &previousGroupID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return V2Task{}, ErrNotFound
 		}
@@ -703,6 +708,13 @@ WHERE workspace_id=$1 AND id=$2`,
 	if tag.RowsAffected() == 0 {
 		return V2Task{}, ErrNotFound
 	}
+	if !sameNullableString(previousUserID, input.AssignedToUserID) ||
+		!sameNullableString(previousGroupID, input.AssignedToGroupID) {
+		if err := insertV2AssignmentNotifications(ctx, tx, schema, workspaceID, actorUserID, taskID,
+			input.AssignedToUserID, input.AssignedToGroupID, input.Title); err != nil {
+			return V2Task{}, fmt.Errorf("create task assignment notifications: %w", err)
+		}
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM `+v2Table(schema, "task_dependencies")+` WHERE workspace_id=$1 AND task_id=$2`, workspaceID, taskID); err != nil {
 		return V2Task{}, fmt.Errorf("replace task dependencies: %w", err)
 	}
@@ -742,6 +754,67 @@ VALUES ($1,$2,$3,$4,$5)`,
 		return V2Task{}, fmt.Errorf("commit task update: %w", err)
 	}
 	return s.GetV2Task(ctx, workspaceID, taskID)
+}
+
+func sameNullableString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func insertV2AssignmentNotifications(
+	ctx context.Context, tx pgx.Tx, schema, workspaceID, actorID, taskID string,
+	userID, groupID *string, title string,
+) error {
+	if userID == nil && groupID == nil {
+		return nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT DISTINCT m.user_id
+FROM `+v2Table(schema, "workspace_memberships")+` m
+WHERE m.workspace_id=$1 AND m.status='active' AND m.user_id<>$2
+  AND (
+    ($3::varchar IS NOT NULL AND m.user_id=$3)
+    OR ($4::text IS NOT NULL AND EXISTS (
+      SELECT 1 FROM `+v2Table(schema, "workspace_group_members")+` gm
+      WHERE gm.workspace_id=$1 AND gm.group_id=$4 AND gm.user_id=m.user_id
+    ))
+  )
+  AND COALESCE((
+    SELECT p.enabled FROM `+v2Table(schema, "workspace_notification_preferences")+` p
+    WHERE p.workspace_id=$1 AND p.user_id=m.user_id
+      AND p.channel='in_app' AND p.event_key='assignments'
+  ), true)`, workspaceID, actorID, userID, groupID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	recipients := make([]string, 0)
+	for rows.Next() {
+		var recipientID string
+		if err := rows.Scan(&recipientID); err != nil {
+			return err
+		}
+		recipients = append(recipients, recipientID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, recipientID := range recipients {
+		notificationID, err := id.New()
+		if err != nil {
+			return fmt.Errorf("generate notification id: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO `+v2Table(schema, "workspace_notifications")+`
+  (id, workspace_id, recipient_user_id, event_key, resource_type, resource_id)
+VALUES ($1,$2,$3,'assignments','task',$4)`, notificationID, workspaceID, recipientID, taskID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) ArchiveV2Task(ctx context.Context, workspaceID, taskID string) error {

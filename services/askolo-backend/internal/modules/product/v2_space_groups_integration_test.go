@@ -1,6 +1,7 @@
 package product
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -22,9 +23,15 @@ func TestV2SpaceGroupsPermissionsAndTaskAssignment(t *testing.T) {
 	if err := fixture.store.SetWorkspaceMembership(fixture.ctx, workspaceID, memberID, "active", "member", []string{}); err != nil {
 		t.Fatalf("add Space member: %v", err)
 	}
-	handler := NewHandler(config.Config{
+	var assignmentEmailTo string
+	productHandler := NewHandler(config.Config{
 		AuthRateLimitHMACSecret: "test-auth-rate-limit-hmac-secret-32-bytes",
-	}, fixture.store, slog.Default(), "askolo_session").Routes()
+	}, fixture.store, slog.Default(), "askolo_session")
+	productHandler.SetSpaceInviteMailer(func(_ context.Context, to, _, _ string) error {
+		assignmentEmailTo = to
+		return nil
+	})
+	handler := productHandler.Routes()
 	request := func(session, method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -49,10 +56,37 @@ func TestV2SpaceGroupsPermissionsAndTaskAssignment(t *testing.T) {
 	if err := json.NewDecoder(groupResponse.Body).Decode(&group); err != nil || group.ID == "" || len(group.Permissions) != 1 {
 		t.Fatalf("created group=%+v err=%v", group, err)
 	}
+	preferences := request(memberSession, http.MethodPut, "/api/v2/workspaces/"+workspaceID+"/notification-preferences",
+		`{"preferences":[{"eventKey":"assignments","emailEnabled":true,"inAppEnabled":true},{"eventKey":"reminders","emailEnabled":false,"inAppEnabled":true}]}`)
+	if preferences.Code != http.StatusOK {
+		t.Fatalf("enable assignment email preference status=%d: %s", preferences.Code, preferences.Body.String())
+	}
 	createdTask := request(ownerSession, http.MethodPost, "/api/v2/workspaces/"+workspaceID+"/tasks",
 		`{"kind":"task","title":"Group task","assignedToGroupId":"`+group.ID+`","timeZone":"UTC"}`)
 	if createdTask.Code != http.StatusCreated {
 		t.Fatalf("create group task status=%d: %s", createdTask.Code, createdTask.Body.String())
+	}
+	// Reassigning the task to its current group does not duplicate notices; a
+	// fresh assignment creates one persistent inbox item and one opted-in email.
+	reassigned := request(ownerSession, http.MethodPatch, "/api/v2/workspaces/"+workspaceID+"/tasks/"+mustTaskID(t, createdTask.Body.Bytes()),
+		`{"assignedToGroupId":"`+group.ID+`"}`)
+	if reassigned.Code != http.StatusOK {
+		t.Fatalf("update group assignment status=%d: %s", reassigned.Code, reassigned.Body.String())
+	}
+	var inbox []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	inboxResponse := request(memberSession, http.MethodGet, "/api/v2/notifications", "")
+	if inboxResponse.Code != http.StatusOK || json.NewDecoder(inboxResponse.Body).Decode(&inbox) != nil || len(inbox) != 1 {
+		t.Fatalf("member assignment inbox status=%d rows=%+v: %s", inboxResponse.Code, inbox, inboxResponse.Body.String())
+	}
+	if inbox[0].Title != "Group task" || assignmentEmailTo != "groups-member@example.test" {
+		t.Fatalf("assignment notification title=%q email=%q", inbox[0].Title, assignmentEmailTo)
+	}
+	readResponse := request(memberSession, http.MethodPost, "/api/v2/notifications/"+inbox[0].ID+"/read", "")
+	if readResponse.Code != http.StatusNoContent {
+		t.Fatalf("mark assignment notification read status=%d: %s", readResponse.Code, readResponse.Body.String())
 	}
 	var task struct {
 		ID                string  `json:"id"`
@@ -89,4 +123,23 @@ func TestV2SpaceGroupsPermissionsAndTaskAssignment(t *testing.T) {
 	if revoked.Code != http.StatusForbidden {
 		t.Fatalf("permission after group removal status=%d, want 403: %s", revoked.Code, revoked.Body.String())
 	}
+	removed := request(ownerSession, http.MethodDelete, "/api/v2/workspaces/"+workspaceID+"/members/"+memberID, "")
+	if removed.Code != http.StatusNoContent {
+		t.Fatalf("remove member status=%d: %s", removed.Code, removed.Body.String())
+	}
+	afterRemoval := request(memberSession, http.MethodGet, "/api/v2/workspaces/"+workspaceID+"/groups", "")
+	if afterRemoval.Code == http.StatusOK {
+		t.Fatal("removed member still has access to Space groups")
+	}
+}
+
+func mustTaskID(t *testing.T, raw []byte) string {
+	t.Helper()
+	var task struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &task); err != nil || task.ID == "" {
+		t.Fatalf("decode task id: %+v %v", task, err)
+	}
+	return task.ID
 }
