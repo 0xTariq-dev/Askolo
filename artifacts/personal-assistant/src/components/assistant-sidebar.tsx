@@ -46,7 +46,7 @@ import { cn } from '@/lib/utils';
 import { useAssistantState, type ChatMessage } from '@/contexts/assistant-context';
 import { useSpaceScope } from '@/contexts/space-context';
 import { createAssistantRunOverWebSocket } from '@/lib/assistant-run-websocket';
-import { creditApi, creditErrorMessage, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
+import { creditApi, creditErrorMessage, formatCredits, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
 import { useVoiceTranscription } from '@/hooks/use-voice-transcription';
 import { useLocalVoiceActivity } from '@/hooks/use-local-voice-activity';
 import {
@@ -1230,7 +1230,7 @@ export function AssistantSidebar({ fullPage = false }: { fullPage?: boolean }) {
               )}
               {assistantEstimate && !isThinking && (
                 <p className="mt-2 px-1 text-[11px] text-muted-foreground" data-testid="text-assistant-usage-estimate">
-                  This request is estimated at <bdi dir="ltr">{formatUsdMicros(assistantEstimate.estimatedUsdMicros)}</bdi>, with a maximum reservation of <bdi dir="ltr">{formatUsdMicros(assistantEstimate.hardCapUsdMicros)}</bdi>. Available: <bdi dir="ltr">{formatUsdMicros(assistantEstimate.availableUsdMicros)}</bdi>.
+                  This request is estimated at <bdi dir="ltr">{formatUsdMicros(assistantEstimate.estimatedUsdMicros)}</bdi>, with a maximum reservation of <bdi dir="ltr">{formatUsdMicros(assistantEstimate.hardCapUsdMicros)}</bdi>. Available: <bdi dir="ltr">{formatCredits(assistantEstimate.availableUsdMicros)}</bdi>.
                 </p>
               )}
             </div>

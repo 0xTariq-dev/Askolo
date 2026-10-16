@@ -1,7 +1,7 @@
 import { Link } from 'wouter';
 import { WalletCards } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatUsdMicros } from '@/lib/credit-api';
+import { formatCredits } from '@/lib/credit-api';
 
 type BalanceIndicatorProps = {
   balanceUsdMicros: number | null;
@@ -16,7 +16,7 @@ export function BalanceIndicator({
   compact = false,
   className,
 }: BalanceIndicatorProps) {
-  const amount = balanceUsdMicros === null ? null : formatUsdMicros(balanceUsdMicros);
+  const amount = balanceUsdMicros === null ? null : formatCredits(balanceUsdMicros);
   const accessibleName = amount ? `${label}: ${amount}` : `${label} unavailable`;
 
   return (

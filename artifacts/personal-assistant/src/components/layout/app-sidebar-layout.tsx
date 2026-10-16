@@ -53,7 +53,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
-import { formatUsdMicros } from '@/lib/credit-api';
+import { formatCredits } from '@/lib/credit-api';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -94,7 +94,7 @@ function AccountMenu({
   onSignOut: () => void;
 }) {
   const { t, locale } = useLocale();
-  const amount = balanceUsdMicros === null ? '—' : formatUsdMicros(balanceUsdMicros);
+  const amount = balanceUsdMicros === null ? '—' : formatCredits(balanceUsdMicros);
   return (
     <SidebarMenu>
       <SidebarMenuItem>

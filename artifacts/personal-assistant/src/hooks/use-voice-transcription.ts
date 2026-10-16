@@ -5,6 +5,7 @@ import {
 } from '@workspace/api-client-react';
 import {
   creditApi,
+  formatCredits,
   formatUsdMicros,
   newCreditIdempotencyKey,
   type CreditEstimate,
@@ -246,7 +247,7 @@ async function blobToBase64(blob: Blob): Promise<string> {
 function assertVoiceReservationAllowed(estimate: CreditEstimate) {
   if (!estimate.canReserve) {
     throw new Error(
-      `This voice request needs up to ${formatUsdMicros(estimate.hardCapUsdMicros)}; ${formatUsdMicros(estimate.availableUsdMicros)} are available. Open Balance to review your available amount.`,
+      `This voice request needs up to ${formatUsdMicros(estimate.hardCapUsdMicros)}; ${formatCredits(estimate.availableUsdMicros)} are available. Open Balance to review your available amount.`,
     );
   }
 }
@@ -274,7 +275,7 @@ function creditPostflightMessage(receipt: CreditReceiptDetails | undefined, esti
     throw new Error('The operation completed but its credit receipt was missing. Refresh AI Credits before retrying.');
   }
   const returned = Math.max(0, receipt.reservedUsdMicros - receipt.settledUsdMicros);
-  return `Estimated ${formatUsdMicros(estimate.estimatedUsdMicros)}; used ${formatUsdMicros(receipt.settledUsdMicros)}. ${formatUsdMicros(returned)} returned. Balance: ${formatUsdMicros(receipt.balanceUsdMicros)}.`;
+  return `Estimated ${formatUsdMicros(estimate.estimatedUsdMicros)}; used ${formatUsdMicros(receipt.settledUsdMicros)}. ${formatUsdMicros(returned)} returned. Balance: ${formatCredits(receipt.balanceUsdMicros)}.`;
 }
 
 function downsampleToPcm16(input: Float32Array, inputRate: number, outputRate = 16_000): Int16Array {

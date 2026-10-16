@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { AIConsentDialog } from '@/components/settings/ai-privacy-center';
 import { useToast } from '@/hooks/use-toast';
 import { useVoiceAgent } from '@/hooks/use-voice-agent';
-import { formatUsdMicros } from '@/lib/credit-api';
+import { formatCredits, formatUsdMicros } from '@/lib/credit-api';
 
 export function VoiceAgentControls({
   voiceChatSelected = false,
@@ -173,7 +173,7 @@ export function VoiceAgentControls({
       {!compact && voiceAgent.voiceEstimate && (
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           Maximum 180-second voice reservation: <bdi dir="ltr">{formatUsdMicros(voiceAgent.voiceEstimate.hardCapUsdMicros)}</bdi>
-          {' '}(available: <bdi dir="ltr">{formatUsdMicros(voiceAgent.voiceEstimate.availableUsdMicros)}</bdi>).
+          {' '}(available: <bdi dir="ltr">{formatCredits(voiceAgent.voiceEstimate.availableUsdMicros)}</bdi>).
           {voiceAgent.assistantEstimate
             ? <> Action preparation is separate, estimated up to <bdi dir="ltr">{formatUsdMicros(voiceAgent.assistantEstimate.hardCapUsdMicros)}</bdi>.</>
             : voiceAgent.assistantEstimateUnavailable

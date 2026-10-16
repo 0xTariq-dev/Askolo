@@ -103,6 +103,38 @@ export function formatUsdMicrosInput(micros: number): string {
   return `${sign}${dollars}.${fraction}`;
 }
 
+const usdMicrosPerCredit = 1_000;
+
+export function formatCredits(usdMicros: number, locale = 'en-US'): string {
+  const safe = Number.isSafeInteger(usdMicros) ? usdMicros : 0;
+  const sign = safe < 0 ? '-' : '';
+  const absolute = Math.abs(safe);
+  const whole = Math.floor(absolute / usdMicrosPerCredit);
+  const fraction = String(absolute % usdMicrosPerCredit).padStart(3, '0').replace(/0+$/, '');
+  const amount = `${sign}${new Intl.NumberFormat(locale).format(whole)}${fraction ? `.${fraction}` : ''}`;
+  return `${amount} ${absolute === usdMicrosPerCredit ? 'credit' : 'credits'}`;
+}
+
+export function formatCreditsInput(usdMicros: number): string {
+  const safe = Number.isSafeInteger(usdMicros) ? usdMicros : 0;
+  const sign = safe < 0 ? '-' : '';
+  const absolute = Math.abs(safe);
+  const whole = Math.floor(absolute / usdMicrosPerCredit);
+  const fraction = String(absolute % usdMicrosPerCredit).padStart(3, '0').replace(/0+$/, '');
+  return `${sign}${whole}${fraction ? `.${fraction}` : ''}`;
+}
+
+export function tryParseCreditsToUsdMicros(value: string): number | null {
+  const normalized = value.trim().replace(/^-/, '');
+  const sign = value.trim().startsWith('-') ? -1 : 1;
+  const match = normalized.match(/^(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,3}))?$/);
+  if (!match) return null;
+  const [, whole, fraction = ''] = match;
+  const micros = Number(whole.replace(/,/g, '')) * usdMicrosPerCredit +
+    Number(fraction.padEnd(3, '0'));
+  return Number.isSafeInteger(micros) ? micros * sign : null;
+}
+
 export function tryParseUsdMicros(value: string): number | null {
   const normalized = value.trim().replace(/^\-\$/, '-').replace(/^\$/, '');
   const match = normalized.match(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantRun } from '@workspace/api-client-react';
-import { creditApi, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
+import { creditApi, formatCredits, formatUsdMicros, newCreditIdempotencyKey, type CreditEstimate } from '@/lib/credit-api';
 import {
   parsePublicWebSocketEnvelope,
   publicWebSocketURL,
@@ -262,7 +262,7 @@ export function useVoiceAgent() {
       if (attemptRef.current !== attempt) return;
       setVoiceEstimate(estimate);
       if (!estimate.canReserve) {
-        throw new Error(`Live Mode needs a maximum reservation of ${formatUsdMicros(estimate.hardCapUsdMicros)}; your available balance is ${formatUsdMicros(estimate.availableUsdMicros)}.`);
+        throw new Error(`Live Mode needs a maximum reservation of ${formatUsdMicros(estimate.hardCapUsdMicros)}; your available balance is ${formatCredits(estimate.availableUsdMicros)}.`);
       }
       try {
         setAssistantEstimate(await creditApi.estimate('assistant', 1));

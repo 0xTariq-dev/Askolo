@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useToast } from '@/hooks/use-toast';
 import { CInputGroup9CurrencyInput } from '@/components/examples/c-input-group-9';
-import { creditApi, creditErrorMessage, formatUsdMicros, formatUsdMicrosInput, newCreditIdempotencyKey, tryParseUsdMicros, type CreditPolicy, type CreditUsageResponse } from '@/lib/credit-api';
+import { creditApi, creditErrorMessage, formatCredits, formatCreditsInput, formatUsdMicros, formatUsdMicrosInput, newCreditIdempotencyKey, tryParseCreditsToUsdMicros, tryParseUsdMicros, type CreditPolicy, type CreditUsageResponse } from '@/lib/credit-api';
 
 const voiceAgentRateCardKey = 'assemblyai:voice_agent:managed-voice-agent';
 
@@ -41,8 +41,8 @@ function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null):
 
   return {
     version: policy.version,
-    monthlyGrant: formatUsdMicrosInput(policy.monthlyGrantUsdMicros),
-    rolloverCap: formatUsdMicrosInput(policy.rolloverCapUsdMicros),
+    monthlyGrant: formatCreditsInput(policy.monthlyGrantUsdMicros),
+    rolloverCap: formatCreditsInput(policy.rolloverCapUsdMicros),
     rateCards: Object.fromEntries(
       Object.entries(policy.rateCards).map(([key, card]) => [
         key,
@@ -93,7 +93,7 @@ export function AdminCreditsPage() {
     }
   };
   const adjust = async () => {
-    const micros = tryParseUsdMicros(amount);
+    const micros = tryParseCreditsToUsdMicros(amount);
     if (!userId.trim() || micros === null || micros === 0 || !reason.trim()) return;
     setSaving(true);
     try {
@@ -103,7 +103,7 @@ export function AdminCreditsPage() {
         reason: reason.trim(),
         idempotencyKey: newCreditIdempotencyKey(),
       });
-      toast({ title: 'USD adjustment posted', description: `${formatUsdMicros(micros)} posted to ${userId.trim()}.` });
+      toast({ title: 'Credit adjustment posted', description: `${formatCredits(micros)} posted to ${userId.trim()}.` });
       setAmount('');
       setReason('');
       await lookup();
@@ -121,10 +121,10 @@ export function AdminCreditsPage() {
       rateCards: { ...current.rateCards, [key]: value },
     } : current);
   const monthlyGrantMicros = policyDrafts
-    ? tryParseUsdMicros(policyDrafts.monthlyGrant)
+    ? tryParseCreditsToUsdMicros(policyDrafts.monthlyGrant)
     : null;
   const rolloverCapMicros = policyDrafts
-    ? tryParseUsdMicros(policyDrafts.rolloverCap)
+    ? tryParseCreditsToUsdMicros(policyDrafts.rolloverCap)
     : null;
   const rateDraftsAreValid = Boolean(policy && policyDrafts) &&
     Object.entries(policy?.rateCards ?? {}).every(([key]) => {
@@ -139,11 +139,11 @@ export function AdminCreditsPage() {
     rolloverCapMicros !== null &&
     rolloverCapMicros >= 0 &&
     rateDraftsAreValid;
-  const adjustmentMicros = tryParseUsdMicros(amount);
+  const adjustmentMicros = tryParseCreditsToUsdMicros(amount);
   const savePolicy = async () => {
     if (!policy || !policyDrafts || !changeReason.trim()) return;
-    const monthlyGrant = tryParseUsdMicros(policyDrafts.monthlyGrant);
-    const rolloverCap = tryParseUsdMicros(policyDrafts.rolloverCap);
+    const monthlyGrant = tryParseCreditsToUsdMicros(policyDrafts.monthlyGrant);
+    const rolloverCap = tryParseCreditsToUsdMicros(policyDrafts.rolloverCap);
     if (
       monthlyGrant === null ||
       monthlyGrant < 0 ||
@@ -151,8 +151,8 @@ export function AdminCreditsPage() {
       rolloverCap < 0
     ) {
       toast({
-        title: 'Check the USD amounts',
-        description: 'Enter non-negative values with no more than six decimal places.',
+        title: 'Check the credit amounts',
+        description: 'Enter non-negative credit values with no more than three decimal places.',
         variant: 'destructive',
       });
       return;
@@ -167,8 +167,8 @@ export function AdminCreditsPage() {
       const micros = tryParseUsdMicros(draft);
       if (micros === null || micros < 0) {
         toast({
-          title: 'Check the USD amounts',
-          description: 'Enter non-negative values with no more than six decimal places.',
+            title: 'Check the rate amount',
+            description: 'Enter a non-negative USD rate with no more than six decimal places.',
           variant: 'destructive',
         });
         return;
@@ -227,10 +227,10 @@ export function AdminCreditsPage() {
             Admin control room
           </p>
           <h1 className="text-3xl font-display font-bold tracking-tight md:text-4xl">
-            USD tariff policy
+            Credit and tariff policy
           </h1>
           <p className="mt-2 max-w-2xl text-muted-foreground">
-            Publish auditable provider rates and post adjustments or refunds in USD microunits.
+            Hourly provider rates stay in USD. Grants, adjustments, and balances use credits.
           </p>
         </div>
         <Link
@@ -249,33 +249,35 @@ export function AdminCreditsPage() {
               Active policy <Badge className="ms-2">v{policy.version}</Badge>
             </CardTitle>
             <CardDescription>
-              All rates are fixed-point USD values. OpenAI rates remain unconfigured until entered.
+              Provider rates are fixed-point USD values; grant amounts and caps are credit values.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="admin-monthly-grant">Monthly grant (USD)</Label>
-                <CInputGroup9CurrencyInput
+                <Label htmlFor="admin-monthly-grant">Monthly grant (credits)</Label>
+                <Input
                   id="admin-monthly-grant"
+                  type="text"
+                  inputMode="decimal"
                   value={policyDrafts.monthlyGrant}
-                  onValueChange={(value) => updatePolicyDraft({ monthlyGrant: value })}
-                  ariaLabel="Monthly grant in US dollars"
-                  ariaInvalid={monthlyGrantMicros === null || monthlyGrantMicros < 0}
+                  onChange={(event) => updatePolicyDraft({ monthlyGrant: event.target.value })}
+                  aria-invalid={monthlyGrantMicros === null || monthlyGrantMicros < 0}
                   disabled={saving}
-                  testId="input-admin-monthly-grant"
+                  data-testid="input-admin-monthly-grant"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="admin-rollover-cap">Rollover cap (USD)</Label>
-                <CInputGroup9CurrencyInput
+                <Label htmlFor="admin-rollover-cap">Rollover cap (credits)</Label>
+                <Input
                   id="admin-rollover-cap"
+                  type="text"
+                  inputMode="decimal"
                   value={policyDrafts.rolloverCap}
-                  onValueChange={(value) => updatePolicyDraft({ rolloverCap: value })}
-                  ariaLabel="Rollover cap in US dollars"
-                  ariaInvalid={rolloverCapMicros === null || rolloverCapMicros < 0}
+                  onChange={(event) => updatePolicyDraft({ rolloverCap: event.target.value })}
+                  aria-invalid={rolloverCapMicros === null || rolloverCapMicros < 0}
                   disabled={saving}
-                  testId="input-admin-rollover-cap"
+                  data-testid="input-admin-rollover-cap"
                 />
               </div>
               <div className="space-y-1.5">
@@ -373,9 +375,9 @@ export function AdminCreditsPage() {
 
         <Card className="h-fit">
           <CardHeader>
-            <CardTitle>Post USD adjustment</CardTitle>
+            <CardTitle>Adjust credits</CardTitle>
             <CardDescription>
-              Use a signed decimal amount such as $5.00 or -$0.25. The API receives integer microunits.
+              Enter a signed credit amount, such as 500 or -25.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -389,16 +391,17 @@ export function AdminCreditsPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="admin-amount">Amount (USD)</Label>
-              <CInputGroup9CurrencyInput
+              <Label htmlFor="admin-amount">Amount (credits)</Label>
+              <Input
                 id="admin-amount"
+                type="text"
+                inputMode="decimal"
                 value={amount}
-                onValueChange={setAmount}
-                placeholder="5.00 or -0.25"
-                ariaLabel="Signed adjustment amount in US dollars"
-                allowNegative
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="500 or -25"
+                aria-label="Signed adjustment amount in credits"
                 disabled={saving}
-                testId="input-admin-adjustment-amount"
+                data-testid="input-admin-adjustment-amount"
               />
             </div>
             <div className="space-y-1.5">
@@ -454,7 +457,7 @@ export function AdminCreditsPage() {
                       {key.replace('UsdMicros', '')}
                     </p>
                     <p className="font-mono text-lg">
-                      {formatUsdMicros(value as number)}
+                      {formatCredits(value as number)}
                     </p>
                   </div>
                 ))}

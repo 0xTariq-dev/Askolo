@@ -3,7 +3,7 @@ import { Link } from 'wouter';
 import { Coins, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { creditApi, creditErrorMessage, formatUsdMicros, type CreditEstimate } from '@/lib/credit-api';
+import { creditApi, creditErrorMessage, formatCredits, formatUsdMicros, type CreditEstimate } from '@/lib/credit-api';
 
 export function VoiceCreditPreflight({
   showWalletLink = true,
@@ -76,7 +76,7 @@ export function VoiceCreditPreflight({
             </p>
             <p>
               <span className="text-muted-foreground">Available:</span>{' '}
-               <strong><bdi>{formatUsdMicros(estimate.availableUsdMicros)}</bdi></strong>
+               <strong><bdi>{formatCredits(estimate.availableUsdMicros)}</bdi></strong>
             </p>
             <p className="basis-full text-xs text-muted-foreground">
               {showPolicyVersion
