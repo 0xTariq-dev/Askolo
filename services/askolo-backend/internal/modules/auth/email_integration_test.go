@@ -312,8 +312,14 @@ CREATE TABLE %sai_credit_grants (
  amount_usd_micros bigint DEFAULT 0 NOT NULL,
  UNIQUE (user_id, idempotency_key)
 );
+CREATE TABLE %sai_credit_policy_versions (
+ version integer PRIMARY KEY,
+ signup_grant_usd_micros bigint DEFAULT 0 NOT NULL
+);
+INSERT INTO %sai_credit_policy_versions(version,signup_grant_usd_micros)
+VALUES (1, 0);
 `, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix,
-		prefix, prefix, prefix, prefix, prefix)
+		prefix, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
 func testAuthHandler(fixture *emailAuthFixture, sender EmailSender, logger *slog.Logger) http.Handler {
@@ -463,6 +469,13 @@ func securityEventCount(t *testing.T, fixture *emailAuthFixture, userID, eventTy
 
 func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
+	if _, err := fixture.pool.Exec(context.Background(), `
+		UPDATE ai_credit_policy_versions
+		SET signup_grant_usd_micros=5000000
+		WHERE version=(SELECT max(version) FROM ai_credit_policy_versions)
+	`); err != nil {
+		t.Fatalf("configure test signup grant: %v", err)
+	}
 	sender := &captureEmailSender{}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import { ArrowDownLeft, ArrowUpRight, Check, Clipboard, History, RefreshCw, WalletCards } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, History, RefreshCw, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -28,7 +28,7 @@ export function CreditsPage() {
   const [account, setAccount] = useState<CreditAccountResponse | null>(null);
   const [usage, setUsage] = useState<CreditUsageResponse | null>(null);
   const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState('');
-  const [selected, setSelected] = useState<CreditActivity | null>(null); const [copied, setCopied] = useState(false);
+  const [selected, setSelected] = useState<CreditActivity | null>(null);
   const load = async (quiet = false) => { quiet ? setRefreshing(true) : setLoading(true); setError(''); try { const [a, u] = await Promise.all([creditApi.account(), creditApi.usage()]); setAccount(a); setUsage(u); } catch (e) { const message = creditErrorMessage(e, 'Credit usage details are unavailable'); setError(message); toast({ title: message, variant: 'destructive' }); } finally { setLoading(false); setRefreshing(false); } };
   useEffect(() => { void load(); }, []);
   const activities = useMemo(() => usage ? getConductedCreditActivities(usage).slice(0, 25) : [], [usage]);
@@ -56,6 +56,50 @@ export function CreditsPage() {
        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{counters.map(([label, value]) => <div key={label} className="rounded-xl border border-border/70 bg-background/30 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-mono text-lg font-semibold">{formatCredits(value as number)}</p></div>)}</div>
      </section>}
       <Card><CardHeader><CardTitle>{billingTab ? 'Ledger and receipts' : 'Usage activity'}</CardTitle><CardDescription>{billingTab ? 'Completed operations and refunds are shown here. Temporary holds and releases remain in the auditable ledger but are hidden from activity.' : 'Completed operations and refunds charged to your personal wallet.'}</CardDescription></CardHeader><CardContent className="space-y-2">{activities.length ? activities.map((item) => <ReceiptRow key={`${'eventType' in item ? 'event' : 'reservation'}-${item.id}`} item={item} onOpen={() => setSelected(item)} />) : <div className="rounded-xl border border-dashed border-border p-10 text-center"><p className="font-medium">No completed usage yet</p><p className="mt-1 text-sm text-muted-foreground">Your first completed assistant or voice operation will appear here.</p></div>}</CardContent></Card>
-    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent><DialogHeader><DialogTitle>USD receipt details</DialogTitle><DialogDescription>Reference details for this ledger event.</DialogDescription></DialogHeader>{selected && <pre className="max-h-80 overflow-auto rounded-xl border border-border bg-background/50 p-4 text-xs" dir="ltr">{JSON.stringify(selected, null, 2)}</pre>}<DialogFooter><Button variant="outline" onClick={() => { if (selected) void navigator.clipboard?.writeText(JSON.stringify(selected, null, 2)); setCopied(true); window.setTimeout(() => setCopied(false), 1200); }}><Clipboard className="me-2 h-4 w-4" />{copied ? 'Copied' : 'Copy receipt JSON'}</Button><Button onClick={() => setSelected(null)}>{copied ? <Check className="me-2 h-4 w-4" /> : null}Done</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Usage receipt</DialogTitle>
+          <DialogDescription>Operation charges are shown in USD. Your wallet balance and grants are shown in credits.</DialogDescription>
+        </DialogHeader>
+        {selected && (
+          <dl className="grid gap-x-6 gap-y-3 rounded-xl border border-border bg-background/50 p-4 text-sm sm:grid-cols-2">
+            {'eventType' in selected ? (
+              <>
+                <div><dt className="text-muted-foreground">Ledger event</dt><dd className="font-medium">{selected.eventType}</dd></div>
+                <div><dt className="text-muted-foreground">Amount</dt><dd className="font-mono">{formatUsdMicros(selected.amountUsdMicros)}</dd></div>
+                <div><dt className="text-muted-foreground">Date</dt><dd>{new Date(selected.createdAt).toLocaleString()}</dd></div>
+                <div><dt className="text-muted-foreground">Reservation</dt><dd className="break-all font-mono">{selected.reservationId}</dd></div>
+              </>
+            ) : (
+              <>
+                <div><dt className="text-muted-foreground">Operation</dt><dd className="font-medium">{selected.operationType} · {selected.provider} · {selected.mode}</dd></div>
+                <div><dt className="text-muted-foreground">Status</dt><dd className="capitalize">{selected.status}</dd></div>
+                <div><dt className="text-muted-foreground">Usage</dt><dd>{selected.inputTokens || selected.outputTokens
+                  ? `${selected.inputTokens.toLocaleString()} input · ${selected.outputTokens.toLocaleString()} output tokens`
+                  : selected.usageUnits > 0 && selected.usageUnit
+                    ? `${selected.usageUnits.toLocaleString()} ${selected.usageUnit}`
+                    : selected.usageStatus === 'measured' ? 'Measured usage recorded' : 'Usage detail unavailable'}</dd></div>
+                <div><dt className="text-muted-foreground">Measurement</dt><dd>{selected.usageStatus === 'measured' ? 'Provider-measured' : 'Not available'}</dd></div>
+                <div><dt className="text-muted-foreground">Reserved</dt><dd className="font-mono">{formatUsdMicros(selected.reservedUsdMicros)}</dd></div>
+                <div><dt className="text-muted-foreground">Settled</dt><dd className="font-mono">{formatUsdMicros(selected.settledUsdMicros)}</dd></div>
+                <div><dt className="text-muted-foreground">Returned</dt><dd className="font-mono">{formatUsdMicros(selected.refundedUsdMicros)}</dd></div>
+                <div><dt className="text-muted-foreground">Policy version</dt><dd>v{selected.policyVersion}</dd></div>
+                <div><dt className="text-muted-foreground">Model</dt><dd>{selected.model}</dd></div>
+                <div><dt className="text-muted-foreground">Date</dt><dd>{new Date(selected.createdAt).toLocaleString()}</dd></div>
+                {selected.rateCard.meter === 'hour' && <div><dt className="text-muted-foreground">Applied rate</dt><dd className="font-mono">{formatUsdMicros(selected.rateCard.usdMicrosPerHour ?? 0)} / hour</dd></div>}
+                {(selected.rateCard.meter === 'tokens' || selected.rateCard.meter === 'input_tokens' || selected.rateCard.meter === 'output_tokens') && (
+                  <div><dt className="text-muted-foreground">Applied token rates</dt><dd className="font-mono">
+                    {selected.rateCard.inputUsdMicrosPerMillion != null && <>Input {formatUsdMicros(selected.rateCard.inputUsdMicrosPerMillion)} / million</>}
+                    {selected.rateCard.outputUsdMicrosPerMillion != null && <> · Output {formatUsdMicros(selected.rateCard.outputUsdMicrosPerMillion)} / million</>}
+                  </dd></div>
+                )}
+              </>
+            )}
+          </dl>
+        )}
+        <DialogFooter><Button onClick={() => setSelected(null)}>Done</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   </PageTransition>;
 }

@@ -384,9 +384,33 @@ func TestTAR10SignupWelcomeUSDGrantIsIdempotent(t *testing.T) {
 		INSERT INTO ai_credit_accounts(user_id,granted_usd_micros)
 		VALUES('welcome-user',1250000)
 	`); err != nil {
+		t.Fatalf("create test credit account: %v", err)
+	}
+	disabledTx, err := pool.Begin(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-
+	if err := grantSignupWelcomeUSDTx(ctx, disabledTx, "welcome-user"); err != nil {
+		_ = disabledTx.Rollback(ctx)
+		t.Fatalf("unconfigured signup grant: %v", err)
+	}
+	if err := disabledTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var grants int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ai_credit_grants WHERE user_id='welcome-user' AND idempotency_key='welcome-credit-usd-v1'`).Scan(&grants); err != nil {
+		t.Fatal(err)
+	}
+	if grants != 0 {
+		t.Fatalf("unconfigured signup policy issued %d grants, want none", grants)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE ai_credit_policy_versions
+		SET signup_grant_usd_micros=5000000
+		WHERE version=(SELECT max(version) FROM ai_credit_policy_versions)
+	`); err != nil {
+		t.Fatalf("configure test signup grant: %v", err)
+	}
 	const attempts = 12
 	errs := make(chan error, attempts)
 	var wg sync.WaitGroup
@@ -424,7 +448,6 @@ func TestTAR10SignupWelcomeUSDGrantIsIdempotent(t *testing.T) {
 	if balance != 6_250_000 {
 		t.Fatalf("welcome account balance = %d USD micros, want existing 1250000 plus exactly one 5000000 grant", balance)
 	}
-	var grants int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM ai_credit_grants
 		WHERE user_id='welcome-user' AND idempotency_key='welcome-credit-usd-v1'

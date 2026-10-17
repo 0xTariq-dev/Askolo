@@ -16,9 +16,8 @@ import (
 const USDMicroUnitsPerDollar int64 = 1_000_000
 
 const (
-	signupWelcomeUSDGrantAmount int64 = 5 * USDMicroUnitsPerDollar
-	signupWelcomeUSDGrantKey          = "welcome-credit-usd-v1"
-	signupWelcomeUSDGrantReason       = "Signup welcome credit"
+	signupWelcomeUSDGrantKey    = "welcome-credit-usd-v1"
+	signupWelcomeUSDGrantReason = "Signup welcome credit"
 )
 
 type USDRateCard struct {
@@ -33,6 +32,7 @@ type USDRateCard struct {
 type USDPolicy struct {
 	Version               int                    `json:"version"`
 	RateCards             map[string]USDRateCard `json:"rateCards"`
+	SignupGrantUsdMicros  int64                  `json:"signupGrantUsdMicros"`
 	MonthlyGrantUsdMicros int64                  `json:"monthlyGrantUsdMicros"`
 	RolloverCapUsdMicros  int64                  `json:"rolloverCapUsdMicros"`
 	RolloverExpiryDays    int                    `json:"rolloverExpiryDays"`
@@ -50,18 +50,24 @@ type USDUsage struct {
 	RefundedUsdMicros    int64 `json:"refundedUsdMicros"`
 }
 type USDReservation struct {
-	ID                string     `json:"id"`
-	OperationType     string     `json:"operationType,omitempty"`
-	Status            string     `json:"status"`
-	ReservedUsdMicros int64      `json:"reservedUsdMicros"`
-	SettledUsdMicros  int64      `json:"settledUsdMicros"`
-	RefundedUsdMicros int64      `json:"refundedUsdMicros"`
-	PolicyVersion     int        `json:"policyVersion"`
-	ExpiresAt         *time.Time `json:"expiresAt"`
-	CreatedAt         *time.Time `json:"createdAt,omitempty"`
-	Provider          string     `json:"provider"`
-	Mode              string     `json:"mode"`
-	Model             string     `json:"model"`
+	ID                string      `json:"id"`
+	OperationType     string      `json:"operationType,omitempty"`
+	Status            string      `json:"status"`
+	ReservedUsdMicros int64       `json:"reservedUsdMicros"`
+	SettledUsdMicros  int64       `json:"settledUsdMicros"`
+	RefundedUsdMicros int64       `json:"refundedUsdMicros"`
+	PolicyVersion     int         `json:"policyVersion"`
+	ExpiresAt         *time.Time  `json:"expiresAt"`
+	CreatedAt         *time.Time  `json:"createdAt,omitempty"`
+	Provider          string      `json:"provider"`
+	Mode              string      `json:"mode"`
+	Model             string      `json:"model"`
+	RateCard          USDRateCard `json:"rateCard"`
+	UsageUnit         string      `json:"usageUnit,omitempty"`
+	UsageUnits        int64       `json:"usageUnits,omitempty"`
+	InputTokens       int64       `json:"inputTokens,omitempty"`
+	OutputTokens      int64       `json:"outputTokens,omitempty"`
+	UsageStatus       string      `json:"usageStatus"`
 }
 type USDEvidence struct {
 	UsageUnit         string          `json:"usageUnit"`
@@ -102,7 +108,7 @@ func validateRateCard(c USDRateCard) error {
 	return nil
 }
 func validateUSDPolicy(p USDPolicy) error {
-	if p.Version < 1 || len(strings.TrimSpace(p.ChangeReason)) < 1 || len(p.ChangeReason) > 160 || p.MonthlyGrantUsdMicros < 0 || p.RolloverCapUsdMicros < 0 || p.RolloverExpiryDays < 1 || p.OverrunMarginPercent < 0 || p.OverrunMarginPercent > 100 || len(p.RateCards) > 64 {
+	if p.Version < 1 || len(strings.TrimSpace(p.ChangeReason)) < 1 || len(p.ChangeReason) > 160 || p.SignupGrantUsdMicros < 0 || p.MonthlyGrantUsdMicros < 0 || p.RolloverCapUsdMicros < 0 || p.RolloverExpiryDays < 1 || p.OverrunMarginPercent < 0 || p.OverrunMarginPercent > 100 || len(p.RateCards) > 64 {
 		return errors.New("invalid USD policy")
 	}
 	for key, card := range p.RateCards {
@@ -122,7 +128,7 @@ func (s *Store) USDPolicy(ctx context.Context) (USDPolicy, error) {
 		return p, errors.New("database is not configured")
 	}
 	var raw []byte
-	err := s.pool.QueryRow(ctx, `SELECT version,rate_cards,monthly_grant_usd_micros,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,created_at FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&p.Version, &raw, &p.MonthlyGrantUsdMicros, &p.RolloverCapUsdMicros, &p.RolloverExpiryDays, &p.OverrunMarginPercent, &p.CreatedBy, &p.ChangeReason, &p.CreatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,created_at FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&p.Version, &raw, &p.SignupGrantUsdMicros, &p.MonthlyGrantUsdMicros, &p.RolloverCapUsdMicros, &p.RolloverExpiryDays, &p.OverrunMarginPercent, &p.CreatedBy, &p.ChangeReason, &p.CreatedAt)
 	if err != nil {
 		return p, err
 	}
@@ -149,7 +155,7 @@ func (s *Store) UpdateUSDPolicy(ctx context.Context, expected int, p USDPolicy, 
 		return USDPolicy{}, err
 	}
 	var created time.Time
-	err = s.pool.QueryRow(ctx, `INSERT INTO ai_credit_policy_versions(version,rate_cards,monthly_grant_usd_micros,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,operation_weights,monthly_grant_credits,rollover_cap_credits) SELECT $1,$2,$3,$4,$5,$6,$7,$8,operation_weights,monthly_grant_credits,rollover_cap_credits FROM ai_credit_policy_versions WHERE version=$9 RETURNING created_at`, p.Version, raw, p.MonthlyGrantUsdMicros, p.RolloverCapUsdMicros, p.RolloverExpiryDays, p.OverrunMarginPercent, actor, p.ChangeReason, expected).Scan(&created)
+	err = s.pool.QueryRow(ctx, `INSERT INTO ai_credit_policy_versions(version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,operation_weights,monthly_grant_credits,rollover_cap_credits) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,operation_weights,monthly_grant_credits,rollover_cap_credits FROM ai_credit_policy_versions WHERE version=$10 RETURNING created_at`, p.Version, raw, p.SignupGrantUsdMicros, p.MonthlyGrantUsdMicros, p.RolloverCapUsdMicros, p.RolloverExpiryDays, p.OverrunMarginPercent, actor, p.ChangeReason, expected).Scan(&created)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return USDPolicy{}, ErrUSDPolicyChanged
 	}
@@ -184,16 +190,24 @@ func grantSignupWelcomeUSDTx(ctx context.Context, tx pgx.Tx, userID string) erro
 		return err
 	}
 
-	var sourceType, currency, reason string
 	var amount int64
+	if err := tx.QueryRow(ctx, `SELECT signup_grant_usd_micros FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&amount); err != nil {
+		return err
+	}
+	if amount <= 0 {
+		return nil
+	}
+
+	var sourceType, currency, reason string
+	var existingAmount int64
 	err := tx.QueryRow(ctx, `
 		SELECT source_type, currency, amount_usd_micros, COALESCE(reason, '')
 		FROM ai_credit_grants
 		WHERE user_id=$1 AND idempotency_key=$2
-	`, userID, signupWelcomeUSDGrantKey).Scan(&sourceType, &currency, &amount, &reason)
+`, userID, signupWelcomeUSDGrantKey).Scan(&sourceType, &currency, &existingAmount, &reason)
 	if err == nil {
 		if sourceType == "signup" && currency == "USD" &&
-			amount == signupWelcomeUSDGrantAmount && reason == signupWelcomeUSDGrantReason {
+			existingAmount > 0 && reason == signupWelcomeUSDGrantReason {
 			return nil
 		}
 		return ErrUSDReservationConflict
@@ -208,14 +222,14 @@ func grantSignupWelcomeUSDTx(ctx context.Context, tx pgx.Tx, userID string) erro
 			(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,
 			 actor_user_id,reason,currency,amount_usd_micros)
 		VALUES ($1,'signup',1,$2,$2,$3,NULL,$4,'USD',$5)
-	`, userID, signupWelcomeUSDGrantKey, metadata, signupWelcomeUSDGrantReason, signupWelcomeUSDGrantAmount); err != nil {
+	`, userID, signupWelcomeUSDGrantKey, metadata, signupWelcomeUSDGrantReason, amount); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE ai_credit_accounts
 		SET granted_usd_micros=granted_usd_micros+$2,updated_at=NOW()
 		WHERE user_id=$1
-	`, userID, signupWelcomeUSDGrantAmount); err != nil {
+	`, userID, amount); err != nil {
 		return err
 	}
 	return nil
@@ -604,7 +618,23 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 	if limit < 1 || limit > 100 {
 		limit = 25
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id,operation_type,provider,mode,COALESCE(model,''),status,reserved_usd_micros,settled_usd_micros,refunded_usd_micros,policy_version,expires_at,created_at FROM ai_credit_reservations WHERE user_id=$1 AND currency='USD' ORDER BY created_at DESC LIMIT $2`, userID, limit)
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.id,r.operation_type,r.provider,r.mode,COALESCE(r.model,''),r.status,
+			r.reserved_usd_micros,r.settled_usd_micros,r.refunded_usd_micros,
+			r.policy_version,r.expires_at,r.created_at,r.rate_snapshot,
+			COALESCE(e.usage_unit,''),COALESCE(e.usage_units,0),
+			COALESCE(e.input_tokens,0),COALESCE(e.output_tokens,0),
+			CASE WHEN e.reservation_id IS NULL THEN 'unavailable' ELSE 'measured' END
+		FROM ai_credit_reservations r
+		LEFT JOIN LATERAL (
+			SELECT reservation_id,usage_unit,usage_units,input_tokens,output_tokens
+			FROM ai_provider_usage_evidence
+			WHERE reservation_id=r.id AND user_id=r.user_id
+			ORDER BY recorded_at DESC
+			LIMIT 1
+		) e ON true
+		WHERE r.user_id=$1 AND r.currency='USD'
+		ORDER BY r.created_at DESC LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -614,8 +644,14 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 		var r USDReservation
 		var operation string
 		var created time.Time
-		if err := rows.Scan(&r.ID, &operation, &r.Provider, &r.Mode, &r.Model, &r.Status, &r.ReservedUsdMicros, &r.SettledUsdMicros, &r.RefundedUsdMicros, &r.PolicyVersion, &r.ExpiresAt, &created); err != nil {
+		var rateSnapshot []byte
+		if err := rows.Scan(&r.ID, &operation, &r.Provider, &r.Mode, &r.Model, &r.Status, &r.ReservedUsdMicros, &r.SettledUsdMicros, &r.RefundedUsdMicros, &r.PolicyVersion, &r.ExpiresAt, &created, &rateSnapshot, &r.UsageUnit, &r.UsageUnits, &r.InputTokens, &r.OutputTokens, &r.UsageStatus); err != nil {
 			return nil, err
+		}
+		if len(rateSnapshot) > 0 && string(rateSnapshot) != "{}" {
+			if err := json.Unmarshal(rateSnapshot, &r.RateCard); err != nil {
+				return nil, fmt.Errorf("decode USD receipt rate snapshot: %w", err)
+			}
 		}
 		r.OperationType = operation
 		r.CreatedAt = &created

@@ -15,6 +15,7 @@ const voiceAgentRateCardKey = 'assemblyai:voice_agent:managed-voice-agent';
 
 type PolicyDrafts = {
   version: number;
+  signupGrant: string;
   monthlyGrant: string;
   rolloverCap: string;
   rateCards: Record<string, string>;
@@ -41,6 +42,7 @@ function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null):
 
   return {
     version: policy.version,
+    signupGrant: formatCreditsInput(policy.signupGrantUsdMicros),
     monthlyGrant: formatCreditsInput(policy.monthlyGrantUsdMicros),
     rolloverCap: formatCreditsInput(policy.rolloverCapUsdMicros),
     rateCards: Object.fromEntries(
@@ -123,6 +125,9 @@ export function AdminCreditsPage() {
   const monthlyGrantMicros = policyDrafts
     ? tryParseCreditsToUsdMicros(policyDrafts.monthlyGrant)
     : null;
+  const signupGrantMicros = policyDrafts
+    ? tryParseCreditsToUsdMicros(policyDrafts.signupGrant)
+    : null;
   const rolloverCapMicros = policyDrafts
     ? tryParseCreditsToUsdMicros(policyDrafts.rolloverCap)
     : null;
@@ -134,6 +139,8 @@ export function AdminCreditsPage() {
       return micros !== null && micros >= 0;
     });
   const policyCurrenciesAreValid =
+    signupGrantMicros !== null &&
+    signupGrantMicros >= 0 &&
     monthlyGrantMicros !== null &&
     monthlyGrantMicros >= 0 &&
     rolloverCapMicros !== null &&
@@ -143,8 +150,11 @@ export function AdminCreditsPage() {
   const savePolicy = async () => {
     if (!policy || !policyDrafts || !changeReason.trim()) return;
     const monthlyGrant = tryParseCreditsToUsdMicros(policyDrafts.monthlyGrant);
+    const signupGrant = tryParseCreditsToUsdMicros(policyDrafts.signupGrant);
     const rolloverCap = tryParseCreditsToUsdMicros(policyDrafts.rolloverCap);
     if (
+      signupGrant === null ||
+      signupGrant < 0 ||
       monthlyGrant === null ||
       monthlyGrant < 0 ||
       rolloverCap === null ||
@@ -180,6 +190,7 @@ export function AdminCreditsPage() {
     try {
       const next = await creditApi.updateAdminPolicy({
         rateCards,
+        signupGrantUsdMicros: signupGrant,
         monthlyGrantUsdMicros: monthlyGrant,
         rolloverCapUsdMicros: rolloverCap,
         rolloverExpiryDays: policyDrafts.rolloverExpiryDays,
@@ -254,6 +265,20 @@ export function AdminCreditsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-signup-grant">Verified signup grant (credits)</Label>
+                <Input
+                  id="admin-signup-grant"
+                  type="text"
+                  inputMode="decimal"
+                  value={policyDrafts.signupGrant}
+                  onChange={(event) => updatePolicyDraft({ signupGrant: event.target.value })}
+                  aria-invalid={signupGrantMicros === null || signupGrantMicros < 0}
+                  disabled={saving}
+                  data-testid="input-admin-signup-grant"
+                />
+                <p className="text-xs text-muted-foreground">Issued once after email verification. Set to 0 to disable until configured.</p>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="admin-monthly-grant">Monthly grant (credits)</Label>
                 <Input
