@@ -13,11 +13,13 @@ import { creditApi, creditErrorMessage, formatCredits, formatCreditsInput, forma
 
 const voiceAgentRateCardKey = 'assemblyai:voice_agent:managed-voice-agent';
 const openAIRateCardKey = 'openai:assistant:gpt-5.6-luna';
+const azureSpeechRateCardKey = 'azure:assistant_speech:azure-neural-tts';
 
 type PolicyDrafts = {
   version: number;
   signupGrant: string;
   monthlyGrant: string;
+  monthlyGrantsEnabled: boolean;
   rolloverCap: string;
   rateCards: Record<string, RateCardDraft>;
   rolloverExpiryDays: number;
@@ -29,6 +31,7 @@ type RateCardDraft = {
   inputUsdMicrosPerMillion: string;
   cachedInputUsdMicrosPerMillion: string;
   outputUsdMicrosPerMillion: string;
+  usdMicrosPerMillionCharacters: string;
 };
 
 function createRateCardDraft(card: CreditPolicy['rateCards'][string]): RateCardDraft {
@@ -37,6 +40,7 @@ function createRateCardDraft(card: CreditPolicy['rateCards'][string]): RateCardD
     inputUsdMicrosPerMillion: card.inputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.inputUsdMicrosPerMillion),
     cachedInputUsdMicrosPerMillion: card.cachedInputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.cachedInputUsdMicrosPerMillion),
     outputUsdMicrosPerMillion: card.outputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.outputUsdMicrosPerMillion),
+    usdMicrosPerMillionCharacters: card.usdMicrosPerMillionCharacters == null ? '' : formatUsdMicrosInput(card.usdMicrosPerMillionCharacters),
   };
 }
 
@@ -57,6 +61,7 @@ function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null):
     version: policy.version,
     signupGrant: formatCreditsInput(policy.signupGrantUsdMicros),
     monthlyGrant: formatCreditsInput(policy.monthlyGrantUsdMicros),
+    monthlyGrantsEnabled: policy.monthlyGrantsEnabled,
     rolloverCap: formatCreditsInput(policy.rolloverCapUsdMicros),
     rateCards: Object.fromEntries(
       Object.entries(policy.rateCards).map(([key, card]) => [
@@ -80,7 +85,8 @@ export function AdminCreditsPage() {
     if (!policy) return;
     const missingVoiceAgent = !policy.rateCards[voiceAgentRateCardKey];
     const missingOpenAI = !policy.rateCards[openAIRateCardKey];
-    if (!missingVoiceAgent && !missingOpenAI) return;
+    const missingAzureSpeech = !policy.rateCards[azureSpeechRateCardKey];
+    if (!missingVoiceAgent && !missingOpenAI && !missingAzureSpeech) return;
     setPolicy((current) => current ? {
       ...current,
       rateCards: {
@@ -94,6 +100,11 @@ export function AdminCreditsPage() {
           provider: 'openai', mode: 'assistant', model: 'gpt-5.6-luna', meter: 'tokens',
           usdMicrosPerHour: null, inputUsdMicrosPerMillion: 200_000,
           cachedInputUsdMicrosPerMillion: 20_000, outputUsdMicrosPerMillion: 1_200_000,
+        } } : {}),
+        ...(missingAzureSpeech ? { [azureSpeechRateCardKey]: {
+          provider: 'azure', mode: 'assistant_speech', model: 'azure-neural-tts', meter: 'characters',
+          usdMicrosPerHour: null, inputUsdMicrosPerMillion: null, outputUsdMicrosPerMillion: null,
+          usdMicrosPerMillionCharacters: null,
         } } : {}),
       },
     } : current);
@@ -170,6 +181,8 @@ export function AdminCreditsPage() {
           ? [draft.inputUsdMicrosPerMillion]
           : card.meter === 'output_tokens'
             ? [draft.outputUsdMicrosPerMillion]
+            : card.meter === 'characters'
+              ? [draft.usdMicrosPerMillionCharacters]
             : [draft.inputUsdMicrosPerMillion, draft.outputUsdMicrosPerMillion];
       const populated = relevant.filter((value) => value.trim() !== '');
       if (populated.length === 0) return true;
@@ -214,6 +227,8 @@ export function AdminCreditsPage() {
       const draft = policyDrafts.rateCards[key] ?? createRateCardDraft(card);
       const fields = card.meter === 'hour'
         ? [['usdMicrosPerHour', draft.usdMicrosPerHour]]
+        : card.meter === 'characters'
+          ? [['usdMicrosPerMillionCharacters', draft.usdMicrosPerMillionCharacters]]
         : card.meter === 'input_tokens'
           ? [['inputUsdMicrosPerMillion', draft.inputUsdMicrosPerMillion]]
           : card.meter === 'output_tokens'
@@ -243,6 +258,7 @@ export function AdminCreditsPage() {
         if (field === 'inputUsdMicrosPerMillion') updated.inputUsdMicrosPerMillion = micros;
         if (field === 'cachedInputUsdMicrosPerMillion') updated.cachedInputUsdMicrosPerMillion = micros;
         if (field === 'outputUsdMicrosPerMillion') updated.outputUsdMicrosPerMillion = micros;
+        if (field === 'usdMicrosPerMillionCharacters') updated.usdMicrosPerMillionCharacters = micros;
       }
       rateCards[key] = updated;
     }
@@ -253,6 +269,7 @@ export function AdminCreditsPage() {
         rateCards,
         signupGrantUsdMicros: signupGrant,
         monthlyGrantUsdMicros: monthlyGrant,
+        monthlyGrantsEnabled: policyDrafts.monthlyGrantsEnabled,
         rolloverCapUsdMicros: rolloverCap,
         rolloverExpiryDays: policyDrafts.rolloverExpiryDays,
         overrunMarginPercent: policyDrafts.overrunMarginPercent,
@@ -352,6 +369,22 @@ export function AdminCreditsPage() {
                   disabled={saving}
                   data-testid="input-admin-monthly-grant"
                 />
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 accent-primary"
+                    checked={policyDrafts.monthlyGrantsEnabled}
+                    onChange={(event) => updatePolicyDraft({ monthlyGrantsEnabled: event.target.checked })}
+                    disabled={saving}
+                    data-testid="toggle-admin-monthly-grants"
+                  />
+                  <span>
+                    Enable recurring grants
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Grants run every 30 days from signup; a zero amount issues nothing.
+                    </span>
+                  </span>
+                </label>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="admin-rollover-cap">Rollover cap (credits)</Label>
@@ -435,6 +468,27 @@ export function AdminCreditsPage() {
                           testId={`input-admin-rate-${index}`}
                         />
                       </>
+                    )}
+                    {card.meter === 'characters' && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`${rateId}-characters`}>Rate per million characters (USD)</Label>
+                        <CInputGroup9CurrencyInput
+                          id={`${rateId}-characters`}
+                          value={draft.usdMicrosPerMillionCharacters}
+                          onValueChange={(value) => setPolicyDrafts((current) => current ? ({
+                            ...current,
+                            rateCards: {
+                              ...current.rateCards,
+                              [key]: { ...current.rateCards[key], usdMicrosPerMillionCharacters: value },
+                            },
+                          }) : current)}
+                          placeholder="Not configured"
+                          ariaLabel={`${key} USD per million characters`}
+                          ariaInvalid={invalidRate(draft.usdMicrosPerMillionCharacters)}
+                          disabled={saving}
+                          testId={`input-admin-rate-${index}-characters`}
+                        />
+                      </div>
                     )}
                     {(card.meter === 'input_tokens' || card.meter === 'tokens') && (
                       <div className="space-y-1.5">

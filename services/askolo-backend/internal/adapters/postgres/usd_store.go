@@ -29,12 +29,14 @@ type USDRateCard struct {
 	InputUsdMicrosPerMillion       int64  `json:"inputUsdMicrosPerMillion,omitempty"`
 	CachedInputUsdMicrosPerMillion int64  `json:"cachedInputUsdMicrosPerMillion,omitempty"`
 	OutputUsdMicrosPerMillion      int64  `json:"outputUsdMicrosPerMillion,omitempty"`
+	UsdMicrosPerMillionCharacters  int64  `json:"usdMicrosPerMillionCharacters,omitempty"`
 }
 type USDPolicy struct {
 	Version               int                    `json:"version"`
 	RateCards             map[string]USDRateCard `json:"rateCards"`
 	SignupGrantUsdMicros  int64                  `json:"signupGrantUsdMicros"`
 	MonthlyGrantUsdMicros int64                  `json:"monthlyGrantUsdMicros"`
+	MonthlyGrantsEnabled  bool                   `json:"monthlyGrantsEnabled"`
 	RolloverCapUsdMicros  int64                  `json:"rolloverCapUsdMicros"`
 	RolloverExpiryDays    int                    `json:"rolloverExpiryDays"`
 	OverrunMarginPercent  int                    `json:"overrunMarginPercent"`
@@ -93,16 +95,19 @@ func validateRateCard(c USDRateCard) error {
 	if strings.TrimSpace(c.Provider) == "" || strings.TrimSpace(c.Mode) == "" || strings.TrimSpace(c.Model) == "" {
 		return errors.New("invalid USD rate card identity")
 	}
-	if c.Meter != "hour" && c.Meter != "input_tokens" && c.Meter != "output_tokens" && c.Meter != "tokens" {
+	if c.Meter != "hour" && c.Meter != "input_tokens" && c.Meter != "output_tokens" && c.Meter != "tokens" && c.Meter != "characters" {
 		return errors.New("unknown USD meter")
 	}
-	for _, n := range []int64{c.UsdMicrosPerHour, c.InputUsdMicrosPerMillion, c.CachedInputUsdMicrosPerMillion, c.OutputUsdMicrosPerMillion} {
+	for _, n := range []int64{c.UsdMicrosPerHour, c.InputUsdMicrosPerMillion, c.CachedInputUsdMicrosPerMillion, c.OutputUsdMicrosPerMillion, c.UsdMicrosPerMillionCharacters} {
 		if n < 0 || n > math.MaxInt64/2 {
 			return errors.New("USD rate overflow")
 		}
 	}
 	if c.Meter == "hour" && c.UsdMicrosPerHour <= 0 {
 		return errors.New("hourly USD rate is required")
+	}
+	if c.Meter == "characters" && c.UsdMicrosPerMillionCharacters <= 0 {
+		return errors.New("character USD rate is required")
 	}
 	if (c.Meter == "input_tokens" && c.InputUsdMicrosPerMillion <= 0) || (c.Meter == "output_tokens" && c.OutputUsdMicrosPerMillion <= 0) || (c.Meter == "tokens" && (c.InputUsdMicrosPerMillion <= 0 || c.OutputUsdMicrosPerMillion <= 0)) {
 		return errors.New("token USD rate is required")
@@ -130,7 +135,7 @@ func (s *Store) USDPolicy(ctx context.Context) (USDPolicy, error) {
 		return p, errors.New("database is not configured")
 	}
 	var raw []byte
-	err := s.pool.QueryRow(ctx, `SELECT version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,created_at FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&p.Version, &raw, &p.SignupGrantUsdMicros, &p.MonthlyGrantUsdMicros, &p.RolloverCapUsdMicros, &p.RolloverExpiryDays, &p.OverrunMarginPercent, &p.CreatedBy, &p.ChangeReason, &p.CreatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,monthly_grants_enabled,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,created_at FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&p.Version, &raw, &p.SignupGrantUsdMicros, &p.MonthlyGrantUsdMicros, &p.MonthlyGrantsEnabled, &p.RolloverCapUsdMicros, &p.RolloverExpiryDays, &p.OverrunMarginPercent, &p.CreatedBy, &p.ChangeReason, &p.CreatedAt)
 	if err != nil {
 		return p, err
 	}
@@ -157,7 +162,7 @@ func (s *Store) UpdateUSDPolicy(ctx context.Context, expected int, p USDPolicy, 
 		return USDPolicy{}, err
 	}
 	var created time.Time
-	err = s.pool.QueryRow(ctx, `INSERT INTO ai_credit_policy_versions(version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,operation_weights,monthly_grant_credits,rollover_cap_credits) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,operation_weights,monthly_grant_credits,rollover_cap_credits FROM ai_credit_policy_versions WHERE version=$10 RETURNING created_at`, p.Version, raw, p.SignupGrantUsdMicros, p.MonthlyGrantUsdMicros, p.RolloverCapUsdMicros, p.RolloverExpiryDays, p.OverrunMarginPercent, actor, p.ChangeReason, expected).Scan(&created)
+	err = s.pool.QueryRow(ctx, `INSERT INTO ai_credit_policy_versions(version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,monthly_grants_enabled,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,operation_weights,monthly_grant_credits,rollover_cap_credits) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,operation_weights,monthly_grant_credits,rollover_cap_credits FROM ai_credit_policy_versions WHERE version=$11 RETURNING created_at`, p.Version, raw, p.SignupGrantUsdMicros, p.MonthlyGrantUsdMicros, p.MonthlyGrantsEnabled, p.RolloverCapUsdMicros, p.RolloverExpiryDays, p.OverrunMarginPercent, actor, p.ChangeReason, expected).Scan(&created)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return USDPolicy{}, ErrUSDPolicyChanged
 	}
@@ -626,7 +631,11 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 			r.policy_version,r.expires_at,r.created_at,r.rate_snapshot,
 			COALESCE(e.usage_unit,''),COALESCE(e.usage_units,0),
 			COALESCE(e.input_tokens,0),COALESCE((e.evidence->>'cachedInputTokens')::bigint,0),COALESCE(e.output_tokens,0),
-			CASE WHEN e.reservation_id IS NULL THEN 'unavailable' ELSE 'measured' END
+CASE
+  WHEN r.status='claimed' THEN 'pending_review'
+  WHEN e.reservation_id IS NULL THEN 'unavailable'
+  ELSE 'measured'
+END
 		FROM ai_credit_reservations r
 		LEFT JOIN LATERAL (
 			SELECT reservation_id,usage_unit,usage_units,input_tokens,output_tokens,evidence
@@ -727,7 +736,7 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 func validateUSDUsageEvidence(evidence USDEvidence) error {
 	if len(evidence.ProviderRequestId) > 200 || len(evidence.Payload) > 8192 ||
 		evidence.UsageUnits < 0 || evidence.DurationMs < 0 || evidence.InputTokens < 0 || evidence.OutputTokens < 0 ||
-		(evidence.UsageUnit != "hour" && evidence.UsageUnit != "second" && evidence.UsageUnit != "millisecond" && evidence.UsageUnit != "milliseconds" &&
+		(evidence.UsageUnit != "hour" && evidence.UsageUnit != "second" && evidence.UsageUnit != "millisecond" && evidence.UsageUnit != "milliseconds" && evidence.UsageUnit != "characters" &&
 			evidence.UsageUnit != "input_tokens" && evidence.UsageUnit != "output_tokens" && evidence.UsageUnit != "tokens") {
 		return errors.New("invalid USD usage evidence")
 	}

@@ -6,7 +6,7 @@ export function getConductedCreditActivities(
   usage: Pick<CreditUsageResponse, 'reservations' | 'events'>,
 ): CreditActivity[] {
   return [
-    ...usage.reservations.filter((reservation) => reservation.status === 'settled'),
+    ...usage.reservations.filter((reservation) => reservation.status === 'settled' || reservation.status === 'claimed'),
     ...usage.events.filter((event) => event.eventType === 'refunded'),
   ].sort((first, second) => Date.parse(second.createdAt) - Date.parse(first.createdAt));
 }

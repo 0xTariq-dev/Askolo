@@ -244,6 +244,49 @@ func (h *Handler) reserveVoiceProviderCredit(w http.ResponseWriter, r *http.Requ
 	return voiceCreditReservation{}, false
 }
 
+func (h *Handler) reserveAssistantSpeechCredit(r *http.Request, userID string, characters int64) (voiceCreditReservation, *voiceCreditReservationFailure) {
+	var result voiceCreditReservation
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" || len(key) > 200 || characters < 1 || characters > maxAssistantSpeechCharacters {
+		return result, &voiceCreditReservationFailure{status: http.StatusBadRequest, code: "INVALID_SPEECH_REQUEST", message: "A valid speech request is required."}
+	}
+	p, err := h.store.USDPolicy(r.Context())
+	if err != nil {
+		return result, &voiceCreditReservationFailure{operation: "AI policy lookup failed", err: err}
+	}
+	card, ok := p.RateCards["azure:assistant_speech:azure-neural-tts"]
+	if !ok || card.Meter != "characters" || card.UsdMicrosPerMillionCharacters <= 0 {
+		return result, &voiceCreditReservationFailure{status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID", message: "AI credit policy is unavailable."}
+	}
+	amount, costErr := assistantSpeechUSDMicroCost(card, characters)
+	if costErr != nil {
+		return result, &voiceCreditReservationFailure{status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID", message: "AI credit policy is unavailable."}
+	}
+	cap, ok := applyMargin(amount, p.OverrunMarginPercent)
+	if !ok {
+		return result, &voiceCreditReservationFailure{status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID", message: "AI credit policy is unavailable."}
+	}
+	rawID := make([]byte, 16)
+	if _, err := rand.Read(rawID); err != nil {
+		return result, &voiceCreditReservationFailure{operation: "AI reservation id generation failed", err: err}
+	}
+	reservationID := "speech-" + fmt.Sprintf("%x", rawID)
+	snapshot, _ := json.Marshal(card)
+	reservation, created, err := h.store.ReserveUSD(r.Context(), reservationID, userID, "assistant_speech", "azure", "assistant_speech", card.Model, key, cap, 300, p.Version, snapshot)
+	if err != nil {
+		return result, &voiceCreditReservationFailure{operation: "AI credit reservation failed", err: err}
+	}
+	if !created {
+		return result, &voiceCreditReservationFailure{status: http.StatusConflict, code: "CREDIT_RESERVATION_CONFLICT", message: "This speech request is already being processed."}
+	}
+	claimed, err := h.store.ClaimUSDReservation(r.Context(), reservation.ID, userID)
+	if err != nil || !claimed {
+		_ = h.store.ReleaseUSDReservation(context.Background(), reservation.ID, userID, reservation.ID+":claim-failed")
+		return result, &voiceCreditReservationFailure{status: http.StatusConflict, code: "CREDIT_RESERVATION_CONFLICT", message: "This speech request is already being processed."}
+	}
+	return voiceCreditReservation{ID: reservation.ID, Mode: "assistant_speech", Model: card.Model, ReservedUsdMicros: reservation.ReservedUsdMicros, PolicyVersion: p.Version, RateCard: card}, nil
+}
+
 type voiceCreditReservationFailure struct {
 	status    int
 	code      string
@@ -1229,6 +1272,8 @@ func usdEstimateRateCardKey(pricingKey string) (string, bool) {
 	switch pricingKey {
 	case "assistant":
 		return "openai:assistant:" + assistantPlannerModel, true
+	case "assistant.speech":
+		return "azure:assistant_speech:azure-neural-tts", true
 	case "voice.recorded":
 		return "assemblyai:recorded:" + assemblyAIRealtimeSpeechModel, true
 	case "voice.realtime":
@@ -1276,7 +1321,8 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("pricingKey")
 	units, unitsErr := strconv.Atoi(r.URL.Query().Get("units"))
 	if key == "" || unitsErr != nil || units < 1 || units > 10000000 ||
-		(key == "assistant" && units != 1) {
+		(key == "assistant" && units != 1) ||
+		(key == "assistant.speech" && units > maxAssistantSpeechCharacters) {
 		writeError(w, http.StatusBadRequest, "INVALID_ESTIMATE", "A valid pricing key and units are required.")
 		return
 	}
@@ -1309,6 +1355,8 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 		estimated, ok = ceilMulDiv(card.InputUsdMicrosPerMillion, int64(units), postgres.USDMicroUnitsPerDollar)
 	case card.Meter == "output_tokens":
 		estimated, ok = ceilMulDiv(card.OutputUsdMicrosPerMillion, int64(units), postgres.USDMicroUnitsPerDollar)
+	case card.Meter == "characters":
+		estimated, ok = ceilMulDiv(card.UsdMicrosPerMillionCharacters, int64(units), postgres.USDMicroUnitsPerDollar)
 	case card.Meter == "tokens":
 		estimated, ok = ceilMulDiv(card.InputUsdMicrosPerMillion+card.OutputUsdMicrosPerMillion, int64(units), 1000000)
 		unit = "tokens"

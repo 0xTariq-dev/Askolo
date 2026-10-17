@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -26,7 +27,22 @@ const (
 	assistantSpeechTimeout       = 22 * time.Second
 )
 
-var errAzureSpeechUnavailable = errors.New("azure speech synthesis unavailable")
+var (
+	errAzureSpeechUnavailable               = errors.New("azure speech synthesis unavailable")
+	errAzureSpeechOutcomeUnknown            = errors.New("azure speech synthesis outcome unknown")
+	errAzureSpeechBillableOutputUnavailable = errors.New("azure speech output unavailable after synthesis")
+)
+
+func assistantSpeechUSDMicroCost(card postgres.USDRateCard, characters int64) (int64, error) {
+	if card.Meter != "characters" || card.UsdMicrosPerMillionCharacters <= 0 || characters <= 0 {
+		return 0, errors.New("invalid assistant speech usage")
+	}
+	cost, ok := ceilMulDiv(card.UsdMicrosPerMillionCharacters, characters, 1_000_000)
+	if !ok || cost < 1 {
+		return 0, errors.New("assistant speech usage cost overflow")
+	}
+	return cost, nil
+}
 
 type azureSpeechProvider interface {
 	Configured() bool
@@ -124,7 +140,7 @@ func (c *azureSpeechClient) Synthesize(ctx context.Context, text, locale string)
 
 	response, err := c.client.Do(request)
 	if err != nil {
-		return nil, errAzureSpeechUnavailable
+		return nil, errAzureSpeechOutcomeUnknown
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -132,11 +148,11 @@ func (c *azureSpeechClient) Synthesize(ctx context.Context, text, locale string)
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || mediaType != "audio/mpeg" {
-		return nil, errAzureSpeechUnavailable
+		return nil, errAzureSpeechBillableOutputUnavailable
 	}
 	audio, err := io.ReadAll(io.LimitReader(response.Body, maxAssistantSpeechBytes+1))
 	if err != nil || len(audio) == 0 || len(audio) > maxAssistantSpeechBytes {
-		return nil, errAzureSpeechUnavailable
+		return nil, errAzureSpeechBillableOutputUnavailable
 	}
 	return audio, nil
 }
@@ -297,7 +313,6 @@ func (h *Handler) assistantRunSpeech(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "VOICE_SYNTHESIS_UNAVAILABLE", "Speech output is temporarily unavailable.")
 		return
 	}
-
 	allowed, retryAfter, err := h.allowAssistantSpeech(r.Context(), userID)
 	if err != nil {
 		h.storeError(w, "assistant speech rate limit failed", err)
@@ -306,6 +321,16 @@ func (h *Handler) assistantRunSpeech(w http.ResponseWriter, r *http.Request) {
 	if !allowed {
 		w.Header().Set("Retry-After", retryAfter)
 		writeError(w, http.StatusTooManyRequests, "VOICE_RATE_LIMITED", "Speech requests are temporarily limited.")
+		return
+	}
+	characters := int64(utf8.RuneCountInString(text))
+	reservation, failure := h.reserveAssistantSpeechCredit(r, userID, characters)
+	if failure != nil {
+		if failure.err != nil {
+			h.storeError(w, failure.operation, failure.err)
+		} else {
+			writeError(w, failure.status, failure.code, failure.message)
+		}
 		return
 	}
 
@@ -323,12 +348,76 @@ func (h *Handler) assistantRunSpeech(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	audio, err := h.speechOutput.Synthesize(ctx, text, locale)
 	if err != nil {
+		if errors.Is(err, errAzureSpeechOutcomeUnknown) {
+			evidence := postgres.USDEvidence{UsageUnit: "characters", UsageUnits: characters}
+			evidence.Payload = json.RawMessage(`{"meterSource":"azure_text_characters","reviewStatus":"pending"}`)
+			creditCtx, creditCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if evidenceErr := h.store.RecordUSDEvidence(creditCtx, reservation.ID, userID, "azure", reservation.Mode, reservation.Model, reservation.ID+":pending-review", evidence); evidenceErr != nil {
+				h.logger.Error("assistant speech pending usage recording failed",
+					"reservation_id", reservation.ID,
+					"error_type", fmt.Sprintf("%T", evidenceErr),
+				)
+			}
+			creditCancel()
+			h.logger.Warn("assistant speech usage requires review",
+				"reservation_id", reservation.ID,
+				"run_id", runID,
+				"duration_ms", time.Since(started).Milliseconds(),
+			)
+			writeError(w, http.StatusBadGateway, "SPEECH_USAGE_PENDING_REVIEW", "Speech usage is being reviewed before credits are released.")
+			return
+		}
+		if errors.Is(err, errAzureSpeechBillableOutputUnavailable) {
+			actual, costErr := assistantSpeechUSDMicroCost(reservation.RateCard, characters)
+			if costErr == nil && actual <= reservation.ReservedUsdMicros {
+				evidence := postgres.USDEvidence{UsageUnit: "characters", UsageUnits: characters}
+				evidence.Payload = json.RawMessage(`{"meterSource":"azure_text_characters","outputStatus":"unavailable"}`)
+				creditCtx, creditCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				evidenceErr := h.store.RecordUSDEvidence(creditCtx, reservation.ID, userID, "azure", reservation.Mode, reservation.Model, reservation.ID+":usage", evidence)
+				var settleErr error
+				if evidenceErr == nil {
+					settleErr = h.store.SettleUSDReservation(creditCtx, reservation.ID, userID, reservation.ID+":settle", actual)
+				}
+				creditCancel()
+				if evidenceErr == nil && settleErr == nil {
+					writeError(w, http.StatusBadGateway, "SPEECH_OUTPUT_UNAVAILABLE", "Speech audio could not be delivered; usage is recorded in your credit history.")
+					return
+				}
+				h.logger.Error("assistant speech settlement requires review",
+					"reservation_id", reservation.ID,
+					"evidence_error_type", fmt.Sprintf("%T", evidenceErr),
+					"settlement_error_type", fmt.Sprintf("%T", settleErr),
+				)
+			}
+			writeError(w, http.StatusBadGateway, "SPEECH_USAGE_PENDING_REVIEW", "Speech usage is being reviewed before credits are released.")
+			return
+		}
+		if releaseErr := h.store.ReleaseUSDReservation(context.Background(), reservation.ID, userID, reservation.ID+":synthesis-failed"); releaseErr != nil {
+			h.logger.Error("assistant speech credit release failed", "reservation_id", reservation.ID, "error", releaseErr)
+		}
 		h.logger.Warn("assistant speech synthesis failed",
 			"run_id", runID,
 			"error_type", fmt.Sprintf("%T", err),
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 		writeError(w, http.StatusBadGateway, "VOICE_SYNTHESIS_FAILED", "Speech output could not be generated.")
+		return
+	}
+	actual, costErr := assistantSpeechUSDMicroCost(reservation.RateCard, characters)
+	if costErr != nil || actual > reservation.ReservedUsdMicros {
+		writeError(w, http.StatusBadGateway, "SPEECH_USAGE_UNAVAILABLE", "Speech usage could not be priced.")
+		return
+	}
+	evidence := postgres.USDEvidence{UsageUnit: "characters", UsageUnits: characters}
+	evidence.Payload = json.RawMessage(`{"meterSource":"azure_text_characters"}`)
+	creditCtx, creditCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer creditCancel()
+	if err := h.store.RecordUSDEvidence(creditCtx, reservation.ID, userID, "azure", reservation.Mode, reservation.Model, reservation.ID+":usage", evidence); err != nil {
+		h.storeError(w, "speech usage recording failed", err)
+		return
+	}
+	if err := h.store.SettleUSDReservation(creditCtx, reservation.ID, userID, reservation.ID+":settle", actual); err != nil {
+		h.storeError(w, "speech usage settlement failed", err)
 		return
 	}
 

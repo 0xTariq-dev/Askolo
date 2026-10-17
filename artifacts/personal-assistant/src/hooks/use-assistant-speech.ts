@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { goApi } from '@/lib/go-api';
+import { newCreditIdempotencyKey } from '@/lib/credit-api';
 
 export type AssistantSpeechStatus = 'idle' | 'loading' | 'speaking' | 'paused' | 'error' | 'unsupported';
 
@@ -95,7 +96,7 @@ export function useAssistantSpeech() {
     };
 
     try {
-      const audioBlob = await goApi.synthesizeAssistantSpeech(options.runId, controller.signal);
+      const audioBlob = await goApi.synthesizeAssistantSpeech(options.runId, newCreditIdempotencyKey(), controller.signal);
       if (!isCurrent()) return;
       if (
         !(audioBlob instanceof Blob) ||

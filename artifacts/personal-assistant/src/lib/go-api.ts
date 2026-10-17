@@ -153,11 +153,14 @@ export const goApi = {
     coachingRequest(input, sessionRequestOptions(signal)),
   generatePlan: (input: GeneratePlanInput, signal?: AbortSignal) =>
     generatePlanRequest(input, sessionRequestOptions(signal)),
-  synthesizeAssistantSpeech: (runId: string, signal?: AbortSignal) =>
-    synthesizeAssistantSpeechRequest(runId, {
-      ...sessionRequestOptions(signal),
+  synthesizeAssistantSpeech: (runId: string, idempotencyKey: string, signal?: AbortSignal) => {
+    const options = sessionRequestOptions(signal);
+    return synthesizeAssistantSpeechRequest(runId, {
+      ...options,
+      headers: { ...options.headers, 'Idempotency-Key': idempotencyKey },
       responseType: 'blob',
-    }),
+    });
+  },
 };
 
 export function getApiErrorMessage(error: unknown, fallback: string): string {

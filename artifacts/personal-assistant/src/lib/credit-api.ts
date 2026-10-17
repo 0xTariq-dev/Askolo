@@ -16,7 +16,8 @@ export type CreditReservation = {
   id: string; operationType: string; provider: string; model: string; mode: string;
   status: string; reservedUsdMicros: UsdMicros; settledUsdMicros: UsdMicros;
   refundedUsdMicros: UsdMicros; usageUnit: string; usageUnits: number;
-  inputTokens: number; outputTokens: number; usageStatus: 'measured' | 'unavailable';
+  inputTokens: number; cachedInputTokens?: number; outputTokens: number;
+  usageStatus: 'measured' | 'unavailable' | 'pending_review';
   rateCard: RateCard; policyVersion: number; expiresAt: string | null; createdAt: string;
 };
 export type CreditEvent = {
@@ -45,10 +46,12 @@ export type RateCard = {
   usdMicrosPerHour: UsdMicros | null; inputUsdMicrosPerMillion: UsdMicros | null;
   cachedInputUsdMicrosPerMillion?: UsdMicros | null;
   outputUsdMicrosPerMillion: UsdMicros | null;
+  usdMicrosPerMillionCharacters?: UsdMicros | null;
 };
 export type CreditPolicy = {
   version: number; rateCards: Record<string, RateCard>;
   signupGrantUsdMicros: UsdMicros; monthlyGrantUsdMicros: UsdMicros; rolloverCapUsdMicros: UsdMicros;
+  monthlyGrantsEnabled: boolean;
   rolloverExpiryDays: number; overrunMarginPercent: number;
   changeReason?: string; createdBy?: string; createdAt?: string;
 };
@@ -77,9 +80,9 @@ async function request<T>(path: string, options: CreditRequestOptions = {}): Pro
 export const creditApi = {
   account: () => request<CreditAccountResponse>('/api/ai/credits'),
   usage: () => request<CreditUsageResponse>('/api/ai/credits/usage'),
-  estimate: (pricingKey: 'voice.recorded' | 'voice.realtime' | 'voice.agent' | 'assistant', units: number) => request<CreditEstimate>(`/api/ai/credits/estimate?pricingKey=${encodeURIComponent(pricingKey)}&units=${Math.max(0, Math.trunc(units))}`),
+  estimate: (pricingKey: 'voice.recorded' | 'voice.realtime' | 'voice.agent' | 'assistant' | 'assistant.speech', units: number) => request<CreditEstimate>(`/api/ai/credits/estimate?pricingKey=${encodeURIComponent(pricingKey)}&units=${Math.max(0, Math.trunc(units))}`),
   adminPolicy: () => request<CreditPolicy>('/api/admin/ai-credit-policy'),
-  updateAdminPolicy: (policy: Pick<CreditPolicy, 'rateCards' | 'signupGrantUsdMicros' | 'monthlyGrantUsdMicros' | 'rolloverCapUsdMicros' | 'rolloverExpiryDays' | 'overrunMarginPercent'>, expectedVersion: number, changeReason: string) => request<CreditPolicy>('/api/admin/ai-credit-policy', { method: 'PATCH', body: JSON.stringify({ ...policy, expectedVersion, changeReason }) }),
+  updateAdminPolicy: (policy: Pick<CreditPolicy, 'rateCards' | 'signupGrantUsdMicros' | 'monthlyGrantUsdMicros' | 'monthlyGrantsEnabled' | 'rolloverCapUsdMicros' | 'rolloverExpiryDays' | 'overrunMarginPercent'>, expectedVersion: number, changeReason: string) => request<CreditPolicy>('/api/admin/ai-credit-policy', { method: 'PATCH', body: JSON.stringify({ ...policy, expectedVersion, changeReason }) }),
   adminAdjustment: (input: AdminAdjustmentInput) => request<CreditUsage>('/api/admin/ai-credit-adjustments', { method: 'POST', body: JSON.stringify(input) }),
   adminReverseAdjustment: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-adjustments/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),
   adminReverseGrant: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-grants/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),

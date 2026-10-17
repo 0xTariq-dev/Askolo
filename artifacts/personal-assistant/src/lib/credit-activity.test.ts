@@ -44,6 +44,7 @@ test('credit activity includes completed operations and refunds, not reservation
   const activities = getConductedCreditActivities({
     reservations: [
       completed,
+      reservation('review', 'claimed', '2026-09-30T09:05:00Z'),
       reservation('held', 'reserved', '2026-09-30T09:04:00Z'),
       reservation('released', 'released', '2026-09-30T09:03:00Z'),
       reservation('expired', 'expired', '2026-09-30T09:01:00Z'),
@@ -57,9 +58,9 @@ test('credit activity includes completed operations and refunds, not reservation
     ],
   });
 
-  assert.deepEqual(activities, [refund, completed] satisfies CreditActivity[]);
+  assert.deepEqual(activities, [reservation('review', 'claimed', '2026-09-30T09:05:00Z'), refund, completed] satisfies CreditActivity[]);
   assert.deepEqual(
     activities.map((activity) => activity.id),
-    ['refund', 'completed'],
+    ['review', 'refund', 'completed'],
   );
 });
