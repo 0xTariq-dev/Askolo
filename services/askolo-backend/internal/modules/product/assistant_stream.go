@@ -24,7 +24,10 @@ type assistantPlannerStreamChunk struct {
 		} `json:"delta"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     int64 `json:"prompt_tokens"`
+		PromptTokens        int64 `json:"prompt_tokens"`
+		PromptTokensDetails struct {
+			CachedTokens int64 `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 		CompletionTokens int64 `json:"completion_tokens"`
 	} `json:"usage"`
 }
@@ -68,8 +71,12 @@ func readAssistantPlannerStream(
 		}
 		if chunk.Usage != nil {
 			plan.InputTokens = chunk.Usage.PromptTokens
+			plan.CachedInputTokens = chunk.Usage.PromptTokensDetails.CachedTokens
 			plan.OutputTokens = chunk.Usage.CompletionTokens
-			plan.UsageValid = chunk.Usage.PromptTokens > 0 && chunk.Usage.CompletionTokens > 0
+			plan.UsageValid = chunk.Usage.PromptTokens > 0 &&
+				chunk.Usage.PromptTokensDetails.CachedTokens >= 0 &&
+				chunk.Usage.PromptTokensDetails.CachedTokens <= chunk.Usage.PromptTokens &&
+				chunk.Usage.CompletionTokens > 0
 		}
 		if len(chunk.Choices) != 1 {
 			continue
@@ -99,6 +106,7 @@ func readAssistantPlannerStream(
 	decoded.ProviderModel = plan.ProviderModel
 	decoded.ProviderRequestID = plan.ProviderRequestID
 	decoded.InputTokens = plan.InputTokens
+	decoded.CachedInputTokens = plan.CachedInputTokens
 	decoded.OutputTokens = plan.OutputTokens
 	decoded.UsageValid = plan.UsageValid
 	if decoded.ProviderModel != assistantPlannerModel {

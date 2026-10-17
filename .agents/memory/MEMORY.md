@@ -76,6 +76,7 @@
 - [AssemblyAI standalone TTS limit](assemblyai-tts-limit.md) — AssemblyAI speech output is part of its full Voice Agent API, not a standalone way to read existing text.
 - [Assistant tool registry contract](assistant-tool-registry.md) — keep planner arguments registry-driven and transform them into the existing persisted confirmation format before any write.
 - [Azure assistant speech privacy](azure-assistant-speech-output.md) — Azure semi-live replies complement AssemblyAI live mode and require independent consent and owner-scoped stored responses.
+- [AI credit coverage](ai-credit-coverage.md) — every paid AI operation, including tool-backed email work and Azure speech, must consume the user's balance with provider-appropriate metering.
 - [Askolo planning model](askolo-planning-model.md) — Task and Habit are distinct; chores are labels, recurrence expands on demand, and provider events keep account/calendar ownership.
 - [Postgres local-time strings](postgres-local-time-strings.md) — SQL `time` columns scanned as strings may include seconds even when API input uses minute precision.
 - [PostgreSQL text and varchar parameters](postgres-text-varchar-params.md) — cast repeated parameters explicitly in `INSERT … SELECT` statements when target and comparison columns mix `text` and `varchar`.

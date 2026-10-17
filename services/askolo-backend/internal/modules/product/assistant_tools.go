@@ -369,6 +369,7 @@ func prepareAssistantPlanOutcome(plan assistantModelPlan, registry *assistantToo
 		ProviderModel:     plan.ProviderModel,
 		ProviderRequestID: plan.ProviderRequestID,
 		InputTokens:       plan.InputTokens,
+		CachedInputTokens: plan.CachedInputTokens,
 		OutputTokens:      plan.OutputTokens,
 	}
 	switch plan.Intent {

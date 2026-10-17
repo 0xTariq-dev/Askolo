@@ -21,13 +21,14 @@ const (
 )
 
 type USDRateCard struct {
-	Provider                  string `json:"provider"`
-	Mode                      string `json:"mode"`
-	Model                     string `json:"model"`
-	Meter                     string `json:"meter"`
-	UsdMicrosPerHour          int64  `json:"usdMicrosPerHour,omitempty"`
-	InputUsdMicrosPerMillion  int64  `json:"inputUsdMicrosPerMillion,omitempty"`
-	OutputUsdMicrosPerMillion int64  `json:"outputUsdMicrosPerMillion,omitempty"`
+	Provider                       string `json:"provider"`
+	Mode                           string `json:"mode"`
+	Model                          string `json:"model"`
+	Meter                          string `json:"meter"`
+	UsdMicrosPerHour               int64  `json:"usdMicrosPerHour,omitempty"`
+	InputUsdMicrosPerMillion       int64  `json:"inputUsdMicrosPerMillion,omitempty"`
+	CachedInputUsdMicrosPerMillion int64  `json:"cachedInputUsdMicrosPerMillion,omitempty"`
+	OutputUsdMicrosPerMillion      int64  `json:"outputUsdMicrosPerMillion,omitempty"`
 }
 type USDPolicy struct {
 	Version               int                    `json:"version"`
@@ -66,6 +67,7 @@ type USDReservation struct {
 	UsageUnit         string      `json:"usageUnit,omitempty"`
 	UsageUnits        int64       `json:"usageUnits,omitempty"`
 	InputTokens       int64       `json:"inputTokens,omitempty"`
+	CachedInputTokens int64       `json:"cachedInputTokens,omitempty"`
 	OutputTokens      int64       `json:"outputTokens,omitempty"`
 	UsageStatus       string      `json:"usageStatus"`
 }
@@ -94,7 +96,7 @@ func validateRateCard(c USDRateCard) error {
 	if c.Meter != "hour" && c.Meter != "input_tokens" && c.Meter != "output_tokens" && c.Meter != "tokens" {
 		return errors.New("unknown USD meter")
 	}
-	for _, n := range []int64{c.UsdMicrosPerHour, c.InputUsdMicrosPerMillion, c.OutputUsdMicrosPerMillion} {
+	for _, n := range []int64{c.UsdMicrosPerHour, c.InputUsdMicrosPerMillion, c.CachedInputUsdMicrosPerMillion, c.OutputUsdMicrosPerMillion} {
 		if n < 0 || n > math.MaxInt64/2 {
 			return errors.New("USD rate overflow")
 		}
@@ -623,11 +625,11 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 			r.reserved_usd_micros,r.settled_usd_micros,r.refunded_usd_micros,
 			r.policy_version,r.expires_at,r.created_at,r.rate_snapshot,
 			COALESCE(e.usage_unit,''),COALESCE(e.usage_units,0),
-			COALESCE(e.input_tokens,0),COALESCE(e.output_tokens,0),
+			COALESCE(e.input_tokens,0),COALESCE((e.evidence->>'cachedInputTokens')::bigint,0),COALESCE(e.output_tokens,0),
 			CASE WHEN e.reservation_id IS NULL THEN 'unavailable' ELSE 'measured' END
 		FROM ai_credit_reservations r
 		LEFT JOIN LATERAL (
-			SELECT reservation_id,usage_unit,usage_units,input_tokens,output_tokens
+			SELECT reservation_id,usage_unit,usage_units,input_tokens,output_tokens,evidence
 			FROM ai_provider_usage_evidence
 			WHERE reservation_id=r.id AND user_id=r.user_id
 			ORDER BY recorded_at DESC
@@ -645,7 +647,7 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 		var operation string
 		var created time.Time
 		var rateSnapshot []byte
-		if err := rows.Scan(&r.ID, &operation, &r.Provider, &r.Mode, &r.Model, &r.Status, &r.ReservedUsdMicros, &r.SettledUsdMicros, &r.RefundedUsdMicros, &r.PolicyVersion, &r.ExpiresAt, &created, &rateSnapshot, &r.UsageUnit, &r.UsageUnits, &r.InputTokens, &r.OutputTokens, &r.UsageStatus); err != nil {
+		if err := rows.Scan(&r.ID, &operation, &r.Provider, &r.Mode, &r.Model, &r.Status, &r.ReservedUsdMicros, &r.SettledUsdMicros, &r.RefundedUsdMicros, &r.PolicyVersion, &r.ExpiresAt, &created, &rateSnapshot, &r.UsageUnit, &r.UsageUnits, &r.InputTokens, &r.CachedInputTokens, &r.OutputTokens, &r.UsageStatus); err != nil {
 			return nil, err
 		}
 		if len(rateSnapshot) > 0 && string(rateSnapshot) != "{}" {

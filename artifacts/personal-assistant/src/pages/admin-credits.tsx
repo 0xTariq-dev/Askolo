@@ -12,6 +12,7 @@ import { CInputGroup9CurrencyInput } from '@/components/examples/c-input-group-9
 import { creditApi, creditErrorMessage, formatCredits, formatCreditsInput, formatUsdMicros, formatUsdMicrosInput, newCreditIdempotencyKey, tryParseCreditsToUsdMicros, tryParseUsdMicros, type CreditPolicy, type CreditUsageResponse } from '@/lib/credit-api';
 
 const voiceAgentRateCardKey = 'assemblyai:voice_agent:managed-voice-agent';
+const openAIRateCardKey = 'openai:assistant:gpt-5.6-luna';
 
 type PolicyDrafts = {
   version: number;
@@ -26,6 +27,7 @@ type PolicyDrafts = {
 type RateCardDraft = {
   usdMicrosPerHour: string;
   inputUsdMicrosPerMillion: string;
+  cachedInputUsdMicrosPerMillion: string;
   outputUsdMicrosPerMillion: string;
 };
 
@@ -33,6 +35,7 @@ function createRateCardDraft(card: CreditPolicy['rateCards'][string]): RateCardD
   return {
     usdMicrosPerHour: card.usdMicrosPerHour == null ? '' : formatUsdMicrosInput(card.usdMicrosPerHour),
     inputUsdMicrosPerMillion: card.inputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.inputUsdMicrosPerMillion),
+    cachedInputUsdMicrosPerMillion: card.cachedInputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.cachedInputUsdMicrosPerMillion),
     outputUsdMicrosPerMillion: card.outputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.outputUsdMicrosPerMillion),
   };
 }
@@ -74,16 +77,24 @@ export function AdminCreditsPage() {
   const load = async () => { setLoading(true); try { setPolicy(await creditApi.adminPolicy()); } catch (e) { toast({ title: creditErrorMessage(e, 'USD tariff policy is unavailable'), variant: 'destructive' }); } finally { setLoading(false); } };
   useEffect(() => { void load(); }, []);
   useEffect(() => {
-    if (!policy || policy.rateCards[voiceAgentRateCardKey]) return;
-    setPolicy((current) => current && !current.rateCards[voiceAgentRateCardKey] ? {
+    if (!policy) return;
+    const missingVoiceAgent = !policy.rateCards[voiceAgentRateCardKey];
+    const missingOpenAI = !policy.rateCards[openAIRateCardKey];
+    if (!missingVoiceAgent && !missingOpenAI) return;
+    setPolicy((current) => current ? {
       ...current,
       rateCards: {
         ...current.rateCards,
-        [voiceAgentRateCardKey]: {
+        ...(missingVoiceAgent ? { [voiceAgentRateCardKey]: {
           provider: 'assemblyai', mode: 'voice_agent', model: 'managed-voice-agent',
           meter: 'hour', usdMicrosPerHour: null,
           inputUsdMicrosPerMillion: null, outputUsdMicrosPerMillion: null,
-        },
+        } } : {}),
+        ...(missingOpenAI ? { [openAIRateCardKey]: {
+          provider: 'openai', mode: 'assistant', model: 'gpt-5.6-luna', meter: 'tokens',
+          usdMicrosPerHour: null, inputUsdMicrosPerMillion: 200_000,
+          cachedInputUsdMicrosPerMillion: 20_000, outputUsdMicrosPerMillion: 1_200_000,
+        } } : {}),
       },
     } : current);
   }, [policy]);
@@ -133,7 +144,7 @@ export function AdminCreditsPage() {
         [key]: { ...current.rateCards[key], usdMicrosPerHour: value },
       },
     } : current);
-  const updateTokenRateDraft = (key: string, field: 'inputUsdMicrosPerMillion' | 'outputUsdMicrosPerMillion', value: string) =>
+  const updateTokenRateDraft = (key: string, field: 'inputUsdMicrosPerMillion' | 'cachedInputUsdMicrosPerMillion' | 'outputUsdMicrosPerMillion', value: string) =>
     setPolicyDrafts((current) => current ? {
       ...current,
       rateCards: {
@@ -163,10 +174,11 @@ export function AdminCreditsPage() {
       const populated = relevant.filter((value) => value.trim() !== '');
       if (populated.length === 0) return true;
       if (populated.length !== relevant.length) return false;
+      const cached = draft.cachedInputUsdMicrosPerMillion.trim();
       return relevant.every((value) => {
         const micros = tryParseUsdMicros(value);
         return micros !== null && micros > 0;
-      });
+      }) && (!cached || ((tryParseUsdMicros(cached) ?? 0) > 0));
     });
   const policyCurrenciesAreValid =
     signupGrantMicros !== null &&
@@ -210,7 +222,10 @@ export function AdminCreditsPage() {
       if (fields.every(([, value]) => !String(value).trim())) {
         continue;
       }
-      const parsed = fields.map(([field, value]) => [field, tryParseUsdMicros(String(value))] as const);
+       const allFields = card.meter === 'tokens' && draft.cachedInputUsdMicrosPerMillion.trim()
+         ? [...fields, ['cachedInputUsdMicrosPerMillion', draft.cachedInputUsdMicrosPerMillion]]
+         : fields;
+       const parsed = allFields.map(([field, value]) => [field, tryParseUsdMicros(String(value))] as const);
       if (parsed.some(([, micros]) => micros === null || micros <= 0)) {
         toast({
           title: 'Check the rate amount',
@@ -220,9 +235,13 @@ export function AdminCreditsPage() {
         return;
       }
       const updated = { ...card };
+      if (card.meter === 'tokens' && !draft.cachedInputUsdMicrosPerMillion.trim()) {
+        updated.cachedInputUsdMicrosPerMillion = null;
+      }
       for (const [field, micros] of parsed) {
         if (field === 'usdMicrosPerHour') updated.usdMicrosPerHour = micros;
         if (field === 'inputUsdMicrosPerMillion') updated.inputUsdMicrosPerMillion = micros;
+        if (field === 'cachedInputUsdMicrosPerMillion') updated.cachedInputUsdMicrosPerMillion = micros;
         if (field === 'outputUsdMicrosPerMillion') updated.outputUsdMicrosPerMillion = micros;
       }
       rateCards[key] = updated;
@@ -429,6 +448,21 @@ export function AdminCreditsPage() {
                           ariaInvalid={invalidRate(draft.inputUsdMicrosPerMillion)}
                           disabled={saving}
                           testId={`input-admin-rate-${index}-input`}
+                        />
+                      </div>
+                    )}
+                    {card.provider === 'openai' && (card.meter === 'input_tokens' || card.meter === 'tokens') && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`${rateId}-cached-input`}>Cached input rate per million tokens (USD)</Label>
+                        <CInputGroup9CurrencyInput
+                          id={`${rateId}-cached-input`}
+                          value={draft.cachedInputUsdMicrosPerMillion}
+                          onValueChange={(value) => updateTokenRateDraft(key, 'cachedInputUsdMicrosPerMillion', value)}
+                          placeholder="Optional; uses standard input rate when blank"
+                          ariaLabel={`${key} cached input USD per million tokens`}
+                          ariaInvalid={invalidRate(draft.cachedInputUsdMicrosPerMillion)}
+                          disabled={saving}
+                          testId={`input-admin-rate-${index}-cached-input`}
                         />
                       </div>
                     )}

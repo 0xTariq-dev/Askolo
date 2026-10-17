@@ -43,6 +43,7 @@ export type CreditEstimate = {
 export type RateCard = {
   provider: string; mode: string; model: string; meter: string;
   usdMicrosPerHour: UsdMicros | null; inputUsdMicrosPerMillion: UsdMicros | null;
+  cachedInputUsdMicrosPerMillion?: UsdMicros | null;
   outputUsdMicrosPerMillion: UsdMicros | null;
 };
 export type CreditPolicy = {

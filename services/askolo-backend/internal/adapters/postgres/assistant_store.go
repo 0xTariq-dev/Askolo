@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -93,6 +94,7 @@ type AssistantPlanOutcome struct {
 	ProviderModel        string
 	ProviderRequestID    string
 	InputTokens          int64
+	CachedInputTokens    int64
 	OutputTokens         int64
 }
 
@@ -571,15 +573,18 @@ func settleAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID string, out
 	if state != "claimed" {
 		return 0, errors.New("invalid assistant USD reservation state")
 	}
-	if model != outcome.ProviderModel || outcome.InputTokens < 0 || outcome.OutputTokens < 0 {
+	if model != outcome.ProviderModel || outcome.InputTokens < 0 || outcome.CachedInputTokens < 0 ||
+		outcome.CachedInputTokens > outcome.InputTokens || outcome.OutputTokens < 0 {
 		return 0, errors.New("assistant provider evidence mismatch")
 	}
 	var card USDRateCard
 	if json.Unmarshal(snapshot, &card) != nil || card.Meter != "tokens" || card.InputUsdMicrosPerMillion <= 0 || card.OutputUsdMicrosPerMillion <= 0 {
 		return 0, errors.New("assistant reservation rate is not token priced")
 	}
-	actual := (card.InputUsdMicrosPerMillion*outcome.InputTokens + 999999) / 1000000
-	actual += (card.OutputUsdMicrosPerMillion*outcome.OutputTokens + 999999) / 1000000
+	actual, err := assistantUSDMicroCost(card, outcome.InputTokens, outcome.CachedInputTokens, outcome.OutputTokens)
+	if err != nil {
+		return 0, err
+	}
 	if actual > reserved {
 		return 0, errors.New("assistant measured usage exceeds reservation")
 	}
@@ -590,11 +595,31 @@ func settleAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID string, out
 	if err != nil || tag.RowsAffected() != 1 {
 		return 0, ErrAssistantCreditConflict
 	}
-	evidence, _ := json.Marshal(map[string]any{"providerModel": outcome.ProviderModel, "providerRequestId": outcome.ProviderRequestID, "inputTokens": outcome.InputTokens, "outputTokens": outcome.OutputTokens})
+	evidence, _ := json.Marshal(map[string]any{"providerModel": outcome.ProviderModel, "providerRequestId": outcome.ProviderRequestID, "inputTokens": outcome.InputTokens, "cachedInputTokens": outcome.CachedInputTokens, "outputTokens": outcome.OutputTokens})
 	if _, err = tx.Exec(ctx, `INSERT INTO ai_provider_usage_evidence(reservation_id,user_id,provider,mode,model,usage_unit,input_tokens,output_tokens,provider_request_id,idempotency_key,evidence,payload) VALUES($1,$2,'openai','assistant',$3,'tokens',$4,$5,$6,$7,$8,$8) ON CONFLICT DO NOTHING`, id, userID, outcome.ProviderModel, outcome.InputTokens, outcome.OutputTokens, outcome.ProviderRequestID, id+":usage", evidence); err != nil {
 		return 0, err
 	}
 	return actual, nil
+}
+
+func assistantUSDMicroCost(card USDRateCard, inputTokens, cachedInputTokens, outputTokens int64) (int64, error) {
+	if inputTokens < 0 || cachedInputTokens < 0 || cachedInputTokens > inputTokens || outputTokens < 0 ||
+		card.InputUsdMicrosPerMillion <= 0 || card.OutputUsdMicrosPerMillion <= 0 {
+		return 0, errors.New("invalid assistant token usage")
+	}
+	cachedRate := card.CachedInputUsdMicrosPerMillion
+	if cachedRate == 0 {
+		cachedRate = card.InputUsdMicrosPerMillion
+	}
+	numerator := new(big.Int).Mul(big.NewInt(card.InputUsdMicrosPerMillion), big.NewInt(inputTokens-cachedInputTokens))
+	numerator.Add(numerator, new(big.Int).Mul(big.NewInt(cachedRate), big.NewInt(cachedInputTokens)))
+	numerator.Add(numerator, new(big.Int).Mul(big.NewInt(card.OutputUsdMicrosPerMillion), big.NewInt(outputTokens)))
+	numerator.Add(numerator, big.NewInt(999999))
+	actual := numerator.Div(numerator, big.NewInt(1000000))
+	if !actual.IsInt64() {
+		return 0, errors.New("assistant usage cost overflow")
+	}
+	return actual.Int64(), nil
 }
 
 func releaseAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID, key string) error {

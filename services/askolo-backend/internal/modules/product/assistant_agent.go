@@ -54,6 +54,7 @@ type assistantModelPlan struct {
 	ProviderModel     string              `json:"-"`
 	ProviderRequestID string              `json:"-"`
 	InputTokens       int64               `json:"-"`
+	CachedInputTokens int64               `json:"-"`
 	OutputTokens      int64               `json:"-"`
 	UsageValid        bool                `json:"-"`
 }
@@ -246,7 +247,10 @@ func (p *openAIAssistantPlanner) plan(
 		Model string `json:"model"`
 		ID    string `json:"id"`
 		Usage struct {
-			PromptTokens     int64 `json:"prompt_tokens"`
+			PromptTokens        int64 `json:"prompt_tokens"`
+			PromptTokensDetails struct {
+				CachedTokens int64 `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 			CompletionTokens int64 `json:"completion_tokens"`
 		} `json:"usage"`
 		Choices []struct {
@@ -266,8 +270,12 @@ func (p *openAIAssistantPlanner) plan(
 	plan.ProviderModel = envelope.Model
 	plan.ProviderRequestID = envelope.ID
 	plan.InputTokens = envelope.Usage.PromptTokens
+	plan.CachedInputTokens = envelope.Usage.PromptTokensDetails.CachedTokens
 	plan.OutputTokens = envelope.Usage.CompletionTokens
-	plan.UsageValid = envelope.Usage.PromptTokens > 0 && envelope.Usage.CompletionTokens > 0
+	plan.UsageValid = envelope.Usage.PromptTokens > 0 &&
+		envelope.Usage.PromptTokensDetails.CachedTokens >= 0 &&
+		envelope.Usage.PromptTokensDetails.CachedTokens <= envelope.Usage.PromptTokens &&
+		envelope.Usage.CompletionTokens > 0
 	if plan.ProviderModel != assistantPlannerModel {
 		return plan, errors.New("assistant provider model mismatch")
 	}

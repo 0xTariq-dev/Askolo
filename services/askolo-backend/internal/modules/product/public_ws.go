@@ -456,6 +456,7 @@ func (h *Handler) RunAssistant(
 			outcome.ProviderModel = plan.ProviderModel
 			outcome.ProviderRequestID = plan.ProviderRequestID
 			outcome.InputTokens = plan.InputTokens
+			outcome.CachedInputTokens = plan.CachedInputTokens
 			outcome.OutputTokens = plan.OutputTokens
 		}
 		finishAssistantPlanning(h, userID, run.ID, outcome)
@@ -472,7 +473,7 @@ func (h *Handler) RunAssistant(
 			AuditEvent:    "provider_failed",
 			Settle:        plan.UsageValid && plan.ProviderModel == assistantPlannerModel,
 			ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
-			InputTokens: plan.InputTokens, OutputTokens: plan.OutputTokens,
+			InputTokens: plan.InputTokens, CachedInputTokens: plan.CachedInputTokens, OutputTokens: plan.OutputTokens,
 		}
 		if _, finishErr := h.store.FinishAssistantPlanning(context.Background(), userID, run.ID, outcome); finishErr != nil {
 			return nil, h.assistantPublicErrorAt("finish_failed_run", finishErr)
