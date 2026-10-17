@@ -55,6 +55,29 @@ export type CreditPolicy = {
   rolloverExpiryDays: number; overrunMarginPercent: number;
   changeReason?: string; createdBy?: string; createdAt?: string;
 };
+export type CreditUserPolicyOverride = {
+  userId: string;
+  monthlyGrantsEnabled: boolean | null;
+  monthlyGrantUsdMicros: UsdMicros | null;
+  rolloverCapUsdMicros: UsdMicros | null;
+  updatedBy?: string;
+  reason?: string;
+  updatedAt?: string;
+};
+export type CreditAdminAlert = {
+  alertKey: string;
+  alertType: string;
+  userId?: string | null;
+  details: Record<string, unknown>;
+  createdAt: string;
+};
+export type MonthlyGrantPreview = {
+  windowDays: number;
+  dueCount: number;
+  issuableCount: number;
+  deferredCount: number;
+  skippedCount: number;
+};
 export type AdminAdjustmentInput = { userId: string; amountUsdMicros: UsdMicros; reason: string; idempotencyKey: string };
 export type CreditReceiptDetails = {
   reservationId: string; reservedUsdMicros: UsdMicros; settledUsdMicros: UsdMicros;
@@ -82,11 +105,17 @@ export const creditApi = {
   usage: () => request<CreditUsageResponse>('/api/ai/credits/usage'),
   estimate: (pricingKey: 'voice.recorded' | 'voice.realtime' | 'voice.agent' | 'assistant' | 'assistant.speech', units: number) => request<CreditEstimate>(`/api/ai/credits/estimate?pricingKey=${encodeURIComponent(pricingKey)}&units=${Math.max(0, Math.trunc(units))}`),
   adminPolicy: () => request<CreditPolicy>('/api/admin/ai-credit-policy'),
+  adminUserPolicyOverride: (userId: string) => request<CreditUserPolicyOverride>(`/api/admin/ai-credit-user-overrides/${encodeURIComponent(userId)}`),
+  updateAdminUserPolicyOverride: (userId: string, input: Omit<CreditUserPolicyOverride, 'userId' | 'updatedBy' | 'updatedAt'> & { reason: string }) => request<CreditUserPolicyOverride>(`/api/admin/ai-credit-user-overrides/${encodeURIComponent(userId)}`, { method: 'PUT', body: JSON.stringify(input) }),
+  adminGrantAlerts: () => request<{ alerts: CreditAdminAlert[] }>('/api/admin/ai-credit-grant-alerts'),
+  adminMonthlyGrantPreview: () => request<MonthlyGrantPreview>('/api/admin/ai-credit-monthly-grants/preview'),
+  acknowledgeAdminGrantAlert: (alertKey: string) => request<{ status: string }>(`/api/admin/ai-credit-grant-alerts/${encodeURIComponent(alertKey)}/acknowledge`, { method: 'POST' }),
   updateAdminPolicy: (policy: Pick<CreditPolicy, 'rateCards' | 'signupGrantUsdMicros' | 'monthlyGrantUsdMicros' | 'monthlyGrantsEnabled' | 'rolloverCapUsdMicros' | 'rolloverExpiryDays' | 'overrunMarginPercent'>, expectedVersion: number, changeReason: string) => request<CreditPolicy>('/api/admin/ai-credit-policy', { method: 'PATCH', body: JSON.stringify({ ...policy, expectedVersion, changeReason }) }),
   adminAdjustment: (input: AdminAdjustmentInput) => request<CreditUsage>('/api/admin/ai-credit-adjustments', { method: 'POST', body: JSON.stringify(input) }),
   adminReverseAdjustment: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-adjustments/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),
   adminReverseGrant: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-grants/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),
   adminRefundReservation: (id: string, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<{ status: string; reason: string }>(`/api/admin/ai-credit-reservations/${encodeURIComponent(id)}/refund`, { method: 'POST', body: JSON.stringify(input) }),
+  resolveAdminPendingUsage: (id: string, input: { userId: string; decision: 'settle' | 'release'; reason: string; idempotencyKey: string }) => request<{ status: string; decision: string }>(`/api/admin/ai-credit-reservations/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(input) }),
   adminUsage: (userId: string) => request<CreditUsageResponse>(`/api/admin/ai-credit-usage/${encodeURIComponent(userId)}`),
 };
 

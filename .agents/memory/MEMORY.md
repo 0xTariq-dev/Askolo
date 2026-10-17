@@ -14,6 +14,7 @@
 - [USD form draft handling](usd-form-draft-handling.md) — preserve money inputs as editable text; strictly validate drafts and convert to integer microunits only at API boundaries.
 - [Credit-unit presentation](credit-unit-presentation.md) — show grants and balances as credits; keep provider rates and operation estimates/receipts in USD without disclosing the conversion.
 - [Signup welcome-credit atomicity](signup-welcome-credit-atomicity.md) — grant only at verified signup and commit the ledger entry with its balance change under one stable per-user key.
+- [Monthly AI credit grants](monthly-ai-credit-grants.md) — keep signup-anchored 30-day cycles, avoid backfilling earlier cycles, and preserve the global enable switch as the master gate.
 - [Lazy credit expiry](lazy-credit-expiry.md) — expire abandoned reservations during the next atomic reservation instead of polling the database process-wide.
 - [AssemblyAI endpoint split](assemblyai-endpoints.md) — use HTTPS for temporary-token REST calls and a separate WSS URL for streaming sessions.
 - [AssemblyAI agent list pagination](assemblyai-agent-list-pagination.md) — the live list endpoint may return an envelope despite docs showing an array; verify pagination before provisioning.

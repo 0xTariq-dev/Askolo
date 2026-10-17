@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +86,8 @@ type USDEvidence struct {
 
 var ErrUSDPolicyChanged = errors.New("USD policy version conflict")
 var ErrUSDReservationConflict = errors.New("USD reservation idempotency conflict")
+var ErrUSDReservationNotFound = errors.New("USD reservation not found")
+var ErrUSDReservationReviewRequired = errors.New("USD reservation is not pending review")
 
 func equalJSON(a, b []byte) bool {
 	var left, right any
@@ -527,6 +530,141 @@ func (s *Store) RefundUSDReservation(ctx context.Context, id, userID, actor, key
 	return tx.Commit(ctx)
 }
 
+func (s *Store) ResolvePendingUSDReservation(
+	ctx context.Context,
+	id, userID, actor, key, reason, decision string,
+	actual int64,
+) error {
+	if s == nil || s.pool == nil {
+		return errors.New("database is not configured")
+	}
+	id, userID, actor, key, reason = strings.TrimSpace(id), strings.TrimSpace(userID), strings.TrimSpace(actor), strings.TrimSpace(key), strings.TrimSpace(reason)
+	if id == "" || userID == "" || actor == "" || key == "" || len(key) > 200 ||
+		reason == "" || len(reason) > 160 ||
+		(decision != "settle" && decision != "release") ||
+		(decision == "settle" && actual <= 0) || (decision == "release" && actual != 0) {
+		return errors.New("invalid pending USD usage resolution")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var reserved int64
+	var state, provider, mode string
+	if err := tx.QueryRow(ctx, `
+		SELECT reserved_usd_micros,status,provider,mode FROM ai_credit_reservations
+		WHERE id=$1 AND user_id=$2 AND currency='USD' FOR UPDATE
+	`, id, userID).Scan(&reserved, &state, &provider, &mode); err != nil {
+		return err
+	}
+	var priorAmount int64
+	var priorDetails []byte
+	err = tx.QueryRow(ctx, `
+		SELECT amount_usd_micros,details FROM ai_credit_reservation_events
+		WHERE reservation_id=$1 AND event_type='review_resolved' AND idempotency_key=$2
+	`, id, key+":review").Scan(&priorAmount, &priorDetails)
+	if err == nil {
+		var prior struct {
+			Actor    string `json:"actorUserId"`
+			Decision string `json:"decision"`
+			Reason   string `json:"reason"`
+		}
+		_ = json.Unmarshal(priorDetails, &prior)
+		if prior.Actor == actor && prior.Decision == decision && prior.Reason == reason && priorAmount == actual {
+			return nil
+		}
+		return ErrUSDReservationConflict
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if state != "claimed" || (decision == "settle" && actual > reserved) {
+		return ErrUSDReservationReviewRequired
+	}
+	var hasPendingReview bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM ai_provider_usage_evidence
+		  WHERE reservation_id=$1 AND user_id=$2 AND evidence->>'reviewStatus'='pending'
+		)
+	`, id, userID).Scan(&hasPendingReview); err != nil {
+		return err
+	}
+	if !hasPendingReview && !(decision == "release" && provider == "azure" && mode == "assistant_speech") {
+		return ErrUSDReservationReviewRequired
+	}
+	eventType := "released"
+	eventAmount := reserved
+	if decision == "settle" {
+		eventType = "settled"
+		eventAmount = actual
+		tag, err := tx.Exec(ctx, `
+			UPDATE ai_credit_accounts
+			SET reserved_usd_micros=reserved_usd_micros-$2,
+			    spent_usd_micros=spent_usd_micros+$3, updated_at=NOW()
+			WHERE user_id=$1 AND reserved_usd_micros >= $2
+		`, userID, reserved, actual)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return errors.New("pending usage account balance conflict")
+		}
+		tag, err = tx.Exec(ctx, `
+			UPDATE ai_credit_reservations
+			SET status='settled', settled_usd_micros=$2,
+			    refunded_usd_micros=reserved_usd_micros-$2, closed_at=NOW(), updated_at=NOW()
+			WHERE id=$1 AND status='claimed'
+		`, id, actual)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return errors.New("pending usage reservation state conflict")
+		}
+	} else {
+		tag, err := tx.Exec(ctx, `
+			UPDATE ai_credit_accounts
+			SET reserved_usd_micros=reserved_usd_micros-$2, updated_at=NOW()
+			WHERE user_id=$1 AND reserved_usd_micros >= $2
+		`, userID, reserved)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return errors.New("pending usage account balance conflict")
+		}
+		tag, err = tx.Exec(ctx, `
+			UPDATE ai_credit_reservations
+			SET status='released', refunded_usd_micros=reserved_usd_micros,
+			    closed_at=NOW(), updated_at=NOW()
+			WHERE id=$1 AND status='claimed'
+		`, id)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return errors.New("pending usage reservation state conflict")
+		}
+	}
+	details, _ := json.Marshal(map[string]string{"actorUserId": actor, "reason": reason})
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,currency,amount_usd_micros,idempotency_key,details)
+		VALUES ($1,$2,$3,'USD',$4,$5,$6)
+	`, id, userID, eventType, eventAmount, key+":"+decision, details); err != nil {
+		return err
+	}
+	reviewDetails, _ := json.Marshal(map[string]string{"actorUserId": actor, "decision": decision, "reason": reason})
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_credit_reservation_events(reservation_id,user_id,event_type,currency,amount_usd_micros,idempotency_key,details)
+		VALUES ($1,$2,'review_resolved','USD',$3,$4,$5)
+	`, id, userID, actual, key+":review", reviewDetails); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) ReverseUSDAdjustment(ctx context.Context, target, actor string, entryID int64, key, reason string) error {
 	if s == nil || s.pool == nil {
 		return errors.New("database is not configured")
@@ -731,6 +869,507 @@ END
 	return map[string]any{"reservations": reservations, "events": events, "adjustments": adjustments, "grants": grants}, grows.Err()
 }
 
+type MonthlyUSDGrantBatch struct {
+	Processed int
+	Issued    int
+	Deferred  int
+	Skipped   int
+}
+
+type MonthlyUSDGrantPreview struct {
+	WindowDays    int   `json:"windowDays"`
+	DueCount      int64 `json:"dueCount"`
+	IssuableCount int64 `json:"issuableCount"`
+	DeferredCount int64 `json:"deferredCount"`
+	SkippedCount  int64 `json:"skippedCount"`
+}
+
+type USDUserPolicyOverride struct {
+	UserID                string     `json:"userId"`
+	MonthlyGrantsEnabled  *bool      `json:"monthlyGrantsEnabled"`
+	MonthlyGrantUsdMicros *int64     `json:"monthlyGrantUsdMicros"`
+	RolloverCapUsdMicros  *int64     `json:"rolloverCapUsdMicros"`
+	UpdatedBy             string     `json:"updatedBy,omitempty"`
+	Reason                string     `json:"reason,omitempty"`
+	UpdatedAt             *time.Time `json:"updatedAt,omitempty"`
+}
+
+type USDAdminAlert struct {
+	AlertKey       string          `json:"alertKey"`
+	AlertType      string          `json:"alertType"`
+	UserID         *string         `json:"userId,omitempty"`
+	Details        json.RawMessage `json:"details"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	AcknowledgedAt *time.Time      `json:"acknowledgedAt,omitempty"`
+}
+
+func (s *Store) USDUserPolicyOverride(ctx context.Context, userID string) (USDUserPolicyOverride, error) {
+	override := USDUserPolicyOverride{UserID: userID}
+	if s == nil || s.pool == nil {
+		return override, errors.New("database is not configured")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return override, errors.New("user id is required")
+	}
+	var enabled sql.NullBool
+	var amount, cap sql.NullInt64
+	var updatedAt time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros,
+		       updated_by, reason, updated_at
+		FROM ai_credit_user_policy_overrides WHERE user_id=$1
+	`, userID).Scan(&enabled, &amount, &cap, &override.UpdatedBy, &override.Reason, &updatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return override, nil
+	}
+	if err != nil {
+		return USDUserPolicyOverride{}, err
+	}
+	if enabled.Valid {
+		override.MonthlyGrantsEnabled = &enabled.Bool
+	}
+	if amount.Valid {
+		override.MonthlyGrantUsdMicros = &amount.Int64
+	}
+	if cap.Valid {
+		override.RolloverCapUsdMicros = &cap.Int64
+	}
+	override.UpdatedAt = &updatedAt
+	return override, nil
+}
+
+func (s *Store) UpdateUSDUserPolicyOverride(ctx context.Context, override USDUserPolicyOverride, actor string) error {
+	if s == nil || s.pool == nil {
+		return errors.New("database is not configured")
+	}
+	override.UserID = strings.TrimSpace(override.UserID)
+	actor = strings.TrimSpace(actor)
+	override.Reason = strings.TrimSpace(override.Reason)
+	if override.UserID == "" || actor == "" || override.Reason == "" || len(override.Reason) > 160 ||
+		(override.MonthlyGrantUsdMicros != nil && (*override.MonthlyGrantUsdMicros < 0 || *override.MonthlyGrantUsdMicros > math.MaxInt64/2)) ||
+		(override.RolloverCapUsdMicros != nil && (*override.RolloverCapUsdMicros < 0 || *override.RolloverCapUsdMicros > math.MaxInt64/2)) {
+		return errors.New("invalid USD user policy override")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var lockedUser string
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, override.UserID).Scan(&lockedUser); err != nil {
+		return err
+	}
+	var oldEnabled sql.NullBool
+	var oldAmount, oldCap sql.NullInt64
+	err = tx.QueryRow(ctx, `
+		SELECT monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros
+		FROM ai_credit_user_policy_overrides WHERE user_id=$1 FOR UPDATE
+	`, override.UserID).Scan(&oldEnabled, &oldAmount, &oldCap)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	oldValues := map[string]any{}
+	if oldEnabled.Valid {
+		oldValues["monthlyGrantsEnabled"] = oldEnabled.Bool
+	}
+	if oldAmount.Valid {
+		oldValues["monthlyGrantUsdMicros"] = oldAmount.Int64
+	}
+	if oldCap.Valid {
+		oldValues["rolloverCapUsdMicros"] = oldCap.Int64
+	}
+	nextValues := map[string]any{}
+	if override.MonthlyGrantsEnabled != nil {
+		nextValues["monthlyGrantsEnabled"] = *override.MonthlyGrantsEnabled
+	}
+	if override.MonthlyGrantUsdMicros != nil {
+		nextValues["monthlyGrantUsdMicros"] = *override.MonthlyGrantUsdMicros
+	}
+	if override.RolloverCapUsdMicros != nil {
+		nextValues["rolloverCapUsdMicros"] = *override.RolloverCapUsdMicros
+	}
+	oldJSON, _ := json.Marshal(oldValues)
+	nextJSON, _ := json.Marshal(nextValues)
+	if len(nextValues) == 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM ai_credit_user_policy_overrides WHERE user_id=$1`, override.UserID); err != nil {
+			return err
+		}
+	} else if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_credit_user_policy_overrides
+			(user_id,monthly_grants_enabled,monthly_grant_usd_micros,rollover_cap_usd_micros,updated_by,reason,updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,NOW())
+		ON CONFLICT (user_id) DO UPDATE SET
+			monthly_grants_enabled=EXCLUDED.monthly_grants_enabled,
+			monthly_grant_usd_micros=EXCLUDED.monthly_grant_usd_micros,
+			rollover_cap_usd_micros=EXCLUDED.rollover_cap_usd_micros,
+			updated_by=EXCLUDED.updated_by, reason=EXCLUDED.reason, updated_at=NOW()
+	`, override.UserID, override.MonthlyGrantsEnabled, override.MonthlyGrantUsdMicros, override.RolloverCapUsdMicros, actor, override.Reason); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_credit_user_policy_override_events(user_id,actor_user_id,reason,previous_values,next_values)
+		VALUES ($1,$2,$3,$4,$5)
+	`, override.UserID, actor, override.Reason, oldJSON, nextJSON); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) ListUSDAdminAlerts(ctx context.Context, limit int) ([]USDAdminAlert, error) {
+	if s == nil || s.pool == nil {
+		return nil, errors.New("database is not configured")
+	}
+	if limit < 1 || limit > 200 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT alert_key, alert_type, user_id, details, created_at, acknowledged_at
+		FROM ai_credit_admin_alerts
+		WHERE acknowledged_at IS NULL
+		ORDER BY created_at DESC LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	alerts := make([]USDAdminAlert, 0)
+	for rows.Next() {
+		var alert USDAdminAlert
+		if err := rows.Scan(&alert.AlertKey, &alert.AlertType, &alert.UserID, &alert.Details, &alert.CreatedAt, &alert.AcknowledgedAt); err != nil {
+			return nil, err
+		}
+		alerts = append(alerts, alert)
+	}
+	return alerts, rows.Err()
+}
+
+func (s *Store) USDReservationForUser(ctx context.Context, id, userID string) (USDReservation, error) {
+	var reservation USDReservation
+	if s == nil || s.pool == nil {
+		return reservation, errors.New("database is not configured")
+	}
+	var operation string
+	var created time.Time
+	var snapshot []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT r.id,r.operation_type,r.provider,r.mode,COALESCE(r.model,''),r.status,
+		       r.reserved_usd_micros,r.settled_usd_micros,r.refunded_usd_micros,
+		       r.policy_version,r.expires_at,r.created_at,r.rate_snapshot,
+		       COALESCE(e.usage_unit,''),COALESCE(e.usage_units,0),
+		       COALESCE(e.input_tokens,0),COALESCE((e.evidence->>'cachedInputTokens')::bigint,0),
+		       COALESCE(e.output_tokens,0),
+		       CASE WHEN r.status='claimed' THEN 'pending_review'
+		            WHEN e.reservation_id IS NULL THEN 'unavailable' ELSE 'measured' END
+		FROM ai_credit_reservations r
+		LEFT JOIN LATERAL (
+		  SELECT reservation_id,usage_unit,usage_units,input_tokens,output_tokens,evidence
+		  FROM ai_provider_usage_evidence
+		  WHERE reservation_id=r.id AND user_id=r.user_id
+		  ORDER BY recorded_at DESC LIMIT 1
+		) e ON true
+		WHERE r.id=$1 AND r.user_id=$2 AND r.currency='USD'
+	`, id, userID).Scan(
+		&reservation.ID, &operation, &reservation.Provider, &reservation.Mode, &reservation.Model,
+		&reservation.Status, &reservation.ReservedUsdMicros, &reservation.SettledUsdMicros,
+		&reservation.RefundedUsdMicros, &reservation.PolicyVersion, &reservation.ExpiresAt,
+		&created, &snapshot, &reservation.UsageUnit, &reservation.UsageUnits,
+		&reservation.InputTokens, &reservation.CachedInputTokens, &reservation.OutputTokens,
+		&reservation.UsageStatus,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return USDReservation{}, ErrUSDReservationNotFound
+	}
+	if err != nil {
+		return USDReservation{}, err
+	}
+	if len(snapshot) > 0 && string(snapshot) != "{}" {
+		if err := json.Unmarshal(snapshot, &reservation.RateCard); err != nil {
+			return USDReservation{}, fmt.Errorf("decode USD receipt rate snapshot: %w", err)
+		}
+	}
+	reservation.OperationType = operation
+	reservation.CreatedAt = &created
+	return reservation, nil
+}
+
+func (s *Store) AcknowledgeUSDAdminAlert(ctx context.Context, alertKey, actor string) (bool, error) {
+	if s == nil || s.pool == nil {
+		return false, errors.New("database is not configured")
+	}
+	alertKey = strings.TrimSpace(alertKey)
+	actor = strings.TrimSpace(actor)
+	if alertKey == "" || len(alertKey) > 240 || actor == "" {
+		return false, errors.New("invalid AI credit alert")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE ai_credit_admin_alerts SET acknowledged_at=NOW(),acknowledged_by=$2
+		WHERE alert_key=$1 AND acknowledged_at IS NULL
+	`, alertKey, actor)
+	return tag.RowsAffected() == 1, err
+}
+
+const monthlyUSDGrantInterval = 30 * 24 * time.Hour
+
+func nextMonthlyUSDGrantCycle(scheduledAt, now time.Time) time.Time {
+	next := scheduledAt.Add(monthlyUSDGrantInterval)
+	if next.After(now) {
+		return next
+	}
+	cycles := now.Sub(scheduledAt)/monthlyUSDGrantInterval + 1
+	return scheduledAt.Add(cycles * monthlyUSDGrantInterval)
+}
+
+// ProcessDueMonthlyUSDGrants issues one cycle per due account. A cap-blocked
+// cycle remains anchored to its original signup date and is retried later.
+func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, limit int) (MonthlyUSDGrantBatch, error) {
+	var result MonthlyUSDGrantBatch
+	if s == nil || s.pool == nil {
+		return result, errors.New("database is not configured")
+	}
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	now = now.UTC()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Seed each verified account at its next signup-anchored 30-day boundary;
+	// never issue historical cycles when the scheduler is first enabled.
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ai_credit_monthly_grant_schedules(user_id, next_cycle_at)
+		SELECT u.id,
+		       u.created_at + (
+		         floor(extract(epoch FROM ($1::timestamptz - u.created_at)) / 2592000.0)::bigint + 1
+		       ) * interval '30 days'
+		FROM users u
+		WHERE u.email_verified_at IS NOT NULL AND COALESCE(u.status,'active') <> 'deleted'
+		ON CONFLICT (user_id) DO NOTHING
+	`, now)
+	if err != nil {
+		return result, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT s.user_id, s.next_cycle_at,
+		       p.version, p.monthly_grants_enabled AND COALESCE(o.monthly_grants_enabled, true),
+		       COALESCE(o.monthly_grant_usd_micros, p.monthly_grant_usd_micros),
+		       COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros)
+		FROM ai_credit_monthly_grant_schedules s
+		JOIN users u ON u.id=s.user_id AND COALESCE(u.status,'active') <> 'deleted'
+		CROSS JOIN LATERAL (
+		  SELECT version, monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros
+		  FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1
+		) p
+		LEFT JOIN ai_credit_user_policy_overrides o ON o.user_id=s.user_id
+		WHERE COALESCE(s.retry_at, s.next_cycle_at) <= $1
+		ORDER BY COALESCE(s.retry_at, s.next_cycle_at), s.user_id
+		LIMIT $2
+		FOR UPDATE OF s SKIP LOCKED
+	`, now, limit)
+	if err != nil {
+		return result, err
+	}
+	type dueCycle struct {
+		userID    string
+		scheduled time.Time
+		version   int
+		enabled   bool
+		amount    int64
+		cap       int64
+	}
+	due := make([]dueCycle, 0, limit)
+	for rows.Next() {
+		var cycle dueCycle
+		if err := rows.Scan(&cycle.userID, &cycle.scheduled, &cycle.version, &cycle.enabled, &cycle.amount, &cycle.cap); err != nil {
+			rows.Close()
+			return result, err
+		}
+		due = append(due, cycle)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return result, err
+	}
+	rows.Close()
+
+	for _, cycle := range due {
+		result.Processed++
+		if !cycle.enabled || cycle.amount == 0 {
+			status := "skipped_disabled"
+			if cycle.enabled {
+				status = "skipped_zero_amount"
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO ai_credit_monthly_grant_cycles(user_id, scheduled_at, policy_version, status)
+				VALUES ($1,$2,$3,$4)
+				ON CONFLICT (user_id, scheduled_at) DO UPDATE
+				SET policy_version=EXCLUDED.policy_version, status=EXCLUDED.status,
+				    amount_usd_micros=0, grant_id=NULL, retry_count=0, updated_at=$5
+			`, cycle.userID, cycle.scheduled, cycle.version, status, now); err != nil {
+				return result, err
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE ai_credit_monthly_grant_schedules
+				SET next_cycle_at=$2, retry_at=NULL, updated_at=$3
+				WHERE user_id=$1
+			`, cycle.userID, nextMonthlyUSDGrantCycle(cycle.scheduled, now), now); err != nil {
+				return result, err
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE ai_credit_admin_alerts
+				SET acknowledged_at=$3
+				WHERE user_id=$1 AND alert_type='monthly_grant_deferred'
+				  AND details->>'scheduledAt'=$2 AND acknowledged_at IS NULL
+			`, cycle.userID, cycle.scheduled.UTC().Format(time.RFC3339Nano), now); err != nil {
+				return result, err
+			}
+			result.Skipped++
+			continue
+		}
+
+		if _, err := tx.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id) VALUES($1) ON CONFLICT DO NOTHING`, cycle.userID); err != nil {
+			return result, err
+		}
+		var balance int64
+		if err := tx.QueryRow(ctx, `
+			SELECT granted_usd_micros+adjustment_usd_micros-spent_usd_micros+refunded_usd_micros
+			FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE
+		`, cycle.userID).Scan(&balance); err != nil {
+			return result, err
+		}
+		if cycle.cap <= 0 || balance >= cycle.cap || cycle.amount > cycle.cap-balance {
+			alertKey := fmt.Sprintf("monthly-grant-cap:%s:%s:%d", cycle.userID, cycle.scheduled.UTC().Format("20060102T150405Z"), cycle.version)
+			details, _ := json.Marshal(map[string]any{
+				"scheduledAt":           cycle.scheduled.UTC(),
+				"balanceUsdMicros":      balance,
+				"monthlyGrantUsdMicros": cycle.amount,
+				"rolloverCapUsdMicros":  cycle.cap,
+				"policyVersion":         cycle.version,
+			})
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO ai_credit_monthly_grant_cycles(user_id, scheduled_at, policy_version, status, amount_usd_micros, retry_count)
+				VALUES ($1,$2,$3,'deferred_cap',$4,1)
+				ON CONFLICT (user_id, scheduled_at) DO UPDATE
+				SET policy_version=EXCLUDED.policy_version, status='deferred_cap',
+				    amount_usd_micros=EXCLUDED.amount_usd_micros,
+				    retry_count=ai_credit_monthly_grant_cycles.retry_count+1,
+				    updated_at=EXCLUDED.updated_at
+			`, cycle.userID, cycle.scheduled, cycle.version, cycle.amount); err != nil {
+				return result, err
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO ai_credit_admin_alerts(alert_key, alert_type, user_id, details)
+				VALUES ($1,'monthly_grant_deferred',$2,$3)
+				ON CONFLICT (alert_key) DO NOTHING
+			`, alertKey, cycle.userID, details); err != nil {
+				return result, err
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE ai_credit_monthly_grant_schedules
+				SET retry_at=$2, updated_at=$3 WHERE user_id=$1
+			`, cycle.userID, now.Add(24*time.Hour), now); err != nil {
+				return result, err
+			}
+			result.Deferred++
+			continue
+		}
+
+		grantKey := fmt.Sprintf("monthly-usd-v1:%s:%s", cycle.userID, cycle.scheduled.UTC().Format("20060102T150405Z"))
+		metadata, _ := json.Marshal(map[string]any{
+			"grantType":     "monthly_recurring",
+			"scheduledAt":   cycle.scheduled.UTC(),
+			"policyVersion": cycle.version,
+		})
+		var grantID int64
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO ai_credit_grants
+				(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros)
+			VALUES ($1,'monthly',1,$2,$2,$3,NULL,'Monthly recurring credit','USD',$4)
+			RETURNING id
+		`, cycle.userID, grantKey, metadata, cycle.amount).Scan(&grantID); err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ai_credit_accounts SET granted_usd_micros=granted_usd_micros+$2, updated_at=$3
+			WHERE user_id=$1
+		`, cycle.userID, cycle.amount, now); err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO ai_credit_monthly_grant_cycles(user_id,scheduled_at,policy_version,status,amount_usd_micros,grant_id)
+			VALUES ($1,$2,$3,'issued',$4,$5)
+			ON CONFLICT (user_id,scheduled_at) DO UPDATE
+			SET policy_version=EXCLUDED.policy_version, status='issued',
+			    amount_usd_micros=EXCLUDED.amount_usd_micros, grant_id=EXCLUDED.grant_id,
+			    updated_at=$6
+		`, cycle.userID, cycle.scheduled, cycle.version, cycle.amount, grantID, now); err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ai_credit_monthly_grant_schedules
+			SET next_cycle_at=$2,retry_at=NULL,updated_at=$3
+			WHERE user_id=$1
+		`, cycle.userID, cycle.scheduled.Add(monthlyUSDGrantInterval), now); err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ai_credit_admin_alerts
+			SET acknowledged_at=$3
+			WHERE user_id=$1 AND alert_type='monthly_grant_deferred'
+			  AND details->>'scheduledAt'=$2 AND acknowledged_at IS NULL
+		`, cycle.userID, cycle.scheduled.UTC().Format(time.RFC3339Nano), now); err != nil {
+			return result, err
+		}
+		result.Issued++
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return MonthlyUSDGrantBatch{}, err
+	}
+	return result, nil
+}
+
+func (s *Store) PreviewMonthlyUSDGrants(ctx context.Context, now time.Time) (MonthlyUSDGrantPreview, error) {
+	preview := MonthlyUSDGrantPreview{WindowDays: 30}
+	if s == nil || s.pool == nil {
+		return preview, errors.New("database is not configured")
+	}
+	now = now.UTC()
+	err := s.pool.QueryRow(ctx, `
+		WITH policy AS (
+		  SELECT version, monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros
+		  FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1
+		), candidates AS (
+		  SELECT COALESCE(s.retry_at, s.next_cycle_at,
+		           u.created_at + (
+		             floor(extract(epoch FROM ($1::timestamptz-u.created_at)) / 2592000.0)::bigint + 1
+		           ) * interval '30 days') AS due_at,
+		         p.monthly_grants_enabled AND COALESCE(o.monthly_grants_enabled, true) AS enabled,
+		         COALESCE(o.monthly_grant_usd_micros, p.monthly_grant_usd_micros) AS grant_amount,
+		         COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros) AS rollover_cap,
+		         COALESCE(a.granted_usd_micros+a.adjustment_usd_micros-a.spent_usd_micros+a.refunded_usd_micros, 0) AS balance
+		  FROM users u
+		  CROSS JOIN policy p
+		  LEFT JOIN ai_credit_monthly_grant_schedules s ON s.user_id=u.id
+		  LEFT JOIN ai_credit_user_policy_overrides o ON o.user_id=u.id
+		  LEFT JOIN ai_credit_accounts a ON a.user_id=u.id
+		  WHERE u.email_verified_at IS NOT NULL AND COALESCE(u.status,'active') <> 'deleted'
+		), due AS (
+		  SELECT * FROM candidates WHERE due_at <= $1::timestamptz + interval '30 days'
+		)
+		SELECT count(*),
+		       count(*) FILTER (WHERE enabled AND grant_amount > 0 AND rollover_cap > 0
+		         AND balance < rollover_cap AND grant_amount <= rollover_cap-balance),
+		       count(*) FILTER (WHERE enabled AND grant_amount > 0
+		         AND (rollover_cap <= 0 OR balance >= rollover_cap OR grant_amount > rollover_cap-balance)),
+		       count(*) FILTER (WHERE NOT enabled OR grant_amount = 0)
+		FROM due
+	`, now).Scan(&preview.DueCount, &preview.IssuableCount, &preview.DeferredCount, &preview.SkippedCount)
+	return preview, err
+}
+
 // RecordUSDEvidence stores provider metering metadata only. Payload must not
 // contain transcripts, prompts, audio, or other user content.
 func validateUSDUsageEvidence(evidence USDEvidence) error {
@@ -747,9 +1386,29 @@ func validateUSDUsageEvidence(evidence USDEvidence) error {
 	if json.Unmarshal(evidence.Payload, &fields) != nil {
 		return errors.New("usage payload must be a JSON object")
 	}
-	for field := range fields {
-		if field != "providerRequestId" && field != "usageUnit" && field != "usageUnits" &&
-			field != "durationMs" && field != "inputTokens" && field != "outputTokens" && field != "meterSource" {
+	for field, raw := range fields {
+		switch field {
+		case "providerRequestId", "usageUnit", "meterSource":
+			var value string
+			if json.Unmarshal(raw, &value) != nil || len(value) > 200 {
+				return errors.New("invalid usage metadata")
+			}
+		case "usageUnits", "durationMs", "inputTokens", "outputTokens":
+			var value int64
+			if json.Unmarshal(raw, &value) != nil || value < 0 {
+				return errors.New("invalid usage metadata")
+			}
+		case "reviewStatus":
+			var value string
+			if json.Unmarshal(raw, &value) != nil || value != "pending" {
+				return errors.New("invalid usage review status")
+			}
+		case "outputStatus":
+			var value string
+			if json.Unmarshal(raw, &value) != nil || value != "unavailable" {
+				return errors.New("invalid usage output status")
+			}
+		default:
 			return errors.New("usage payload contains non-metering data")
 		}
 	}

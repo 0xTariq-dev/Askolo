@@ -513,7 +513,13 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/ai-credit-adjustments/{id}/reverse", h.adminReverseAdjustment)
 	mux.HandleFunc("POST /api/admin/ai-credit-grants/{id}/reverse", h.adminReverseGrant)
 	mux.HandleFunc("POST /api/admin/ai-credit-reservations/{id}/refund", h.adminRefundReservation)
+	mux.HandleFunc("POST /api/admin/ai-credit-reservations/{id}/resolve", h.adminResolvePendingUsage)
 	mux.HandleFunc("GET /api/admin/ai-credit-usage/{userId}", h.adminCreditUsage)
+	mux.HandleFunc("GET /api/admin/ai-credit-user-overrides/{userId}", h.adminCreditUserOverride)
+	mux.HandleFunc("PUT /api/admin/ai-credit-user-overrides/{userId}", h.adminCreditUserOverride)
+	mux.HandleFunc("GET /api/admin/ai-credit-grant-alerts", h.adminCreditGrantAlerts)
+	mux.HandleFunc("POST /api/admin/ai-credit-grant-alerts/{alertKey}/acknowledge", h.acknowledgeAdminCreditGrantAlert)
+	mux.HandleFunc("GET /api/admin/ai-credit-monthly-grants/preview", h.adminMonthlyGrantPreview)
 	mux.HandleFunc("GET /api/ai/transcription-preferences", h.transcriptionPreferences)
 	mux.HandleFunc("PATCH /api/ai/transcription-preferences", h.updateTranscriptionPreferences)
 	mux.HandleFunc("GET /api/ai/privacy-preferences", h.aiPrivacyPreferences)
@@ -1050,6 +1056,107 @@ func (h *Handler) adminCreditUsage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) adminCreditUserOverride(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	userID := strings.TrimSpace(r.PathValue("userId"))
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_USER", "A valid user is required.")
+		return
+	}
+	if r.Method == http.MethodGet {
+		override, err := h.store.USDUserPolicyOverride(r.Context(), userID)
+		if err != nil {
+			h.storeError(w, "AI user policy override lookup failed", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, override)
+		return
+	}
+	var input struct {
+		MonthlyGrantsEnabled *bool  `json:"monthlyGrantsEnabled"`
+		MonthlyGrant         *int64 `json:"monthlyGrantUsdMicros"`
+		RolloverCap          *int64 `json:"rolloverCapUsdMicros"`
+		Reason               string `json:"reason"`
+	}
+	if !decodeBody(w, r, &input) {
+		return
+	}
+	if strings.TrimSpace(input.Reason) == "" || len(strings.TrimSpace(input.Reason)) > 160 {
+		writeError(w, http.StatusBadRequest, "INVALID_USER_POLICY_OVERRIDE", "A reason is required to save this override.")
+		return
+	}
+	override := postgres.USDUserPolicyOverride{
+		UserID:                userID,
+		MonthlyGrantsEnabled:  input.MonthlyGrantsEnabled,
+		MonthlyGrantUsdMicros: input.MonthlyGrant,
+		RolloverCapUsdMicros:  input.RolloverCap,
+		Reason:                strings.TrimSpace(input.Reason),
+	}
+	if err := h.store.UpdateUSDUserPolicyOverride(r.Context(), override, actor); err != nil {
+		if strings.Contains(err.Error(), "invalid USD user policy override") {
+			writeError(w, http.StatusBadRequest, "INVALID_USER_POLICY_OVERRIDE", "The override values are invalid.")
+			return
+		}
+		h.storeError(w, "AI user policy override update failed", err)
+		return
+	}
+	updated, err := h.store.USDUserPolicyOverride(r.Context(), userID)
+	if err != nil {
+		h.storeError(w, "AI user policy override lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handler) adminCreditGrantAlerts(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireCreditAdmin(w, r); !ok {
+		return
+	}
+	alerts, err := h.store.ListUSDAdminAlerts(r.Context(), 100)
+	if err != nil {
+		h.storeError(w, "AI credit alert lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"alerts": alerts})
+}
+
+func (h *Handler) adminMonthlyGrantPreview(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireCreditAdmin(w, r); !ok {
+		return
+	}
+	preview, err := h.store.PreviewMonthlyUSDGrants(r.Context(), time.Now().UTC())
+	if err != nil {
+		h.storeError(w, "monthly AI grant preview failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (h *Handler) acknowledgeAdminCreditGrantAlert(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	alertKey := strings.TrimSpace(r.PathValue("alertKey"))
+	acknowledged, err := h.store.AcknowledgeUSDAdminAlert(r.Context(), alertKey, actor)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid AI credit alert") {
+			writeError(w, http.StatusBadRequest, "INVALID_CREDIT_ALERT", "A valid alert is required.")
+			return
+		}
+		h.storeError(w, "AI credit alert acknowledgement failed", err)
+		return
+	}
+	if !acknowledged {
+		writeError(w, http.StatusNotFound, "CREDIT_ALERT_NOT_FOUND", "This alert is no longer active.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "acknowledged"})
+}
+
 func (h *Handler) isCreditAdmin(r *http.Request, userID string) bool {
 	if userID == "" || len(h.adminEmails) == 0 {
 		return false
@@ -1266,6 +1373,72 @@ func (h *Handler) adminRefundReservation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "refunded", "reason": input.Reason})
+}
+
+func (h *Handler) adminResolvePendingUsage(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	var input struct {
+		UserID         string `json:"userId"`
+		Decision       string `json:"decision"`
+		Reason         string `json:"reason"`
+		IdempotencyKey string `json:"idempotencyKey"`
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_RESERVATION", "A valid reservation is required.")
+		return
+	}
+	if !decodeBody(w, r, &input) {
+		return
+	}
+	input.UserID = strings.TrimSpace(input.UserID)
+	input.Decision = strings.TrimSpace(input.Decision)
+	input.Reason = strings.TrimSpace(input.Reason)
+	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
+	if input.UserID == "" || (input.Decision != "settle" && input.Decision != "release") ||
+		input.Reason == "" || len(input.Reason) > 160 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 200 {
+		writeError(w, http.StatusBadRequest, "INVALID_USAGE_REVIEW", "A valid pending usage decision and reason are required.")
+		return
+	}
+	reservation, err := h.store.USDReservationForUser(r.Context(), id, input.UserID)
+	if errors.Is(err, postgres.ErrUSDReservationNotFound) {
+		writeError(w, http.StatusNotFound, "RESERVATION_NOT_FOUND", "The credit reservation was not found.")
+		return
+	}
+	if err != nil {
+		h.storeError(w, "pending usage lookup failed", err)
+		return
+	}
+	if reservation.Status != "claimed" || reservation.Provider != "azure" || reservation.Mode != "assistant_speech" ||
+		(input.Decision == "settle" && (reservation.UsageStatus != "pending_review" || reservation.UsageUnit != "characters" || reservation.UsageUnits <= 0)) {
+		writeError(w, http.StatusConflict, "USAGE_NOT_PENDING_REVIEW", "This reservation is not eligible for pending usage review.")
+		return
+	}
+	actual := int64(0)
+	if input.Decision == "settle" {
+		actual, err = assistantSpeechUSDMicroCost(reservation.RateCard, reservation.UsageUnits)
+		if err != nil || actual > reservation.ReservedUsdMicros {
+			writeError(w, http.StatusConflict, "USAGE_NOT_PRICABLE", "The pending usage cannot be settled using its saved rate.")
+			return
+		}
+	}
+	if err := h.store.ResolvePendingUSDReservation(
+		r.Context(), id, input.UserID, actor, input.IdempotencyKey, input.Reason, input.Decision, actual,
+	); err != nil {
+		switch {
+		case errors.Is(err, postgres.ErrUSDReservationConflict), errors.Is(err, postgres.ErrUSDReservationReviewRequired):
+			writeError(w, http.StatusConflict, "USAGE_REVIEW_CONFLICT", "This pending usage changed before the review was completed.")
+		case strings.Contains(err.Error(), "invalid pending USD usage resolution"):
+			writeError(w, http.StatusBadRequest, "INVALID_USAGE_REVIEW", "The usage review values are invalid.")
+		default:
+			h.storeError(w, "pending usage resolution failed", err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "resolved", "decision": input.Decision})
 }
 
 func usdEstimateRateCardKey(pricingKey string) (string, bool) {

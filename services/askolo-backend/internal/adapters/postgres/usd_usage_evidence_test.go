@@ -24,6 +24,20 @@ func TestValidateUSDUsageEvidenceAcceptsTranscriptionAndRealtimeMetering(t *test
 				Payload: json.RawMessage(`{"meterSource":"server_elapsed"}`),
 			},
 		},
+		{
+			name: "Azure usage awaiting admin review",
+			evidence: USDEvidence{
+				UsageUnit: "characters", UsageUnits: 87,
+				Payload: json.RawMessage(`{"meterSource":"azure_text_characters","reviewStatus":"pending"}`),
+			},
+		},
+		{
+			name: "billable output unavailable",
+			evidence: USDEvidence{
+				UsageUnit: "characters", UsageUnits: 87,
+				Payload: json.RawMessage(`{"meterSource":"azure_text_characters","outputStatus":"unavailable"}`),
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -32,6 +46,16 @@ func TestValidateUSDUsageEvidenceAcceptsTranscriptionAndRealtimeMetering(t *test
 				t.Fatalf("expected valid usage evidence, got %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateUSDUsageEvidenceRejectsUnknownReviewMetadata(t *testing.T) {
+	evidence := USDEvidence{
+		UsageUnit: "characters", UsageUnits: 87,
+		Payload: json.RawMessage(`{"reviewStatus":"approved"}`),
+	}
+	if err := validateUSDUsageEvidence(evidence); err == nil {
+		t.Fatal("expected unknown review status to be rejected")
 	}
 }
 

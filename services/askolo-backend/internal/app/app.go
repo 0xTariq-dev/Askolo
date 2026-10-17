@@ -23,6 +23,8 @@ const (
 	idleTimeout                     = 60 * time.Second
 	emailChallengeCleanupInterval   = 15 * time.Minute
 	emailChallengeCleanupQueryLimit = 2 * time.Second
+	monthlyUSDGrantInterval         = time.Hour
+	monthlyUSDGrantBatchSize        = 100
 )
 
 type App struct {
@@ -143,10 +145,13 @@ func (a *App) Run(ctx context.Context) error {
 			a.runHomeEmailSummarySync(cleanupContext)
 		}
 	}()
+	monthlyGrantDone := make(chan struct{})
+	go a.runMonthlyUSDGrantScheduler(cleanupContext, monthlyGrantDone)
 	defer func() {
 		cancelCleanup()
 		<-cleanupDone
 		<-homeSyncDone
+		<-monthlyGrantDone
 	}()
 
 	go func() {
@@ -170,6 +175,58 @@ func (a *App) Run(ctx context.Context) error {
 		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		return a.shutdown(shutdownContext)
+	}
+}
+
+func (a *App) runMonthlyUSDGrantScheduler(ctx context.Context, done chan<- struct{}) {
+	defer close(done)
+	if a.store == nil {
+		return
+	}
+	consecutiveFailures := 0
+	runBatch := func() {
+		queryContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+		result, err := a.store.ProcessDueMonthlyUSDGrants(queryContext, time.Now().UTC(), monthlyUSDGrantBatchSize)
+		cancel()
+		if err != nil {
+			consecutiveFailures++
+			if ctx.Err() == nil {
+				a.logger.Warn("monthly AI grant processing failed",
+					"operation", "monthly_ai_grants",
+					"consecutive_failures", consecutiveFailures,
+					"alert", consecutiveFailures >= 3,
+					"error_type", fmt.Sprintf("%T", err),
+				)
+			}
+			return
+		}
+		if consecutiveFailures > 0 {
+			a.logger.Info("monthly AI grant processing recovered",
+				"operation", "monthly_ai_grants",
+				"previous_consecutive_failures", consecutiveFailures,
+			)
+			consecutiveFailures = 0
+		}
+		if result.Processed > 0 {
+			a.logger.Info("monthly AI grant batch completed",
+				"operation", "monthly_ai_grants",
+				"processed", result.Processed,
+				"issued", result.Issued,
+				"deferred", result.Deferred,
+				"skipped", result.Skipped,
+			)
+		}
+	}
+	runBatch()
+	ticker := time.NewTicker(monthlyUSDGrantInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runBatch()
+		}
 	}
 }
 

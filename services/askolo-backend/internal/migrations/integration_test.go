@@ -260,6 +260,9 @@ func TestOperationalReadinessIncludesTheHomeProjectionSchema(t *testing.T) {
 	if err := ValidateOperationalReady(ctx, pool); err != nil {
 		t.Fatalf("operational readiness for active schema: %v", err)
 	}
+	if err := Run(ctx, pool); err != nil {
+		t.Fatalf("apply remaining migrations after active prefix: %v", err)
+	}
 	if err := ValidateReady(ctx, pool); err != nil {
 		t.Fatalf("full readiness after active migration prefix: %v", err)
 	}
