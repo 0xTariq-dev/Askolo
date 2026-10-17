@@ -18,10 +18,24 @@ type PolicyDrafts = {
   signupGrant: string;
   monthlyGrant: string;
   rolloverCap: string;
-  rateCards: Record<string, string>;
+  rateCards: Record<string, RateCardDraft>;
   rolloverExpiryDays: number;
   overrunMarginPercent: number;
 };
+
+type RateCardDraft = {
+  usdMicrosPerHour: string;
+  inputUsdMicrosPerMillion: string;
+  outputUsdMicrosPerMillion: string;
+};
+
+function createRateCardDraft(card: CreditPolicy['rateCards'][string]): RateCardDraft {
+  return {
+    usdMicrosPerHour: card.usdMicrosPerHour == null ? '' : formatUsdMicrosInput(card.usdMicrosPerHour),
+    inputUsdMicrosPerMillion: card.inputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.inputUsdMicrosPerMillion),
+    outputUsdMicrosPerMillion: card.outputUsdMicrosPerMillion == null ? '' : formatUsdMicrosInput(card.outputUsdMicrosPerMillion),
+  };
+}
 
 function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null): PolicyDrafts {
   if (current?.version === policy.version) {
@@ -30,11 +44,7 @@ function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null):
       rateCards: Object.fromEntries(
         Object.entries(policy.rateCards).map(([key, card]) => [
           key,
-          current.rateCards[key] ?? (
-            card.usdMicrosPerHour == null
-              ? ''
-              : formatUsdMicrosInput(card.usdMicrosPerHour)
-          ),
+          { ...createRateCardDraft(card), ...current.rateCards[key] },
         ]),
       ),
     };
@@ -48,9 +58,7 @@ function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null):
     rateCards: Object.fromEntries(
       Object.entries(policy.rateCards).map(([key, card]) => [
         key,
-        card.usdMicrosPerHour == null
-          ? ''
-          : formatUsdMicrosInput(card.usdMicrosPerHour),
+        createRateCardDraft(card),
       ]),
     ),
     rolloverExpiryDays: policy.rolloverExpiryDays,
@@ -120,7 +128,18 @@ export function AdminCreditsPage() {
   const updateRateDraft = (key: string, value: string) =>
     setPolicyDrafts((current) => current ? {
       ...current,
-      rateCards: { ...current.rateCards, [key]: value },
+      rateCards: {
+        ...current.rateCards,
+        [key]: { ...current.rateCards[key], usdMicrosPerHour: value },
+      },
+    } : current);
+  const updateTokenRateDraft = (key: string, field: 'inputUsdMicrosPerMillion' | 'outputUsdMicrosPerMillion', value: string) =>
+    setPolicyDrafts((current) => current ? {
+      ...current,
+      rateCards: {
+        ...current.rateCards,
+        [key]: { ...current.rateCards[key], [field]: value },
+      },
     } : current);
   const monthlyGrantMicros = policyDrafts
     ? tryParseCreditsToUsdMicros(policyDrafts.monthlyGrant)
@@ -132,11 +151,22 @@ export function AdminCreditsPage() {
     ? tryParseCreditsToUsdMicros(policyDrafts.rolloverCap)
     : null;
   const rateDraftsAreValid = Boolean(policy && policyDrafts) &&
-    Object.entries(policy?.rateCards ?? {}).every(([key]) => {
-      const draft = policyDrafts?.rateCards[key] ?? '';
-      if (!draft.trim()) return true;
-      const micros = tryParseUsdMicros(draft);
-      return micros !== null && micros >= 0;
+    Object.entries(policy?.rateCards ?? {}).every(([key, card]) => {
+      const draft = policyDrafts?.rateCards[key] ?? createRateCardDraft(card);
+      const relevant = card.meter === 'hour'
+        ? [draft.usdMicrosPerHour]
+        : card.meter === 'input_tokens'
+          ? [draft.inputUsdMicrosPerMillion]
+          : card.meter === 'output_tokens'
+            ? [draft.outputUsdMicrosPerMillion]
+            : [draft.inputUsdMicrosPerMillion, draft.outputUsdMicrosPerMillion];
+      const populated = relevant.filter((value) => value.trim() !== '');
+      if (populated.length === 0) return true;
+      if (populated.length !== relevant.length) return false;
+      return relevant.every((value) => {
+        const micros = tryParseUsdMicros(value);
+        return micros !== null && micros > 0;
+      });
     });
   const policyCurrenciesAreValid =
     signupGrantMicros !== null &&
@@ -169,21 +199,33 @@ export function AdminCreditsPage() {
     }
     const rateCards: CreditPolicy['rateCards'] = {};
     for (const [key, card] of Object.entries(policy.rateCards)) {
-      const draft = policyDrafts.rateCards[key] ?? '';
-      if (!draft.trim()) {
-        rateCards[key] = { ...card, usdMicrosPerHour: null };
+      const draft = policyDrafts.rateCards[key] ?? createRateCardDraft(card);
+      const fields = card.meter === 'hour'
+        ? [['usdMicrosPerHour', draft.usdMicrosPerHour]]
+        : card.meter === 'input_tokens'
+          ? [['inputUsdMicrosPerMillion', draft.inputUsdMicrosPerMillion]]
+          : card.meter === 'output_tokens'
+            ? [['outputUsdMicrosPerMillion', draft.outputUsdMicrosPerMillion]]
+            : [['inputUsdMicrosPerMillion', draft.inputUsdMicrosPerMillion], ['outputUsdMicrosPerMillion', draft.outputUsdMicrosPerMillion]];
+      if (fields.every(([, value]) => !String(value).trim())) {
         continue;
       }
-      const micros = tryParseUsdMicros(draft);
-      if (micros === null || micros < 0) {
+      const parsed = fields.map(([field, value]) => [field, tryParseUsdMicros(String(value))] as const);
+      if (parsed.some(([, micros]) => micros === null || micros <= 0)) {
         toast({
-            title: 'Check the rate amount',
-            description: 'Enter a non-negative USD rate with no more than six decimal places.',
+          title: 'Check the rate amount',
+          description: 'Enter each required USD rate with no more than six decimal places.',
           variant: 'destructive',
         });
         return;
       }
-      rateCards[key] = { ...card, usdMicrosPerHour: micros };
+      const updated = { ...card };
+      for (const [field, micros] of parsed) {
+        if (field === 'usdMicrosPerHour') updated.usdMicrosPerHour = micros;
+        if (field === 'inputUsdMicrosPerMillion') updated.inputUsdMicrosPerMillion = micros;
+        if (field === 'outputUsdMicrosPerMillion') updated.outputUsdMicrosPerMillion = micros;
+      }
+      rateCards[key] = updated;
     }
 
     setSaving(true);
@@ -345,13 +387,10 @@ export function AdminCreditsPage() {
 
             <div className="space-y-2">
               {Object.entries(policy.rateCards).map(([key, card], index) => {
-                const draft = policyDrafts.rateCards[key] ?? '';
-                const rateMicros = draft.trim()
-                  ? tryParseUsdMicros(draft)
-                  : null;
-                const invalidRate =
-                  draft.trim() !== '' &&
-                  (rateMicros === null || rateMicros < 0);
+                const draft = policyDrafts.rateCards[key] ?? createRateCardDraft(card);
+                const invalidRate = (value: string) =>
+                  value.trim() !== '' &&
+                  ((tryParseUsdMicros(value) ?? 0) <= 0);
                 const rateId = `admin-rate-${index}`;
 
                 return (
@@ -363,17 +402,51 @@ export function AdminCreditsPage() {
                       {card.provider} · {card.mode} · {card.model}
                     </p>
                     <p className="text-sm text-muted-foreground">{card.meter}</p>
-                    <Label htmlFor={rateId}>Rate per hour (USD)</Label>
-                    <CInputGroup9CurrencyInput
-                      id={rateId}
-                      value={draft}
-                      onValueChange={(value) => updateRateDraft(key, value)}
-                      placeholder="Not configured"
-                      ariaLabel={`${key} USD per hour`}
-                      ariaInvalid={invalidRate}
-                      disabled={saving}
-                      testId={`input-admin-rate-${index}`}
-                    />
+                    {(card.meter === 'hour') && (
+                      <>
+                        <Label htmlFor={rateId}>Rate per hour (USD)</Label>
+                        <CInputGroup9CurrencyInput
+                          id={rateId}
+                          value={draft.usdMicrosPerHour}
+                          onValueChange={(value) => updateRateDraft(key, value)}
+                          placeholder="Not configured"
+                          ariaLabel={`${key} USD per hour`}
+                          ariaInvalid={invalidRate(draft.usdMicrosPerHour)}
+                          disabled={saving}
+                          testId={`input-admin-rate-${index}`}
+                        />
+                      </>
+                    )}
+                    {(card.meter === 'input_tokens' || card.meter === 'tokens') && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`${rateId}-input`}>Input rate per million tokens (USD)</Label>
+                        <CInputGroup9CurrencyInput
+                          id={`${rateId}-input`}
+                          value={draft.inputUsdMicrosPerMillion}
+                          onValueChange={(value) => updateTokenRateDraft(key, 'inputUsdMicrosPerMillion', value)}
+                          placeholder="Not configured"
+                          ariaLabel={`${key} input USD per million tokens`}
+                          ariaInvalid={invalidRate(draft.inputUsdMicrosPerMillion)}
+                          disabled={saving}
+                          testId={`input-admin-rate-${index}-input`}
+                        />
+                      </div>
+                    )}
+                    {(card.meter === 'output_tokens' || card.meter === 'tokens') && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`${rateId}-output`}>Output rate per million tokens (USD)</Label>
+                        <CInputGroup9CurrencyInput
+                          id={`${rateId}-output`}
+                          value={draft.outputUsdMicrosPerMillion}
+                          onValueChange={(value) => updateTokenRateDraft(key, 'outputUsdMicrosPerMillion', value)}
+                          placeholder="Not configured"
+                          ariaLabel={`${key} output USD per million tokens`}
+                          ariaInvalid={invalidRate(draft.outputUsdMicrosPerMillion)}
+                          disabled={saving}
+                          testId={`input-admin-rate-${index}-output`}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
