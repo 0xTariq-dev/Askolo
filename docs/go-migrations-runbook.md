@@ -25,7 +25,8 @@ and validated on PostgreSQL 16.10, so `-adopt-existing` accepts PostgreSQL
 16.x only.
 
 The normal `-target development` command applies only the active migration
-prefix through `0015`; it does not apply the staged `0016` redesign. The
+prefix through `0027`. That prefix is advanced only after its migrations pass
+the disposable PostgreSQL migration and restore checks. The
 Development-only `-reconcile-operational-fingerprint` option is a separate,
 explicitly approved operation for the verified `heliumdb` PostgreSQL 16
 Development database. It requires the dedicated migration URL and
@@ -82,13 +83,10 @@ edited applied migrations, and serializes operators with an advisory lock.
 Every migration and its history row commit in one transaction. A failed
 migration is visible and leaves no history row.
 
-In development and staging, `/readyz` checks the active API migration prefix
-through version `0015`, with matching names, checksums, and the current schema
-fingerprint. The draft `public_v2` migration (`0016`) does not gate API
-readiness until that schema is promoted into application use. Full
-`ValidateReady` checks still cover the complete embedded set, including both
-schemas, in disposable migration validation; do not apply the draft to an
-application database. Replit-managed production instead uses a read-only
+In Development, `/readyz` checks the active API migration prefix through
+version `0027`, with matching names, checksums, and the current schema
+fingerprint. Full `ValidateReady` checks still cover the complete embedded
+set, including both schemas, in disposable migration validation. Replit-managed production instead uses a read-only
 schema inventory and required assistant seed-data check; it does not require
 the Go runner ledger. That compatibility check is not proof that Publish
 transfers migration DML or ledger rows. The selected check is reported in

@@ -231,5 +231,5 @@ A calendar event uses `kind: calendar_event`, its own event ID, and nullable sou
 | Plans | Personal/shared visibility, admin share controls, linked entries, assignment from a Plan updates the Task, and no copied task state. |
 | Agenda | Tasks, generated occurrences, Plan scheduling, and provider events appear with distinct kinds and stable source IDs. |
 | Reminders | CRUD leaves every rule pending automation; no dispatch or active state is possible. |
-| Compatibility | Existing stable routes and active migration prefix remain unchanged; V2 staged migration applies only in disposable PostgreSQL tests. |
+| Compatibility | Existing stable routes remain compatible; advancing the active migration prefix requires disposable PostgreSQL validation and Development identity verification. |
 | Abuse and errors | Body/range/list caps, strict JSON and query validation, parameterized SQL, timeouts, safe error responses, and no task/event content in logs. |

@@ -1290,7 +1290,8 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		FROM ai_credit_monthly_grant_schedules s
 		JOIN users u ON u.id=s.user_id AND COALESCE(u.status,'active') <> 'deleted'
 		CROSS JOIN LATERAL (
-		  SELECT version, monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros
+		  SELECT version, monthly_grants_enabled, monthly_grant_usd_micros,
+		         rollover_cap_usd_micros, rollover_expiry_days
 		  FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1
 		) p
 		LEFT JOIN ai_credit_user_policy_overrides o ON o.user_id=s.user_id
