@@ -21,6 +21,71 @@ const (
 	signupWelcomeUSDGrantReason = "Signup welcome credit"
 )
 
+func reserveExpiringUSDGrantAllocations(ctx context.Context, tx pgx.Tx, reservationID, userID string, amount int64) error {
+	rows, err := tx.Query(ctx, `
+		SELECT g.id, g.amount_usd_micros-COALESCE(SUM(al.settled_usd_micros),0)-
+		       COALESCE(SUM(CASE WHEN r.status IN ('reserved','claimed')
+		                         THEN al.reserved_usd_micros-al.settled_usd_micros ELSE 0 END),0) AS available
+		FROM ai_credit_grants g
+		LEFT JOIN ai_credit_grant_allocations al ON al.grant_id=g.id
+		LEFT JOIN ai_credit_reservations r ON r.id=al.reservation_id
+		WHERE g.user_id=$1 AND g.currency='USD' AND g.expires_at>NOW()
+		GROUP BY g.id,g.amount_usd_micros,g.expires_at
+		HAVING g.amount_usd_micros-COALESCE(SUM(al.settled_usd_micros),0)-
+		       COALESCE(SUM(CASE WHEN r.status IN ('reserved','claimed')
+		                         THEN al.reserved_usd_micros-al.settled_usd_micros ELSE 0 END),0)>0
+		ORDER BY g.expires_at,g.id
+	`, userID)
+	if err != nil {
+		return err
+	}
+	type lot struct{ id, available int64 }
+	lots := make([]lot, 0)
+	for rows.Next() {
+		var item lot
+		if err := rows.Scan(&item.id, &item.available); err != nil {
+			rows.Close()
+			return err
+		}
+		lots = append(lots, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, item := range lots {
+		allocated := min(amount, item.available)
+		if allocated > 0 {
+			if _, err := tx.Exec(ctx, `INSERT INTO ai_credit_grant_allocations(reservation_id,grant_id,reserved_usd_micros) VALUES($1,$2,$3)`, reservationID, item.id, allocated); err != nil {
+				return err
+			}
+			amount -= allocated
+			if amount == 0 {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func settleUSDGrantAllocations(ctx context.Context, tx pgx.Tx, reservationID string, actual int64) error {
+	_, err := tx.Exec(ctx, `
+		WITH ranked AS (
+		  SELECT al.reservation_id,al.grant_id,al.reserved_usd_micros,al.settled_usd_micros,
+		         COALESCE(SUM(al.reserved_usd_micros-al.settled_usd_micros) OVER (
+		           ORDER BY g.expires_at,g.id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS prior
+		  FROM ai_credit_grant_allocations al JOIN ai_credit_grants g ON g.id=al.grant_id
+		  WHERE al.reservation_id=$1
+		)
+		UPDATE ai_credit_grant_allocations al
+		SET settled_usd_micros=al.settled_usd_micros+
+		    LEAST(al.reserved_usd_micros-al.settled_usd_micros,GREATEST($2-ranked.prior,0))
+		FROM ranked WHERE al.reservation_id=ranked.reservation_id AND al.grant_id=ranked.grant_id
+	`, reservationID, actual)
+	return err
+}
+
 type USDRateCard struct {
 	Provider                       string `json:"provider"`
 	Mode                           string `json:"mode"`
@@ -181,7 +246,11 @@ func (s *Store) USDUsage(ctx context.Context, userID string) (USDUsage, error) {
 	if s == nil || s.pool == nil {
 		return u, errors.New("database is not configured")
 	}
-	err := s.pool.QueryRow(ctx, `SELECT granted_usd_micros,adjustment_usd_micros,reserved_usd_micros,spent_usd_micros,refunded_usd_micros,granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros FROM ai_credit_accounts WHERE user_id=$1`, userID).Scan(&u.GrantedUsdMicros, &u.AdjustmentsUsdMicros, &u.ReservedUsdMicros, &u.SpentUsdMicros, &u.RefundedUsdMicros, &u.BalanceUsdMicros)
+	err := s.pool.QueryRow(ctx, `
+		SELECT a.granted_usd_micros,a.adjustment_usd_micros,a.reserved_usd_micros,
+		       a.spent_usd_micros,a.refunded_usd_micros,ai_credit_unexpired_balance(a.user_id)
+		FROM ai_credit_accounts a WHERE a.user_id=$1
+	`, userID).Scan(&u.GrantedUsdMicros, &u.AdjustmentsUsdMicros, &u.ReservedUsdMicros, &u.SpentUsdMicros, &u.RefundedUsdMicros, &u.BalanceUsdMicros)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, nil
 	}
@@ -201,7 +270,8 @@ func grantSignupWelcomeUSDTx(ctx context.Context, tx pgx.Tx, userID string) erro
 	}
 
 	var amount int64
-	if err := tx.QueryRow(ctx, `SELECT signup_grant_usd_micros FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&amount); err != nil {
+	var expiryDays int
+	if err := tx.QueryRow(ctx, `SELECT signup_grant_usd_micros,rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&amount, &expiryDays); err != nil {
 		return err
 	}
 	if amount <= 0 {
@@ -230,9 +300,9 @@ func grantSignupWelcomeUSDTx(ctx context.Context, tx pgx.Tx, userID string) erro
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO ai_credit_grants
 			(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,
-			 actor_user_id,reason,currency,amount_usd_micros)
-		VALUES ($1,'signup',1,$2,$2,$3,NULL,$4,'USD',$5)
-	`, userID, signupWelcomeUSDGrantKey, metadata, signupWelcomeUSDGrantReason, amount); err != nil {
+			 actor_user_id,reason,currency,amount_usd_micros,expires_at)
+		VALUES ($1,'signup',1,$2,$2,$3,NULL,$4,'USD',$5,NOW()+($6 * interval '1 day'))
+	`, userID, signupWelcomeUSDGrantKey, metadata, signupWelcomeUSDGrantReason, amount, expiryDays); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -294,7 +364,7 @@ func (s *Store) ReserveUSD(ctx context.Context, id, userID, operation, provider,
 		return r, false, err
 	}
 	var balance int64
-	if err = tx.QueryRow(ctx, `SELECT granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&balance); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT ai_credit_unexpired_balance(user_id) FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&balance); err != nil {
 		return r, false, err
 	}
 	// Recheck idempotency only after the account lock, preserving serialized
@@ -311,6 +381,54 @@ func (s *Store) ReserveUSD(ctx context.Context, id, userID, operation, provider,
 	}
 	if balance < amount {
 		return r, false, nil
+	}
+	// Reserve expiring grant value first, in earliest-expiry order. The portion
+	// not covered by these lots remains backed by legacy/non-expiring credits.
+	lotRows, err := tx.Query(ctx, `
+		SELECT g.id, g.amount_usd_micros-COALESCE(SUM(al.settled_usd_micros),0)-
+		       COALESCE(SUM(CASE WHEN r.status IN ('reserved','claimed')
+		                         THEN al.reserved_usd_micros-al.settled_usd_micros ELSE 0 END),0) AS available
+		FROM ai_credit_grants g
+		LEFT JOIN ai_credit_grant_allocations al ON al.grant_id=g.id
+		LEFT JOIN ai_credit_reservations r ON r.id=al.reservation_id
+		WHERE g.user_id=$1 AND g.currency='USD' AND g.expires_at>NOW()
+		GROUP BY g.id,g.amount_usd_micros,g.expires_at
+		HAVING g.amount_usd_micros-COALESCE(SUM(al.settled_usd_micros),0)-
+		       COALESCE(SUM(CASE WHEN r.status IN ('reserved','claimed')
+		                         THEN al.reserved_usd_micros-al.settled_usd_micros ELSE 0 END),0)>0
+		ORDER BY g.expires_at,g.id
+	`, userID)
+	if err != nil {
+		return r, false, err
+	}
+	type grantLot struct{ id, available int64 }
+	lots := make([]grantLot, 0)
+	for lotRows.Next() {
+		var lot grantLot
+		if err := lotRows.Scan(&lot.id, &lot.available); err != nil {
+			lotRows.Close()
+			return r, false, err
+		}
+		lots = append(lots, lot)
+	}
+	if err := lotRows.Err(); err != nil {
+		lotRows.Close()
+		return r, false, err
+	}
+	lotRows.Close()
+	remainingToAllocate := amount
+	for _, lot := range lots {
+		allocated := min(remainingToAllocate, lot.available)
+		if allocated == 0 {
+			continue
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_grant_allocations(reservation_id,grant_id,reserved_usd_micros) VALUES($1,$2,$3)`, id, lot.id, allocated); err != nil {
+			return r, false, err
+		}
+		remainingToAllocate -= allocated
+		if remainingToAllocate == 0 {
+			break
+		}
 	}
 	expires := time.Now().UTC().Add(time.Duration(ttl) * time.Second)
 	if _, err = tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros+$2,updated_at=NOW() WHERE user_id=$1`, userID, amount); err != nil {
@@ -363,6 +481,9 @@ func (s *Store) SettleUSDReservation(ctx context.Context, id, userID, key string
 	}
 	if state != "claimed" || actual > reserved {
 		return errors.New("invalid USD reservation state")
+	}
+	if err = settleUSDGrantAllocations(ctx, tx, id, actual); err != nil {
+		return err
 	}
 	if _, err = tx.Exec(ctx, `SELECT id FROM ai_credit_reservations WHERE user_id=$1 AND currency='USD' AND status='reserved' AND expires_at<=NOW() FOR UPDATE`, userID); err != nil {
 		return err
@@ -455,14 +576,18 @@ func (s *Store) AddUSDAdjustment(ctx context.Context, target, actor string, amou
 		return err
 	}
 	var balance int64
-	if err = tx.QueryRow(ctx, `SELECT granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, target).Scan(&balance); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT ai_credit_unexpired_balance(user_id) FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, target).Scan(&balance); err != nil {
 		return err
 	}
 	if amount < 0 && balance+amount < 0 {
 		return errors.New("insufficient USD balance")
 	}
 	if amount > 0 {
-		if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_grants(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros) VALUES($1,'admin',1,$2,$2,$3,$4,$5,'USD',$6)`, target, key, meta, actor, reason, amount); err != nil {
+		var expiryDays int
+		if err = tx.QueryRow(ctx, `SELECT rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&expiryDays); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_grants(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros,expires_at) VALUES($1,'admin',1,$2,$2,$3,$4,$5,'USD',$6,NOW()+($7 * interval '1 day'))`, target, key, meta, actor, reason, amount, expiryDays); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE ai_credit_accounts SET granted_usd_micros=granted_usd_micros+$2,updated_at=NOW() WHERE user_id=$1`, target, amount); err != nil {
@@ -582,6 +707,11 @@ func (s *Store) ResolvePendingUSDReservation(
 	if state != "claimed" || (decision == "settle" && actual > reserved) {
 		return ErrUSDReservationReviewRequired
 	}
+	if decision == "settle" {
+		if err := settleUSDGrantAllocations(ctx, tx, id, actual); err != nil {
+			return err
+		}
+	}
 	var hasPendingReview bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -697,7 +827,7 @@ func (s *Store) ReverseUSDAdjustment(ctx context.Context, target, actor string, 
 	if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_adjustments(user_id,amount_credits,reason,idempotency_key,metadata,actor_user_id,reversal_of_id,currency,amount_usd_micros) VALUES($1,1,$2,$3,$4,$5,$6,'USD',$7)`, target, reason, key, meta, actor, entryID, -amount); err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET adjustment_usd_micros=adjustment_usd_micros-$2,updated_at=NOW() WHERE user_id=$1 AND adjustment_usd_micros-$2+granted_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros>=0`, target, amount)
+	tag, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET adjustment_usd_micros=adjustment_usd_micros-$2,updated_at=NOW() WHERE user_id=$1 AND ai_credit_unexpired_balance(user_id)-$2>=0`, target, amount)
 	if err != nil {
 		return err
 	}
@@ -736,7 +866,7 @@ func (s *Store) ReverseUSDGrant(ctx context.Context, target, actor string, grant
 		return err
 	}
 	var available int64
-	if err = tx.QueryRow(ctx, `SELECT granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, target).Scan(&available); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT ai_credit_unexpired_balance(user_id) FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, target).Scan(&available); err != nil {
 		return err
 	}
 	if available < amount {
@@ -1156,7 +1286,7 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		SELECT s.user_id, s.next_cycle_at,
 		       p.version, p.monthly_grants_enabled AND COALESCE(o.monthly_grants_enabled, true),
 		       COALESCE(o.monthly_grant_usd_micros, p.monthly_grant_usd_micros),
-		       COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros)
+		       COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros), p.rollover_expiry_days
 		FROM ai_credit_monthly_grant_schedules s
 		JOIN users u ON u.id=s.user_id AND COALESCE(u.status,'active') <> 'deleted'
 		CROSS JOIN LATERAL (
@@ -1173,17 +1303,18 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		return result, err
 	}
 	type dueCycle struct {
-		userID    string
-		scheduled time.Time
-		version   int
-		enabled   bool
-		amount    int64
-		cap       int64
+		userID     string
+		scheduled  time.Time
+		version    int
+		enabled    bool
+		amount     int64
+		cap        int64
+		expiryDays int
 	}
 	due := make([]dueCycle, 0, limit)
 	for rows.Next() {
 		var cycle dueCycle
-		if err := rows.Scan(&cycle.userID, &cycle.scheduled, &cycle.version, &cycle.enabled, &cycle.amount, &cycle.cap); err != nil {
+		if err := rows.Scan(&cycle.userID, &cycle.scheduled, &cycle.version, &cycle.enabled, &cycle.amount, &cycle.cap, &cycle.expiryDays); err != nil {
 			rows.Close()
 			return result, err
 		}
@@ -1235,7 +1366,7 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		}
 		var balance int64
 		if err := tx.QueryRow(ctx, `
-			SELECT granted_usd_micros+adjustment_usd_micros-spent_usd_micros+refunded_usd_micros
+			SELECT ai_credit_unexpired_balance(user_id)+reserved_usd_micros
 			FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE
 		`, cycle.userID).Scan(&balance); err != nil {
 			return result, err
@@ -1286,10 +1417,10 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		var grantID int64
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO ai_credit_grants
-				(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros)
-			VALUES ($1,'monthly',1,$2,$2,$3,NULL,'Monthly recurring credit','USD',$4)
+				(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros,expires_at)
+			VALUES ($1,'monthly',1,$2,$2,$3,NULL,'Monthly recurring credit','USD',$4,$5)
 			RETURNING id
-		`, cycle.userID, grantKey, metadata, cycle.amount).Scan(&grantID); err != nil {
+		`, cycle.userID, grantKey, metadata, cycle.amount, now.Add(time.Duration(cycle.expiryDays)*24*time.Hour)).Scan(&grantID); err != nil {
 			return result, err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -1349,7 +1480,7 @@ func (s *Store) PreviewMonthlyUSDGrants(ctx context.Context, now time.Time) (Mon
 		         p.monthly_grants_enabled AND COALESCE(o.monthly_grants_enabled, true) AS enabled,
 		         COALESCE(o.monthly_grant_usd_micros, p.monthly_grant_usd_micros) AS grant_amount,
 		         COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros) AS rollover_cap,
-		         COALESCE(a.granted_usd_micros+a.adjustment_usd_micros-a.spent_usd_micros+a.refunded_usd_micros, 0) AS balance
+		         COALESCE(ai_credit_unexpired_balance(u.id)+a.reserved_usd_micros, 0) AS balance
 		  FROM users u
 		  CROSS JOIN policy p
 		  LEFT JOIN ai_credit_monthly_grant_schedules s ON s.user_id=u.id

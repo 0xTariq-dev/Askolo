@@ -377,6 +377,61 @@ func TestTAR10USDMicroLedgerLifecycleIntegration(t *testing.T) {
 	}
 }
 
+func TestTAR10MonthlyGrantExpiryUsesFEFOAndPreservesLegacyBalance(t *testing.T) {
+	ctx, pool, store := openTAR10(t)
+	tar10User(t, ctx, pool, "expiry-user")
+	if _, err := pool.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id,granted_usd_micros) VALUES('expiry-user',2_500_000)`); err != nil {
+		t.Fatal(err)
+	}
+	var earlierID, laterID int64
+	for _, item := range []struct {
+		key    string
+		amount int64
+		expiry string
+		id     *int64
+	}{
+		{key: "expiry-later", amount: 1_000_000, expiry: "3 days", id: &laterID},
+		{key: "expiry-earlier", amount: 1_000_000, expiry: "1 day", id: &earlierID},
+	} {
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO ai_credit_grants(user_id,source_type,amount_credits,idempotency_key,currency,amount_usd_micros,expires_at)
+			VALUES('expiry-user','monthly',1,$1,'USD',$2,NOW()+$3::interval) RETURNING id
+		`, item.key, item.amount, item.expiry).Scan(item.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, created, err := store.ReserveUSD(ctx, "expiry-reservation", "expiry-user", "voice", "assemblyai", "recorded", "test-model", "expiry-reserve-key", 1_200_000, 60, 1, json.RawMessage(`{}`))
+	if err != nil || !created {
+		t.Fatalf("reserve: err=%v created=%v", err, created)
+	}
+	var earliestAllocated, laterAllocated int64
+	if err := pool.QueryRow(ctx, `SELECT reserved_usd_micros FROM ai_credit_grant_allocations WHERE reservation_id=$1 AND grant_id=$2`, r.ID, earlierID).Scan(&earliestAllocated); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT reserved_usd_micros FROM ai_credit_grant_allocations WHERE reservation_id=$1 AND grant_id=$2`, r.ID, laterID).Scan(&laterAllocated); err != nil {
+		t.Fatal(err)
+	}
+	if earliestAllocated != 1_000_000 || laterAllocated != 200_000 {
+		t.Fatalf("FEFO allocations = earlier:%d later:%d; want 1000000 and 200000", earliestAllocated, laterAllocated)
+	}
+	if claimed, err := store.ClaimUSDReservation(ctx, r.ID, "expiry-user"); err != nil || !claimed {
+		t.Fatalf("claim: err=%v claimed=%v", err, claimed)
+	}
+	if err := store.SettleUSDReservation(ctx, r.ID, "expiry-user", "expiry-settle-key", 500_000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE ai_credit_grants SET expires_at=NOW()-interval '1 second' WHERE user_id='expiry-user' AND expires_at IS NOT NULL`); err != nil {
+		t.Fatal(err)
+	}
+	usage, err := store.USDUsage(ctx, "expiry-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.BalanceUsdMicros != 500_000 {
+		t.Fatalf("balance after expiring new grants=%d, want the untouched 500000 legacy USD micros", usage.BalanceUsdMicros)
+	}
+}
+
 func TestTAR10SignupWelcomeUSDGrantIsIdempotent(t *testing.T) {
 	ctx, pool, _ := openTAR10(t)
 	tar10User(t, ctx, pool, "welcome-user")

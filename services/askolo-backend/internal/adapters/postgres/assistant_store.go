@@ -397,7 +397,7 @@ func reserveAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID, key, mode
 		return r, false, err
 	}
 	var balance int64
-	if err = tx.QueryRow(ctx, `SELECT granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&balance); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT ai_credit_unexpired_balance(user_id) FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&balance); err != nil {
 		return r, false, err
 	}
 	err = tx.QueryRow(ctx, `SELECT id,status,reserved_usd_micros,settled_usd_micros,refunded_usd_micros,policy_version,expires_at FROM ai_credit_reservations WHERE user_id=$1 AND currency='USD' AND idempotency_key=$2`, userID, key).Scan(&priorID, &priorStatus, &priorReserved, &priorSettled, &priorRefunded, &priorPolicy, &priorExpires)
@@ -410,8 +410,11 @@ func reserveAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID, key, mode
 	if balance < amount {
 		return r, false, nil
 	}
+	if err := reserveExpiringUSDGrantAllocations(ctx, tx, id, userID, amount); err != nil {
+		return r, false, err
+	}
 	expires := time.Now().UTC().Add(5 * time.Minute)
-	tag, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros+$2,updated_at=NOW() WHERE user_id=$1 AND granted_usd_micros+adjustment_usd_micros-reserved_usd_micros-spent_usd_micros+refunded_usd_micros>=$2`, userID, amount)
+	tag, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros+$2,updated_at=NOW() WHERE user_id=$1 AND ai_credit_unexpired_balance(user_id)>=$2`, userID, amount)
 	if err != nil || tag.RowsAffected() != 1 {
 		return r, false, ErrAssistantInsufficient
 	}
@@ -587,6 +590,9 @@ func settleAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID string, out
 	}
 	if actual > reserved {
 		return 0, errors.New("assistant measured usage exceeds reservation")
+	}
+	if err := settleUSDGrantAllocations(ctx, tx, id, actual); err != nil {
+		return 0, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET reserved_usd_micros=reserved_usd_micros-$2,spent_usd_micros=spent_usd_micros+$3 WHERE user_id=$1 AND reserved_usd_micros>=$2`, userID, reserved, actual); err != nil {
 		return 0, err

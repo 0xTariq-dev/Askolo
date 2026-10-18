@@ -205,11 +205,13 @@ CREATE TABLE %sai_credit_grants (
  reason varchar(160),
  currency varchar(8) DEFAULT 'CREDITS' NOT NULL,
  amount_usd_micros bigint DEFAULT 0 NOT NULL,
+  expires_at timestamptz,
  UNIQUE (user_id, idempotency_key)
 );
 CREATE TABLE %sai_credit_policy_versions (
  version integer PRIMARY KEY,
- signup_grant_usd_micros bigint DEFAULT 0 NOT NULL
+  signup_grant_usd_micros bigint DEFAULT 0 NOT NULL,
+  rollover_expiry_days integer DEFAULT 30 NOT NULL
 );
 INSERT INTO %sai_credit_policy_versions(version,signup_grant_usd_micros)
 VALUES (1, 0);
