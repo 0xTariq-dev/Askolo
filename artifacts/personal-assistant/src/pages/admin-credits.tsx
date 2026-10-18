@@ -17,6 +17,8 @@ const azureSpeechRateCardKey = 'azure:assistant_speech:azure-neural-tts';
 
 type PolicyDrafts = {
   version: number;
+  providerAccountIds: Record<string, string>;
+  grantTypePolicies: Record<string, { issuanceCap: string; carryoverCap: string; expiryDays: number }>;
   signupGrant: string;
   monthlyGrant: string;
   monthlyGrantsEnabled: boolean;
@@ -80,6 +82,16 @@ function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null):
   if (current?.version === policy.version) {
     return {
       ...current,
+      providerAccountIds: Object.fromEntries(Object.entries(policy.providerAccountIds).map(([provider, accountId]) => [
+        provider, current.providerAccountIds[provider] ?? accountId,
+      ])),
+      grantTypePolicies: Object.fromEntries(Object.entries(policy.grantTypePolicies).map(([kind, value]) => [
+        kind, current.grantTypePolicies[kind] ?? {
+          issuanceCap: formatCreditsInput(value.issuanceCapUsdMicros),
+          carryoverCap: formatCreditsInput(value.carryoverCapUsdMicros),
+          expiryDays: value.expiryDays,
+        },
+      ])),
       rateCards: Object.fromEntries(
         Object.entries(policy.rateCards).map(([key, card]) => [
           key,
@@ -91,6 +103,14 @@ function createPolicyDrafts(policy: CreditPolicy, current: PolicyDrafts | null):
 
   return {
     version: policy.version,
+    providerAccountIds: { ...policy.providerAccountIds },
+    grantTypePolicies: Object.fromEntries(Object.entries(policy.grantTypePolicies).map(([kind, value]) => [
+      kind, {
+        issuanceCap: formatCreditsInput(value.issuanceCapUsdMicros),
+        carryoverCap: formatCreditsInput(value.carryoverCapUsdMicros),
+        expiryDays: value.expiryDays,
+      },
+    ])),
     signupGrant: formatCreditsInput(policy.signupGrantUsdMicros),
     monthlyGrant: formatCreditsInput(policy.monthlyGrantUsdMicros),
     monthlyGrantsEnabled: policy.monthlyGrantsEnabled,
@@ -154,17 +174,17 @@ export function AdminCreditsPage() {
       rateCards: {
         ...current.rateCards,
         ...(missingVoiceAgent ? { [voiceAgentRateCardKey]: {
-          provider: 'assemblyai', mode: 'voice_agent', model: 'managed-voice-agent',
+          provider: 'assemblyai', providerAccountId: current.providerAccountIds.assemblyai ?? 'default', mode: 'voice_agent', model: 'managed-voice-agent',
           meter: 'hour', usdMicrosPerHour: null,
           inputUsdMicrosPerMillion: null, outputUsdMicrosPerMillion: null,
         } } : {}),
         ...(missingOpenAI ? { [openAIRateCardKey]: {
-          provider: 'openai', mode: 'assistant', model: 'gpt-5.6-luna', meter: 'tokens',
+          provider: 'openai', providerAccountId: current.providerAccountIds.openai ?? 'default', mode: 'assistant', model: 'gpt-5.6-luna', meter: 'tokens',
           usdMicrosPerHour: null, inputUsdMicrosPerMillion: 200_000,
           cachedInputUsdMicrosPerMillion: 20_000, outputUsdMicrosPerMillion: 1_200_000,
         } } : {}),
         ...(missingAzureSpeech ? { [azureSpeechRateCardKey]: {
-          provider: 'azure', mode: 'assistant_speech', model: 'azure-neural-tts', meter: 'characters',
+          provider: 'azure', providerAccountId: current.providerAccountIds.azure ?? 'default', mode: 'assistant_speech', model: 'azure-neural-tts', meter: 'characters',
           usdMicrosPerHour: null, inputUsdMicrosPerMillion: null, outputUsdMicrosPerMillion: null,
           usdMicrosPerMillionCharacters: null,
         } } : {}),
@@ -369,6 +389,14 @@ export function AdminCreditsPage() {
         [key]: { ...current.rateCards[key], [field]: value },
       },
     } : current);
+  const updateGrantTypeDraft = (kind: string, patch: Partial<PolicyDrafts['grantTypePolicies'][string]>) =>
+    setPolicyDrafts((current) => current ? {
+      ...current,
+      grantTypePolicies: {
+        ...current.grantTypePolicies,
+        [kind]: { ...current.grantTypePolicies[kind], ...patch },
+      },
+    } : current);
   const monthlyGrantMicros = policyDrafts
     ? tryParseCreditsToUsdMicros(policyDrafts.monthlyGrant)
     : null;
@@ -399,6 +427,13 @@ export function AdminCreditsPage() {
         return micros !== null && micros > 0;
       }) && (!cached || ((tryParseUsdMicros(cached) ?? 0) > 0));
     });
+  const grantTypeDraftsAreValid = Boolean(policyDrafts) &&
+    Object.values(policyDrafts?.grantTypePolicies ?? {}).every((draft) => {
+      const issuanceCap = tryParseCreditsToUsdMicros(draft.issuanceCap);
+      const carryoverCap = tryParseCreditsToUsdMicros(draft.carryoverCap);
+      return issuanceCap !== null && issuanceCap >= 0 && carryoverCap !== null && carryoverCap >= 0 &&
+        Number.isInteger(draft.expiryDays) && draft.expiryDays >= 1 && draft.expiryDays <= 3650;
+    });
   const policyCurrenciesAreValid =
     signupGrantMicros !== null &&
     signupGrantMicros >= 0 &&
@@ -406,6 +441,7 @@ export function AdminCreditsPage() {
     monthlyGrantMicros >= 0 &&
     rolloverCapMicros !== null &&
     rolloverCapMicros >= 0 &&
+    grantTypeDraftsAreValid &&
     rateDraftsAreValid;
   const adjustmentMicros = tryParseCreditsToUsdMicros(amount);
   const manualGrantPreviewIsCurrent = Boolean(
@@ -435,6 +471,27 @@ export function AdminCreditsPage() {
       return;
     }
     const rateCards: CreditPolicy['rateCards'] = {};
+    const grantTypePolicies: CreditPolicy['grantTypePolicies'] = {};
+    for (const [kind, draft] of Object.entries(policyDrafts.grantTypePolicies)) {
+      const issuanceCap = tryParseCreditsToUsdMicros(draft.issuanceCap);
+      const carryoverCap = tryParseCreditsToUsdMicros(draft.carryoverCap);
+      if (issuanceCap === null || issuanceCap < 0 || carryoverCap === null || carryoverCap < 0 ||
+          !Number.isInteger(draft.expiryDays) || draft.expiryDays < 1 || draft.expiryDays > 3650) {
+        toast({ title: `Check the ${kind} grant policy`, description: 'Caps must be non-negative and expiry must be 1–3650 days.', variant: 'destructive' });
+        return;
+      }
+      grantTypePolicies[kind] = {
+        issuanceCapUsdMicros: issuanceCap,
+        carryoverCapUsdMicros: carryoverCap,
+        expiryDays: draft.expiryDays,
+      };
+    }
+    const providerAccountIds = Object.fromEntries(Object.entries(policyDrafts.providerAccountIds).map(([provider, accountId]) =>
+      [provider, accountId.trim()])) as Record<string, string>;
+    if (Object.values(providerAccountIds).some((accountId) => !/^[A-Za-z0-9._-]{1,120}$/.test(accountId))) {
+      toast({ title: 'Enter a valid provider account ID for each configured credential.', variant: 'destructive' });
+      return;
+    }
     for (const [key, card] of Object.entries(policy.rateCards)) {
       const draft = mergeRateCardDraft(card, policyDrafts.rateCards[key]);
       const fields = card.meter === 'hour'
@@ -461,7 +518,7 @@ export function AdminCreditsPage() {
         });
         return;
       }
-      const updated = { ...card };
+      const updated = { ...card, providerAccountId: providerAccountIds[card.provider] ?? '' };
       if (card.meter === 'tokens' && !draft.cachedInputUsdMicrosPerMillion.trim()) {
         updated.cachedInputUsdMicrosPerMillion = null;
       }
@@ -479,6 +536,8 @@ export function AdminCreditsPage() {
     try {
       const next = await creditApi.updateAdminPolicy({
         rateCards,
+        providerAccountIds,
+        grantTypePolicies,
         signupGrantUsdMicros: signupGrant,
         monthlyGrantUsdMicros: monthlyGrant,
         monthlyGrantsEnabled: policyDrafts.monthlyGrantsEnabled,
@@ -650,6 +709,52 @@ export function AdminCreditsPage() {
               </div>
             </div>
 
+            <section aria-labelledby="grant-type-policies-heading" className="space-y-3">
+              <div>
+                <h3 id="grant-type-policies-heading" className="font-medium">Grant policies by type</h3>
+                <p className="text-xs text-muted-foreground">Caps are in USD-backed credits. A zero cap disables issuance or carryover for that grant type.</p>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-3">
+                {Object.entries(policyDrafts.grantTypePolicies).map(([kind, draft]) => (
+                  <div key={kind} className="space-y-2 rounded-lg border border-border/70 p-3">
+                    <h4 className="font-medium capitalize">{kind} grants</h4>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`grant-${kind}-issuance-cap`}>Maximum grant amount (credits)</Label>
+                      <Input id={`grant-${kind}-issuance-cap`} inputMode="decimal" value={draft.issuanceCap}
+                        onChange={(event) => updateGrantTypeDraft(kind, { issuanceCap: event.target.value })} disabled={saving} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`grant-${kind}-carryover-cap`}>Maximum carried balance (credits)</Label>
+                      <Input id={`grant-${kind}-carryover-cap`} inputMode="decimal" value={draft.carryoverCap}
+                        onChange={(event) => updateGrantTypeDraft(kind, { carryoverCap: event.target.value })} disabled={saving} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`grant-${kind}-expiry`}>Expiry (days)</Label>
+                      <Input id={`grant-${kind}-expiry`} type="number" min={1} max={3650} step={1} value={draft.expiryDays}
+                        onChange={(event) => updateGrantTypeDraft(kind, { expiryDays: Math.trunc(Number(event.target.value) || 0) })} disabled={saving} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {Object.entries(policyDrafts.providerAccountIds).map(([provider, accountId]) => (
+                <div key={provider} className="space-y-1.5">
+                  <Label htmlFor={`provider-account-${provider}`}>{provider} account ID</Label>
+                  <Input
+                    id={`provider-account-${provider}`}
+                    value={accountId}
+                    onChange={(event) => updatePolicyDraft({
+                      providerAccountIds: { ...policyDrafts.providerAccountIds, [provider]: event.target.value },
+                    })}
+                    placeholder="Configured account ID"
+                    disabled={saving}
+                    maxLength={120}
+                  />
+                  <p className="text-xs text-muted-foreground">Identifies the already-connected credential for rate selection; it is not a credential.</p>
+                </div>
+              ))}
+            </div>
             <div className="space-y-2">
               {Object.entries(policy.rateCards).map(([key, card], index) => {
                 const draft = mergeRateCardDraft(card, policyDrafts.rateCards[key]);

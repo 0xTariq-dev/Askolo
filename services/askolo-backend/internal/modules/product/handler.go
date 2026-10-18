@@ -254,7 +254,7 @@ func (h *Handler) reserveAssistantSpeechCredit(r *http.Request, userID string, c
 	if err != nil {
 		return result, &voiceCreditReservationFailure{operation: "AI policy lookup failed", err: err}
 	}
-	card, ok := p.RateCards["azure:assistant_speech:azure-neural-tts"]
+	card, ok := selectedRateCard(p, "azure:assistant_speech:azure-neural-tts")
 	if !ok || card.Meter != "characters" || card.UsdMicrosPerMillionCharacters <= 0 {
 		return result, &voiceCreditReservationFailure{status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID", message: "AI credit policy is unavailable."}
 	}
@@ -285,6 +285,18 @@ func (h *Handler) reserveAssistantSpeechCredit(r *http.Request, userID string, c
 		return result, &voiceCreditReservationFailure{status: http.StatusConflict, code: "CREDIT_RESERVATION_CONFLICT", message: "This speech request is already being processed."}
 	}
 	return voiceCreditReservation{ID: reservation.ID, Mode: "assistant_speech", Model: card.Model, ReservedUsdMicros: reservation.ReservedUsdMicros, PolicyVersion: p.Version, RateCard: card}, nil
+}
+
+func selectedRateCard(policy postgres.USDPolicy, key string) (postgres.USDRateCard, bool) {
+	card, ok := policy.RateCards[key]
+	if !ok {
+		return postgres.USDRateCard{}, false
+	}
+	accountID := policy.ProviderAccountIDs[card.Provider]
+	if accountID != "" && card.ProviderAccountID != accountID {
+		return postgres.USDRateCard{}, false
+	}
+	return card, true
 }
 
 type voiceCreditReservationFailure struct {
@@ -336,7 +348,7 @@ func (h *Handler) reserveVoiceProviderCreditRequest(
 	if mode == "voice_agent" {
 		model = assemblyAIVoiceAgentModel
 	}
-	card, known := p.RateCards["assemblyai:"+mode+":"+model]
+	card, known := selectedRateCard(p, "assemblyai:"+mode+":"+model)
 	if !known || card.Meter != "hour" || card.UsdMicrosPerHour <= 0 || mode == "" {
 		return result, &voiceCreditReservationFailure{
 			status: http.StatusServiceUnavailable, code: "AI_POLICY_INVALID",
@@ -1152,6 +1164,10 @@ func (h *Handler) adminManualGrantPreview(w http.ResponseWriter, r *http.Request
 	}
 	preview, err := h.store.PreviewUSDManualGrant(r.Context(), userID, amount, time.Now().UTC())
 	if err != nil {
+		if strings.Contains(err.Error(), "configured issuance or carryover limit") {
+			writeError(w, http.StatusUnprocessableEntity, "GRANT_POLICY_LIMIT", "The grant would exceed the configured limit.")
+			return
+		}
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "The grant recipient was not found.")
 			return
@@ -1219,6 +1235,10 @@ func (h *Handler) adminBulkGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.AddUSDGrantBatch(r.Context(), input.Items, actor, input.Reason, input.IdempotencyKey); err != nil {
+		if strings.Contains(err.Error(), "configured issuance or carryover limit") {
+			writeError(w, http.StatusUnprocessableEntity, "GRANT_POLICY_LIMIT", "The batch would exceed a configured grant limit.")
+			return
+		}
 		if strings.Contains(err.Error(), "conflict") {
 			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This batch key was already used for different grant details.")
 			return
@@ -1306,6 +1326,22 @@ func (h *Handler) updateAdminPolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_POLICY", "A valid policy version is required.")
 		return
 	}
+	if input.ProviderAccountIDs == nil {
+		current, err := h.store.USDPolicy(r.Context())
+		if err != nil {
+			h.storeError(w, "AI policy lookup failed", err)
+			return
+		}
+		input.ProviderAccountIDs = current.ProviderAccountIDs
+	}
+	if input.GrantTypePolicies == nil {
+		current, err := h.store.USDPolicy(r.Context())
+		if err != nil {
+			h.storeError(w, "AI policy lookup failed", err)
+			return
+		}
+		input.GrantTypePolicies = current.GrantTypePolicies
+	}
 	input.Version = input.ExpectedVersion + 1
 	input.ChangeReason = strings.TrimSpace(input.ChangeReason)
 	input.USDPolicy.ChangeReason = input.ChangeReason
@@ -1337,6 +1373,10 @@ func (h *Handler) adminAdjustment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.AddUSDAdjustment(r.Context(), input.UserID, actor, input.Amount, input.Reason, input.IdempotencyKey); err != nil {
+		if strings.Contains(err.Error(), "configured issuance or carryover limit") {
+			writeError(w, http.StatusUnprocessableEntity, "GRANT_POLICY_LIMIT", "The grant would exceed the configured limit.")
+			return
+		}
 		if strings.Contains(err.Error(), "idempotency") {
 			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This request key was already used.")
 			return
@@ -1603,7 +1643,7 @@ func (h *Handler) aiCreditEstimate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rateCardKey, publicPricingKey := usdEstimateRateCardKey(key)
-	card, known := p.RateCards[rateCardKey]
+	card, known := selectedRateCard(p, rateCardKey)
 	if !known && publicPricingKey {
 		writeError(w, http.StatusServiceUnavailable, "AI_POLICY_INVALID", "AI credit policy is unavailable.")
 		return

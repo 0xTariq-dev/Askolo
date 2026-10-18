@@ -52,6 +52,10 @@ var approvedPublishDataMigrations = map[int]approvedPublishDataMigration{
 		name:     "0008_usd_micro_ledger",
 		checksum: "b48c8f4972228cd0d226da281fc7d26dbd0619ac684035be3339671da373ef4a",
 	},
+	30: {
+		name:     "0030_grant_type_policies",
+		checksum: "434089080d19e41e2bffa8a59ce87c53b94bfaee9a2b6d7d76cdbcbbe9a5ad8a",
+	},
 }
 
 // ValidatePublishMigrationCompatibility rejects unreviewed migration DML.

@@ -469,6 +469,7 @@ done
 echo "Published frontend/API routing smoke check passed"
 
 echo "Verifying native email auth lifecycle against disposable PostgreSQL"
-bash scripts/run-native-email-auth-validation.sh
+env -u DATABASE_URL -u ASKOLO_TEST_DATABASE_URL \
+  bash scripts/run-native-email-auth-validation.sh
 
 echo "Publish path verification passed"

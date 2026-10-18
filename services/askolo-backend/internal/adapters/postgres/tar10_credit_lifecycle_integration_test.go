@@ -461,7 +461,10 @@ func TestTAR10SignupWelcomeUSDGrantIsIdempotent(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `
 		UPDATE ai_credit_policy_versions
-		SET signup_grant_usd_micros=5000000
+SET signup_grant_usd_micros=5000000,
+    grant_type_policies=jsonb_set(
+      jsonb_set(grant_type_policies,'{signup,issuanceCapUsdMicros}',to_jsonb(5000000::bigint),true),
+      '{signup,carryoverCapUsdMicros}',to_jsonb(10000000::bigint),true)
 		WHERE version=(SELECT max(version) FROM ai_credit_policy_versions)
 	`); err != nil {
 		t.Fatalf("configure test signup grant: %v", err)
@@ -552,6 +555,11 @@ func TestTAR10UserGrantExpiryOverrideAppliesToManualAndMonthlyGrants(t *testing.
 	policy.MonthlyGrantsEnabled = true
 	policy.MonthlyGrantUsdMicros = 1_000_000
 	policy.RolloverCapUsdMicros = 10_000_000
+	policy.GrantTypePolicies["monthly"] = USDGrantTypePolicy{
+		IssuanceCapUsdMicros:  1_000_000,
+		CarryoverCapUsdMicros: 10_000_000,
+		ExpiryDays:            policy.GrantTypePolicies["monthly"].ExpiryDays,
+	}
 	if _, err := store.UpdateUSDPolicy(ctx, policy.Version-1, policy, "expiry-override-admin"); err != nil {
 		t.Fatalf("configure recurring grant test: %v", err)
 	}
@@ -628,5 +636,43 @@ func TestTAR10BulkGrantPreviewAndAtomicIdempotentIssuance(t *testing.T) {
 	conflict := []USDGrantBatchItem{{UserID: "bulk-user-a", AmountUsdMicros: 300000}, {UserID: "bulk-user-b", AmountUsdMicros: 250000}}
 	if err := store.AddUSDGrantBatch(ctx, conflict, "bulk-admin", "support batch", "bulk-key-1"); !errors.Is(err, ErrUSDReservationConflict) {
 		t.Fatalf("mismatched batch replay error = %v, want idempotency conflict", err)
+	}
+}
+
+func TestTAR10AdminGrantTypeCapsAndExpiryAreEnforced(t *testing.T) {
+	ctx, pool, store := openTAR10(t)
+	tar10User(t, ctx, pool, "capped-admin-user")
+	tar10User(t, ctx, pool, "capped-admin-actor")
+	if _, err := pool.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id,granted_usd_micros) VALUES('capped-admin-user',100000)`); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := store.USDPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Version++
+	policy.ChangeReason = "test admin grant caps"
+	policy.GrantTypePolicies["admin"] = USDGrantTypePolicy{
+		IssuanceCapUsdMicros: 200000, CarryoverCapUsdMicros: 300000, ExpiryDays: 10,
+	}
+	if _, err := store.UpdateUSDPolicy(ctx, policy.Version-1, policy, "capped-admin-actor"); err != nil {
+		t.Fatalf("update grant policy: %v", err)
+	}
+	if err := store.AddUSDAdjustment(ctx, "capped-admin-user", "capped-admin-actor", 200001, "over issue cap", "capped-key-1"); err == nil {
+		t.Fatal("grant above issuance cap succeeded")
+	}
+	if err := store.AddUSDAdjustment(ctx, "capped-admin-user", "capped-admin-actor", 200000, "within caps", "capped-key-2"); err != nil {
+		t.Fatalf("grant at configured caps: %v", err)
+	}
+	// Idempotent replay remains valid after the balance reaches the carryover cap.
+	if err := store.AddUSDAdjustment(ctx, "capped-admin-user", "capped-admin-actor", 200000, "within caps", "capped-key-2"); err != nil {
+		t.Fatalf("idempotent grant replay: %v", err)
+	}
+	var expiry time.Time
+	if err := pool.QueryRow(ctx, `SELECT expires_at FROM ai_credit_grants WHERE user_id='capped-admin-user' AND idempotency_key='capped-key-2'`).Scan(&expiry); err != nil {
+		t.Fatal(err)
+	}
+	if left := time.Until(expiry); left < 9*24*time.Hour || left > 11*24*time.Hour {
+		t.Fatalf("grant expiry = %s from now, want about 10 days", left)
 	}
 }

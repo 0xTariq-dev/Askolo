@@ -316,7 +316,9 @@ CREATE TABLE %sai_credit_grants (
 CREATE TABLE %sai_credit_policy_versions (
  version integer PRIMARY KEY,
   signup_grant_usd_micros bigint DEFAULT 0 NOT NULL,
-  rollover_expiry_days integer DEFAULT 30 NOT NULL
+  rollover_cap_usd_micros bigint DEFAULT 0 NOT NULL,
+  rollover_expiry_days integer DEFAULT 30 NOT NULL,
+  grant_type_policies jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 INSERT INTO %sai_credit_policy_versions(version,signup_grant_usd_micros)
 VALUES (1, 0);
@@ -473,7 +475,14 @@ func TestNativeEmailAuthLifecycleAndCleanup(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	if _, err := fixture.pool.Exec(context.Background(), `
 		UPDATE ai_credit_policy_versions
-		SET signup_grant_usd_micros=5000000
+SET signup_grant_usd_micros=5000000,
+    grant_type_policies=jsonb_build_object(
+      'signup',jsonb_build_object(
+        'issuanceCapUsdMicros',5000000,
+        'carryoverCapUsdMicros',5000000,
+        'expiryDays',30
+      )
+    )
 		WHERE version=(SELECT max(version) FROM ai_credit_policy_versions)
 	`); err != nil {
 		t.Fatalf("configure test signup grant: %v", err)

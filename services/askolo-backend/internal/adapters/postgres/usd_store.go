@@ -91,6 +91,7 @@ func settleUSDGrantAllocations(ctx context.Context, tx pgx.Tx, reservationID str
 
 type USDRateCard struct {
 	Provider                       string `json:"provider"`
+	ProviderAccountID              string `json:"providerAccountId,omitempty"`
 	Mode                           string `json:"mode"`
 	Model                          string `json:"model"`
 	Meter                          string `json:"meter"`
@@ -101,17 +102,24 @@ type USDRateCard struct {
 	UsdMicrosPerMillionCharacters  int64  `json:"usdMicrosPerMillionCharacters,omitempty"`
 }
 type USDPolicy struct {
-	Version               int                    `json:"version"`
-	RateCards             map[string]USDRateCard `json:"rateCards"`
-	SignupGrantUsdMicros  int64                  `json:"signupGrantUsdMicros"`
-	MonthlyGrantUsdMicros int64                  `json:"monthlyGrantUsdMicros"`
-	MonthlyGrantsEnabled  bool                   `json:"monthlyGrantsEnabled"`
-	RolloverCapUsdMicros  int64                  `json:"rolloverCapUsdMicros"`
-	RolloverExpiryDays    int                    `json:"rolloverExpiryDays"`
-	OverrunMarginPercent  int                    `json:"overrunMarginPercent"`
-	CreatedBy             string                 `json:"createdBy"`
-	ChangeReason          string                 `json:"changeReason"`
-	CreatedAt             time.Time              `json:"createdAt"`
+	Version               int                           `json:"version"`
+	RateCards             map[string]USDRateCard        `json:"rateCards"`
+	ProviderAccountIDs    map[string]string             `json:"providerAccountIds"`
+	GrantTypePolicies     map[string]USDGrantTypePolicy `json:"grantTypePolicies"`
+	SignupGrantUsdMicros  int64                         `json:"signupGrantUsdMicros"`
+	MonthlyGrantUsdMicros int64                         `json:"monthlyGrantUsdMicros"`
+	MonthlyGrantsEnabled  bool                          `json:"monthlyGrantsEnabled"`
+	RolloverCapUsdMicros  int64                         `json:"rolloverCapUsdMicros"`
+	RolloverExpiryDays    int                           `json:"rolloverExpiryDays"`
+	OverrunMarginPercent  int                           `json:"overrunMarginPercent"`
+	CreatedBy             string                        `json:"createdBy"`
+	ChangeReason          string                        `json:"changeReason"`
+	CreatedAt             time.Time                     `json:"createdAt"`
+}
+type USDGrantTypePolicy struct {
+	IssuanceCapUsdMicros  int64 `json:"issuanceCapUsdMicros"`
+	CarryoverCapUsdMicros int64 `json:"carryoverCapUsdMicros"`
+	ExpiryDays            int   `json:"expiryDays"`
 }
 type USDUsage struct {
 	BalanceUsdMicros     int64 `json:"balanceUsdMicros"`
@@ -186,8 +194,42 @@ func validateRateCard(c USDRateCard) error {
 	return nil
 }
 func validateUSDPolicy(p USDPolicy) error {
-	if p.Version < 1 || len(strings.TrimSpace(p.ChangeReason)) < 1 || len(p.ChangeReason) > 160 || p.SignupGrantUsdMicros < 0 || p.MonthlyGrantUsdMicros < 0 || p.RolloverCapUsdMicros < 0 || p.RolloverExpiryDays < 1 || p.OverrunMarginPercent < 0 || p.OverrunMarginPercent > 100 || len(p.RateCards) > 64 {
+	if p.Version < 1 || len(strings.TrimSpace(p.ChangeReason)) < 1 || len(p.ChangeReason) > 160 || p.SignupGrantUsdMicros < 0 || p.MonthlyGrantUsdMicros < 0 || p.RolloverCapUsdMicros < 0 || p.RolloverExpiryDays < 1 || p.OverrunMarginPercent < 0 || p.OverrunMarginPercent > 100 || len(p.RateCards) > 64 || len(p.GrantTypePolicies) > 3 {
 		return errors.New("invalid USD policy")
+	}
+	for grantType, grantPolicy := range p.GrantTypePolicies {
+		if (grantType != "signup" && grantType != "monthly" && grantType != "admin") ||
+			grantPolicy.IssuanceCapUsdMicros < 0 || grantPolicy.CarryoverCapUsdMicros < 0 ||
+			grantPolicy.ExpiryDays < 1 || grantPolicy.ExpiryDays > 3650 {
+			return errors.New("invalid grant type policy")
+		}
+	}
+	if len(p.GrantTypePolicies) > 0 {
+		for _, grantType := range []string{"signup", "monthly", "admin"} {
+			if _, ok := p.GrantTypePolicies[grantType]; !ok {
+				return errors.New("grant type policies must configure signup, monthly, and admin")
+			}
+		}
+		if p.SignupGrantUsdMicros > p.GrantTypePolicies["signup"].IssuanceCapUsdMicros ||
+			p.SignupGrantUsdMicros > p.GrantTypePolicies["signup"].CarryoverCapUsdMicros ||
+			p.MonthlyGrantUsdMicros > p.GrantTypePolicies["monthly"].IssuanceCapUsdMicros ||
+			p.MonthlyGrantUsdMicros > p.GrantTypePolicies["monthly"].CarryoverCapUsdMicros {
+			return errors.New("configured grant amount exceeds its grant type cap")
+		}
+	}
+	if len(p.ProviderAccountIDs) > 3 {
+		return errors.New("invalid provider account map")
+	}
+	for provider, accountID := range p.ProviderAccountIDs {
+		if (provider != "openai" && provider != "assemblyai" && provider != "azure") ||
+			strings.TrimSpace(accountID) != accountID || len(accountID) < 1 || len(accountID) > 120 {
+			return errors.New("invalid provider account identity")
+		}
+		for _, r := range accountID {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.') {
+				return errors.New("invalid provider account identity")
+			}
+		}
 	}
 	for key, card := range p.RateCards {
 		if len(key) == 0 || len(key) > 160 {
@@ -195,6 +237,9 @@ func validateUSDPolicy(p USDPolicy) error {
 		}
 		if err := validateRateCard(card); err != nil {
 			return err
+		}
+		if accountID := p.ProviderAccountIDs[card.Provider]; accountID == "" || card.ProviderAccountID != accountID {
+			return errors.New("rate card does not match configured provider account")
 		}
 	}
 	return nil
@@ -206,12 +251,26 @@ func (s *Store) USDPolicy(ctx context.Context) (USDPolicy, error) {
 		return p, errors.New("database is not configured")
 	}
 	var raw []byte
-	err := s.pool.QueryRow(ctx, `SELECT version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,monthly_grants_enabled,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,created_at FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&p.Version, &raw, &p.SignupGrantUsdMicros, &p.MonthlyGrantUsdMicros, &p.MonthlyGrantsEnabled, &p.RolloverCapUsdMicros, &p.RolloverExpiryDays, &p.OverrunMarginPercent, &p.CreatedBy, &p.ChangeReason, &p.CreatedAt)
+	var accountIDs []byte
+	var grantPolicies []byte
+	err := s.pool.QueryRow(ctx, `SELECT version,rate_cards,provider_account_ids,grant_type_policies,signup_grant_usd_micros,monthly_grant_usd_micros,monthly_grants_enabled,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,created_at FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&p.Version, &raw, &accountIDs, &grantPolicies, &p.SignupGrantUsdMicros, &p.MonthlyGrantUsdMicros, &p.MonthlyGrantsEnabled, &p.RolloverCapUsdMicros, &p.RolloverExpiryDays, &p.OverrunMarginPercent, &p.CreatedBy, &p.ChangeReason, &p.CreatedAt)
 	if err != nil {
 		return p, err
 	}
 	if err = json.Unmarshal(raw, &p.RateCards); err != nil {
 		return p, err
+	}
+	if err = json.Unmarshal(accountIDs, &p.ProviderAccountIDs); err != nil {
+		return p, err
+	}
+	if err = json.Unmarshal(grantPolicies, &p.GrantTypePolicies); err != nil {
+		return p, err
+	}
+	for key, card := range p.RateCards {
+		if card.ProviderAccountID == "" {
+			card.ProviderAccountID = p.ProviderAccountIDs[card.Provider]
+			p.RateCards[key] = card
+		}
 	}
 	return p, nil
 }
@@ -221,6 +280,10 @@ func (s *Store) UpdateUSDPolicy(ctx context.Context, expected int, p USDPolicy, 
 	}
 	if strings.TrimSpace(actor) == "" {
 		return USDPolicy{}, errors.New("policy actor is required")
+	}
+	for key, card := range p.RateCards {
+		card.ProviderAccountID = p.ProviderAccountIDs[card.Provider]
+		p.RateCards[key] = card
 	}
 	if err := validateUSDPolicy(p); err != nil || p.Version != expected+1 {
 		if err != nil {
@@ -232,8 +295,16 @@ func (s *Store) UpdateUSDPolicy(ctx context.Context, expected int, p USDPolicy, 
 	if err != nil {
 		return USDPolicy{}, err
 	}
+	accountIDs, err := json.Marshal(p.ProviderAccountIDs)
+	if err != nil {
+		return USDPolicy{}, err
+	}
+	grantPolicies, err := json.Marshal(p.GrantTypePolicies)
+	if err != nil {
+		return USDPolicy{}, err
+	}
 	var created time.Time
-	err = s.pool.QueryRow(ctx, `INSERT INTO ai_credit_policy_versions(version,rate_cards,signup_grant_usd_micros,monthly_grant_usd_micros,monthly_grants_enabled,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,operation_weights,monthly_grant_credits,rollover_cap_credits) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,operation_weights,monthly_grant_credits,rollover_cap_credits FROM ai_credit_policy_versions WHERE version=$11 RETURNING created_at`, p.Version, raw, p.SignupGrantUsdMicros, p.MonthlyGrantUsdMicros, p.MonthlyGrantsEnabled, p.RolloverCapUsdMicros, p.RolloverExpiryDays, p.OverrunMarginPercent, actor, p.ChangeReason, expected).Scan(&created)
+	err = s.pool.QueryRow(ctx, `INSERT INTO ai_credit_policy_versions(version,rate_cards,provider_account_ids,grant_type_policies,signup_grant_usd_micros,monthly_grant_usd_micros,monthly_grants_enabled,rollover_cap_usd_micros,rollover_expiry_days,overrun_margin_percent,created_by,change_reason,operation_weights,monthly_grant_credits,rollover_cap_credits) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,operation_weights,monthly_grant_credits,rollover_cap_credits FROM ai_credit_policy_versions WHERE version=$13 RETURNING created_at`, p.Version, raw, accountIDs, grantPolicies, p.SignupGrantUsdMicros, p.MonthlyGrantUsdMicros, p.MonthlyGrantsEnabled, p.RolloverCapUsdMicros, p.RolloverExpiryDays, p.OverrunMarginPercent, actor, p.ChangeReason, expected).Scan(&created)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return USDPolicy{}, ErrUSDPolicyChanged
 	}
@@ -272,12 +343,16 @@ func grantSignupWelcomeUSDTx(ctx context.Context, tx pgx.Tx, userID string) erro
 		return err
 	}
 
-	var amount int64
+	var amount, issuanceCap, carryoverCap int64
 	var expiryDays int
-	if err := tx.QueryRow(ctx, `SELECT signup_grant_usd_micros,rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&amount, &expiryDays); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT signup_grant_usd_micros,
+		COALESCE((grant_type_policies->'signup'->>'issuanceCapUsdMicros')::bigint,signup_grant_usd_micros),
+		COALESCE((grant_type_policies->'signup'->>'carryoverCapUsdMicros')::bigint,rollover_cap_usd_micros),
+		COALESCE((grant_type_policies->'signup'->>'expiryDays')::int,rollover_expiry_days)
+		FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&amount, &issuanceCap, &carryoverCap, &expiryDays); err != nil {
 		return err
 	}
-	if amount <= 0 {
+	if amount <= 0 || amount > issuanceCap || amount > carryoverCap {
 		return nil
 	}
 
@@ -578,21 +653,28 @@ func (s *Store) AddUSDAdjustment(ctx context.Context, target, actor string, amou
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	var balance int64
-	if err = tx.QueryRow(ctx, `SELECT ai_credit_unexpired_balance(user_id) FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, target).Scan(&balance); err != nil {
+	var balance, reserved int64
+	if err = tx.QueryRow(ctx, `SELECT ai_credit_unexpired_balance(user_id),reserved_usd_micros FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, target).Scan(&balance, &reserved); err != nil {
 		return err
 	}
 	if amount < 0 && balance+amount < 0 {
 		return errors.New("insufficient USD balance")
 	}
 	if amount > 0 {
+		var issuanceCap, carryoverCap int64
 		var expiryDays int
 		if err = tx.QueryRow(ctx, `
-			SELECT COALESCE(o.grant_expiry_days,p.rollover_expiry_days)
-			FROM (SELECT rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1) p
+			SELECT COALESCE((p.grant_type_policies->'admin'->>'issuanceCapUsdMicros')::bigint,p.rollover_cap_usd_micros),
+			       COALESCE((p.grant_type_policies->'admin'->>'carryoverCapUsdMicros')::bigint,p.rollover_cap_usd_micros),
+			       COALESCE(o.grant_expiry_days,(p.grant_type_policies->'admin'->>'expiryDays')::int,p.rollover_expiry_days)
+			FROM (SELECT rollover_expiry_days,rollover_cap_usd_micros,grant_type_policies FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1) p
 			LEFT JOIN ai_credit_user_policy_overrides o ON o.user_id=$1
-		`, target).Scan(&expiryDays); err != nil {
+		`, target).Scan(&issuanceCap, &carryoverCap, &expiryDays); err != nil {
 			return err
+		}
+		if amount > issuanceCap || amount > carryoverCap ||
+			balance > carryoverCap-amount || reserved > carryoverCap-amount-balance {
+			return errors.New("admin grant exceeds the configured issuance or carryover limit")
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_grants(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros,expires_at) VALUES($1,'admin',1,$2,$2,$3,$4,$5,'USD',$6,NOW()+($7 * interval '1 day'))`, target, key, meta, actor, reason, amount, expiryDays); err != nil {
 			return err
@@ -662,12 +744,21 @@ func (s *Store) AddUSDGrantBatch(ctx context.Context, items []USDGrantBatchItem,
 			return err
 		}
 	}
+	var issuanceCap, carryoverCap int64
 	var expiryDays int
-	if err := tx.QueryRow(ctx, `SELECT rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&expiryDays); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT
+		COALESCE((grant_type_policies->'admin'->>'issuanceCapUsdMicros')::bigint,rollover_cap_usd_micros),
+		COALESCE((grant_type_policies->'admin'->>'carryoverCapUsdMicros')::bigint,rollover_cap_usd_micros),
+		COALESCE((grant_type_policies->'admin'->>'expiryDays')::int,rollover_expiry_days)
+		FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&issuanceCap, &carryoverCap, &expiryDays); err != nil {
 		return err
 	}
 	meta, _ := json.Marshal(map[string]string{"actorUserId": actor, "reason": reason, "grantType": "admin_bulk"})
 	for _, item := range ordered {
+		var balance, reserved int64
+		if err := tx.QueryRow(ctx, `SELECT ai_credit_unexpired_balance(user_id),reserved_usd_micros FROM ai_credit_accounts WHERE user_id=$1`, item.UserID).Scan(&balance, &reserved); err != nil {
+			return err
+		}
 		var override sql.NullInt64
 		if err := tx.QueryRow(ctx, `SELECT grant_expiry_days FROM ai_credit_user_policy_overrides WHERE user_id=$1`, item.UserID).Scan(&override); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -689,6 +780,10 @@ func (s *Store) AddUSDGrantBatch(ctx context.Context, items []USDGrantBatchItem,
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
+		}
+		if item.AmountUsdMicros > issuanceCap || item.AmountUsdMicros > carryoverCap ||
+			balance > carryoverCap-item.AmountUsdMicros || reserved > carryoverCap-item.AmountUsdMicros-balance {
+			return errors.New("admin bulk grant exceeds the configured issuance or carryover limit")
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO ai_credit_grants(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros,expires_at) VALUES($1,'admin',1,$2,$2,$3,$4,$5,'USD',$6,NOW()+($7 * interval '1 day'))`, item.UserID, key, meta, actor, reason, item.AmountUsdMicros, days); err != nil {
 			return err
@@ -1160,11 +1255,25 @@ func (s *Store) PreviewUSDManualGrant(ctx context.Context, userID string, amount
 	if err != nil {
 		return preview, err
 	}
+	grantPolicy, ok := policy.GrantTypePolicies["admin"]
+	if !ok {
+		grantPolicy = USDGrantTypePolicy{
+			IssuanceCapUsdMicros:  policy.RolloverCapUsdMicros,
+			CarryoverCapUsdMicros: policy.RolloverCapUsdMicros,
+			ExpiryDays:            policy.RolloverExpiryDays,
+		}
+	}
+	if usage.BalanceUsdMicros > math.MaxInt64-amount ||
+		amount > grantPolicy.IssuanceCapUsdMicros || amount > grantPolicy.CarryoverCapUsdMicros ||
+		usage.BalanceUsdMicros > grantPolicy.CarryoverCapUsdMicros-amount ||
+		usage.ReservedUsdMicros > grantPolicy.CarryoverCapUsdMicros-amount-usage.BalanceUsdMicros {
+		return preview, errors.New("grant exceeds the configured issuance or carryover limit")
+	}
 	override, err := s.USDUserPolicyOverride(ctx, userID)
 	if err != nil {
 		return preview, err
 	}
-	expiryDays := policy.RolloverExpiryDays
+	expiryDays := grantPolicy.ExpiryDays
 	if override.GrantExpiryDays != nil {
 		expiryDays = *override.GrantExpiryDays
 	}
@@ -1450,13 +1559,14 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		SELECT s.user_id, s.next_cycle_at,
 		       p.version, p.monthly_grants_enabled AND COALESCE(o.monthly_grants_enabled, true),
 		       COALESCE(o.monthly_grant_usd_micros, p.monthly_grant_usd_micros),
-		       COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros),
-		       COALESCE(o.grant_expiry_days, p.rollover_expiry_days)
+	       COALESCE((p.grant_type_policies->'monthly'->>'issuanceCapUsdMicros')::bigint,p.monthly_grant_usd_micros),
+	       COALESCE(o.rollover_cap_usd_micros,(p.grant_type_policies->'monthly'->>'carryoverCapUsdMicros')::bigint,p.rollover_cap_usd_micros),
+	       COALESCE(o.grant_expiry_days,(p.grant_type_policies->'monthly'->>'expiryDays')::int,p.rollover_expiry_days)
 		FROM ai_credit_monthly_grant_schedules s
 		JOIN users u ON u.id=s.user_id AND COALESCE(u.status,'active') <> 'deleted'
 		CROSS JOIN LATERAL (
 		  SELECT version, monthly_grants_enabled, monthly_grant_usd_micros,
-		         rollover_cap_usd_micros, rollover_expiry_days
+		         rollover_cap_usd_micros, rollover_expiry_days, grant_type_policies
 		  FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1
 		) p
 		LEFT JOIN ai_credit_user_policy_overrides o ON o.user_id=s.user_id
@@ -1469,18 +1579,19 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		return result, err
 	}
 	type dueCycle struct {
-		userID     string
-		scheduled  time.Time
-		version    int
-		enabled    bool
-		amount     int64
-		cap        int64
-		expiryDays int
+		userID      string
+		scheduled   time.Time
+		version     int
+		enabled     bool
+		amount      int64
+		issuanceCap int64
+		cap         int64
+		expiryDays  int
 	}
 	due := make([]dueCycle, 0, limit)
 	for rows.Next() {
 		var cycle dueCycle
-		if err := rows.Scan(&cycle.userID, &cycle.scheduled, &cycle.version, &cycle.enabled, &cycle.amount, &cycle.cap, &cycle.expiryDays); err != nil {
+		if err := rows.Scan(&cycle.userID, &cycle.scheduled, &cycle.version, &cycle.enabled, &cycle.amount, &cycle.issuanceCap, &cycle.cap, &cycle.expiryDays); err != nil {
 			rows.Close()
 			return result, err
 		}
@@ -1537,7 +1648,8 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		`, cycle.userID).Scan(&balance); err != nil {
 			return result, err
 		}
-		if cycle.cap <= 0 || balance >= cycle.cap || cycle.amount > cycle.cap-balance {
+		if cycle.issuanceCap <= 0 || cycle.amount > cycle.issuanceCap ||
+			cycle.cap <= 0 || balance >= cycle.cap || cycle.amount > cycle.cap-balance {
 			alertKey := fmt.Sprintf("monthly-grant-cap:%s:%s:%d", cycle.userID, cycle.scheduled.UTC().Format("20060102T150405Z"), cycle.version)
 			details, _ := json.Marshal(map[string]any{
 				"scheduledAt":           cycle.scheduled.UTC(),
@@ -1636,7 +1748,7 @@ func (s *Store) PreviewMonthlyUSDGrants(ctx context.Context, now time.Time) (Mon
 	now = now.UTC()
 	err := s.pool.QueryRow(ctx, `
 		WITH policy AS (
-		  SELECT version, monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros
+		  SELECT version, monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros, grant_type_policies
 		  FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1
 		), candidates AS (
 		  SELECT COALESCE(s.retry_at, s.next_cycle_at,
@@ -1645,7 +1757,8 @@ func (s *Store) PreviewMonthlyUSDGrants(ctx context.Context, now time.Time) (Mon
 		           ) * interval '30 days') AS due_at,
 		         p.monthly_grants_enabled AND COALESCE(o.monthly_grants_enabled, true) AS enabled,
 		         COALESCE(o.monthly_grant_usd_micros, p.monthly_grant_usd_micros) AS grant_amount,
-		         COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros) AS rollover_cap,
+		         COALESCE((p.grant_type_policies->'monthly'->>'issuanceCapUsdMicros')::bigint,p.monthly_grant_usd_micros) AS issuance_cap,
+		         COALESCE(o.rollover_cap_usd_micros,(p.grant_type_policies->'monthly'->>'carryoverCapUsdMicros')::bigint,p.rollover_cap_usd_micros) AS rollover_cap,
 		         COALESCE(ai_credit_unexpired_balance(u.id)+a.reserved_usd_micros, 0) AS balance
 		  FROM users u
 		  CROSS JOIN policy p
@@ -1657,10 +1770,10 @@ func (s *Store) PreviewMonthlyUSDGrants(ctx context.Context, now time.Time) (Mon
 		  SELECT * FROM candidates WHERE due_at <= $1::timestamptz + interval '30 days'
 		)
 		SELECT count(*),
-		       count(*) FILTER (WHERE enabled AND grant_amount > 0 AND rollover_cap > 0
+		       count(*) FILTER (WHERE enabled AND grant_amount > 0 AND issuance_cap >= grant_amount AND rollover_cap > 0
 		         AND balance < rollover_cap AND grant_amount <= rollover_cap-balance),
 		       count(*) FILTER (WHERE enabled AND grant_amount > 0
-		         AND (rollover_cap <= 0 OR balance >= rollover_cap OR grant_amount > rollover_cap-balance)),
+		         AND (issuance_cap < grant_amount OR rollover_cap <= 0 OR balance >= rollover_cap OR grant_amount > rollover_cap-balance)),
 		       count(*) FILTER (WHERE NOT enabled OR grant_amount = 0)
 		FROM due
 	`, now).Scan(&preview.DueCount, &preview.IssuableCount, &preview.DeferredCount, &preview.SkippedCount)

@@ -79,6 +79,7 @@
 - [Assistant tool registry contract](assistant-tool-registry.md) — keep planner arguments registry-driven and transform them into the existing persisted confirmation format before any write.
 - [Azure assistant speech privacy](azure-assistant-speech-output.md) — Azure semi-live replies complement AssemblyAI live mode and require independent consent and owner-scoped stored responses.
 - [AI credit coverage](ai-credit-coverage.md) — every paid AI operation, including tool-backed email work and Azure speech, must consume the user's balance with provider-appropriate metering.
+- [Provider account rate-card identity](provider-account-rate-card-identity.md) — use admin-configured IDs to bind active provider credentials to rate cards; keep credential management out of credit policy.
 - [Askolo planning model](askolo-planning-model.md) — Task and Habit are distinct; chores are labels, recurrence expands on demand, and provider events keep account/calendar ownership.
 - [Postgres local-time strings](postgres-local-time-strings.md) — SQL `time` columns scanned as strings may include seconds even when API input uses minute precision.
 - [PostgreSQL text and varchar parameters](postgres-text-varchar-params.md) — cast repeated parameters explicitly in `INSERT … SELECT` statements when target and comparison columns mix `text` and `varchar`.
@@ -88,4 +89,5 @@
 - [Home Gmail incremental sync](home-gmail-incremental-sync.md) — seed only the 30 days before account linking; use a purpose-derived HMAC key for minimal thread state and rebaseline after key rotation.
 - [Space notification preferences](space-notification-preferences.md) — membership notices are for owners/admins; task and reminder channels follow saved preferences, with reminder delivery inactive until approved.
 - [Space profile scope](space-profile-scope.md) — Space image upload and serving are explicitly excluded from the approved settings scope.
+- [Grant type cap defaults](credit-grant-type-cap-defaults.md) — preserve configured signup/monthly amounts and legacy admin-grant behavior when introducing per-type caps.
 

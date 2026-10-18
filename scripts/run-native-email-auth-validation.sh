@@ -114,6 +114,7 @@ else
 fi
 
 test_environment=(
+  "ASKOLO_TEST_DATABASE_DISPOSABLE=yes"
   "ASKOLO_TEST_DATABASE_URL=$test_database_url"
 )
 if [[ -n "$pg_data" || -n "$pg_ctl_path" || -n "$pg_start_options" ]]; then
