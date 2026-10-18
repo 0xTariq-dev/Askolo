@@ -25,7 +25,7 @@ export type CreditEvent = {
   usageUnit: string; usageUnits: number; details: unknown; createdAt: string;
 };
 export type CreditAdjustment = { id: number; userId: string; amountUsdMicros: UsdMicros; reason: string; actorUserId: string; reversalOfId: number | null; createdAt: string };
-export type CreditGrant = { id: number; userId: string; amountUsdMicros: UsdMicros; reason: string; actorUserId: string; createdAt: string };
+export type CreditGrant = { id: number; userId: string; amountUsdMicros: UsdMicros; reason: string; actorUserId: string; createdAt: string; expiresAt: string | null };
 export type CreditUsageResponse = {
   usage: CreditUsage;
   reservations: CreditReservation[];
@@ -60,6 +60,7 @@ export type CreditUserPolicyOverride = {
   monthlyGrantsEnabled: boolean | null;
   monthlyGrantUsdMicros: UsdMicros | null;
   rolloverCapUsdMicros: UsdMicros | null;
+  grantExpiryDays: number | null;
   updatedBy?: string;
   reason?: string;
   updatedAt?: string;

@@ -7,6 +7,8 @@ Recurring grants follow signup-anchored 30-day cycles. Initializing schedules mu
 
 Grandfather existing unspent balances when per-grant expiry is introduced. Expiry applies only to grants issued after the change.
 
+Signup and monthly grant defaults remain zero until the operator configures them; do not choose a positive default on the user's behalf.
+
 **Why:** Backdated bulk grants can create unexpected balances when recurring grants are enabled, while a global off switch must reliably stop all issuance. Applying expiry retroactively could remove credits users already hold.
 
 **How to apply:** Preserve these rules when changing monthly grant scheduling, admin previews, per-user overrides, or grant expiry/FEFO accounting.

@@ -260,6 +260,20 @@ func TestOperationalReadinessIncludesTheHomeProjectionSchema(t *testing.T) {
 	if err := ValidateOperationalReady(ctx, pool); err != nil {
 		t.Fatalf("operational readiness for active schema: %v", err)
 	}
+	var hasGrantExpiryOverride bool
+	if err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM information_schema.columns
+		  WHERE table_schema=current_schema()
+		    AND table_name='ai_credit_user_policy_overrides'
+		    AND column_name='grant_expiry_days'
+		)
+	`).Scan(&hasGrantExpiryOverride); err != nil {
+		t.Fatalf("check per-user grant expiry migration: %v", err)
+	}
+	if !hasGrantExpiryOverride {
+		t.Fatal("active API migration prefix does not include per-user grant expiry")
+	}
 	if err := Run(ctx, pool); err != nil {
 		t.Fatalf("apply remaining migrations after active prefix: %v", err)
 	}

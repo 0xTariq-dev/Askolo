@@ -1079,6 +1079,7 @@ func (h *Handler) adminCreditUserOverride(w http.ResponseWriter, r *http.Request
 		MonthlyGrantsEnabled *bool  `json:"monthlyGrantsEnabled"`
 		MonthlyGrant         *int64 `json:"monthlyGrantUsdMicros"`
 		RolloverCap          *int64 `json:"rolloverCapUsdMicros"`
+		GrantExpiryDays      *int   `json:"grantExpiryDays"`
 		Reason               string `json:"reason"`
 	}
 	if !decodeBody(w, r, &input) {
@@ -1093,6 +1094,7 @@ func (h *Handler) adminCreditUserOverride(w http.ResponseWriter, r *http.Request
 		MonthlyGrantsEnabled:  input.MonthlyGrantsEnabled,
 		MonthlyGrantUsdMicros: input.MonthlyGrant,
 		RolloverCapUsdMicros:  input.RolloverCap,
+		GrantExpiryDays:       input.GrantExpiryDays,
 		Reason:                strings.TrimSpace(input.Reason),
 	}
 	if err := h.store.UpdateUSDUserPolicyOverride(r.Context(), override, actor); err != nil {

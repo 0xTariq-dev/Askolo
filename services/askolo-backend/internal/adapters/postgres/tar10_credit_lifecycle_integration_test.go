@@ -513,3 +513,67 @@ func TestTAR10SignupWelcomeUSDGrantIsIdempotent(t *testing.T) {
 		t.Fatalf("welcome grant row count = %d, want exactly 1", grants)
 	}
 }
+
+func TestTAR10UserGrantExpiryOverrideAppliesToManualAndMonthlyGrants(t *testing.T) {
+	ctx, pool, store := openTAR10(t)
+	tar10User(t, ctx, pool, "expiry-override-user")
+	tar10User(t, ctx, pool, "expiry-override-admin")
+
+	days := 7
+	if err := store.UpdateUSDUserPolicyOverride(ctx, USDUserPolicyOverride{
+		UserID:          "expiry-override-user",
+		GrantExpiryDays: &days,
+		Reason:          "shorter support grant expiry",
+	}, "expiry-override-admin"); err != nil {
+		t.Fatalf("save expiry override: %v", err)
+	}
+	override, err := store.USDUserPolicyOverride(ctx, "expiry-override-user")
+	if err != nil || override.GrantExpiryDays == nil || *override.GrantExpiryDays != days {
+		t.Fatalf("expiry override = %#v, err=%v; want %d days", override, err, days)
+	}
+
+	if err := store.AddUSDAdjustment(ctx, "expiry-override-user", "expiry-override-admin", 2_000_000, "manual grant", "expiry-override-manual"); err != nil {
+		t.Fatalf("issue manual grant: %v", err)
+	}
+	var manualExpiry time.Time
+	if err := pool.QueryRow(ctx, `SELECT expires_at FROM ai_credit_grants WHERE user_id=$1 AND idempotency_key=$2`, "expiry-override-user", "expiry-override-manual").Scan(&manualExpiry); err != nil {
+		t.Fatalf("read manual grant expiry: %v", err)
+	}
+	if remaining := time.Until(manualExpiry); remaining < 6*24*time.Hour || remaining > 8*24*time.Hour {
+		t.Fatalf("manual grant expires in %s, want about 7 days", remaining)
+	}
+
+	policy, err := store.USDPolicy(ctx)
+	if err != nil {
+		t.Fatalf("read grant policy: %v", err)
+	}
+	policy.Version++
+	policy.ChangeReason = "configure isolated recurring grant test"
+	policy.MonthlyGrantsEnabled = true
+	policy.MonthlyGrantUsdMicros = 1_000_000
+	policy.RolloverCapUsdMicros = 10_000_000
+	if _, err := store.UpdateUSDPolicy(ctx, policy.Version-1, policy, "expiry-override-admin"); err != nil {
+		t.Fatalf("configure recurring grant test: %v", err)
+	}
+	due := time.Now().UTC().Add(-time.Minute)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ai_credit_monthly_grant_schedules(user_id,next_cycle_at)
+		VALUES($1,$2)
+	`, "expiry-override-user", due); err != nil {
+		t.Fatalf("schedule recurring grant: %v", err)
+	}
+	batch, err := store.ProcessDueMonthlyUSDGrants(ctx, time.Now().UTC(), 10)
+	if err != nil || batch.Issued != 1 {
+		t.Fatalf("process monthly grant: batch=%#v err=%v; want one issued", batch, err)
+	}
+	var monthlyExpiry time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT g.expires_at FROM ai_credit_grants g
+		WHERE g.user_id=$1 AND g.source_type='monthly'
+	`, "expiry-override-user").Scan(&monthlyExpiry); err != nil {
+		t.Fatalf("read monthly grant expiry: %v", err)
+	}
+	if remaining := time.Until(monthlyExpiry); remaining < 6*24*time.Hour || remaining > 8*24*time.Hour {
+		t.Fatalf("monthly grant expires in %s, want about 7 days", remaining)
+	}
+}

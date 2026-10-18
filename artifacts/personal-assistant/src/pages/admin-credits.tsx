@@ -38,6 +38,7 @@ type UserOverrideDraft = {
   monthlyGrantsEnabled: 'inherit' | 'enabled' | 'disabled';
   monthlyGrant: string;
   rolloverCap: string;
+  grantExpiryDays: string;
 };
 
 function createUserOverrideDraft(override: CreditUserPolicyOverride): UserOverrideDraft {
@@ -47,6 +48,7 @@ function createUserOverrideDraft(override: CreditUserPolicyOverride): UserOverri
       : override.monthlyGrantsEnabled ? 'enabled' : 'disabled',
     monthlyGrant: override.monthlyGrantUsdMicros === null ? '' : formatCreditsInput(override.monthlyGrantUsdMicros),
     rolloverCap: override.rolloverCapUsdMicros === null ? '' : formatCreditsInput(override.rolloverCapUsdMicros),
+    grantExpiryDays: override.grantExpiryDays === null ? '' : String(override.grantExpiryDays),
   };
 }
 
@@ -186,8 +188,11 @@ export function AdminCreditsPage() {
       ? null : tryParseCreditsToUsdMicros(userOverride.monthlyGrant);
     const rolloverCapUsdMicros = userOverride.rolloverCap.trim() === ''
       ? null : tryParseCreditsToUsdMicros(userOverride.rolloverCap);
+    const grantExpiryDays = userOverride.grantExpiryDays.trim() === ''
+      ? null : Number(userOverride.grantExpiryDays);
     if ((userOverride.monthlyGrant.trim() !== '' && (monthlyGrantUsdMicros === null || monthlyGrantUsdMicros < 0)) ||
-        (userOverride.rolloverCap.trim() !== '' && (rolloverCapUsdMicros === null || rolloverCapUsdMicros < 0))) {
+        (userOverride.rolloverCap.trim() !== '' && (rolloverCapUsdMicros === null || rolloverCapUsdMicros < 0)) ||
+        (grantExpiryDays !== null && (!Number.isInteger(grantExpiryDays) || grantExpiryDays < 1 || grantExpiryDays > 3650))) {
       toast({ title: 'Enter valid non-negative credit amounts for the override.', variant: 'destructive' });
       return;
     }
@@ -198,6 +203,7 @@ export function AdminCreditsPage() {
           ? null : userOverride.monthlyGrantsEnabled === 'enabled',
         monthlyGrantUsdMicros,
         rolloverCapUsdMicros,
+        grantExpiryDays,
         reason: overrideReason.trim(),
       });
       setUserOverride(createUserOverrideDraft(updated));
@@ -791,6 +797,22 @@ export function AdminCreditsPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
+                  <Label htmlFor="admin-user-grant-expiry-days">Grant expiry (days)</Label>
+                  <Input
+                    id="admin-user-grant-expiry-days"
+                    type="number"
+                    min={1}
+                    max={3650}
+                    step={1}
+                    value={userOverride.grantExpiryDays}
+                    onChange={(event) => setUserOverride((current) => current ? ({ ...current, grantExpiryDays: event.target.value }) : current)}
+                    placeholder={`Inherit global (${policy.rolloverExpiryDays} days)`}
+                    disabled={saving}
+                    data-testid="input-admin-user-grant-expiry-days"
+                  />
+                  <p className="text-xs text-muted-foreground">Applies to future recurring and manual grants for this user. Blank inherits the global expiry.</p>
+                </div>
+                <div className="space-y-1.5">
                   <Label htmlFor="admin-user-override-reason">Reason for override</Label>
                   <Input
                     id="admin-user-override-reason"
@@ -939,6 +961,19 @@ export function AdminCreditsPage() {
                   </p>
                 </div>
               ))}
+              {usage.grants.length > 0 && (
+                <section aria-labelledby="admin-grants-title" className="space-y-2">
+                  <h3 id="admin-grants-title" className="font-medium">Grant history</h3>
+                  {usage.grants.map((grant) => (
+                    <div key={grant.id} className="rounded-lg border border-border/60 p-3 text-sm" data-testid={`grant-history-${grant.id}`}>
+                      <p className="font-medium">{grant.reason} · {formatCredits(grant.amountUsdMicros)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {grant.createdAt} · {grant.expiresAt ? `Expires ${new Date(grant.expiresAt).toLocaleString()}` : 'Does not expire'}
+                      </p>
+                    </div>
+                  ))}
+                </section>
+              )}
             </div>
           </CardContent>
         </Card>

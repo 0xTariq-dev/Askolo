@@ -584,7 +584,11 @@ func (s *Store) AddUSDAdjustment(ctx context.Context, target, actor string, amou
 	}
 	if amount > 0 {
 		var expiryDays int
-		if err = tx.QueryRow(ctx, `SELECT rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&expiryDays); err != nil {
+		if err = tx.QueryRow(ctx, `
+			SELECT COALESCE(o.grant_expiry_days,p.rollover_expiry_days)
+			FROM (SELECT rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1) p
+			LEFT JOIN ai_credit_user_policy_overrides o ON o.user_id=$1
+		`, target).Scan(&expiryDays); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO ai_credit_grants(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros,expires_at) VALUES($1,'admin',1,$2,$2,$3,$4,$5,'USD',$6,NOW()+($7 * interval '1 day'))`, target, key, meta, actor, reason, amount, expiryDays); err != nil {
@@ -981,7 +985,7 @@ END
 		return nil, err
 	}
 	grants := make([]map[string]any, 0)
-	grows, err := s.pool.Query(ctx, `SELECT id,amount_usd_micros,reason,COALESCE(actor_user_id,''),created_at FROM ai_credit_grants WHERE user_id=$1 AND currency='USD' ORDER BY created_at DESC LIMIT $2`, userID, limit)
+	grows, err := s.pool.Query(ctx, `SELECT id,amount_usd_micros,reason,COALESCE(actor_user_id,''),created_at,expires_at FROM ai_credit_grants WHERE user_id=$1 AND currency='USD' ORDER BY created_at DESC LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -991,10 +995,15 @@ END
 		var amount int64
 		var reason, actor string
 		var created time.Time
-		if err := grows.Scan(&id, &amount, &reason, &actor, &created); err != nil {
+		var expiresAt sql.NullTime
+		if err := grows.Scan(&id, &amount, &reason, &actor, &created, &expiresAt); err != nil {
 			return nil, err
 		}
-		grants = append(grants, map[string]any{"id": id, "amountUsdMicros": amount, "reason": reason, "actorUserId": actor, "createdAt": created})
+		var expiry *time.Time
+		if expiresAt.Valid {
+			expiry = &expiresAt.Time
+		}
+		grants = append(grants, map[string]any{"id": id, "userId": userID, "amountUsdMicros": amount, "reason": reason, "actorUserId": actor, "createdAt": created, "expiresAt": expiry})
 	}
 	return map[string]any{"reservations": reservations, "events": events, "adjustments": adjustments, "grants": grants}, grows.Err()
 }
@@ -1019,6 +1028,7 @@ type USDUserPolicyOverride struct {
 	MonthlyGrantsEnabled  *bool      `json:"monthlyGrantsEnabled"`
 	MonthlyGrantUsdMicros *int64     `json:"monthlyGrantUsdMicros"`
 	RolloverCapUsdMicros  *int64     `json:"rolloverCapUsdMicros"`
+	GrantExpiryDays       *int       `json:"grantExpiryDays"`
 	UpdatedBy             string     `json:"updatedBy,omitempty"`
 	Reason                string     `json:"reason,omitempty"`
 	UpdatedAt             *time.Time `json:"updatedAt,omitempty"`
@@ -1042,13 +1052,13 @@ func (s *Store) USDUserPolicyOverride(ctx context.Context, userID string) (USDUs
 		return override, errors.New("user id is required")
 	}
 	var enabled sql.NullBool
-	var amount, cap sql.NullInt64
+	var amount, cap, expiryDays sql.NullInt64
 	var updatedAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros,
+		SELECT monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros, grant_expiry_days,
 		       updated_by, reason, updated_at
 		FROM ai_credit_user_policy_overrides WHERE user_id=$1
-	`, userID).Scan(&enabled, &amount, &cap, &override.UpdatedBy, &override.Reason, &updatedAt)
+	`, userID).Scan(&enabled, &amount, &cap, &expiryDays, &override.UpdatedBy, &override.Reason, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return override, nil
 	}
@@ -1064,6 +1074,10 @@ func (s *Store) USDUserPolicyOverride(ctx context.Context, userID string) (USDUs
 	if cap.Valid {
 		override.RolloverCapUsdMicros = &cap.Int64
 	}
+	if expiryDays.Valid {
+		days := int(expiryDays.Int64)
+		override.GrantExpiryDays = &days
+	}
 	override.UpdatedAt = &updatedAt
 	return override, nil
 }
@@ -1077,7 +1091,8 @@ func (s *Store) UpdateUSDUserPolicyOverride(ctx context.Context, override USDUse
 	override.Reason = strings.TrimSpace(override.Reason)
 	if override.UserID == "" || actor == "" || override.Reason == "" || len(override.Reason) > 160 ||
 		(override.MonthlyGrantUsdMicros != nil && (*override.MonthlyGrantUsdMicros < 0 || *override.MonthlyGrantUsdMicros > math.MaxInt64/2)) ||
-		(override.RolloverCapUsdMicros != nil && (*override.RolloverCapUsdMicros < 0 || *override.RolloverCapUsdMicros > math.MaxInt64/2)) {
+		(override.RolloverCapUsdMicros != nil && (*override.RolloverCapUsdMicros < 0 || *override.RolloverCapUsdMicros > math.MaxInt64/2)) ||
+		(override.GrantExpiryDays != nil && (*override.GrantExpiryDays < 1 || *override.GrantExpiryDays > 3650)) {
 		return errors.New("invalid USD user policy override")
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -1090,11 +1105,11 @@ func (s *Store) UpdateUSDUserPolicyOverride(ctx context.Context, override USDUse
 		return err
 	}
 	var oldEnabled sql.NullBool
-	var oldAmount, oldCap sql.NullInt64
+	var oldAmount, oldCap, oldExpiryDays sql.NullInt64
 	err = tx.QueryRow(ctx, `
-		SELECT monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros
+		SELECT monthly_grants_enabled, monthly_grant_usd_micros, rollover_cap_usd_micros, grant_expiry_days
 		FROM ai_credit_user_policy_overrides WHERE user_id=$1 FOR UPDATE
-	`, override.UserID).Scan(&oldEnabled, &oldAmount, &oldCap)
+	`, override.UserID).Scan(&oldEnabled, &oldAmount, &oldCap, &oldExpiryDays)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
@@ -1108,6 +1123,9 @@ func (s *Store) UpdateUSDUserPolicyOverride(ctx context.Context, override USDUse
 	if oldCap.Valid {
 		oldValues["rolloverCapUsdMicros"] = oldCap.Int64
 	}
+	if oldExpiryDays.Valid {
+		oldValues["grantExpiryDays"] = oldExpiryDays.Int64
+	}
 	nextValues := map[string]any{}
 	if override.MonthlyGrantsEnabled != nil {
 		nextValues["monthlyGrantsEnabled"] = *override.MonthlyGrantsEnabled
@@ -1118,6 +1136,9 @@ func (s *Store) UpdateUSDUserPolicyOverride(ctx context.Context, override USDUse
 	if override.RolloverCapUsdMicros != nil {
 		nextValues["rolloverCapUsdMicros"] = *override.RolloverCapUsdMicros
 	}
+	if override.GrantExpiryDays != nil {
+		nextValues["grantExpiryDays"] = *override.GrantExpiryDays
+	}
 	oldJSON, _ := json.Marshal(oldValues)
 	nextJSON, _ := json.Marshal(nextValues)
 	if len(nextValues) == 0 {
@@ -1126,14 +1147,15 @@ func (s *Store) UpdateUSDUserPolicyOverride(ctx context.Context, override USDUse
 		}
 	} else if _, err := tx.Exec(ctx, `
 		INSERT INTO ai_credit_user_policy_overrides
-			(user_id,monthly_grants_enabled,monthly_grant_usd_micros,rollover_cap_usd_micros,updated_by,reason,updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,NOW())
+			(user_id,monthly_grants_enabled,monthly_grant_usd_micros,rollover_cap_usd_micros,grant_expiry_days,updated_by,reason,updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			monthly_grants_enabled=EXCLUDED.monthly_grants_enabled,
 			monthly_grant_usd_micros=EXCLUDED.monthly_grant_usd_micros,
 			rollover_cap_usd_micros=EXCLUDED.rollover_cap_usd_micros,
+			grant_expiry_days=EXCLUDED.grant_expiry_days,
 			updated_by=EXCLUDED.updated_by, reason=EXCLUDED.reason, updated_at=NOW()
-	`, override.UserID, override.MonthlyGrantsEnabled, override.MonthlyGrantUsdMicros, override.RolloverCapUsdMicros, actor, override.Reason); err != nil {
+	`, override.UserID, override.MonthlyGrantsEnabled, override.MonthlyGrantUsdMicros, override.RolloverCapUsdMicros, override.GrantExpiryDays, actor, override.Reason); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1286,7 +1308,8 @@ func (s *Store) ProcessDueMonthlyUSDGrants(ctx context.Context, now time.Time, l
 		SELECT s.user_id, s.next_cycle_at,
 		       p.version, p.monthly_grants_enabled AND COALESCE(o.monthly_grants_enabled, true),
 		       COALESCE(o.monthly_grant_usd_micros, p.monthly_grant_usd_micros),
-		       COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros), p.rollover_expiry_days
+		       COALESCE(o.rollover_cap_usd_micros, p.rollover_cap_usd_micros),
+		       COALESCE(o.grant_expiry_days, p.rollover_expiry_days)
 		FROM ai_credit_monthly_grant_schedules s
 		JOIN users u ON u.id=s.user_id AND COALESCE(u.status,'active') <> 'deleted'
 		CROSS JOIN LATERAL (

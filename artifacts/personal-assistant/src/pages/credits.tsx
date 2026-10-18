@@ -58,6 +58,28 @@ export function CreditsPage() {
       </div>
        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{counters.map(([label, value]) => <div key={label} className="rounded-xl border border-border/70 bg-background/30 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-mono text-lg font-semibold">{formatCredits(value as number)}</p></div>)}</div>
      </section>}
+      {billingTab && usage.grants.length > 0 && (
+        <section aria-labelledby="credit-grants-title" className="space-y-3">
+          <div>
+            <h2 id="credit-grants-title" className="text-lg font-semibold">Credit grants</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Grant amounts use credits. Expiry dates are shown when a grant expires.</p>
+          </div>
+          <div className="space-y-2">
+            {usage.grants.map((grant) => (
+              <div key={grant.id} className="flex flex-col gap-1 rounded-xl border border-border/70 bg-background/35 p-3 sm:flex-row sm:items-center sm:justify-between" data-testid={`credit-grant-${grant.id}`}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{grant.reason}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(grant.createdAt).toLocaleString()}</p>
+                </div>
+                <div className="text-sm sm:text-end">
+                  <p className="font-mono font-semibold">{formatCredits(grant.amountUsdMicros)}</p>
+                  <p className="text-xs text-muted-foreground">{grant.expiresAt ? `Expires ${new Date(grant.expiresAt).toLocaleDateString()}` : 'Does not expire'}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <Card><CardHeader><CardTitle>{billingTab ? 'Ledger and receipts' : 'Usage activity'}</CardTitle><CardDescription>{billingTab ? 'Completed operations, pending reviews, and refunds are shown here. Routine holds and releases remain hidden from activity.' : 'Completed operations and usage awaiting provider reconciliation.'}</CardDescription></CardHeader><CardContent className="space-y-2">{activities.length ? activities.map((item) => <ReceiptRow key={`${'eventType' in item ? 'event' : 'reservation'}-${item.id}`} item={item} onOpen={() => setSelected(item)} />) : <div className="rounded-xl border border-dashed border-border p-10 text-center"><p className="font-medium">No completed usage yet</p><p className="mt-1 text-sm text-muted-foreground">Your first completed assistant or voice operation will appear here.</p></div>}</CardContent></Card>
     <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
       <DialogContent>
@@ -85,7 +107,7 @@ export function CreditsPage() {
                     : selected.usageStatus === 'pending_review' ? 'Submitted usage is awaiting provider reconciliation'
                       : selected.usageStatus === 'measured' ? 'Measured usage recorded' : 'Usage detail unavailable'}</dd></div>
                 <div><dt className="text-muted-foreground">Measurement</dt><dd>{selected.usageStatus === 'pending_review' ? 'Awaiting provider reconciliation' : selected.usageStatus === 'measured' ? 'Provider-measured' : 'Not available'}</dd></div>
-                <div><dt className="text-muted-foreground">Reserved</dt><dd className="font-mono">{formatUsdMicros(selected.reservedUsdMicros)}</dd></div>
+                <div><dt className="text-muted-foreground">Reserved estimate limit</dt><dd className="font-mono">{formatUsdMicros(selected.reservedUsdMicros)}</dd></div>
                 <div><dt className="text-muted-foreground">Settled</dt><dd className="font-mono">{formatUsdMicros(selected.settledUsdMicros)}</dd></div>
                 <div><dt className="text-muted-foreground">Returned</dt><dd className="font-mono">{formatUsdMicros(selected.refundedUsdMicros)}</dd></div>
                 <div><dt className="text-muted-foreground">Policy version</dt><dd>v{selected.policyVersion}</dd></div>
