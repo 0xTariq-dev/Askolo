@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/ui/page-transition';
 import { useToast } from '@/hooks/use-toast';
 import { CInputGroup9CurrencyInput } from '@/components/examples/c-input-group-9';
-import { creditApi, creditErrorMessage, formatCredits, formatCreditsInput, formatUsdMicros, formatUsdMicrosInput, newCreditIdempotencyKey, tryParseCreditsToUsdMicros, tryParseUsdMicros, type CreditAdminAlert, type CreditPolicy, type CreditUsageResponse, type CreditUserPolicyOverride, type MonthlyGrantPreview } from '@/lib/credit-api';
+import { creditApi, creditErrorMessage, formatCredits, formatCreditsInput, formatUsdMicros, formatUsdMicrosInput, newCreditIdempotencyKey, tryParseCreditsToUsdMicros, tryParseUsdMicros, type CreditAdminAlert, type CreditPolicy, type CreditUsageResponse, type CreditUserPolicyOverride, type GrantBatchItem, type GrantBatchPreview, type MonthlyGrantPreview } from '@/lib/credit-api';
 
 const voiceAgentRateCardKey = 'assemblyai:voice_agent:managed-voice-agent';
 const openAIRateCardKey = 'openai:assistant:gpt-5.6-luna';
@@ -111,6 +111,16 @@ export function AdminCreditsPage() {
   const [alerts, setAlerts] = useState<CreditAdminAlert[]>([]);
   const [grantPreview, setGrantPreview] = useState<MonthlyGrantPreview | null>(null);
   const [userOverride, setUserOverride] = useState<UserOverrideDraft | null>(null);
+  const [manualGrantPreview, setManualGrantPreview] = useState<{
+    userId: string; amountMicros: number; reason: string; balanceMicros: number;
+    expiryDays: number; expiresAt: string; idempotencyKey: string;
+  } | null>(null);
+  const [bulkRecipientIds, setBulkRecipientIds] = useState('');
+  const [bulkAmount, setBulkAmount] = useState('');
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkGrantPreview, setBulkGrantPreview] = useState<{
+    result: GrantBatchPreview; ids: string; amount: string; reason: string; key: string;
+  } | null>(null);
   const [overrideReason, setOverrideReason] = useState('');
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
   const [reviewKeys, setReviewKeys] = useState<Record<string, string>>({});
@@ -252,20 +262,91 @@ export function AdminCreditsPage() {
   const adjust = async () => {
     const micros = tryParseCreditsToUsdMicros(amount);
     if (!userId.trim() || micros === null || micros === 0 || !reason.trim()) return;
+    if (micros > 0 && (!manualGrantPreview ||
+        manualGrantPreview.userId !== userId.trim() ||
+        manualGrantPreview.amountMicros !== micros ||
+        manualGrantPreview.reason !== reason.trim())) {
+      toast({ title: 'Preview this grant before posting it.', variant: 'destructive' });
+      return;
+    }
+    const idempotencyKey = micros > 0 ? manualGrantPreview?.idempotencyKey : newCreditIdempotencyKey();
+    if (!idempotencyKey) return;
     setSaving(true);
     try {
       await creditApi.adminAdjustment({
         userId: userId.trim(),
         amountUsdMicros: micros,
         reason: reason.trim(),
-        idempotencyKey: newCreditIdempotencyKey(),
+        idempotencyKey,
       });
       toast({ title: 'Credit adjustment posted', description: `${formatCredits(micros)} posted to ${userId.trim()}.` });
       setAmount('');
       setReason('');
+      setManualGrantPreview(null);
       await lookup();
     } catch (e) {
       toast({ title: creditErrorMessage(e, 'Adjustment could not be posted'), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const previewManualGrant = async () => {
+    const micros = tryParseCreditsToUsdMicros(amount);
+    if (!userId.trim() || micros === null || micros <= 0 || !reason.trim() || !policy) return;
+    setSaving(true);
+    try {
+      const preview = await creditApi.adminManualGrantPreview(userId.trim(), micros);
+      setManualGrantPreview({
+        userId: preview.userId, amountMicros: preview.amountUsdMicros, reason: reason.trim(),
+        balanceMicros: preview.balanceUsdMicros, expiryDays: preview.grantExpiryDays,
+        expiresAt: preview.expiresAt, idempotencyKey: newCreditIdempotencyKey(),
+      });
+    } catch (e) {
+      toast({ title: creditErrorMessage(e, 'Grant preview is unavailable'), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const parseBulkGrantItems = (): GrantBatchItem[] | null => {
+    const ids = bulkRecipientIds.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    const amountMicros = tryParseCreditsToUsdMicros(bulkAmount);
+    if (!ids.length || ids.length > 100 || new Set(ids).size !== ids.length || amountMicros === null || amountMicros <= 0) return null;
+    return ids.map((recipientId) => ({ userId: recipientId, amountUsdMicros: amountMicros }));
+  };
+  const previewBulkGrant = async () => {
+    const items = parseBulkGrantItems();
+    if (!items || !bulkReason.trim()) return;
+    setSaving(true);
+    try {
+      const result = await creditApi.adminBulkGrantPreview(items, bulkReason.trim());
+      setBulkGrantPreview({
+        result, ids: bulkRecipientIds.trim(), amount: bulkAmount.trim(),
+        reason: bulkReason.trim(), key: newCreditIdempotencyKey(),
+      });
+    } catch (e) {
+      toast({ title: creditErrorMessage(e, 'Bulk grant preview is unavailable'), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const issueBulkGrant = async () => {
+    const items = parseBulkGrantItems();
+    const preview = bulkGrantPreview;
+    if (!items || !preview || preview.ids !== bulkRecipientIds.trim() ||
+        preview.amount !== bulkAmount.trim() || preview.reason !== bulkReason.trim()) {
+      toast({ title: 'Preview the current recipients and grant details before posting.', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await creditApi.adminBulkGrant(items, bulkReason.trim(), preview.key);
+      setBulkGrantPreview(null);
+      setBulkRecipientIds('');
+      setBulkAmount('');
+      setBulkReason('');
+      toast({ title: 'Bulk grant issued', description: `Issued to ${result.recipientCount} recipients.` });
+    } catch (e) {
+      toast({ title: creditErrorMessage(e, 'Bulk grant could not be issued'), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -327,6 +408,12 @@ export function AdminCreditsPage() {
     rolloverCapMicros >= 0 &&
     rateDraftsAreValid;
   const adjustmentMicros = tryParseCreditsToUsdMicros(amount);
+  const manualGrantPreviewIsCurrent = Boolean(
+    manualGrantPreview &&
+    manualGrantPreview.userId === userId.trim() &&
+    manualGrantPreview.amountMicros === adjustmentMicros &&
+    manualGrantPreview.reason === reason.trim(),
+  );
   const savePolicy = async () => {
     if (!policy || !policyDrafts || !changeReason.trim()) return;
     const monthlyGrant = tryParseCreditsToUsdMicros(policyDrafts.monthlyGrant);
@@ -702,6 +789,7 @@ export function AdminCreditsPage() {
                   setUserId(event.target.value);
                   setUsage(null);
                   setUserOverride(null);
+                  setManualGrantPreview(null);
                 }}
                 placeholder="usr_…"
               />
@@ -713,7 +801,10 @@ export function AdminCreditsPage() {
                 type="text"
                 inputMode="decimal"
                 value={amount}
-                onChange={(event) => setAmount(event.target.value)}
+                onChange={(event) => {
+                  setAmount(event.target.value);
+                  setManualGrantPreview(null);
+                }}
                 placeholder="500 or -25"
                 aria-label="Signed adjustment amount in credits"
                 disabled={saving}
@@ -725,10 +816,36 @@ export function AdminCreditsPage() {
               <Input
                 id="admin-reason"
                 value={reason}
-                onChange={(event) => setReason(event.target.value)}
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  setManualGrantPreview(null);
+                }}
                 placeholder="Customer support adjustment"
               />
             </div>
+            {adjustmentMicros !== null && adjustmentMicros > 0 && (
+              <>
+                {manualGrantPreviewIsCurrent && manualGrantPreview && (
+                  <div role="status" aria-live="polite" className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+                    <p className="font-medium">Grant preview</p>
+                    <p className="mt-1">Current balance: {formatCredits(manualGrantPreview.balanceMicros)}</p>
+                    <p>After grant: {formatCredits(manualGrantPreview.balanceMicros + manualGrantPreview.amountMicros)}</p>
+                    <p>Expires in {manualGrantPreview.expiryDays} days ({new Date(manualGrantPreview.expiresAt).toLocaleDateString()})</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Confirm the recipient, amount, and expiry before posting. Any edit requires a new preview.</p>
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  variant={manualGrantPreviewIsCurrent ? 'default' : 'outline'}
+                  className="w-full"
+                  onClick={() => manualGrantPreviewIsCurrent ? void adjust() : void previewManualGrant()}
+                  disabled={saving || !userId.trim() || !reason.trim() || adjustmentMicros === null}
+                >
+                  {saving && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+                  {manualGrantPreviewIsCurrent ? 'Confirm and post grant' : 'Preview grant'}
+                </Button>
+              </>
+            )}
             <Button
               className="w-full"
               onClick={() => void adjust()}
@@ -737,11 +854,11 @@ export function AdminCreditsPage() {
                 !userId.trim() ||
                 !reason.trim() ||
                 adjustmentMicros === null ||
-                adjustmentMicros === 0
+                adjustmentMicros >= 0
               }
             >
               {saving && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-              Post adjustment
+              Post debit adjustment
             </Button>
             <Button
               variant="outline"
@@ -751,6 +868,55 @@ export function AdminCreditsPage() {
             >
               Inspect account
             </Button>
+            <div className="space-y-3 border-t border-border pt-4">
+              <div>
+                <h3 className="font-medium">Bulk grant</h3>
+                <p className="text-xs text-muted-foreground">One user ID per line; up to 100 recipients. Review the full preview before issuing.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-bulk-user-ids">Recipient user IDs</Label>
+                <textarea
+                  id="admin-bulk-user-ids"
+                  rows={4}
+                  value={bulkRecipientIds}
+                  onChange={(event) => { setBulkRecipientIds(event.target.value); setBulkGrantPreview(null); }}
+                  className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  disabled={saving}
+                  data-testid="input-admin-bulk-recipient-ids"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-bulk-amount">Amount per recipient (credits)</Label>
+                <Input id="admin-bulk-amount" inputMode="decimal" value={bulkAmount}
+                  onChange={(event) => { setBulkAmount(event.target.value); setBulkGrantPreview(null); }}
+                  disabled={saving} data-testid="input-admin-bulk-amount" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-bulk-reason">Reason</Label>
+                <Input id="admin-bulk-reason" value={bulkReason}
+                  onChange={(event) => { setBulkReason(event.target.value); setBulkGrantPreview(null); }}
+                  disabled={saving} />
+              </div>
+              {bulkGrantPreview && bulkGrantPreview.ids === bulkRecipientIds.trim() &&
+                bulkGrantPreview.amount === bulkAmount.trim() && bulkGrantPreview.reason === bulkReason.trim() && (
+                  <div role="status" aria-live="polite" className="max-h-64 space-y-1 overflow-auto rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+                    <p className="font-medium">{bulkGrantPreview.result.items.length} recipients · total {formatCredits(bulkGrantPreview.result.totalAmountUsdMicros)}</p>
+                    {bulkGrantPreview.result.items.map((item) => (
+                      <p key={item.userId}>{item.userId}: {formatCredits(item.balanceUsdMicros)} → {formatCredits(item.projectedBalanceUsdMicros)} · expires {new Date(item.expiresAt).toLocaleDateString()}</p>
+                    ))}
+                  </div>
+                )}
+              <Button type="button" variant={bulkGrantPreview && bulkGrantPreview.ids === bulkRecipientIds.trim() &&
+                bulkGrantPreview.amount === bulkAmount.trim() && bulkGrantPreview.reason === bulkReason.trim() ? 'default' : 'outline'}
+                className="w-full" disabled={saving || !bulkReason.trim()}
+                onClick={() => bulkGrantPreview && bulkGrantPreview.ids === bulkRecipientIds.trim() &&
+                  bulkGrantPreview.amount === bulkAmount.trim() && bulkGrantPreview.reason === bulkReason.trim()
+                  ? void issueBulkGrant() : void previewBulkGrant()}>
+                {bulkGrantPreview && bulkGrantPreview.ids === bulkRecipientIds.trim() &&
+                  bulkGrantPreview.amount === bulkAmount.trim() && bulkGrantPreview.reason === bulkReason.trim()
+                  ? 'Confirm and issue bulk grant' : 'Preview bulk grant'}
+              </Button>
+            </div>
             {userOverride && (
               <div className="space-y-3 border-t border-border pt-4">
                 <div>

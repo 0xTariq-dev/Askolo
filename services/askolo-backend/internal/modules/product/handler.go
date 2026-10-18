@@ -520,6 +520,9 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/ai-credit-grant-alerts", h.adminCreditGrantAlerts)
 	mux.HandleFunc("POST /api/admin/ai-credit-grant-alerts/{alertKey}/acknowledge", h.acknowledgeAdminCreditGrantAlert)
 	mux.HandleFunc("GET /api/admin/ai-credit-monthly-grants/preview", h.adminMonthlyGrantPreview)
+	mux.HandleFunc("GET /api/admin/ai-credit-grants/preview", h.adminManualGrantPreview)
+	mux.HandleFunc("POST /api/admin/ai-credit-grants/bulk/preview", h.adminBulkGrantPreview)
+	mux.HandleFunc("POST /api/admin/ai-credit-grants/bulk", h.adminBulkGrant)
 	mux.HandleFunc("GET /api/ai/transcription-preferences", h.transcriptionPreferences)
 	mux.HandleFunc("PATCH /api/ai/transcription-preferences", h.updateTranscriptionPreferences)
 	mux.HandleFunc("GET /api/ai/privacy-preferences", h.aiPrivacyPreferences)
@@ -1135,6 +1138,99 @@ func (h *Handler) adminMonthlyGrantPreview(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, preview)
+}
+
+func (h *Handler) adminManualGrantPreview(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireCreditAdmin(w, r); !ok {
+		return
+	}
+	userID := strings.TrimSpace(r.URL.Query().Get("userId"))
+	amount, err := strconv.ParseInt(r.URL.Query().Get("amountUsdMicros"), 10, 64)
+	if userID == "" || err != nil || amount <= 0 {
+		writeError(w, http.StatusBadRequest, "INVALID_GRANT_PREVIEW", "A user and positive grant amount are required.")
+		return
+	}
+	preview, err := h.store.PreviewUSDManualGrant(r.Context(), userID, amount, time.Now().UTC())
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "The grant recipient was not found.")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid USD grant preview") {
+			writeError(w, http.StatusBadRequest, "INVALID_GRANT_PREVIEW", "The grant amount is invalid.")
+			return
+		}
+		h.storeError(w, "manual grant preview failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (h *Handler) adminBulkGrantPreview(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireCreditAdmin(w, r); !ok {
+		return
+	}
+	var input struct {
+		Items  []postgres.USDGrantBatchItem `json:"items"`
+		Reason string                       `json:"reason"`
+	}
+	if !decodeBody(w, r, &input) || strings.TrimSpace(input.Reason) == "" || len(strings.TrimSpace(input.Reason)) > 160 ||
+		len(input.Items) == 0 || len(input.Items) > 100 {
+		writeError(w, http.StatusBadRequest, "INVALID_GRANT_BATCH", "Provide 1–100 recipients, positive amounts, and a reason.")
+		return
+	}
+	seen := make(map[string]struct{}, len(input.Items))
+	previews := make([]postgres.USDManualGrantPreview, 0, len(input.Items))
+	var total int64
+	now := time.Now().UTC()
+	for _, item := range input.Items {
+		item.UserID = strings.TrimSpace(item.UserID)
+		if _, exists := seen[item.UserID]; exists {
+			writeError(w, http.StatusBadRequest, "DUPLICATE_GRANT_RECIPIENT", "Each recipient can appear only once.")
+			return
+		}
+		seen[item.UserID] = struct{}{}
+		preview, err := h.store.PreviewUSDManualGrant(r.Context(), item.UserID, item.AmountUsdMicros, now)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_GRANT_RECIPIENT", "A recipient or grant amount is invalid.")
+			return
+		}
+		previews = append(previews, preview)
+		if item.AmountUsdMicros > math.MaxInt64-total {
+			writeError(w, http.StatusBadRequest, "INVALID_GRANT_BATCH", "The total grant amount is too large.")
+			return
+		}
+		total += item.AmountUsdMicros
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": previews, "totalAmountUsdMicros": total})
+}
+
+func (h *Handler) adminBulkGrant(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.requireCreditAdmin(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Items          []postgres.USDGrantBatchItem `json:"items"`
+		Reason         string                       `json:"reason"`
+		IdempotencyKey string                       `json:"idempotencyKey"`
+	}
+	if !decodeBody(w, r, &input) {
+		return
+	}
+	if err := h.store.AddUSDGrantBatch(r.Context(), input.Items, actor, input.Reason, input.IdempotencyKey); err != nil {
+		if strings.Contains(err.Error(), "conflict") {
+			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "This batch key was already used for different grant details.")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "duplicate") {
+			writeError(w, http.StatusBadRequest, "INVALID_GRANT_BATCH", "The grant batch is invalid.")
+			return
+		}
+		h.storeError(w, "bulk grant failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "issued", "recipientCount": len(input.Items)})
 }
 
 func (h *Handler) acknowledgeAdminCreditGrantAlert(w http.ResponseWriter, r *http.Request) {

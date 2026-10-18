@@ -577,3 +577,56 @@ func TestTAR10UserGrantExpiryOverrideAppliesToManualAndMonthlyGrants(t *testing.
 		t.Fatalf("monthly grant expires in %s, want about 7 days", remaining)
 	}
 }
+
+func TestTAR10BulkGrantPreviewAndAtomicIdempotentIssuance(t *testing.T) {
+	ctx, pool, store := openTAR10(t)
+	tar10User(t, ctx, pool, "bulk-user-a")
+	tar10User(t, ctx, pool, "bulk-user-b")
+	tar10User(t, ctx, pool, "bulk-admin")
+	if _, err := pool.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id,granted_usd_micros) VALUES('bulk-user-a',500000),('bulk-user-b',1000000)`); err != nil {
+		t.Fatal(err)
+	}
+	days := 14
+	if err := store.UpdateUSDUserPolicyOverride(ctx, USDUserPolicyOverride{
+		UserID: "bulk-user-a", GrantExpiryDays: &days, Reason: "bulk preview expiry",
+	}, "bulk-admin"); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := store.PreviewUSDManualGrant(ctx, "bulk-user-a", 250000, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.BalanceUsdMicros != 500000 || preview.ProjectedBalance != 750000 || preview.GrantExpiryDays != days {
+		t.Fatalf("manual preview = %#v", preview)
+	}
+	items := []USDGrantBatchItem{
+		{UserID: "bulk-user-a", AmountUsdMicros: 250000},
+		{UserID: "bulk-user-b", AmountUsdMicros: 250000},
+	}
+	if err := store.AddUSDGrantBatch(ctx, items, "bulk-admin", "support batch", "bulk-key-1"); err != nil {
+		t.Fatalf("issue batch: %v", err)
+	}
+	if err := store.AddUSDGrantBatch(ctx, items, "bulk-admin", "support batch", "bulk-key-1"); err != nil {
+		t.Fatalf("idempotent batch replay: %v", err)
+	}
+	for _, user := range []struct {
+		id   string
+		want int64
+	}{{"bulk-user-a", 750000}, {"bulk-user-b", 1250000}} {
+		usage, err := store.USDUsage(ctx, user.id)
+		if err != nil || usage.BalanceUsdMicros != user.want {
+			t.Fatalf("%s usage = %#v err=%v, want balance %d", user.id, usage, err, user.want)
+		}
+	}
+	var expiresAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT expires_at FROM ai_credit_grants WHERE user_id='bulk-user-a' AND reason='support batch'`).Scan(&expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if remaining := time.Until(expiresAt); remaining < 13*24*time.Hour || remaining > 15*24*time.Hour {
+		t.Fatalf("bulk grant expires in %s, want about 14 days", remaining)
+	}
+	conflict := []USDGrantBatchItem{{UserID: "bulk-user-a", AmountUsdMicros: 300000}, {UserID: "bulk-user-b", AmountUsdMicros: 250000}}
+	if err := store.AddUSDGrantBatch(ctx, conflict, "bulk-admin", "support batch", "bulk-key-1"); !errors.Is(err, ErrUSDReservationConflict) {
+		t.Fatalf("mismatched batch replay error = %v, want idempotency conflict", err)
+	}
+}

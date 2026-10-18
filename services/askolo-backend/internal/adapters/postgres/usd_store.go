@@ -2,12 +2,15 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -608,6 +611,95 @@ func (s *Store) AddUSDAdjustment(ctx context.Context, target, actor string, amou
 	return tx.Commit(ctx)
 }
 
+type USDGrantBatchItem struct {
+	UserID          string `json:"userId"`
+	AmountUsdMicros int64  `json:"amountUsdMicros"`
+}
+
+func validateUSDGrantBatch(items []USDGrantBatchItem) error {
+	if len(items) == 0 || len(items) > 100 {
+		return errors.New("invalid USD grant batch size")
+	}
+	seen := make(map[string]struct{}, len(items))
+	for i := range items {
+		items[i].UserID = strings.TrimSpace(items[i].UserID)
+		if items[i].UserID == "" || len(items[i].UserID) > 256 ||
+			items[i].AmountUsdMicros <= 0 || items[i].AmountUsdMicros > math.MaxInt64/2 {
+			return errors.New("invalid USD grant batch item")
+		}
+		if _, exists := seen[items[i].UserID]; exists {
+			return errors.New("duplicate USD grant recipient")
+		}
+		seen[items[i].UserID] = struct{}{}
+	}
+	return nil
+}
+
+func (s *Store) AddUSDGrantBatch(ctx context.Context, items []USDGrantBatchItem, actor, reason, batchKey string) error {
+	if s == nil || s.pool == nil {
+		return errors.New("database is not configured")
+	}
+	actor, reason, batchKey = strings.TrimSpace(actor), strings.TrimSpace(reason), strings.TrimSpace(batchKey)
+	if err := validateUSDGrantBatch(items); err != nil || actor == "" || reason == "" || len(reason) > 160 || batchKey == "" || len(batchKey) > 160 {
+		return errors.New("invalid USD grant batch")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	ordered := append([]USDGrantBatchItem(nil), items...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].UserID < ordered[j].UserID })
+	for _, item := range ordered {
+		var userID string
+		if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND COALESCE(status,'active') <> 'deleted' FOR UPDATE`, item.UserID).Scan(&userID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO ai_credit_accounts(user_id) VALUES($1) ON CONFLICT DO NOTHING`, item.UserID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `SELECT user_id FROM ai_credit_accounts WHERE user_id=$1 FOR UPDATE`, item.UserID); err != nil {
+			return err
+		}
+	}
+	var expiryDays int
+	if err := tx.QueryRow(ctx, `SELECT rollover_expiry_days FROM ai_credit_policy_versions ORDER BY version DESC LIMIT 1`).Scan(&expiryDays); err != nil {
+		return err
+	}
+	meta, _ := json.Marshal(map[string]string{"actorUserId": actor, "reason": reason, "grantType": "admin_bulk"})
+	for _, item := range ordered {
+		var override sql.NullInt64
+		if err := tx.QueryRow(ctx, `SELECT grant_expiry_days FROM ai_credit_user_policy_overrides WHERE user_id=$1`, item.UserID).Scan(&override); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		days := expiryDays
+		if override.Valid {
+			days = int(override.Int64)
+		}
+		digest := sha256.Sum256([]byte(batchKey + "\x00" + item.UserID))
+		key := "admin-bulk-v1:" + hex.EncodeToString(digest[:])
+		var priorAmount int64
+		var priorActor, priorReason string
+		err := tx.QueryRow(ctx, `SELECT amount_usd_micros,COALESCE(actor_user_id,''),COALESCE(reason,'') FROM ai_credit_grants WHERE user_id=$1 AND currency='USD' AND idempotency_key=$2`, item.UserID, key).Scan(&priorAmount, &priorActor, &priorReason)
+		if err == nil {
+			if priorAmount != item.AmountUsdMicros || priorActor != actor || priorReason != reason {
+				return ErrUSDReservationConflict
+			}
+			continue
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO ai_credit_grants(user_id,source_type,amount_credits,entitlement_key,idempotency_key,metadata,actor_user_id,reason,currency,amount_usd_micros,expires_at) VALUES($1,'admin',1,$2,$2,$3,$4,$5,'USD',$6,NOW()+($7 * interval '1 day'))`, item.UserID, key, meta, actor, reason, item.AmountUsdMicros, days); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ai_credit_accounts SET granted_usd_micros=granted_usd_micros+$2,updated_at=NOW() WHERE user_id=$1`, item.UserID, item.AmountUsdMicros); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) RefundUSDReservation(ctx context.Context, id, userID, actor, key, reason string, amount int64) error {
 	if s == nil || s.pool == nil {
 		return errors.New("database is not configured")
@@ -1032,6 +1124,56 @@ type USDUserPolicyOverride struct {
 	UpdatedBy             string     `json:"updatedBy,omitempty"`
 	Reason                string     `json:"reason,omitempty"`
 	UpdatedAt             *time.Time `json:"updatedAt,omitempty"`
+}
+
+type USDManualGrantPreview struct {
+	UserID           string    `json:"userId"`
+	AmountUsdMicros  int64     `json:"amountUsdMicros"`
+	BalanceUsdMicros int64     `json:"balanceUsdMicros"`
+	ProjectedBalance int64     `json:"projectedBalanceUsdMicros"`
+	GrantExpiryDays  int       `json:"grantExpiryDays"`
+	ExpiresAt        time.Time `json:"expiresAt"`
+	PolicyVersion    int       `json:"policyVersion"`
+}
+
+func (s *Store) PreviewUSDManualGrant(ctx context.Context, userID string, amount int64, now time.Time) (USDManualGrantPreview, error) {
+	var preview USDManualGrantPreview
+	userID = strings.TrimSpace(userID)
+	if s == nil || s.pool == nil {
+		return preview, errors.New("database is not configured")
+	}
+	if userID == "" || amount <= 0 || amount > math.MaxInt64/2 {
+		return preview, errors.New("invalid USD grant preview")
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND COALESCE(status,'active') <> 'deleted')`, userID).Scan(&exists); err != nil {
+		return preview, err
+	}
+	if !exists {
+		return preview, errors.New("USD grant target not found")
+	}
+	usage, err := s.USDUsage(ctx, userID)
+	if err != nil {
+		return preview, err
+	}
+	policy, err := s.USDPolicy(ctx)
+	if err != nil {
+		return preview, err
+	}
+	override, err := s.USDUserPolicyOverride(ctx, userID)
+	if err != nil {
+		return preview, err
+	}
+	expiryDays := policy.RolloverExpiryDays
+	if override.GrantExpiryDays != nil {
+		expiryDays = *override.GrantExpiryDays
+	}
+	now = now.UTC()
+	return USDManualGrantPreview{
+		UserID: userID, AmountUsdMicros: amount, BalanceUsdMicros: usage.BalanceUsdMicros,
+		ProjectedBalance: usage.BalanceUsdMicros + amount, GrantExpiryDays: expiryDays,
+		ExpiresAt: now.Add(time.Duration(expiryDays) * 24 * time.Hour), PolicyVersion: policy.Version,
+	}, nil
 }
 
 type USDAdminAlert struct {

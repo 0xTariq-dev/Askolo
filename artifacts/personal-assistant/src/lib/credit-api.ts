@@ -79,6 +79,13 @@ export type MonthlyGrantPreview = {
   deferredCount: number;
   skippedCount: number;
 };
+export type ManualGrantPreview = {
+  userId: string; amountUsdMicros: UsdMicros; balanceUsdMicros: UsdMicros;
+  projectedBalanceUsdMicros: UsdMicros; grantExpiryDays: number;
+  expiresAt: string; policyVersion: number;
+};
+export type GrantBatchItem = { userId: string; amountUsdMicros: UsdMicros };
+export type GrantBatchPreview = { items: ManualGrantPreview[]; totalAmountUsdMicros: UsdMicros };
 export type AdminAdjustmentInput = { userId: string; amountUsdMicros: UsdMicros; reason: string; idempotencyKey: string };
 export type CreditReceiptDetails = {
   reservationId: string; reservedUsdMicros: UsdMicros; settledUsdMicros: UsdMicros;
@@ -110,6 +117,9 @@ export const creditApi = {
   updateAdminUserPolicyOverride: (userId: string, input: Omit<CreditUserPolicyOverride, 'userId' | 'updatedBy' | 'updatedAt'> & { reason: string }) => request<CreditUserPolicyOverride>(`/api/admin/ai-credit-user-overrides/${encodeURIComponent(userId)}`, { method: 'PUT', body: JSON.stringify(input) }),
   adminGrantAlerts: () => request<{ alerts: CreditAdminAlert[] }>('/api/admin/ai-credit-grant-alerts'),
   adminMonthlyGrantPreview: () => request<MonthlyGrantPreview>('/api/admin/ai-credit-monthly-grants/preview'),
+  adminManualGrantPreview: (userId: string, amountUsdMicros: number) => request<ManualGrantPreview>(`/api/admin/ai-credit-grants/preview?userId=${encodeURIComponent(userId)}&amountUsdMicros=${amountUsdMicros}`),
+  adminBulkGrantPreview: (items: GrantBatchItem[], reason: string) => request<GrantBatchPreview>('/api/admin/ai-credit-grants/bulk/preview', { method: 'POST', body: JSON.stringify({ items, reason }) }),
+  adminBulkGrant: (items: GrantBatchItem[], reason: string, idempotencyKey: string) => request<{ status: string; recipientCount: number }>('/api/admin/ai-credit-grants/bulk', { method: 'POST', body: JSON.stringify({ items, reason, idempotencyKey }) }),
   acknowledgeAdminGrantAlert: (alertKey: string) => request<{ status: string }>(`/api/admin/ai-credit-grant-alerts/${encodeURIComponent(alertKey)}/acknowledge`, { method: 'POST' }),
   updateAdminPolicy: (policy: Pick<CreditPolicy, 'rateCards' | 'signupGrantUsdMicros' | 'monthlyGrantUsdMicros' | 'monthlyGrantsEnabled' | 'rolloverCapUsdMicros' | 'rolloverExpiryDays' | 'overrunMarginPercent'>, expectedVersion: number, changeReason: string) => request<CreditPolicy>('/api/admin/ai-credit-policy', { method: 'PATCH', body: JSON.stringify({ ...policy, expectedVersion, changeReason }) }),
   adminAdjustment: (input: AdminAdjustmentInput) => request<CreditUsage>('/api/admin/ai-credit-adjustments', { method: 'POST', body: JSON.stringify(input) }),
