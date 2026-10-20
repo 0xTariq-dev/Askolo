@@ -371,6 +371,7 @@ func prepareAssistantPlanOutcome(plan assistantModelPlan, registry *assistantToo
 		InputTokens:       plan.InputTokens,
 		CachedInputTokens: plan.CachedInputTokens,
 		OutputTokens:      plan.OutputTokens,
+		UsageStatus:       plan.UsageStatus,
 	}
 	switch plan.Intent {
 	case assistantIntentNone:

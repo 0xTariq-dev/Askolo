@@ -2,6 +2,30 @@ package postgres
 
 import "testing"
 
+func TestCeilVoiceCost(t *testing.T) {
+	tests := []struct {
+		name     string
+		rate     int64
+		duration int64
+		want     int64
+		ok       bool
+	}{
+		{name: "rounds fractional micro dollar up", rate: 1, duration: 1, want: 1, ok: true},
+		{name: "exact hour rate", rate: 3600000, duration: 3600000, want: 3600000, ok: true},
+		{name: "zero duration", rate: 10, duration: 0, want: 0, ok: true},
+		{name: "overflow rejected", rate: 9223372036854775807, duration: 2, ok: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := ceilVoiceCost(test.rate, test.duration)
+			if ok != test.ok || got != test.want {
+				t.Fatalf("ceilVoiceCost(%d,%d) = %d,%v; want %d,%v",
+					test.rate, test.duration, got, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
 func TestValidateUSDPolicySignupGrantConfiguration(t *testing.T) {
 	base := USDPolicy{
 		Version:            1,

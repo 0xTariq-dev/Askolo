@@ -17,7 +17,7 @@ export type CreditReservation = {
   status: string; reservedUsdMicros: UsdMicros; settledUsdMicros: UsdMicros;
   refundedUsdMicros: UsdMicros; usageUnit: string; usageUnits: number;
   inputTokens: number; cachedInputTokens?: number; outputTokens: number;
-  usageStatus: 'measured' | 'unavailable' | 'pending_review';
+  usageStatus: 'measured' | 'estimated' | 'unavailable' | 'pending_review';
   rateCard: RateCard; policyVersion: number; expiresAt: string | null; createdAt: string;
 };
 export type CreditEvent = {
@@ -127,7 +127,7 @@ export const creditApi = {
   adminReverseAdjustment: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-adjustments/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),
   adminReverseGrant: (id: number, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<CreditUsage>(`/api/admin/ai-credit-grants/${id}/reverse`, { method: 'POST', body: JSON.stringify(input) }),
   adminRefundReservation: (id: string, input: Pick<AdminAdjustmentInput, 'userId' | 'amountUsdMicros' | 'reason' | 'idempotencyKey'>) => request<{ status: string; reason: string }>(`/api/admin/ai-credit-reservations/${encodeURIComponent(id)}/refund`, { method: 'POST', body: JSON.stringify(input) }),
-  resolveAdminPendingUsage: (id: string, input: { userId: string; decision: 'settle' | 'release'; reason: string; idempotencyKey: string }) => request<{ status: string; decision: string }>(`/api/admin/ai-credit-reservations/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(input) }),
+  resolveAdminPendingUsage: (id: string, input: { userId: string; decision: 'settle' | 'release' | 'reconcile'; reason: string; idempotencyKey: string; providerRequestId?: string; inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; durationMs?: number }) => request<{ status: string; decision: string }>(`/api/admin/ai-credit-reservations/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(input) }),
   adminUsage: (userId: string) => request<CreditUsageResponse>(`/api/admin/ai-credit-usage/${encodeURIComponent(userId)}`),
 };
 

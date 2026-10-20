@@ -144,6 +144,7 @@ export function AdminCreditsPage() {
   const [overrideReason, setOverrideReason] = useState('');
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
   const [reviewKeys, setReviewKeys] = useState<Record<string, string>>({});
+  const [reconciliationTokens, setReconciliationTokens] = useState<Record<string, { input: string; cached: string; output: string; requestId: string }>>({});
   const [policyDrafts, setPolicyDrafts] = useState<PolicyDrafts | null>(null);
   const [userId, setUserId] = useState(''); const [amount, setAmount] = useState(''); const [reason, setReason] = useState(''); const [changeReason, setChangeReason] = useState('');
   const [saving, setSaving] = useState(false); const [loading, setLoading] = useState(true);
@@ -275,6 +276,39 @@ export function AdminCreditsPage() {
       await lookup();
     } catch (e) {
       toast({ title: creditErrorMessage(e, 'Pending usage could not be resolved'), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const reconcileAssistantUsage = async (reservation: CreditUsageResponse['reservations'][number]) => {
+    const draft = reconciliationTokens[reservation.id] ?? {
+      input: String(reservation.inputTokens), cached: String(reservation.cachedInputTokens ?? 0),
+      output: String(reservation.outputTokens), requestId: '',
+    };
+    const reviewReason = reviewReasons[reservation.id]?.trim() ?? '';
+    const inputTokens = Number(draft.input);
+    const cachedInputTokens = Number(draft.cached);
+    const outputTokens = Number(draft.output);
+    const isVoice = reservation.provider === 'assemblyai';
+    if (!userId.trim() || !reviewReason || (isVoice
+      ? !Number.isInteger(inputTokens)
+      : !Number.isInteger(inputTokens) || !Number.isInteger(cachedInputTokens) || !Number.isInteger(outputTokens))) return;
+    const key = `${reservation.id}:reconcile`;
+    const idempotencyKey = reviewKeys[key] ?? newCreditIdempotencyKey();
+    setReviewKeys((current) => ({ ...current, [key]: idempotencyKey }));
+    setSaving(true);
+    try {
+      await creditApi.resolveAdminPendingUsage(reservation.id, {
+        userId: userId.trim(), decision: 'reconcile', reason: reviewReason, idempotencyKey,
+        providerRequestId: draft.requestId.trim(),
+        ...(isVoice ? { durationMs: inputTokens } : { inputTokens, cachedInputTokens, outputTokens }),
+      });
+      setReviewKeys((current) => { const next = { ...current }; delete next[key]; return next; });
+      setReviewReasons((current) => ({ ...current, [reservation.id]: '' }));
+      toast({ title: 'Assistant usage reconciled' });
+      await lookup();
+    } catch (e) {
+      toast({ title: creditErrorMessage(e, 'Assistant usage could not be reconciled'), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -1202,6 +1236,73 @@ export function AdminCreditsPage() {
                     </div>
                   </div>
                 ))}
+              </section>
+            )}
+            {usage.reservations.some((reservation) => reservation.usageStatus === 'estimated') && (
+              <section aria-labelledby="estimated-usage-title" className="space-y-3 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3">
+                <div>
+                  <h3 id="estimated-usage-title" className="font-medium">Estimated assistant usage</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Replace proxy estimates with provider-reported token counts. Reconciliation is limited to the original operation cap.
+                  </p>
+                </div>
+                {usage.reservations.filter((reservation) => reservation.usageStatus === 'estimated').map((reservation) => {
+                  const draft = reconciliationTokens[reservation.id] ?? {
+                    input: String(reservation.provider === 'assemblyai' ? reservation.usageUnits : reservation.inputTokens),
+                    cached: String(reservation.cachedInputTokens ?? 0),
+                    output: String(reservation.outputTokens),
+                    requestId: '',
+                  };
+                  const updateDraft = (key: keyof typeof draft, value: string) => setReconciliationTokens((current) => ({
+                    ...current, [reservation.id]: { ...draft, [key]: value },
+                  }));
+                  return (
+                    <div key={reservation.id} className="space-y-3 rounded-md border border-border/60 bg-background p-3">
+                      <p className="text-sm">
+                        {reservation.provider === 'assemblyai'
+                          ? `Estimated session duration ${reservation.usageUnits.toLocaleString()} ms`
+                          : `Estimated ${reservation.inputTokens.toLocaleString()} input / ${reservation.outputTokens.toLocaleString()} output tokens`} ·
+                        {' '}settled {formatCredits(reservation.settledUsdMicros)} credits · {reservation.createdAt}
+                      </p>
+                      {reservation.provider === 'assemblyai' ? (
+                        <div className="space-y-1">
+                          <Label htmlFor={`reconcile-duration-${reservation.id}`}>Provider duration (milliseconds)</Label>
+                          <Input id={`reconcile-duration-${reservation.id}`} type="number" min={1} max={180000} step={1}
+                            value={draft.input} onChange={(event) => updateDraft('input', event.target.value)} disabled={saving} />
+                        </div>
+                      ) : <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="space-y-1">
+                          <Label htmlFor={`reconcile-input-${reservation.id}`}>Provider input tokens</Label>
+                          <Input id={`reconcile-input-${reservation.id}`} type="number" min={1} max={4096} step={1}
+                            value={draft.input} onChange={(event) => updateDraft('input', event.target.value)} disabled={saving} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`reconcile-cached-${reservation.id}`}>Cached input tokens</Label>
+                          <Input id={`reconcile-cached-${reservation.id}`} type="number" min={0} max={4096} step={1}
+                            value={draft.cached} onChange={(event) => updateDraft('cached', event.target.value)} disabled={saving} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`reconcile-output-${reservation.id}`}>Provider output tokens</Label>
+                          <Input id={`reconcile-output-${reservation.id}`} type="number" min={1} max={256} step={1}
+                            value={draft.output} onChange={(event) => updateDraft('output', event.target.value)} disabled={saving} />
+                        </div>
+                      </div>}
+                      <div className="space-y-1">
+                        <Label htmlFor={`reconcile-request-${reservation.id}`}>Provider request ID (optional)</Label>
+                        <Input id={`reconcile-request-${reservation.id}`} maxLength={200} value={draft.requestId}
+                          onChange={(event) => updateDraft('requestId', event.target.value)} disabled={saving} />
+                      </div>
+                      <Label htmlFor={`review-reason-${reservation.id}`}>Reconciliation reason</Label>
+                      <Input id={`review-reason-${reservation.id}`} value={reviewReasons[reservation.id] ?? ''}
+                        onChange={(event) => setReviewReasons((current) => ({ ...current, [reservation.id]: event.target.value }))}
+                        maxLength={160} placeholder="What provider usage did you verify?" disabled={saving} />
+                      <Button onClick={() => void reconcileAssistantUsage(reservation)}
+                        disabled={saving || !(reviewReasons[reservation.id] ?? '').trim()}>
+                        Reconcile provider usage
+                      </Button>
+                    </div>
+                  );
+                })}
               </section>
             )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">

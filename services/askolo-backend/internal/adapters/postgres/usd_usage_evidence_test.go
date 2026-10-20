@@ -38,6 +38,27 @@ func TestValidateUSDUsageEvidenceAcceptsTranscriptionAndRealtimeMetering(t *test
 				Payload: json.RawMessage(`{"meterSource":"azure_text_characters","outputStatus":"unavailable"}`),
 			},
 		},
+		{
+			name: "estimated token usage",
+			evidence: USDEvidence{
+				UsageUnit: "tokens", InputTokens: 10, OutputTokens: 2,
+				Payload: json.RawMessage(`{"usageStatus":"estimated","cachedInputTokens":0}`),
+			},
+		},
+		{
+			name: "provider-reconciled token usage",
+			evidence: USDEvidence{
+				UsageUnit: "tokens", InputTokens: 20, OutputTokens: 5,
+				Payload: json.RawMessage(`{"usageStatus":"measured","provenance":"provider_reconciliation","cachedInputTokens":4}`),
+			},
+		},
+		{
+			name: "provider-reconciled voice usage",
+			evidence: USDEvidence{
+				UsageUnit: "milliseconds", UsageUnits: 10_000, DurationMs: 10_000,
+				Payload: json.RawMessage(`{"usageStatus":"measured","provenance":"provider_reconciliation","durationMs":10000}`),
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -46,6 +67,16 @@ func TestValidateUSDUsageEvidenceAcceptsTranscriptionAndRealtimeMetering(t *test
 				t.Fatalf("expected valid usage evidence, got %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateUSDUsageEvidenceRejectsUnknownUsageStatus(t *testing.T) {
+	evidence := USDEvidence{
+		UsageUnit: "tokens", InputTokens: 1, OutputTokens: 1,
+		Payload: json.RawMessage(`{"usageStatus":"trusted"}`),
+	}
+	if err := validateUSDUsageEvidence(evidence); err == nil {
+		t.Fatal("expected unknown usage status to be rejected")
 	}
 }
 

@@ -57,6 +57,7 @@ type assistantModelPlan struct {
 	CachedInputTokens int64               `json:"-"`
 	OutputTokens      int64               `json:"-"`
 	UsageValid        bool                `json:"-"`
+	UsageStatus       string              `json:"-"`
 }
 
 type assistantQuestion struct {
@@ -193,6 +194,14 @@ func (p *openAIAssistantPlanner) plan(
 		requestMessages = append(requestMessages, chatMessage{Role: message.Role, Content: message.Content})
 	}
 	requestMessages = append(requestMessages, chatMessage{Role: "user", Content: transcript})
+	messageContent := make([]string, 0, len(requestMessages))
+	for _, message := range requestMessages {
+		messageContent = append(messageContent, message.Content)
+	}
+	estimatedInputTokens := estimateAssistantTokens(messageContent)
+	if estimatedInputTokens > assistantPlannerInputTokenReservationCap {
+		return assistantModelPlan{}, errors.New("assistant request exceeds the input token limit")
+	}
 	requestBody := struct {
 		Model               string            `json:"model"`
 		Messages            []chatMessage     `json:"messages"`
@@ -234,7 +243,7 @@ func (p *openAIAssistantPlanner) plan(
 		return assistantModelPlan{}, fmt.Errorf("assistant provider returned status %d", response.StatusCode)
 	}
 	if onDelta != nil {
-		return readAssistantPlannerStream(response.Body, tools, onDelta)
+		return readAssistantPlannerStream(response.Body, tools, onDelta, estimatedInputTokens)
 	}
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, assistantMaxOutputBytes+1))
 	if err != nil {
@@ -276,16 +285,49 @@ func (p *openAIAssistantPlanner) plan(
 		envelope.Usage.PromptTokensDetails.CachedTokens >= 0 &&
 		envelope.Usage.PromptTokensDetails.CachedTokens <= envelope.Usage.PromptTokens &&
 		envelope.Usage.CompletionTokens > 0
+	if plan.UsageValid {
+		plan.UsageStatus = "measured"
+	}
 	if plan.ProviderModel != assistantPlannerModel {
 		return plan, errors.New("assistant provider model mismatch")
 	}
 	if decodeErr != nil {
 		return plan, decodeErr
 	}
+	if plan.UsageValid && (plan.InputTokens > assistantPlannerInputTokenReservationCap ||
+		plan.OutputTokens > assistantPlannerOutputTokenReservationCap) {
+		plan.UsageValid = false
+		return plan, errors.New("assistant provider usage exceeded the operation token limit")
+	}
 	if !plan.UsageValid {
-		return plan, errors.New("assistant provider usage was missing")
+		estimatedOutputTokens := estimateAssistantTokens([]string{envelope.Choices[0].Message.Content})
+		if estimatedOutputTokens > assistantPlannerOutputTokenReservationCap {
+			plan.UsageValid = false
+			return plan, errors.New("assistant response exceeds the output token limit")
+		}
+		plan.InputTokens = estimatedInputTokens
+		plan.OutputTokens = estimatedOutputTokens
+		if plan.OutputTokens < 1 {
+			plan.OutputTokens = 1
+		}
+		plan.UsageValid = true
+		plan.UsageStatus = "estimated"
 	}
 	return plan, nil
+}
+
+// Proxy responses may omit token usage. Estimate conservatively from the exact
+// messages sent and the returned content, while keeping estimates within the
+// operation's reserved token ceilings.
+func estimateAssistantTokens(messages []string) int64 {
+	var bytes int64
+	for _, message := range messages {
+		bytes += int64(len(message)) + 12
+	}
+	if bytes <= 0 {
+		return 0
+	}
+	return (bytes + 2) / 3
 }
 
 func decodeAssistantModelPlan(content string, registries ...*assistantToolRegistry) (assistantModelPlan, error) {

@@ -105,8 +105,9 @@ export function CreditsPage() {
                   : selected.usageUnits > 0 && selected.usageUnit
                     ? `${selected.usageUnits.toLocaleString()} ${selected.usageUnit}`
                     : selected.usageStatus === 'pending_review' ? 'Submitted usage is awaiting provider reconciliation'
-                      : selected.usageStatus === 'measured' ? 'Measured usage recorded' : 'Usage detail unavailable'}</dd></div>
-                <div><dt className="text-muted-foreground">Measurement</dt><dd>{selected.usageStatus === 'pending_review' ? 'Awaiting provider reconciliation' : selected.usageStatus === 'measured' ? 'Provider-measured' : 'Not available'}</dd></div>
+                      : selected.usageStatus === 'estimated' ? 'Proxy-estimated usage recorded'
+                        : selected.usageStatus === 'measured' ? 'Measured usage recorded' : 'Usage detail unavailable'}</dd></div>
+                <div><dt className="text-muted-foreground">Measurement</dt><dd>{selected.usageStatus === 'pending_review' ? 'Awaiting provider reconciliation' : selected.usageStatus === 'estimated' ? 'Proxy estimate; awaiting provider reconciliation' : selected.usageStatus === 'measured' ? 'Provider-measured' : 'Not available'}</dd></div>
                 <div><dt className="text-muted-foreground">Reserved estimate limit</dt><dd className="font-mono">{formatUsdMicros(selected.reservedUsdMicros)}</dd></div>
                 <div><dt className="text-muted-foreground">Settled</dt><dd className="font-mono">{formatUsdMicros(selected.settledUsdMicros)}</dd></div>
                 <div><dt className="text-muted-foreground">Returned</dt><dd className="font-mono">{formatUsdMicros(selected.refundedUsdMicros)}</dd></div>

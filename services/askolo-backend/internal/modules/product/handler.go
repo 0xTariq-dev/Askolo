@@ -421,9 +421,11 @@ func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string
 		writeError(w, http.StatusBadGateway, "VOICE_USAGE_UNAVAILABLE", "The provider did not return valid usage for this operation.")
 		return voiceCreditReceipt{}, false
 	}
+	providerEvidencePayload, _ := json.Marshal(map[string]any{"usageStatus": "measured", "provenance": "provider", "meterSource": "provider"})
 	evidence := postgres.USDEvidence{
 		UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS,
 		ProviderRequestId: providerRequestID,
+		Payload:           providerEvidencePayload,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -440,7 +442,7 @@ func (h *Handler) settleVoiceProviderCredit(w http.ResponseWriter, userID string
 		h.storeError(w, "USD usage lookup failed", err)
 		return voiceCreditReceipt{}, false
 	}
-	return voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: reservation.Mode, Status: "settled", ReservedUsdMicros: reservation.ReservedUsdMicros, SettledUsdMicros: actual, RefundedUsdMicros: reservation.ReservedUsdMicros - actual, BalanceUsdMicros: usage.BalanceUsdMicros, UsageUnit: "milliseconds", UsageUnits: durationMS, PolicyVersion: reservation.PolicyVersion}, true
+	return voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: reservation.Mode, Status: "settled", ReservedUsdMicros: reservation.ReservedUsdMicros, SettledUsdMicros: actual, RefundedUsdMicros: reservation.ReservedUsdMicros - actual, BalanceUsdMicros: usage.BalanceUsdMicros, UsageUnit: "milliseconds", UsageUnits: durationMS, UsageStatus: "measured", PolicyVersion: reservation.PolicyVersion}, true
 }
 
 // settleVoiceProviderCreditRecord is kept for the legacy public websocket
@@ -454,7 +456,11 @@ func (h *Handler) settleVoiceProviderCreditRecordWithUsage(userID string, reserv
 	if !ok || actual < 1 || actual > reservation.ReservedUsdMicros {
 		return voiceCreditReceipt{}, errors.New("invalid provider usage")
 	}
-	payload, _ := json.Marshal(map[string]string{"meterSource": source})
+	usageStatus := "estimated"
+	if source == "provider" || source == "assemblyai_session_duration" {
+		usageStatus = "measured"
+	}
+	payload, _ := json.Marshal(map[string]string{"meterSource": source, "usageStatus": usageStatus})
 	evidence := postgres.USDEvidence{UsageUnit: "milliseconds", UsageUnits: durationMS, DurationMs: durationMS, Payload: payload}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -468,7 +474,7 @@ func (h *Handler) settleVoiceProviderCreditRecordWithUsage(userID string, reserv
 	if err != nil {
 		return voiceCreditReceipt{}, err
 	}
-	return voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: reservation.Mode, Status: "settled", ReservedUsdMicros: reservation.ReservedUsdMicros, SettledUsdMicros: actual, RefundedUsdMicros: reservation.ReservedUsdMicros - actual, BalanceUsdMicros: usage.BalanceUsdMicros, UsageUnit: "milliseconds", UsageUnits: durationMS, PolicyVersion: reservation.PolicyVersion}, nil
+	return voiceCreditReceipt{ID: reservation.ID, ReservationID: reservation.ID, OperationType: "voice", Provider: "assemblyai", Mode: reservation.Mode, Status: "settled", ReservedUsdMicros: reservation.ReservedUsdMicros, SettledUsdMicros: actual, RefundedUsdMicros: reservation.ReservedUsdMicros - actual, BalanceUsdMicros: usage.BalanceUsdMicros, UsageUnit: "milliseconds", UsageUnits: durationMS, UsageStatus: usageStatus, PolicyVersion: reservation.PolicyVersion}, nil
 }
 
 func durationSecondsMillis(seconds float64) (int64, bool) {
@@ -1520,10 +1526,15 @@ func (h *Handler) adminResolvePendingUsage(w http.ResponseWriter, r *http.Reques
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	var input struct {
-		UserID         string `json:"userId"`
-		Decision       string `json:"decision"`
-		Reason         string `json:"reason"`
-		IdempotencyKey string `json:"idempotencyKey"`
+		UserID            string `json:"userId"`
+		Decision          string `json:"decision"`
+		Reason            string `json:"reason"`
+		IdempotencyKey    string `json:"idempotencyKey"`
+		ProviderRequestID string `json:"providerRequestId"`
+		InputTokens       int64  `json:"inputTokens"`
+		CachedInputTokens int64  `json:"cachedInputTokens"`
+		OutputTokens      int64  `json:"outputTokens"`
+		DurationMs        int64  `json:"durationMs"`
 	}
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_RESERVATION", "A valid reservation is required.")
@@ -1536,7 +1547,7 @@ func (h *Handler) adminResolvePendingUsage(w http.ResponseWriter, r *http.Reques
 	input.Decision = strings.TrimSpace(input.Decision)
 	input.Reason = strings.TrimSpace(input.Reason)
 	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
-	if input.UserID == "" || (input.Decision != "settle" && input.Decision != "release") ||
+	if input.UserID == "" || (input.Decision != "settle" && input.Decision != "release" && input.Decision != "reconcile") ||
 		input.Reason == "" || len(input.Reason) > 160 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 200 {
 		writeError(w, http.StatusBadRequest, "INVALID_USAGE_REVIEW", "A valid pending usage decision and reason are required.")
 		return
@@ -1548,6 +1559,45 @@ func (h *Handler) adminResolvePendingUsage(w http.ResponseWriter, r *http.Reques
 	}
 	if err != nil {
 		h.storeError(w, "pending usage lookup failed", err)
+		return
+	}
+	if input.Decision == "reconcile" {
+		assistantUsage := reservation.Provider == "openai" && reservation.Mode == "assistant"
+		voiceUsage := reservation.Provider == "assemblyai" &&
+			(reservation.Mode == "recorded" || reservation.Mode == "realtime" || reservation.Mode == "voice_agent")
+		if reservation.Status != "settled" || (!assistantUsage && !voiceUsage) {
+			writeError(w, http.StatusConflict, "USAGE_NOT_ESTIMATED", "This reservation is not eligible for usage reconciliation.")
+			return
+		}
+		switch reservation.Provider {
+		case "openai":
+			err = h.store.ReconcileEstimatedAssistantUsage(
+				r.Context(), id, input.UserID, actor, input.IdempotencyKey, input.Reason,
+				input.ProviderRequestID, input.InputTokens, input.CachedInputTokens, input.OutputTokens,
+			)
+		case "assemblyai":
+			err = h.store.ReconcileEstimatedVoiceUsage(
+				r.Context(), id, input.UserID, actor, input.IdempotencyKey, input.Reason,
+				input.ProviderRequestID, input.DurationMs,
+			)
+		default:
+			writeError(w, http.StatusConflict, "USAGE_NOT_ESTIMATED", "This reservation is not eligible for usage reconciliation.")
+			return
+		}
+		if err != nil {
+			switch {
+			case errors.Is(err, postgres.ErrUSDReservationConflict), errors.Is(err, postgres.ErrUSDReservationReviewRequired):
+				writeError(w, http.StatusConflict, "USAGE_RECONCILIATION_CONFLICT", "This estimate changed or the provider usage exceeds the operation cap.")
+			case strings.Contains(err.Error(), "invalid assistant usage reconciliation"):
+				writeError(w, http.StatusBadRequest, "INVALID_USAGE_RECONCILIATION", "Enter valid provider token counts within the operation limits.")
+			case strings.Contains(err.Error(), "invalid voice usage reconciliation"):
+				writeError(w, http.StatusBadRequest, "INVALID_USAGE_RECONCILIATION", "Enter a valid provider duration within the operation limits.")
+			default:
+				h.storeError(w, "assistant usage reconciliation failed", err)
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "reconciled", "decision": input.Decision})
 		return
 	}
 	if reservation.Status != "claimed" || reservation.Provider != "azure" || reservation.Mode != "assistant_speech" ||

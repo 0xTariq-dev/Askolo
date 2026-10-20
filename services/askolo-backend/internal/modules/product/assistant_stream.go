@@ -36,6 +36,7 @@ func readAssistantPlannerStream(
 	reader io.Reader,
 	tools *assistantToolRegistry,
 	onDelta func(string) error,
+	estimatedInputTokens int64,
 ) (assistantModelPlan, error) {
 	scanner := bufio.NewScanner(io.LimitReader(reader, assistantMaxStreamBodyBytes+1))
 	scanner.Buffer(make([]byte, 4096), assistantMaxStreamLineBytes)
@@ -77,6 +78,9 @@ func readAssistantPlannerStream(
 				chunk.Usage.PromptTokensDetails.CachedTokens >= 0 &&
 				chunk.Usage.PromptTokensDetails.CachedTokens <= chunk.Usage.PromptTokens &&
 				chunk.Usage.CompletionTokens > 0
+			if plan.UsageValid {
+				plan.UsageStatus = "measured"
+			}
 		}
 		if len(chunk.Choices) != 1 {
 			continue
@@ -109,14 +113,32 @@ func readAssistantPlannerStream(
 	decoded.CachedInputTokens = plan.CachedInputTokens
 	decoded.OutputTokens = plan.OutputTokens
 	decoded.UsageValid = plan.UsageValid
+	decoded.UsageStatus = plan.UsageStatus
 	if decoded.ProviderModel != assistantPlannerModel {
 		return decoded, errors.New("assistant provider model mismatch")
 	}
 	if decodeErr != nil {
 		return decoded, decodeErr
 	}
+	if decoded.UsageValid && (decoded.InputTokens > assistantPlannerInputTokenReservationCap ||
+		decoded.OutputTokens > assistantPlannerOutputTokenReservationCap) {
+		decoded.UsageValid = false
+		return decoded, errors.New("assistant provider usage exceeded the operation token limit")
+	}
 	if !decoded.UsageValid {
-		return decoded, errors.New("assistant provider usage was missing")
+		estimatedOutputTokens := estimateAssistantTokens([]string{content.String()})
+		if estimatedInputTokens > assistantPlannerInputTokenReservationCap ||
+			estimatedOutputTokens > assistantPlannerOutputTokenReservationCap {
+			decoded.UsageValid = false
+			return decoded, errors.New("assistant response usage estimate exceeds the operation token limit")
+		}
+		decoded.InputTokens = estimatedInputTokens
+		decoded.OutputTokens = estimatedOutputTokens
+		if decoded.OutputTokens < 1 {
+			decoded.OutputTokens = 1
+		}
+		decoded.UsageValid = true
+		decoded.UsageStatus = "estimated"
 	}
 	return decoded, nil
 }

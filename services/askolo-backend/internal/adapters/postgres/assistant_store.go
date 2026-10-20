@@ -96,6 +96,7 @@ type AssistantPlanOutcome struct {
 	InputTokens          int64
 	CachedInputTokens    int64
 	OutputTokens         int64
+	UsageStatus          string
 }
 
 type assistantActionIntent struct {
@@ -602,6 +603,14 @@ func settleAssistantUSDTx(ctx context.Context, tx pgx.Tx, id, userID string, out
 		return 0, ErrAssistantCreditConflict
 	}
 	evidence, _ := json.Marshal(map[string]any{"providerModel": outcome.ProviderModel, "providerRequestId": outcome.ProviderRequestID, "inputTokens": outcome.InputTokens, "cachedInputTokens": outcome.CachedInputTokens, "outputTokens": outcome.OutputTokens})
+	usageStatus := outcome.UsageStatus
+	if usageStatus != "estimated" {
+		usageStatus = "measured"
+	}
+	var evidenceMap map[string]any
+	_ = json.Unmarshal(evidence, &evidenceMap)
+	evidenceMap["usageStatus"] = usageStatus
+	evidence, _ = json.Marshal(evidenceMap)
 	if _, err = tx.Exec(ctx, `INSERT INTO ai_provider_usage_evidence(reservation_id,user_id,provider,mode,model,usage_unit,input_tokens,output_tokens,provider_request_id,idempotency_key,evidence,payload) VALUES($1,$2,'openai','assistant',$3,'tokens',$4,$5,$6,$7,$8,$8) ON CONFLICT DO NOTHING`, id, userID, outcome.ProviderModel, outcome.InputTokens, outcome.OutputTokens, outcome.ProviderRequestID, id+":usage", evidence); err != nil {
 		return 0, err
 	}

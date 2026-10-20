@@ -140,6 +140,7 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 			outcome.InputTokens = plan.InputTokens
 			outcome.CachedInputTokens = plan.CachedInputTokens
 			outcome.OutputTokens = plan.OutputTokens
+			outcome.UsageStatus = plan.UsageStatus
 		}
 		finishAssistantPlanning(h, userID, run.ID, outcome)
 		return
@@ -151,6 +152,7 @@ func (h *Handler) createAssistantRun(w http.ResponseWriter, r *http.Request) {
 			AuditEvent: "provider_failed", Settle: plan.UsageValid && plan.ProviderModel == assistantPlannerModel,
 			ProviderModel: plan.ProviderModel, ProviderRequestID: plan.ProviderRequestID,
 			InputTokens: plan.InputTokens, CachedInputTokens: plan.CachedInputTokens, OutputTokens: plan.OutputTokens,
+			UsageStatus: plan.UsageStatus,
 		}
 		if _, finishErr := h.store.FinishAssistantPlanning(context.Background(), userID, run.ID, outcome); finishErr != nil {
 			h.storeError(w, "assistant provider failure recording failed", finishErr)

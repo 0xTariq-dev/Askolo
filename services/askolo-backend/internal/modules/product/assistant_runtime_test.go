@@ -392,12 +392,6 @@ func TestOpenAIAssistantPlannerRejectsInvalidProviderResults(t *testing.T) {
 			wantErrorText: "model mismatch",
 		},
 		{
-			name:          "missing token usage",
-			status:        http.StatusOK,
-			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`}, 0, 2),
-			wantErrorText: "usage was missing",
-		},
-		{
 			name:          "multiple choices",
 			status:        http.StatusOK,
 			body:          assistantPlannerProviderEnvelope(assistantPlannerModel, "request-1", []string{`{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`, `{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`}, 10, 2),
@@ -433,6 +427,34 @@ func TestOpenAIAssistantPlannerRejectsInvalidProviderResults(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenAIAssistantPlannerEstimatesProxyUsageWhenUsageIsOmitted(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		content := `{"intent":"none","arguments":{},"message":"I can help.","questions":[]}`
+		_, _ = w.Write([]byte(`{"id":"proxy-request","model":"` + assistantPlannerModel + `","choices":[{"message":{"content":` + mustJSONTestString(content) + `}}]}`))
+	}))
+	defer server.Close()
+
+	planner := &openAIAssistantPlanner{apiKey: "test", baseURL: server.URL + "/", client: server.Client()}
+	plan, err := planner.Plan(context.Background(), "Help me.")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if !plan.UsageValid || plan.UsageStatus != "estimated" || plan.InputTokens < 1 || plan.OutputTokens < 1 {
+		t.Fatalf("proxy usage estimate = valid:%v status:%q input:%d output:%d", plan.UsageValid, plan.UsageStatus, plan.InputTokens, plan.OutputTokens)
+	}
+	if plan.InputTokens > assistantPlannerInputTokenReservationCap || plan.OutputTokens > assistantPlannerOutputTokenReservationCap {
+		t.Fatalf("proxy estimate exceeded the operation cap: input=%d output=%d", plan.InputTokens, plan.OutputTokens)
+	}
+}
+
+func mustJSONTestString(value string) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
 }
 
 func assistantPlannerProviderEnvelope(model, requestID string, contents []string, promptTokens, completionTokens int64) string {

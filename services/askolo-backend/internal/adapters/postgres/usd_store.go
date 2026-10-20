@@ -75,15 +75,14 @@ func reserveExpiringUSDGrantAllocations(ctx context.Context, tx pgx.Tx, reservat
 func settleUSDGrantAllocations(ctx context.Context, tx pgx.Tx, reservationID string, actual int64) error {
 	_, err := tx.Exec(ctx, `
 		WITH ranked AS (
-		  SELECT al.reservation_id,al.grant_id,al.reserved_usd_micros,al.settled_usd_micros,
-		         COALESCE(SUM(al.reserved_usd_micros-al.settled_usd_micros) OVER (
+		  SELECT al.reservation_id,al.grant_id,al.reserved_usd_micros,
+		         COALESCE(SUM(al.reserved_usd_micros) OVER (
 		           ORDER BY g.expires_at,g.id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS prior
 		  FROM ai_credit_grant_allocations al JOIN ai_credit_grants g ON g.id=al.grant_id
 		  WHERE al.reservation_id=$1
 		)
 		UPDATE ai_credit_grant_allocations al
-		SET settled_usd_micros=al.settled_usd_micros+
-		    LEAST(al.reserved_usd_micros-al.settled_usd_micros,GREATEST($2-ranked.prior,0))
+		SET settled_usd_micros=LEAST(al.reserved_usd_micros,GREATEST($2-ranked.prior,0))
 		FROM ranked WHERE al.reservation_id=ranked.reservation_id AND al.grant_id=ranked.grant_id
 	`, reservationID, actual)
 	return err
@@ -986,6 +985,310 @@ func (s *Store) ResolvePendingUSDReservation(
 	return tx.Commit(ctx)
 }
 
+// ReconcileEstimatedAssistantUsage replaces an estimated assistant charge with
+// provider-measured token usage. The original reservation remains the hard cap.
+func (s *Store) ReconcileEstimatedAssistantUsage(
+	ctx context.Context,
+	id, userID, actor, key, reason, providerRequestID string,
+	inputTokens, cachedInputTokens, outputTokens int64,
+) error {
+	if s == nil || s.pool == nil {
+		return errors.New("database is not configured")
+	}
+	id, userID, actor, key, reason = strings.TrimSpace(id), strings.TrimSpace(userID), strings.TrimSpace(actor), strings.TrimSpace(key), strings.TrimSpace(reason)
+	providerRequestID = strings.TrimSpace(providerRequestID)
+	if id == "" || userID == "" || actor == "" || key == "" || len(key) > 200 ||
+		reason == "" || len(reason) > 160 || len(providerRequestID) > 200 ||
+		inputTokens < 1 || inputTokens > 4096 || cachedInputTokens < 0 ||
+		cachedInputTokens > inputTokens || outputTokens < 1 || outputTokens > 256 {
+		return errors.New("invalid assistant usage reconciliation")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var reserved, priorAmount int64
+	var state, provider, mode string
+	var model string
+	var snapshot []byte
+	var currentEvidence []byte
+	err = tx.QueryRow(ctx, `
+		SELECT r.reserved_usd_micros,r.settled_usd_micros,r.status,r.provider,r.mode,
+		       COALESCE(r.model,''),r.rate_snapshot,COALESCE(e.evidence,'{}'::jsonb)
+		FROM ai_credit_reservations r
+		LEFT JOIN LATERAL (
+		  SELECT evidence FROM ai_provider_usage_evidence
+		  WHERE reservation_id=r.id AND user_id=r.user_id
+		  ORDER BY recorded_at DESC LIMIT 1
+		) e ON true
+		WHERE r.id=$1 AND r.user_id=$2 AND r.currency='USD' FOR UPDATE OF r
+	`, id, userID).Scan(&reserved, &priorAmount, &state, &provider, &mode, &model, &snapshot, &currentEvidence)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrUSDReservationNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var evidenceState struct {
+		UsageStatus string `json:"usageStatus"`
+	}
+	if json.Unmarshal(currentEvidence, &evidenceState) != nil ||
+		state != "settled" || provider != "openai" || mode != "assistant" {
+		return ErrUSDReservationReviewRequired
+	}
+	var card USDRateCard
+	if json.Unmarshal(snapshot, &card) != nil || card.Model != model || card.Meter != "tokens" {
+		return errors.New("assistant reservation rate is invalid")
+	}
+	actual, err := assistantUSDMicroCost(card, inputTokens, cachedInputTokens, outputTokens)
+	if err != nil {
+		return err
+	}
+	if actual < 1 || actual > reserved {
+		return ErrUSDReservationReviewRequired
+	}
+
+	details, _ := json.Marshal(map[string]any{
+		"actorUserId": actor, "reason": reason, "estimatedUsdMicros": priorAmount,
+		"measuredUsdMicros": actual, "inputTokens": inputTokens,
+		"cachedInputTokens": cachedInputTokens, "outputTokens": outputTokens,
+		"providerRequestId": providerRequestID,
+	})
+	var previous []byte
+	err = tx.QueryRow(ctx, `
+		SELECT details FROM ai_credit_reservation_events
+		WHERE reservation_id=$1 AND event_type='usage_reconciled' AND idempotency_key=$2
+	`, id, key+":reconcile").Scan(&previous)
+	if err == nil {
+		var prior struct {
+			ActorUserID       string `json:"actorUserId"`
+			Reason            string `json:"reason"`
+			MeasuredUsdMicros int64  `json:"measuredUsdMicros"`
+			InputTokens       int64  `json:"inputTokens"`
+			CachedInputTokens int64  `json:"cachedInputTokens"`
+			OutputTokens      int64  `json:"outputTokens"`
+			ProviderRequestID string `json:"providerRequestId"`
+		}
+		_ = json.Unmarshal(previous, &prior)
+		if prior.ActorUserID == actor && prior.Reason == reason &&
+			prior.MeasuredUsdMicros == actual && prior.InputTokens == inputTokens &&
+			prior.CachedInputTokens == cachedInputTokens && prior.OutputTokens == outputTokens &&
+			prior.ProviderRequestID == providerRequestID {
+			return nil
+		}
+		return ErrUSDReservationConflict
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if evidenceState.UsageStatus != "estimated" {
+		return ErrUSDReservationReviewRequired
+	}
+
+	if err := settleUSDGrantAllocations(ctx, tx, id, actual); err != nil {
+		return err
+	}
+	delta := actual - priorAmount
+	tag, err := tx.Exec(ctx, `
+		UPDATE ai_credit_accounts
+		SET spent_usd_micros=spent_usd_micros+$2,updated_at=NOW()
+		WHERE user_id=$1 AND spent_usd_micros+$2>=0
+	`, userID, delta)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ErrUSDReservationConflict
+	}
+	tag, err = tx.Exec(ctx, `
+		UPDATE ai_credit_reservations
+		SET settled_usd_micros=$2,refunded_usd_micros=reserved_usd_micros-$2,updated_at=NOW()
+		WHERE id=$1 AND status='settled' AND settled_usd_micros=$3
+	`, id, actual, priorAmount)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ErrUSDReservationConflict
+	}
+	measured, _ := json.Marshal(map[string]any{
+		"usageStatus": "measured", "provenance": "provider_reconciliation",
+		"providerRequestId": providerRequestID,
+		"inputTokens":       inputTokens, "cachedInputTokens": cachedInputTokens,
+		"outputTokens": outputTokens,
+	})
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ai_provider_usage_evidence(
+		  reservation_id,user_id,provider,mode,model,usage_unit,input_tokens,output_tokens,
+		  provider_request_id,idempotency_key,evidence,payload
+		) VALUES($1,$2,'openai','assistant',$3,'tokens',$4,$5,NULLIF($6,''),$7,$8,$8)
+		ON CONFLICT (reservation_id,idempotency_key) DO NOTHING
+	`, id, userID, model, inputTokens, outputTokens, providerRequestID, id+":reconcile:"+key, measured)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ai_credit_reservation_events(
+		  reservation_id,user_id,event_type,currency,amount_usd_micros,idempotency_key,details
+		) VALUES($1,$2,'usage_reconciled','USD',$3,$4,$5)
+	`, id, userID, absInt64(delta), key+":reconcile", details)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) ReconcileEstimatedVoiceUsage(
+	ctx context.Context,
+	id, userID, actor, key, reason, providerRequestID string,
+	durationMS int64,
+) error {
+	if s == nil || s.pool == nil {
+		return errors.New("database is not configured")
+	}
+	id, userID, actor, key, reason = strings.TrimSpace(id), strings.TrimSpace(userID), strings.TrimSpace(actor), strings.TrimSpace(key), strings.TrimSpace(reason)
+	providerRequestID = strings.TrimSpace(providerRequestID)
+	if id == "" || userID == "" || actor == "" || key == "" || len(key) > 200 ||
+		reason == "" || len(reason) > 160 || len(providerRequestID) > 200 ||
+		durationMS < 1 || durationMS > 180000 {
+		return errors.New("invalid voice usage reconciliation")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var reserved, priorAmount int64
+	var state, provider, mode, model string
+	var snapshot, currentEvidence []byte
+	err = tx.QueryRow(ctx, `
+		SELECT r.reserved_usd_micros,r.settled_usd_micros,r.status,r.provider,r.mode,
+		       COALESCE(r.model,''),r.rate_snapshot,COALESCE(e.evidence,'{}'::jsonb)
+		FROM ai_credit_reservations r
+		LEFT JOIN LATERAL (
+		  SELECT evidence FROM ai_provider_usage_evidence
+		  WHERE reservation_id=r.id AND user_id=r.user_id
+		  ORDER BY recorded_at DESC LIMIT 1
+		) e ON true
+		WHERE r.id=$1 AND r.user_id=$2 AND r.currency='USD' FOR UPDATE OF r
+	`, id, userID).Scan(&reserved, &priorAmount, &state, &provider, &mode, &model, &snapshot, &currentEvidence)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrUSDReservationNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var evidenceState struct {
+		UsageStatus string `json:"usageStatus"`
+	}
+	if json.Unmarshal(currentEvidence, &evidenceState) != nil || state != "settled" ||
+		provider != "assemblyai" {
+		return ErrUSDReservationReviewRequired
+	}
+	var card USDRateCard
+	if json.Unmarshal(snapshot, &card) != nil || card.Model != model || card.Meter != "hour" ||
+		card.UsdMicrosPerHour <= 0 {
+		return errors.New("voice reservation rate is invalid")
+	}
+	actual, ok := ceilVoiceCost(card.UsdMicrosPerHour, durationMS)
+	if !ok || actual < 1 || actual > reserved {
+		return ErrUSDReservationReviewRequired
+	}
+	details, _ := json.Marshal(map[string]any{
+		"actorUserId": actor, "reason": reason, "estimatedUsdMicros": priorAmount,
+		"measuredUsdMicros": actual, "durationMs": durationMS,
+		"providerRequestId": providerRequestID,
+	})
+	var previous []byte
+	err = tx.QueryRow(ctx, `
+		SELECT details FROM ai_credit_reservation_events
+		WHERE reservation_id=$1 AND event_type='usage_reconciled' AND idempotency_key=$2
+	`, id, key+":reconcile").Scan(&previous)
+	if err == nil {
+		var prior struct {
+			ActorUserID       string `json:"actorUserId"`
+			Reason            string `json:"reason"`
+			MeasuredUsdMicros int64  `json:"measuredUsdMicros"`
+			DurationMS        int64  `json:"durationMs"`
+			ProviderRequestID string `json:"providerRequestId"`
+		}
+		_ = json.Unmarshal(previous, &prior)
+		if prior.ActorUserID == actor && prior.Reason == reason &&
+			prior.MeasuredUsdMicros == actual && prior.DurationMS == durationMS &&
+			prior.ProviderRequestID == providerRequestID {
+			return nil
+		}
+		return ErrUSDReservationConflict
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if evidenceState.UsageStatus != "estimated" {
+		return ErrUSDReservationReviewRequired
+	}
+	if err := settleUSDGrantAllocations(ctx, tx, id, actual); err != nil {
+		return err
+	}
+	delta := actual - priorAmount
+	tag, err := tx.Exec(ctx, `
+		UPDATE ai_credit_accounts SET spent_usd_micros=spent_usd_micros+$2,updated_at=NOW()
+		WHERE user_id=$1 AND spent_usd_micros+$2>=0
+	`, userID, delta)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ErrUSDReservationConflict
+	}
+	tag, err = tx.Exec(ctx, `
+		UPDATE ai_credit_reservations
+		SET settled_usd_micros=$2,refunded_usd_micros=reserved_usd_micros-$2,updated_at=NOW()
+		WHERE id=$1 AND status='settled' AND settled_usd_micros=$3
+	`, id, actual, priorAmount)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ErrUSDReservationConflict
+	}
+	measured, _ := json.Marshal(map[string]any{
+		"usageStatus": "measured", "provenance": "provider_reconciliation",
+		"providerRequestId": providerRequestID, "durationMs": durationMS,
+	})
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ai_provider_usage_evidence(
+		  reservation_id,user_id,provider,mode,model,usage_unit,usage_units,duration_ms,
+		  provider_request_id,idempotency_key,evidence,payload
+		) VALUES($1,$2,'assemblyai',$3,$4,'milliseconds',$5,$5,NULLIF($6,''),$7,$8,$8)
+		ON CONFLICT (reservation_id,idempotency_key) DO NOTHING
+	`, id, userID, mode, model, durationMS, providerRequestID, id+":reconcile:"+key, measured)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ai_credit_reservation_events(
+		  reservation_id,user_id,event_type,currency,amount_usd_micros,idempotency_key,details
+		) VALUES($1,$2,'usage_reconciled','USD',$3,$4,$5)
+	`, id, userID, absInt64(delta), key+":reconcile", details)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func absInt64(value int64) int64 {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
+func ceilVoiceCost(ratePerHour, durationMS int64) (int64, bool) {
+	const hourMS = int64(3600000)
+	if ratePerHour < 0 || durationMS < 0 || (ratePerHour != 0 && durationMS > math.MaxInt64/ratePerHour) {
+		return 0, false
+	}
+	product := ratePerHour * durationMS
+	result := product / hourMS
+	if product%hourMS != 0 {
+		if result == math.MaxInt64 {
+			return 0, false
+		}
+		result++
+	}
+	return result, true
+}
+
 func (s *Store) ReverseUSDAdjustment(ctx context.Context, target, actor string, entryID int64, key, reason string) error {
 	if s == nil || s.pool == nil {
 		return errors.New("database is not configured")
@@ -1093,6 +1396,7 @@ func (s *Store) USDRecent(ctx context.Context, userID string, limit int) (map[st
 CASE
   WHEN r.status='claimed' THEN 'pending_review'
   WHEN e.reservation_id IS NULL THEN 'unavailable'
+  WHEN e.evidence->>'usageStatus'='estimated' THEN 'estimated'
   ELSE 'measured'
 END
 		FROM ai_credit_reservations r
@@ -1462,7 +1766,9 @@ func (s *Store) USDReservationForUser(ctx context.Context, id, userID string) (U
 		       COALESCE(e.input_tokens,0),COALESCE((e.evidence->>'cachedInputTokens')::bigint,0),
 		       COALESCE(e.output_tokens,0),
 		       CASE WHEN r.status='claimed' THEN 'pending_review'
-		            WHEN e.reservation_id IS NULL THEN 'unavailable' ELSE 'measured' END
+		            WHEN e.reservation_id IS NULL THEN 'unavailable'
+		            WHEN e.evidence->>'usageStatus'='estimated' THEN 'estimated'
+		            ELSE 'measured' END
 		FROM ai_credit_reservations r
 		LEFT JOIN LATERAL (
 		  SELECT reservation_id,usage_unit,usage_units,input_tokens,output_tokens,evidence
@@ -1803,7 +2109,17 @@ func validateUSDUsageEvidence(evidence USDEvidence) error {
 			if json.Unmarshal(raw, &value) != nil || len(value) > 200 {
 				return errors.New("invalid usage metadata")
 			}
-		case "usageUnits", "durationMs", "inputTokens", "outputTokens":
+		case "provenance":
+			var value string
+			if json.Unmarshal(raw, &value) != nil || value != "provider_reconciliation" {
+				return errors.New("invalid usage provenance")
+			}
+		case "usageStatus":
+			var value string
+			if json.Unmarshal(raw, &value) != nil || (value != "estimated" && value != "measured") {
+				return errors.New("invalid usage status")
+			}
+		case "usageUnits", "durationMs", "inputTokens", "cachedInputTokens", "outputTokens":
 			var value int64
 			if json.Unmarshal(raw, &value) != nil || value < 0 {
 				return errors.New("invalid usage metadata")

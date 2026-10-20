@@ -377,6 +377,117 @@ func TestTAR10USDMicroLedgerLifecycleIntegration(t *testing.T) {
 	}
 }
 
+func TestTAR10EstimatedAssistantUsageReconcilesIdempotently(t *testing.T) {
+	ctx, pool, store := openTAR10(t)
+	tar10User(t, ctx, pool, "reconcile-user")
+	tar10User(t, ctx, pool, "reconcile-admin")
+	if err := store.AddUSDAdjustment(ctx, "reconcile-user", "reconcile-admin", 1_000_000, "test balance", "reconcile-balance"); err != nil {
+		t.Fatal(err)
+	}
+	card := USDRateCard{
+		Provider: "openai", Mode: "assistant", Model: "gpt-5.6-luna", Meter: "tokens",
+		InputUsdMicrosPerMillion: 1_000_000, CachedInputUsdMicrosPerMillion: 500_000,
+		OutputUsdMicrosPerMillion: 2_000_000,
+	}
+	snapshot, _ := json.Marshal(card)
+	reservation, created, err := store.ReserveUSD(
+		ctx, "assistant-estimated", "reconcile-user", "assistant", "openai", "assistant",
+		card.Model, "assistant-estimated-key", 1_000, 60, 1, snapshot,
+	)
+	if err != nil || !created {
+		t.Fatalf("reserve estimated assistant operation: created=%v err=%v", created, err)
+	}
+	if claimed, err := store.ClaimUSDReservation(ctx, reservation.ID, "reconcile-user"); err != nil || !claimed {
+		t.Fatalf("claim assistant operation: claimed=%v err=%v", claimed, err)
+	}
+	estimatedPayload := json.RawMessage(`{"usageStatus":"estimated","cachedInputTokens":0}`)
+	if err := store.RecordUSDEvidence(ctx, reservation.ID, "reconcile-user", "openai", "assistant", card.Model,
+		reservation.ID+":usage", USDEvidence{
+			UsageUnit: "tokens", InputTokens: 10, OutputTokens: 1, Payload: estimatedPayload,
+		}); err != nil {
+		t.Fatal(err)
+	}
+	estimatedCost, err := assistantUSDMicroCost(card, 10, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SettleUSDReservation(ctx, reservation.ID, "reconcile-user", reservation.ID+":settle", estimatedCost); err != nil {
+		t.Fatal(err)
+	}
+	reconcile := func(input, cached, output int64) error {
+		return store.ReconcileEstimatedAssistantUsage(
+			ctx, reservation.ID, "reconcile-user", "reconcile-admin", "provider-usage-v1",
+			"provider dashboard usage", "req-provider-1", input, cached, output,
+		)
+	}
+	if err := reconcile(20, 4, 5); err != nil {
+		t.Fatalf("reconcile estimated usage: %v", err)
+	}
+	actualCost, err := assistantUSDMicroCost(card, 20, 4, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := store.USDUsage(ctx, "reconcile-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.SpentUsdMicros != actualCost {
+		t.Fatalf("spent = %d; want reconciled actual %d", usage.SpentUsdMicros, actualCost)
+	}
+	if err := reconcile(20, 4, 5); err != nil {
+		t.Fatalf("idempotent reconciliation replay: %v", err)
+	}
+	if err := reconcile(21, 4, 5); !errors.Is(err, ErrUSDReservationConflict) {
+		t.Fatalf("changed reconciliation replay error = %v; want conflict", err)
+	}
+	receipt, err := store.USDReservationForUser(ctx, reservation.ID, "reconcile-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.UsageStatus != "measured" || receipt.SettledUsdMicros != actualCost ||
+		receipt.InputTokens != 20 || receipt.CachedInputTokens != 4 || receipt.OutputTokens != 5 {
+		t.Fatalf("reconciled receipt = %#v", receipt)
+	}
+
+	voiceCard := USDRateCard{
+		Provider: "assemblyai", Mode: "realtime", Model: "universal-3-5-pro",
+		Meter: "hour", UsdMicrosPerHour: 210_000,
+	}
+	voiceSnapshot, _ := json.Marshal(voiceCard)
+	voice, created, err := store.ReserveUSD(
+		ctx, "voice-estimated", "reconcile-user", "voice", "assemblyai", "realtime",
+		voiceCard.Model, "voice-estimated-key", 20_000, 60, 1, voiceSnapshot,
+	)
+	if err != nil || !created {
+		t.Fatalf("reserve estimated voice operation: created=%v err=%v", created, err)
+	}
+	if claimed, err := store.ClaimUSDReservation(ctx, voice.ID, "reconcile-user"); err != nil || !claimed {
+		t.Fatalf("claim voice operation: claimed=%v err=%v", claimed, err)
+	}
+	if err := store.RecordUSDEvidence(ctx, voice.ID, "reconcile-user", "assemblyai", "realtime", voiceCard.Model,
+		voice.ID+":usage", USDEvidence{
+			UsageUnit: "milliseconds", UsageUnits: 5_000, DurationMs: 5_000,
+			Payload: json.RawMessage(`{"usageStatus":"estimated","meterSource":"server_elapsed"}`),
+		}); err != nil {
+		t.Fatal(err)
+	}
+	estimatedVoiceCost, ok := ceilVoiceCost(voiceCard.UsdMicrosPerHour, 5_000)
+	if !ok {
+		t.Fatal("failed to calculate estimated voice cost")
+	}
+	if err := store.SettleUSDReservation(ctx, voice.ID, "reconcile-user", voice.ID+":settle", estimatedVoiceCost); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReconcileEstimatedVoiceUsage(ctx, voice.ID, "reconcile-user", "reconcile-admin",
+		"provider-voice-v1", "provider session duration", "req-voice-1", 10_000); err != nil {
+		t.Fatalf("reconcile estimated voice usage: %v", err)
+	}
+	if err := store.ReconcileEstimatedVoiceUsage(ctx, voice.ID, "reconcile-user", "reconcile-admin",
+		"provider-voice-v1", "provider session duration", "req-voice-1", 10_000); err != nil {
+		t.Fatalf("idempotent voice reconciliation replay: %v", err)
+	}
+}
+
 func TestTAR10MonthlyGrantExpiryUsesFEFOAndPreservesLegacyBalance(t *testing.T) {
 	ctx, pool, store := openTAR10(t)
 	tar10User(t, ctx, pool, "expiry-user")

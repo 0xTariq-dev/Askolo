@@ -38,6 +38,7 @@ type voiceCreditReceipt struct {
 	BalanceUsdMicros  int64  `json:"balanceUsdMicros,omitempty"`
 	UsageUnit         string `json:"usageUnit,omitempty"`
 	UsageUnits        int64  `json:"usageUnits,omitempty"`
+	UsageStatus       string `json:"usageStatus,omitempty"`
 	PolicyVersion     int    `json:"policyVersion"`
 	// Deprecated legacy fields retained only so older internal callers can
 	// decode historical responses; USD fields are authoritative.
