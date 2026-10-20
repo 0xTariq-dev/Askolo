@@ -2,70 +2,97 @@
 
 ## Project Overview
 
-Askolo is a personal/family assistant web app: habits, goals, daily plans, calendar,
-chores, notes, action items, and an AI coach, with optional Google Calendar/Gmail and
-GitHub integrations. Stack: Go HTTP backend (`services/askolo-backend`, native auth +
-sessions + MFA + OAuth) with a PostgreSQL store, and a React/Vite SPA
-(`artifacts/personal-assistant`). Deployed as a public Autoscale deployment
-(`https://dev.askolo.app`, `https://askolo.replit.app`), so all `/api/...` endpoints are
-internet-reachable.
+Askolo is a personal and family assistant for planning, habits, calendar, notes, and AI
+features, with optional Google Calendar/Gmail and GitHub integrations. It uses a Go API
+(`services/askolo-backend`), PostgreSQL, and a React/Vite web app
+(`artifacts/personal-assistant`). This workspace is the Development Repl; production is
+managed separately. Do not infer production behavior from Development-only tests.
 
 ## Assets
 
-- **User accounts and sessions** — email, hashed passwords, session cookies/IDs, MFA/TOTP
-  secrets and recovery codes. Compromise enables impersonation and full data access.
-- **Personal data** — habits, goals, plans, events, chores, notes, action items, profile.
-- **Google/GitHub OAuth tokens** — encrypted at rest; grant access to the user's Calendar/Gmail.
-- **Application secrets** — DB connection, session/cookie signing keys, AES-GCM sealing key,
-  internal auth token, AssemblyAI API key. AssemblyAI key is operator-funded (billing risk).
+- **Accounts and sessions** — verified email addresses, password hashes, session IDs, and
+  OAuth identities. A compromise can enable account takeover.
+- **MFA recovery material** — encrypted TOTP secrets; one-time recovery-code hashes; email
+  challenge hashes; trusted-device credential and browser-fingerprint HMACs. These control
+  recovery and MFA bypass and must not be exposed in logs or API responses.
+- **Personal data** — plans, habits, calendar events, notes, profile details, and related
+  user-created content.
+- **Provider access and billing** — encrypted Google/GitHub tokens, provider credentials,
+  AI credit balances and reservations, and operator-funded API usage.
+- **Application secrets** — database URLs, session and encryption keys, internal-service
+  credentials, and third-party API credentials.
 
 ## Trust Boundaries
 
-- **Browser → `/api/...`** — untrusted client; auth via session cookie or `Bearer <sessionID>`.
-  Every sensitive route calls `sessionUserID` (validates session + MFA state) then `authorize`.
-- **`/internal/...`, `/internal/ws`, `/internal/rest`, `/internal/authz`** — gated by
-  `internalAuth` token middleware; not for public callers.
-- **API → PostgreSQL** — all product CRUD scoped by `user_id` with parameterized queries;
-  table/column names are static specs (no injection). Mass assignment blocked via allow-list
-  + `DisallowUnknownFields`.
-- **API → Google/Gmail/GitHub/AssemblyAI** — outbound provider calls use fixed endpoints;
-  OAuth callbacks require signed, expiring, one-time state bound to a browser cookie.
+- **Browser → API** — treat request bodies, headers, cookies, and client-side permissions as
+  untrusted. Protected routes must authenticate and authorize on the server.
+- **API → PostgreSQL** — the backend handles sessions, personal data, MFA state, credits,
+  and provider tokens. Queries must be parameterized and user-scoped.
+- **API → external providers** — OAuth and AI provider calls cross an external trust boundary;
+  use fixed provider endpoints, validated callback state, bounded timeouts, and server-held
+  credentials.
+- **Public → authenticated → internal/admin** — public auth and health routes are distinct
+  from user-scoped routes and token-gated internal operations. Preserve these boundaries
+  in both routing and authorization checks.
+- **Development → production** — this workspace is not authority to migrate or alter
+  production data or configuration.
 
 ## Scan Anchors
 
-- Production entry points: `internal/httpapi/router.go` (mux + `apiMux`), `modules/product/handler.go`
-  (product + AI), `modules/auth/handler.go` (auth/MFA), `modules/google/**`, `modules/github/**`.
-- Highest-risk areas: AI/billing endpoints (`/api/ai/*`), auth throttling/recovery, OAuth callbacks.
-- Public surface: `/`, `/healthz`, `/readyz`, `/api/auth/*`, `/ws`, `/webhooks/*`.
-  Authenticated surface: `/api/{habits,goals,daily-plans,events,chores,notes,action-items,dashboard,ai,user}/*`.
-  Internal surface: `/internal/*` (token-gated).
-- Dev-only / ignore unless proven reachable: `.agents/skills/**` (SAST path-traversal hits in a
-  Python bridge server used by tooling skills, not part of the deployed app).
+- API routing and request boundaries: `services/askolo-backend/internal/httpapi/`.
+- Highest-risk code: `internal/modules/auth/` (sessions, MFA, recovery, throttling),
+  `internal/modules/google/` and `internal/modules/github/` (OAuth), and
+  `internal/modules/product/` (personal data, AI, and credit enforcement).
+- The web client is `artifacts/personal-assistant/`; `.agents/skills/**` contains tooling
+  and is not part of the deployed application unless a deployment path proves otherwise.
 
 ## Threat Categories
 
-### Spoofing / Authentication
-Session IDs are 192-bit CSPRNG values; MFA challenges enforce expiry, ownership, and attempt
-limits; OAuth state is signed, one-time, and cookie-bound. **Gap:** password-login and
-recovery throttling keys off the first `X-Forwarded-For` value, which an internet caller can
-spoof per request to bypass rate limits and grow the in-memory limiter map unbounded
-(see `authentication-issues`). Password-recovery responses also allow account/eligibility
-enumeration.
+### Spoofing
 
-### Elevation of Privilege / Access Control
-Product CRUD is consistently scoped to the session user in SQL; no cross-user IDOR, mass
-assignment, or missing function-level authz was found. Profile updates accept only names;
-account deletion is bound to the session user. Internal routes are token-gated.
+Password, Google, and GitHub sign-ins must enforce MFA when it is enabled. A pending MFA
+session must not authorize ordinary app routes. Recovery codes are single-use and stored
+only as keyed hashes. Email recovery requires the account password and an independently
+verified recovery email; success removes MFA and revokes sessions and trusted devices
+without signing the requester in. Trusted devices use a random, HttpOnly credential plus
+a browser-generated random fingerprint, store only keyed hashes, expire after 30 days,
+and can be revoked. Sensitive actions require a fresh TOTP. Recovery and login controls
+must use shared server-side limits and generic responses to prevent guessing and account
+enumeration; proxy-derived client IPs must only be trusted from verified proxies.
+
+### Tampering
+
+Untrusted input must be validated and encoded at the server boundary; SQL must remain
+parameterized and authorization must not depend on client-provided ownership. MFA changes,
+recovery-code rotation, session revocation, and credit-ledger operations must be atomic
+and replay-safe. Paid AI operations must reserve credits before provider execution and
+reconcile provider usage without charging twice.
+
+### Repudiation
+
+Sensitive authentication events, including recovery, MFA failures, and trusted-device
+changes, should record the account and action without recording passwords, codes, raw
+fingerprints, session credentials, or provider secrets. Logs and event records must not
+be treated as proof of tamper-resistant storage unless that property is separately
+verified.
 
 ### Information Disclosure
-No client-side secret exposure: `VITE_` values are public config; AssemblyAI key stays
-server-side (realtime tokens are short-lived). Auth logs include email at LOW severity only.
 
-### Tampering / Business Logic
-AI credit balance is displayed and estimable but **not enforced or reserved** before invoking
-the paid AssemblyAI provider in `/api/ai/transcribe-audio` and `/api/ai/realtime-token`,
-letting any consented authenticated user drive operator billing (see `ai-billing`).
+Never return or log raw recovery codes, email challenge codes, TOTP secrets, trusted-device
+credentials, or browser fingerprints. Encrypt TOTP secrets at rest; retain only keyed
+hashes for one-time codes and trusted-device values. Keep provider and internal credentials
+server-side, return only user-scoped data, and keep public errors generic where account
+eligibility could otherwise be inferred.
 
 ### Denial of Service
-Request bodies for product/audio endpoints are size-capped. The auth limiter map has no
-expiry eviction (memory growth) — tied to the forwarded-IP finding above.
+
+Public auth and recovery routes need shared IP/account throttles, challenge attempt limits,
+email cooldowns, and bot checks where configured. Bound request bodies and provider calls.
+Process-local throttles may supplement these controls, but must not be the only control
+for multi-instance or cross-process abuse.
+
+### Elevation of Privilege
+
+Every user-data route must enforce a valid, fully authenticated session and server-side
+resource authorization. Internal routes must require the internal credential. Workspace
+or object access must fail closed when ownership or permission context is incomplete.

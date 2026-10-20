@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,57 @@ import (
 )
 
 const recoveryTestTOTPKey = "01234567890123456789012345678901"
+
+func mfaJSONRequest(
+	t *testing.T,
+	handler http.Handler,
+	method, path string,
+	input map[string]any,
+	cookies []*http.Cookie,
+	headers map[string]string,
+	remote string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	if input != nil {
+		if action := testTurnstileAction(path); action != "" {
+			input["turnstileToken"] = "test-turnstile:" + action
+		}
+	}
+	var body io.Reader
+	if input != nil {
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatalf("encode MFA request: %v", err)
+		}
+		body = strings.NewReader(string(raw))
+	}
+	request := httptest.NewRequest(method, path, body)
+	request.RemoteAddr = remote
+	if input != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func seedRecoveryCodes(t *testing.T, fixture *emailAuthFixture, userID string, hashes []string) {
+	t.Helper()
+	for index, hash := range hashes {
+		if _, err := fixture.pool.Exec(context.Background(), `
+			INSERT INTO auth_recovery_codes (id, user_id, code_hash)
+			VALUES ($1, $2, $3)
+		`, fmt.Sprintf("test-recovery-%s-%d", userID, index), userID, hash); err != nil {
+			t.Fatalf("seed recovery code: %v", err)
+		}
+	}
+}
 
 func TestDeviceFingerprintCookieMatchesBrowserClient(t *testing.T) {
 	const fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -376,6 +429,207 @@ func TestTrustedDeviceHashesNeverStoreRawBrowserValuesIntegration(t *testing.T) 
 		storedCredentialHash == rawCredential || storedFingerprintHash == rawFingerprint ||
 		strings.Contains(storedCredentialHash, rawCredential) || strings.Contains(storedFingerprintHash, rawFingerprint) {
 		t.Fatal("trusted-device persistence did not retain only keyed hashes")
+	}
+}
+
+func TestRecoveryCodeChallengeIsSingleUseIntegration(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	fixture.authConfig.TOTPEncryptionKey = []byte(recoveryTestTOTPKey)
+	const email = "mfa-recovery-code-once@example.test"
+	const password = "recovery-once-password-9!"
+	userID := setupMFARecoveryUser(t, fixture, email, "mfa-recovery-code-once-alt@example.test", password)
+	auth := testAuthHandlerWithMonitor(fixture.authConfig, fixture.store, slog.Default(), &captureEmailSender{}, NewEmailDeliveryMonitor())
+	handler := auth.Routes()
+	displayCodes, rawCodes, err := newRecoveryCodes()
+	if err != nil {
+		t.Fatalf("generate recovery codes: %v", err)
+	}
+	seedRecoveryCodes(t, fixture, userID, []string{auth.hashRecoveryCode(rawCodes[0])})
+
+	login := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]string{"email": email, "password": password}, nil, "192.0.2.110:1234")
+	if login.Code != http.StatusOK || !strings.Contains(login.Body.String(), `"status":"mfa_required"`) {
+		t.Fatalf("first login = %d %s, want MFA challenge", login.Code, login.Body.String())
+	}
+	firstVerification := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/verify",
+		map[string]string{"code": displayCodes[0]}, sessionCookie(t, login), "192.0.2.110:1234")
+	if firstVerification.Code != http.StatusOK {
+		t.Fatalf("first recovery-code use = %d %s, want success", firstVerification.Code, firstVerification.Body.String())
+	}
+
+	relogin := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]string{"email": email, "password": password}, nil, "192.0.2.111:1234")
+	if relogin.Code != http.StatusOK || !strings.Contains(relogin.Body.String(), `"status":"mfa_required"`) {
+		t.Fatalf("second login = %d %s, want MFA challenge", relogin.Code, relogin.Body.String())
+	}
+	replay := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/verify",
+		map[string]string{"code": displayCodes[0]}, sessionCookie(t, relogin), "192.0.2.111:1234")
+	if replay.Code != http.StatusUnauthorized || !strings.Contains(replay.Body.String(), "INVALID_MFA") {
+		t.Fatalf("replayed recovery code = %d %s, want rejection", replay.Code, replay.Body.String())
+	}
+}
+
+func TestRecoveryCodeRegenerationReplacesSetIntegration(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	fixture.authConfig.TOTPEncryptionKey = []byte(recoveryTestTOTPKey)
+	const email = "mfa-recovery-code-rotate@example.test"
+	const password = "recovery-rotate-password-9!"
+	userID := setupMFARecoveryUser(t, fixture, email, "mfa-recovery-code-rotate-alt@example.test", password)
+	auth := testAuthHandlerWithMonitor(fixture.authConfig, fixture.store, slog.Default(), &captureEmailSender{}, NewEmailDeliveryMonitor())
+	handler := auth.Routes()
+	oldDisplay, oldRaw, err := newRecoveryCodes()
+	if err != nil {
+		t.Fatalf("generate original recovery codes: %v", err)
+	}
+	oldHashes := make([]string, 0, len(oldRaw))
+	for _, code := range oldRaw {
+		oldHashes = append(oldHashes, auth.hashRecoveryCode(code))
+	}
+	seedRecoveryCodes(t, fixture, userID, oldHashes)
+
+	sessionID, err := fixture.store.CreateSession(context.Background(), userID, "password", time.Hour)
+	if err != nil {
+		t.Fatalf("create authenticated session: %v", err)
+	}
+	totpCodeValue, err := totpCode("JBSWY3DPEHPK3PXP", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate current TOTP: %v", err)
+	}
+	regenerated := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/recovery-codes/regenerate",
+		map[string]string{
+			"currentPassword": password,
+			"recoveryCode":    oldDisplay[0],
+			"totpCode":        totpCodeValue,
+		},
+		&http.Cookie{Name: "askolo.sid", Value: sessionID}, "192.0.2.112:1234")
+	if regenerated.Code != http.StatusOK {
+		t.Fatalf("recovery code regeneration = %d %s, want success", regenerated.Code, regenerated.Body.String())
+	}
+	var payload struct {
+		RecoveryCodes []string `json:"recoveryCodes"`
+	}
+	if err := json.Unmarshal(regenerated.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode regenerated codes: %v", err)
+	}
+	if len(payload.RecoveryCodes) != recoveryCodeCount {
+		t.Fatalf("regenerated %d codes, want exactly %d", len(payload.RecoveryCodes), recoveryCodeCount)
+	}
+	var activeCodes int
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM auth_recovery_codes WHERE user_id = $1 AND used_at IS NULL
+	`, userID).Scan(&activeCodes); err != nil {
+		t.Fatalf("count active recovery codes: %v", err)
+	}
+	if activeCodes != recoveryCodeCount {
+		t.Fatalf("stored %d active codes, want exactly %d", activeCodes, recoveryCodeCount)
+	}
+	for _, hash := range oldHashes {
+		var count int
+		if err := fixture.pool.QueryRow(context.Background(), `
+			SELECT count(*) FROM auth_recovery_codes WHERE user_id = $1 AND code_hash = $2
+		`, userID, hash).Scan(&count); err != nil {
+			t.Fatalf("check replaced recovery code: %v", err)
+		}
+		if count != 0 {
+			t.Fatal("a previous recovery code remained usable after regeneration")
+		}
+	}
+
+	login := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]string{"email": email, "password": password}, nil, "192.0.2.113:1234")
+	pending := sessionCookie(t, login)
+	oldCodeAttempt := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/verify",
+		map[string]string{"code": oldDisplay[1]}, pending, "192.0.2.113:1234")
+	if oldCodeAttempt.Code != http.StatusUnauthorized {
+		t.Fatalf("old recovery code after regeneration = %d %s, want rejection", oldCodeAttempt.Code, oldCodeAttempt.Body.String())
+	}
+	newCodeAttempt := jsonRequest(t, handler, http.MethodPost, "/api/auth/mfa/verify",
+		map[string]string{"code": payload.RecoveryCodes[0]}, pending, "192.0.2.113:1234")
+	if newCodeAttempt.Code != http.StatusOK {
+		t.Fatalf("new recovery code = %d %s, want success", newCodeAttempt.Code, newCodeAttempt.Body.String())
+	}
+}
+
+func TestTrustedDeviceLoginRequiresMatchingFingerprintAndFreshTotpForRevocationIntegration(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	fixture.authConfig.TOTPEncryptionKey = []byte(recoveryTestTOTPKey)
+	const email = "trusted-device-flow@example.test"
+	const password = "trusted-device-flow-password-9!"
+	const fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	userID := setupMFARecoveryUser(t, fixture, email, "trusted-device-flow-alt@example.test", password)
+	auth := testAuthHandlerWithMonitor(fixture.authConfig, fixture.store, slog.Default(), &captureEmailSender{}, NewEmailDeliveryMonitor())
+	handler := auth.Routes()
+	primaryLogin := jsonRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]string{"email": email, "password": password}, nil, "192.0.2.114:1234")
+	if primaryLogin.Code != http.StatusOK || !strings.Contains(primaryLogin.Body.String(), `"status":"mfa_required"`) {
+		t.Fatalf("primary login = %d %s, want MFA challenge", primaryLogin.Code, primaryLogin.Body.String())
+	}
+	pendingSession := sessionCookie(t, primaryLogin)
+	code, err := totpCode("JBSWY3DPEHPK3PXP", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("generate TOTP: %v", err)
+	}
+	verified := mfaJSONRequest(t, handler, http.MethodPost, "/api/auth/mfa/verify",
+		map[string]any{"code": code, "trustDevice": true},
+		[]*http.Cookie{pendingSession},
+		map[string]string{"X-Askolo-Device-Fingerprint": fingerprint},
+		"192.0.2.114:1234")
+	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), `"trustedDevice":true`) {
+		t.Fatalf("trusted-device enrollment = %d %s, want trusted success", verified.Code, verified.Body.String())
+	}
+	var trustedCookie *http.Cookie
+	for _, cookie := range verified.Result().Cookies() {
+		if strings.Contains(cookie.Name, "trusted_device") {
+			trustedCookie = cookie
+			break
+		}
+	}
+	if trustedCookie == nil || !trustedCookie.HttpOnly || !trustedCookie.Secure {
+		t.Fatalf("trusted-device cookie missing or insecure: %#v", trustedCookie)
+	}
+	deviceCookies := []*http.Cookie{trustedCookie}
+	listed := mfaJSONRequest(t, handler, http.MethodGet, "/api/auth/mfa/trusted-devices", nil,
+		append(deviceCookies, pendingSession),
+		map[string]string{"X-Askolo-Device-Fingerprint": fingerprint},
+		"192.0.2.114:1234")
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"current":true`) {
+		t.Fatalf("trusted-device list = %d %s, want current device", listed.Code, listed.Body.String())
+	}
+
+	trustedLogin := mfaJSONRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]any{"email": email, "password": password}, deviceCookies,
+		map[string]string{"X-Askolo-Device-Fingerprint": fingerprint},
+		"192.0.2.115:1234")
+	if trustedLogin.Code != http.StatusOK || !strings.Contains(trustedLogin.Body.String(), `"status":"authenticated"`) ||
+		strings.Contains(trustedLogin.Body.String(), `"status":"mfa_required"`) {
+		t.Fatalf("trusted-device login = %d %s, want authenticated without MFA", trustedLogin.Code, trustedLogin.Body.String())
+	}
+	authenticatedSession := sessionCookie(t, trustedLogin)
+
+	wrongFingerprintLogin := mfaJSONRequest(t, handler, http.MethodPost, "/api/auth/password/login",
+		map[string]any{"email": email, "password": password}, deviceCookies,
+		map[string]string{"X-Askolo-Device-Fingerprint": strings.Repeat("f", 64)},
+		"192.0.2.116:1234")
+	if wrongFingerprintLogin.Code != http.StatusOK ||
+		!strings.Contains(wrongFingerprintLogin.Body.String(), `"status":"mfa_required"`) {
+		t.Fatalf("trusted device with a different fingerprint = %d %s, want MFA challenge", wrongFingerprintLogin.Code, wrongFingerprintLogin.Body.String())
+	}
+
+	var deviceID string
+	if err := fixture.pool.QueryRow(context.Background(), `
+		SELECT id FROM auth_trusted_devices WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID).Scan(&deviceID); err != nil {
+		t.Fatalf("read trusted device id: %v", err)
+	}
+	reusedCode := jsonRequest(t, handler, http.MethodPost,
+		"/api/auth/mfa/trusted-devices/"+deviceID+"/revoke",
+		map[string]string{"totpCode": code}, authenticatedSession, "192.0.2.115:1234")
+	if reusedCode.Code != http.StatusUnauthorized {
+		t.Fatalf("revocation with reused TOTP = %d %s, want fresh-code rejection", reusedCode.Code, reusedCode.Body.String())
+	}
+	devices, err := fixture.store.ListTrustedDevices(context.Background(), userID)
+	if err != nil || len(devices) != 1 {
+		t.Fatalf("device remained listed after rejected stale TOTP: %d err=%v", len(devices), err)
 	}
 }
 

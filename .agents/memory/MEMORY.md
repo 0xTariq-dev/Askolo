@@ -33,6 +33,7 @@
 - [Published static build freshness](published-static-build-freshness.md) — verify live asset hashes against the current build before diagnosing SEO or compression findings.
 - [Managed static artifact serving](artifact-static-serving.md) — production static serving is schema-managed; use supported cache/compression configuration rather than replacing it.
 - [Go toolchain path](go-toolchain-path.md) — use `go fmt ./...` because the managed Go wrapper may not expose standalone `gofmt`.
+- [Optional httptest bodies](go-httptest-optional-body.md) — pass a nil `io.Reader`, not a typed nil reader, for bodyless requests.
 - [Nested package removal](nested-workspace-package-removal.md) — verify artifact manifests and lock importers after package callbacks; nested dependencies may remain.
 - [Go security upgrades](go-security-upgrades.md) — auto-downloaded patched toolchains need an enabled checksum database; treat unused openpgp advisories as call-path findings.
 - [Go backend binary refresh](go-backend-binary-refresh.md) — rebuild before restart; its validation-heavy build script stops the API before replacing the binary.
