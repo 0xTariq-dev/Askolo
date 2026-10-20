@@ -721,12 +721,31 @@ export interface UpcomingEvent {
   color?: string | null;
 }
 
+export type GoogleConnectionAccountStatus = typeof GoogleConnectionAccountStatus[keyof typeof GoogleConnectionAccountStatus];
+
+
+export const GoogleConnectionAccountStatus = {
+  active: 'active',
+  revoked: 'revoked',
+} as const;
+
+export interface GoogleConnectionAccount {
+  id: string;
+  email?: string;
+  displayName?: string;
+  status: GoogleConnectionAccountStatus;
+  scopes: string[];
+  capabilities: string[];
+  updatedAt: string;
+}
+
 export interface GoogleConnectionStatus {
   connected: boolean;
   scopes?: string[];
   calendarConnected: boolean;
   gmailConnected: boolean;
   gmailActionRequired: boolean;
+  accounts: GoogleConnectionAccount[];
 }
 
 export interface DashboardSummary {

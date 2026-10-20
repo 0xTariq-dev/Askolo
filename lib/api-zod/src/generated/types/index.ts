@@ -96,6 +96,8 @@ export * from './googleCalendarProviderUpdate';
 export * from './googleCalendarProviderUpdateEvent';
 export * from './googleCalendarSyncRequest';
 export * from './googleCalendarSyncResponse';
+export * from './googleConnectionAccount';
+export * from './googleConnectionAccountStatus';
 export * from './googleConnectionStatus';
 export * from './habit';
 export * from './habitCompletion';

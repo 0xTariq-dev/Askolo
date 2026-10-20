@@ -1307,7 +1307,16 @@ export const GetDashboardSummaryResponse = zod.object({
   "scopes": zod.array(zod.string()).optional(),
   "calendarConnected": zod.boolean(),
   "gmailConnected": zod.boolean(),
-  "gmailActionRequired": zod.boolean()
+  "gmailActionRequired": zod.boolean(),
+  "accounts": zod.array(zod.object({
+  "id": zod.string(),
+  "email": zod.string().optional(),
+  "displayName": zod.string().optional(),
+  "status": zod.enum(['active', 'revoked']),
+  "scopes": zod.array(zod.string()),
+  "capabilities": zod.array(zod.string()),
+  "updatedAt": zod.coerce.date()
+}))
 })
 })
 
@@ -2079,8 +2088,27 @@ export const GetGoogleStatusResponse = zod.object({
   "scopes": zod.array(zod.string()).optional(),
   "calendarConnected": zod.boolean(),
   "gmailConnected": zod.boolean(),
-  "gmailActionRequired": zod.boolean()
+  "gmailActionRequired": zod.boolean(),
+  "accounts": zod.array(zod.object({
+  "id": zod.string(),
+  "email": zod.string().optional(),
+  "displayName": zod.string().optional(),
+  "status": zod.enum(['active', 'revoked']),
+  "scopes": zod.array(zod.string()),
+  "capabilities": zod.array(zod.string()),
+  "updatedAt": zod.coerce.date()
+}))
 })
+
+
+/**
+ * @summary Revoke one connected Google account
+ */
+export const DisconnectGoogleConnectionParams = zod.object({
+  "connectionID": zod.coerce.string()
+})
+
+export const DisconnectGoogleConnectionResponse = zod.void()
 
 
 /**

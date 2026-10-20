@@ -681,6 +681,69 @@ SET signup_grant_usd_micros=5000000,
 	})
 }
 
+func TestConcurrentGoogleFirstSignupConvergesOnOneUser(t *testing.T) {
+	fixture := newGoogleOAuthFixture(t)
+	ctx := context.Background()
+	email := "concurrent-google-signup@example.test"
+	subject := "concurrent-google-signup-subject"
+	const attempts = 8
+
+	t.Cleanup(func() {
+		_, _ = fixture.pool.Exec(ctx, `
+			DELETE FROM provider_accounts WHERE provider = 'google' AND external_subject = $1
+		`, subject)
+		_, _ = fixture.pool.Exec(ctx, `DELETE FROM users WHERE lower(email) = lower($1)`, email)
+	})
+
+	start := make(chan struct{})
+	results := make(chan struct {
+		userID string
+		err    error
+	}, attempts)
+	var workers sync.WaitGroup
+	for range attempts {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			userID, err := fixture.store.CreateProviderSignupUser(
+				ctx, "google", subject, email, "Concurrent", "Signup", "",
+			)
+			results <- struct {
+				userID string
+				err    error
+			}{userID: userID, err: err}
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+
+	var canonicalUserID string
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("concurrent signup failed: %v", result.err)
+		}
+		if canonicalUserID == "" {
+			canonicalUserID = result.userID
+		} else if result.userID != canonicalUserID {
+			t.Fatalf("concurrent signup returned multiple users: %q and %q", canonicalUserID, result.userID)
+		}
+	}
+	var users, identities int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE lower(email) = lower($1)`, email).Scan(&users); err != nil {
+		t.Fatalf("count provisioned users: %v", err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `
+		SELECT count(*) FROM provider_accounts WHERE provider = 'google' AND external_subject = $1
+	`, subject).Scan(&identities); err != nil {
+		t.Fatalf("count provisioned identities: %v", err)
+	}
+	if users != 1 || identities != 1 {
+		t.Fatalf("created %d users and %d provider identities, want exactly one each", users, identities)
+	}
+}
+
 func TestGoogleConnectionReauthorizationPreservesScopesAndRefreshToken(t *testing.T) {
 	fixture := newGoogleOAuthFixture(t)
 	ctx := context.Background()

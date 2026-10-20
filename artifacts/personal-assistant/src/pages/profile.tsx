@@ -166,6 +166,7 @@ export function ProfilePage() {
 
   // Action states
   const [disconnecting, setDisconnecting] = useState<'calendar' | 'gmail' | null>(null);
+  const [disconnectingGoogleAccount, setDisconnectingGoogleAccount] = useState<string | null>(null);
   const [deletingData, setDeletingData] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
@@ -475,6 +476,23 @@ export function ProfilePage() {
     }
   };
 
+  const disconnectGoogleAccount = async (connectionID: string, label: string) => {
+    setDisconnectingGoogleAccount(connectionID);
+    try {
+      await goApi.disconnectGoogleConnection(connectionID);
+      await refetchGoogle();
+      toast({ title: `${label} disconnected` });
+    } catch (error) {
+      toast({
+        title: 'Failed to disconnect Google account',
+        description: getApiErrorMessage(error, 'Please try again.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setDisconnectingGoogleAccount(null);
+    }
+  };
+
   const deleteData = async () => {
     setDeletingData(true);
     try {
@@ -500,6 +518,7 @@ export function ProfilePage() {
 
   const calendarConnected = googleStatus?.calendarConnected ?? false;
   const gmailConnected = googleStatus?.gmailConnected ?? false;
+  const googleAccounts = googleStatus?.accounts.filter((account) => account.status === 'active') ?? [];
 
   return (
     <PageTransition surface={false} className="mx-auto max-w-4xl space-y-6">
@@ -1081,26 +1100,31 @@ export function ProfilePage() {
                 </div>
               </div>
             </div>
-            {calendarConnected ? (
+            <div className="flex items-center gap-2">
               <Button
                 size="sm"
-                variant="outline"
-                className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                disabled={disconnecting === 'calendar'}
-                onClick={() => disconnectGoogle('calendar')}
+                variant={calendarConnected ? 'outline' : 'default'}
+                onClick={() => connectGoogle('calendar')}
               >
-                {disconnecting === 'calendar' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
-                ) : (
-                  <Unplug className="h-3.5 w-3.5 me-1.5" />
-                )}
-                Disconnect
+                {calendarConnected ? 'Add account' : 'Connect'}
               </Button>
-            ) : (
-              <Button size="sm" onClick={() => connectGoogle('calendar')}>
-                Connect
-              </Button>
-            )}
+              {calendarConnected && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                  disabled={disconnecting === 'calendar'}
+                  onClick={() => disconnectGoogle('calendar')}
+                >
+                  {disconnecting === 'calendar' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+                  ) : (
+                    <Unplug className="h-3.5 w-3.5 me-1.5" />
+                  )}
+                  Disconnect service
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="border-t border-border" />
@@ -1128,27 +1152,102 @@ export function ProfilePage() {
                 </div>
               </div>
             </div>
-            {gmailConnected ? (
+            <div className="flex items-center gap-2">
               <Button
                 size="sm"
-                variant="outline"
-                className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                disabled={disconnecting === 'gmail'}
-                onClick={() => disconnectGoogle('gmail')}
+                variant={gmailConnected ? 'outline' : 'default'}
+                onClick={() => connectGoogle('gmail')}
               >
-                {disconnecting === 'gmail' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
-                ) : (
-                  <Unplug className="h-3.5 w-3.5 me-1.5" />
-                )}
-                Disconnect
+                {gmailConnected ? 'Add account' : 'Connect'}
               </Button>
-            ) : (
-              <Button size="sm" onClick={() => connectGoogle('gmail')}>
-                Connect
-              </Button>
-            )}
+              {gmailConnected && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                  disabled={disconnecting === 'gmail'}
+                  onClick={() => disconnectGoogle('gmail')}
+                >
+                  {disconnecting === 'gmail' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+                  ) : (
+                    <Unplug className="h-3.5 w-3.5 me-1.5" />
+                  )}
+                  Disconnect service
+                </Button>
+              )}
+            </div>
           </div>
+
+          {googleAccounts.length > 0 && (
+            <section className="space-y-3 border-t border-border pt-4" aria-labelledby="google-accounts-heading">
+              <div>
+                <h3 id="google-accounts-heading" className="text-sm font-medium">Connected Google accounts</h3>
+                <p className="text-xs text-muted-foreground">
+                  Disconnecting an account stops its Calendar and Gmail access. Other accounts stay connected.
+                </p>
+              </div>
+              <ul className="space-y-2">
+                {googleAccounts.map((account) => {
+                  const accountLabel = account.email || account.displayName || 'Google account';
+                  return (
+                    <li
+                      key={account.id}
+                      className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{accountLabel}</p>
+                        {account.email && account.displayName && (
+                          <p className="truncate text-xs text-muted-foreground">{account.displayName}</p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {account.capabilities.map((capability) => (
+                            <Badge key={capability} variant="secondary" className="text-xs">
+                              {capability === 'calendar' ? 'Calendar' : capability === 'gmail.read' ? 'Gmail' : capability}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full shrink-0 text-destructive border-destructive/30 hover:bg-destructive/10 sm:w-auto"
+                            disabled={disconnectingGoogleAccount === account.id}
+                          >
+                            {disconnectingGoogleAccount === account.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+                            ) : (
+                              <Unplug className="h-3.5 w-3.5 me-1.5" />
+                            )}
+                            Disconnect account
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Disconnect this Google account?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {accountLabel} will stop syncing through Askolo. Other connected Google accounts will not be affected.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => void disconnectGoogleAccount(account.id, accountLabel)}
+                            >
+                              Disconnect account
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           {checkingGoogle && (
             <p className="text-xs text-muted-foreground flex items-center gap-1.5">

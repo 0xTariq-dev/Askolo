@@ -4,6 +4,7 @@ import {
   confirmMFA as confirmMFARequest,
   deleteUserAccount as deleteUserAccountRequest,
   deleteUserData as deleteUserDataRequest,
+  disconnectGoogleConnection as disconnectGoogleConnectionRequest,
   disableMFA as disableMFARequest,
   disconnectGoogle as disconnectGoogleRequest,
   enrollMFA as enrollMFARequest,
@@ -147,6 +148,8 @@ export const goApi = {
     revokeTrustedDeviceRequest(deviceId, input, sessionRequestOptions()),
   disconnectGoogle: (scope: DisconnectGoogleScope) =>
     disconnectGoogleRequest({ scope }, sessionRequestOptions()),
+  disconnectGoogleConnection: (connectionID: string) =>
+    disconnectGoogleConnectionRequest(connectionID, sessionRequestOptions()),
   deleteUserData: () => deleteUserDataRequest(sessionRequestOptions()),
   deleteUserAccount: () => deleteUserAccountRequest(sessionRequestOptions()),
   coaching: (input: CoachingInput, signal?: AbortSignal) =>

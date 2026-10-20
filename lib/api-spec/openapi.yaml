@@ -1812,6 +1812,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /integrations/google/{connectionID}:
+    delete:
+      operationId: disconnectGoogleConnection
+      tags: [google]
+      summary: Revoke one connected Google account
+      parameters:
+        - name: connectionID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Google account disconnected
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Connection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /v2/workspaces/{workspaceId}/google-calendar/sync:
     post:
       operationId: syncGoogleCalendar
@@ -3495,7 +3522,7 @@ components:
 
     GoogleConnectionStatus:
       type: object
-      required: [connected, calendarConnected, gmailConnected, gmailActionRequired]
+      required: [connected, calendarConnected, gmailConnected, gmailActionRequired, accounts]
       properties:
         connected:
           type: boolean
@@ -3509,6 +3536,35 @@ components:
           type: boolean
         gmailActionRequired:
           type: boolean
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoogleConnectionAccount"
+
+    GoogleConnectionAccount:
+      type: object
+      required: [id, status, scopes, capabilities, updatedAt]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+          enum: [active, revoked]
+        scopes:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
 
     GoogleCalendarSyncRequest:
       type: object

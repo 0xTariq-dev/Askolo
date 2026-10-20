@@ -6767,6 +6767,80 @@ export function useGetGoogleStatus<TData = Awaited<ReturnType<typeof getGoogleSt
 
 
 
+export const getDisconnectGoogleConnectionUrl = (connectionID: string,) => {
+
+
+
+
+  return `/api/integrations/google/${connectionID}`
+}
+
+/**
+ * @summary Revoke one connected Google account
+ */
+export const disconnectGoogleConnection = async (connectionID: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDisconnectGoogleConnectionUrl(connectionID),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDisconnectGoogleConnectionMutationKey = () => ['disconnectGoogleConnection'] as const;
+
+export const getDisconnectGoogleConnectionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectGoogleConnection>>, TError,DisconnectGoogleConnectionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectGoogleConnection>>, TError,DisconnectGoogleConnectionMutationVariables, TContext> => {
+
+const mutationKey = getDisconnectGoogleConnectionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectGoogleConnection>>, DisconnectGoogleConnectionMutationVariables> = (props) => {
+          const {connectionID} = props ?? {};
+
+          return  disconnectGoogleConnection(connectionID,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectGoogleConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectGoogleConnection>>>
+
+    export type DisconnectGoogleConnectionMutationError = ErrorType<ErrorEnvelope>
+    export type DisconnectGoogleConnectionMutationVariables = {connectionID: string}
+
+    /**
+ * @summary Revoke one connected Google account
+ */
+export const useDisconnectGoogleConnection = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectGoogleConnection>>, TError,DisconnectGoogleConnectionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectGoogleConnection>>,
+        TError,
+        DisconnectGoogleConnectionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDisconnectGoogleConnectionMutationOptions(options));
+    }
+
 export const getSyncGoogleCalendarUrl = (workspaceId: string,) => {
 
 

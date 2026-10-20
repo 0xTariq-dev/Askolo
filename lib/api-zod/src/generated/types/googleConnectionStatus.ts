@@ -5,6 +5,7 @@
  * AI Personal Assistant API
  * OpenAPI spec version: 0.1.0
  */
+import type { GoogleConnectionAccount } from './googleConnectionAccount';
 
 export interface GoogleConnectionStatus {
   connected: boolean;
@@ -12,4 +13,5 @@ export interface GoogleConnectionStatus {
   calendarConnected: boolean;
   gmailConnected: boolean;
   gmailActionRequired: boolean;
+  accounts: GoogleConnectionAccount[];
 }

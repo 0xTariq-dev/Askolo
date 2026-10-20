@@ -2067,6 +2067,34 @@ func (s *Store) CreateProviderSignupUser(
 	}
 	defer tx.Rollback(ctx)
 
+	// Serialize signup attempts for the same external identity. OAuth callbacks
+	// can race across devices after both have observed that the identity is new.
+	lockKey := "provider-signup:" + strings.ToLower(provider) + ":" + externalSubject
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+	`, lockKey); err != nil {
+		return "", err
+	}
+	var linkedUserID string
+	var loginEnabled bool
+	err = tx.QueryRow(ctx, `
+		SELECT user_id, login_enabled FROM provider_accounts
+		WHERE provider = $1 AND external_subject = $2
+		FOR UPDATE
+	`, provider, externalSubject).Scan(&linkedUserID, &loginEnabled)
+	if err == nil {
+		if !loginEnabled {
+			return "", ErrOwnership
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		return linkedUserID, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+
 	var existingID string
 	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE lower(email) = lower($1)`, email).Scan(&existingID)
 	if err == nil {
