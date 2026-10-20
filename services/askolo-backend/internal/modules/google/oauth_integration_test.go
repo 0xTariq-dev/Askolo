@@ -465,6 +465,55 @@ func TestGoogleCallbackExistingProviderIdentitySignsInWithoutDuplicate(t *testin
 	}
 }
 
+func TestGoogleCallbackRequiresMFAForEnabledAccount(t *testing.T) {
+	fixture := newGoogleOAuthFixture(t)
+	info := userInfo{
+		Subject:       "google-mfa-subject",
+		Email:         "mfa-existing@example.com",
+		EmailVerified: true,
+		GivenName:     "MFA",
+		FamilyName:    "User",
+	}
+	provider, _ := newControlledGoogleProvider(t, http.StatusOK, info)
+	defer provider.Close()
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	handler := testGoogleOAuthIntegrationHandler(fixture, provider.URL+"/token", provider.URL+"/userinfo", logger)
+	if _, err := fixture.pool.Exec(context.Background(), `
+		INSERT INTO users (id, email, status, email_verified_at, account_created_via)
+		VALUES ('google-mfa-user', $1, 'active', NOW(), 'google')
+	`, info.Email); err != nil {
+		t.Fatalf("seed MFA user: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		INSERT INTO provider_accounts
+			(id, user_id, provider, external_subject, email, display_name, login_enabled, email_verified, linked_at)
+		VALUES ('google-mfa-account', 'google-mfa-user', 'google', $1, $2, 'MFA User', TRUE, TRUE, NOW())
+	`, info.Subject, info.Email); err != nil {
+		t.Fatalf("seed MFA provider identity: %v", err)
+	}
+	if _, err := fixture.pool.Exec(context.Background(), `
+		INSERT INTO auth_totp (user_id, secret_encrypted, enabled_at)
+		VALUES ('google-mfa-user', 'opaque-test-ciphertext', NOW())
+	`); err != nil {
+		t.Fatalf("enable test MFA: %v", err)
+	}
+	payload, cookie := loginCallbackState(t, fixture, handler, "")
+
+	response := serveGoogleLoginCallback(handler, payload, cookie, url.Values{"code": {"google-mfa-code"}})
+
+	assertSafeGoogleRedirect(t, response, "mfa_required")
+	session := googleSessionCookie(t, response)
+	state, err := fixture.store.SessionMFAState(context.Background(), session.Value)
+	if err != nil {
+		t.Fatalf("read pending MFA session: %v", err)
+	}
+	if state.UserID != "google-mfa-user" || !state.Required || state.Verified {
+		t.Fatalf("Google callback session MFA state = %+v, want required and unverified", state)
+	}
+	assertGoogleCallbackDoesNotLeak(t, response, &logs, "google-mfa-code", "opaque-test-ciphertext")
+}
+
 func TestGoogleCallbackSignupExistingEmailRequiresExplicitSignIn(t *testing.T) {
 	fixture := newGoogleOAuthFixture(t)
 	info := userInfo{
