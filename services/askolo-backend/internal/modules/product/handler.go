@@ -1600,8 +1600,9 @@ func (h *Handler) adminResolvePendingUsage(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusOK, map[string]string{"status": "reconciled", "decision": input.Decision})
 		return
 	}
-	if reservation.Status != "claimed" || reservation.Provider != "azure" || reservation.Mode != "assistant_speech" ||
-		(input.Decision == "settle" && (reservation.UsageStatus != "pending_review" || reservation.UsageUnit != "characters" || reservation.UsageUnits <= 0)) {
+	if reservation.Status != "claimed" ||
+		(input.Decision == "settle" && (reservation.Provider != "azure" || reservation.Mode != "assistant_speech" ||
+			reservation.UsageStatus != "pending_review" || reservation.UsageUnit != "characters" || reservation.UsageUnits <= 0)) {
 		writeError(w, http.StatusConflict, "USAGE_NOT_PENDING_REVIEW", "This reservation is not eligible for pending usage review.")
 		return
 	}

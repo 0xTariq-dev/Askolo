@@ -866,11 +866,12 @@ func (s *Store) ResolvePendingUSDReservation(
 	}
 	defer tx.Rollback(ctx)
 	var reserved int64
-	var state, provider, mode string
+	var state string
+	var expired bool
 	if err := tx.QueryRow(ctx, `
-		SELECT reserved_usd_micros,status,provider,mode FROM ai_credit_reservations
+		SELECT reserved_usd_micros,status,COALESCE(expires_at<=NOW(),false) FROM ai_credit_reservations
 		WHERE id=$1 AND user_id=$2 AND currency='USD' FOR UPDATE
-	`, id, userID).Scan(&reserved, &state, &provider, &mode); err != nil {
+	`, id, userID).Scan(&reserved, &state, &expired); err != nil {
 		return err
 	}
 	var priorAmount int64
@@ -911,7 +912,10 @@ func (s *Store) ResolvePendingUSDReservation(
 	`, id, userID).Scan(&hasPendingReview); err != nil {
 		return err
 	}
-	if !hasPendingReview && !(decision == "release" && provider == "azure" && mode == "assistant_speech") {
+	if decision == "settle" && !hasPendingReview {
+		return ErrUSDReservationReviewRequired
+	}
+	if decision == "release" && !hasPendingReview && !expired {
 		return ErrUSDReservationReviewRequired
 	}
 	eventType := "released"
@@ -1249,9 +1253,9 @@ func (s *Store) ReconcileEstimatedVoiceUsage(
 		INSERT INTO ai_provider_usage_evidence(
 		  reservation_id,user_id,provider,mode,model,usage_unit,usage_units,duration_ms,
 		  provider_request_id,idempotency_key,evidence,payload
-		) VALUES($1,$2,'assemblyai',$3,$4,'milliseconds',$5,$5,NULLIF($6,''),$7,$8,$8)
+		) VALUES($1,$2,'assemblyai',$3,$4,'milliseconds',$5,$6,NULLIF($7,''),$8,$9,$9)
 		ON CONFLICT (reservation_id,idempotency_key) DO NOTHING
-	`, id, userID, mode, model, durationMS, providerRequestID, id+":reconcile:"+key, measured)
+	`, id, userID, mode, model, durationMS, durationMS, providerRequestID, id+":reconcile:"+key, measured)
 	if err != nil {
 		return err
 	}

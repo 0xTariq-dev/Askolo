@@ -1197,17 +1197,24 @@ export function AdminCreditsPage() {
             {usage.reservations.some((reservation) => reservation.usageStatus === 'pending_review') && (
               <section aria-labelledby="pending-usage-title" className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
                 <div>
-                  <h3 id="pending-usage-title" className="font-medium">Pending Azure usage review</h3>
+                  <h3 id="pending-usage-title" className="font-medium">Pending usage review</h3>
                   <p className="text-sm text-muted-foreground">
-                    Settle using the saved character rate, or release the hold if the provider rejected the request.
+                    Settle verified Azure character usage using its saved rate. For other providers, release is available only after the hold expires; use it only when usage cannot be verified or the operation should not be charged.
                   </p>
                 </div>
-                {usage.reservations.filter((reservation) => reservation.usageStatus === 'pending_review').map((reservation) => (
-                  <div key={reservation.id} className="space-y-2 rounded-md border border-border/60 bg-background p-3">
+                {usage.reservations.filter((reservation) => reservation.usageStatus === 'pending_review').map((reservation) => {
+                  const isAzureReview = reservation.provider === 'azure' && reservation.mode === 'assistant_speech';
+                  const expired = reservation.expiresAt !== null && new Date(reservation.expiresAt).getTime() <= Date.now();
+                  const canRelease = isAzureReview || expired;
+                  return (
+                    <div key={reservation.id} className="space-y-2 rounded-md border border-border/60 bg-background p-3">
                     <p className="text-sm">
+                      {reservation.provider} · {reservation.mode} ·{' '}
                       {reservation.usageUnit === 'characters' && reservation.usageUnits > 0
-                        ? <><bdi dir="ltr">{reservation.usageUnits.toLocaleString()}</bdi> characters</>
-                        : 'Character metering unavailable'} ·
+                        ? <><bdi dir="ltr">{reservation.usageUnits.toLocaleString()}</bdi> characters reported</>
+                        : reservation.usageUnit
+                          ? `${reservation.usageUnit} usage evidence recorded`
+                          : 'No usage evidence recorded'} ·
                       {' '}hold {formatCredits(reservation.reservedUsdMicros)} credits · {reservation.createdAt}
                     </p>
                     <Label htmlFor={`review-reason-${reservation.id}`}>Review reason</Label>
@@ -1224,18 +1231,19 @@ export function AdminCreditsPage() {
                         onClick={() => void resolvePendingUsage(reservation.id, 'settle')}
                         disabled={saving || !(reviewReasons[reservation.id] ?? '').trim() || reservation.usageUnit !== 'characters' || reservation.usageUnits <= 0}
                       >
-                        Settle using saved rate
+                        Settle verified Azure usage
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() => void resolvePendingUsage(reservation.id, 'release')}
-                        disabled={saving || !(reviewReasons[reservation.id] ?? '').trim()}
+                        disabled={saving || !(reviewReasons[reservation.id] ?? '').trim() || !canRelease}
                       >
                         Release hold
                       </Button>
                     </div>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </section>
             )}
             {usage.reservations.some((reservation) => reservation.usageStatus === 'estimated') && (

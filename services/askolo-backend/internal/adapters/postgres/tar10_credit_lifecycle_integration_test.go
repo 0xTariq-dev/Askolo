@@ -488,6 +488,66 @@ func TestTAR10EstimatedAssistantUsageReconcilesIdempotently(t *testing.T) {
 	}
 }
 
+func TestTAR10UnknownProviderUsageCanBeReleased(t *testing.T) {
+	ctx, pool, store := openTAR10(t)
+	tar10User(t, ctx, pool, "unknown-usage-user")
+	tar10User(t, ctx, pool, "unknown-usage-admin")
+	if err := store.AddUSDAdjustment(ctx, "unknown-usage-user", "unknown-usage-admin", 100_000, "test balance", "unknown-usage-balance"); err != nil {
+		t.Fatal(err)
+	}
+	r, created, err := store.ReserveUSD(
+		ctx, "unknown-openai-reservation", "unknown-usage-user", "assistant", "openai", "assistant",
+		"gpt-5.6-luna", "unknown-openai-key", 10_000, 60, 1, json.RawMessage(`{"meter":"tokens"}`),
+	)
+	if err != nil || !created {
+		t.Fatalf("reserve unknown OpenAI usage: created=%v err=%v", created, err)
+	}
+	if claimed, err := store.ClaimUSDReservation(ctx, r.ID, "unknown-usage-user"); err != nil || !claimed {
+		t.Fatalf("claim unknown usage: claimed=%v err=%v", claimed, err)
+	}
+	pending, err := store.USDReservationForUser(ctx, r.ID, "unknown-usage-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Status != "claimed" || pending.UsageStatus != "pending_review" || pending.UsageUnit != "" {
+		t.Fatalf("unknown provider usage receipt = %#v; want a claimed pending-review reservation without usage evidence", pending)
+	}
+	resolve := func() error {
+		return store.ResolvePendingUSDReservation(
+			ctx, r.ID, "unknown-usage-user", "unknown-usage-admin", "unknown-release-v1",
+			"provider usage could not be verified", "release", 0,
+		)
+	}
+	if err := resolve(); !errors.Is(err, ErrUSDReservationReviewRequired) {
+		t.Fatalf("release before reservation expiry = %v; want review-required", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE ai_credit_reservations SET expires_at=NOW()-interval '1 second' WHERE id=$1
+	`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := resolve(); err != nil {
+		t.Fatalf("release unknown provider usage: %v", err)
+	}
+	if err := resolve(); err != nil {
+		t.Fatalf("idempotent release replay: %v", err)
+	}
+	receipt, err := store.USDReservationForUser(ctx, r.ID, "unknown-usage-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status != "released" {
+		t.Fatalf("reservation status = %q; want released", receipt.Status)
+	}
+	usage, err := store.USDUsage(ctx, "unknown-usage-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.BalanceUsdMicros != 100_000 {
+		t.Fatalf("balance after releasing unknown usage = %d; want 100000", usage.BalanceUsdMicros)
+	}
+}
+
 func TestTAR10MonthlyGrantExpiryUsesFEFOAndPreservesLegacyBalance(t *testing.T) {
 	ctx, pool, store := openTAR10(t)
 	tar10User(t, ctx, pool, "expiry-user")
