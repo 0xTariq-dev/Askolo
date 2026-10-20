@@ -256,9 +256,10 @@ func (h *Handler) startWithUser(w http.ResponseWriter, r *http.Request, flow, us
 func addFlowAuthorizationOptions(params url.Values, flow string) {
 	if flow == "integration" {
 		// Integration authorization needs offline refresh tokens and
-		// incremental scopes. Login/link request identity claims only.
+		// incremental scopes, while account selection lets users add another
+		// Google identity instead of silently refreshing the current one.
 		params.Set("access_type", "offline")
-		params.Set("prompt", "consent")
+		params.Set("prompt", "consent select_account")
 		params.Set("include_granted_scopes", "true")
 		return
 	}

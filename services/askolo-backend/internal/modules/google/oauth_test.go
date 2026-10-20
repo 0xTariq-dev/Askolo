@@ -234,7 +234,7 @@ func TestOnlyIntegrationAuthorizationCarriesGrantedScopes(t *testing.T) {
 	params := url.Values{}
 	addFlowAuthorizationOptions(params, "integration")
 	if params.Get("access_type") != "offline" ||
-		params.Get("prompt") != "consent" ||
+		params.Get("prompt") != "consent select_account" ||
 		params.Get("include_granted_scopes") != "true" {
 		t.Fatalf("integration authorization options = %v", params)
 	}

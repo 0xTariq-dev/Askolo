@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -736,6 +737,81 @@ func TestGoogleConnectionReauthorizationPreservesScopesAndRefreshToken(t *testin
 	if credentials.AccessToken != "second-access-token" || credentials.RefreshToken != "durable-refresh-token" {
 		t.Fatalf("reauthorized credentials = access %q refresh %q; expected new access and retained refresh",
 			credentials.AccessToken, credentials.RefreshToken)
+	}
+}
+
+func TestGoogleConnectionsKeepMultipleAccountsAndCredentialsIsolated(t *testing.T) {
+	fixture := newGoogleOAuthFixture(t)
+	ctx := context.Background()
+	userID := "google-multiple-accounts-user"
+	encryptionKey := []byte("12345678901234567890123456789012")
+
+	firstID, err := fixture.store.UpsertGoogleConnection(
+		ctx, userID, "calendar@example.test", "google-calendar-subject", "Calendar", "",
+		[]string{scopeCalendar}, []string{"calendar"},
+		"calendar-access-token", "calendar-refresh-token", time.Now().Add(time.Hour), "Bearer", encryptionKey,
+	)
+	if err != nil {
+		t.Fatalf("create first Google account: %v", err)
+	}
+	secondID, err := fixture.store.UpsertGoogleConnection(
+		ctx, userID, "mail@example.test", "google-mail-subject", "Mail", "",
+		[]string{scopeGmailRead}, []string{"gmail.read"},
+		"mail-access-token", "mail-refresh-token", time.Now().Add(time.Hour), "Bearer", encryptionKey,
+	)
+	if err != nil {
+		t.Fatalf("create second Google account: %v", err)
+	}
+	if firstID == secondID {
+		t.Fatal("different Google identities reused the same connection")
+	}
+
+	// The shared connection model can contain other providers, but Google
+	// operations must not surface or use those rows.
+	if _, err := fixture.pool.Exec(ctx, `
+		INSERT INTO provider_accounts (id, user_id, provider, external_subject, email)
+		VALUES ('microsoft-account', $1, 'microsoft', 'microsoft-subject', 'work@example.test')
+	`, userID); err != nil {
+		t.Fatalf("insert other-provider account: %v", err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+		INSERT INTO provider_connections (id, user_id, provider_account_id, provider)
+		VALUES ('microsoft-connection', $1, 'microsoft-account', 'microsoft')
+	`, userID); err != nil {
+		t.Fatalf("insert other-provider connection: %v", err)
+	}
+
+	connections, err := fixture.store.ListGoogleConnections(ctx, userID)
+	if err != nil {
+		t.Fatalf("list Google accounts: %v", err)
+	}
+	if len(connections) != 2 {
+		t.Fatalf("Google account count = %d, want 2", len(connections))
+	}
+	for _, test := range []struct {
+		connectionID, wantAccess, wantRefresh string
+	}{
+		{firstID, "calendar-access-token", "calendar-refresh-token"},
+		{secondID, "mail-access-token", "mail-refresh-token"},
+	} {
+		credentials, err := fixture.store.GetGoogleCredentials(ctx, userID, test.connectionID, encryptionKey)
+		if err != nil {
+			t.Fatalf("get credentials for %s: %v", test.connectionID, err)
+		}
+		if credentials.AccessToken != test.wantAccess || credentials.RefreshToken != test.wantRefresh {
+			t.Fatalf("credentials for %s crossed accounts", test.connectionID)
+		}
+	}
+
+	if err := fixture.store.RevokeGoogleConnection(ctx, userID, firstID); err != nil {
+		t.Fatalf("revoke first Google account: %v", err)
+	}
+	if _, err := fixture.store.GetGoogleCredentials(ctx, userID, firstID, encryptionKey); !errors.Is(err, postgres.ErrNotFound) {
+		t.Fatalf("revoked account credentials error = %v, want not found", err)
+	}
+	remaining, err := fixture.store.GetGoogleCredentials(ctx, userID, secondID, encryptionKey)
+	if err != nil || remaining.AccessToken != "mail-access-token" {
+		t.Fatalf("second Google account after first revoke = %+v, err %v", remaining, err)
 	}
 }
 

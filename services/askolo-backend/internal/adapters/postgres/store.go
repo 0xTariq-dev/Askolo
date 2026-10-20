@@ -2334,7 +2334,7 @@ func (s *Store) ListGoogleConnections(ctx context.Context, userID string) ([]Pro
 		       a.external_subject, c.revoked_at, c.updated_at
 		FROM provider_connections c
 		JOIN provider_accounts a ON a.id = c.provider_account_id
-		WHERE c.user_id = $1
+		WHERE c.user_id = $1 AND c.provider = 'google'
 		ORDER BY c.updated_at DESC
 	`, userID)
 	if err != nil {
@@ -2368,7 +2368,7 @@ func (s *Store) GetGoogleCredentials(ctx context.Context, userID, connectionID s
 		       pc.expires_at, pc.token_type
 		FROM provider_connections c
 		JOIN provider_credentials pc ON pc.connection_id = c.id
-		WHERE c.id = $1 AND c.user_id = $2 AND c.status = 'active'
+		WHERE c.id = $1 AND c.user_id = $2 AND c.provider = 'google' AND c.status = 'active'
 	`, connectionID, userID).Scan(
 		&credentials.ConnectionID, &encryptedAccess, &encryptedRefresh,
 		&credentials.ExpiresAt, &credentials.TokenType,
@@ -2404,7 +2404,8 @@ func (s *Store) UpdateGoogleAccessToken(ctx context.Context, userID, connectionI
 		UPDATE provider_credentials pc
 		SET access_token_encrypted = $3, expires_at = $4, updated_at = NOW()
 		FROM provider_connections c
-		WHERE pc.connection_id = c.id AND pc.connection_id = $1 AND c.user_id = $2 AND c.status = 'active'
+		WHERE pc.connection_id = c.id AND pc.connection_id = $1 AND c.user_id = $2
+		  AND c.provider = 'google' AND c.status = 'active'
 	`, connectionID, userID, encryptedAccess, expiresAt)
 	if err != nil {
 		return err
@@ -2431,7 +2432,7 @@ func (s *Store) RevokeGoogleConnection(ctx context.Context, userID, connectionID
 	tag, err := tx.Exec(ctx, `
 		UPDATE provider_connections
 		SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-		WHERE id = $1 AND user_id = $2
+		WHERE id = $1 AND user_id = $2 AND provider = 'google'
 	`, connectionID, userID)
 	if err != nil {
 		return err
@@ -2441,6 +2442,12 @@ func (s *Store) RevokeGoogleConnection(ctx context.Context, userID, connectionID
 	}
 	if err := revokeV2EmailReadConsent(ctx, tx, schema, connectionID); err != nil {
 		return fmt.Errorf("revoke shared email consent after Google disconnect: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM provider_defaults
+		WHERE user_id = $1 AND connection_id = $2
+	`, userID, connectionID); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM provider_credentials WHERE connection_id = $1`, connectionID); err != nil {
 		return err
@@ -2464,7 +2471,7 @@ func (s *Store) UpdateGoogleCapabilities(ctx context.Context, userID, connection
 	tag, err := tx.Exec(ctx, `
 		UPDATE provider_connections
 		SET capabilities = $3, updated_at = NOW()
-		WHERE id = $1 AND user_id = $2 AND status = 'active'
+		WHERE id = $1 AND user_id = $2 AND provider = 'google' AND status = 'active'
 	`, connectionID, userID, capabilities)
 	if err != nil {
 		return err
@@ -2528,10 +2535,11 @@ func (s *Store) ListProviderDefaults(ctx context.Context, userID string) ([]Prov
 		return nil, errors.New("database is not configured")
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT service, connection_id
-		FROM provider_defaults
-		WHERE user_id = $1
-		ORDER BY service
+		SELECT d.service, d.connection_id
+		FROM provider_defaults d
+		JOIN provider_connections c ON c.id = d.connection_id
+		WHERE d.user_id = $1 AND c.provider = 'google' AND c.status = 'active'
+		ORDER BY d.service
 	`, userID)
 	if err != nil {
 		return nil, err
