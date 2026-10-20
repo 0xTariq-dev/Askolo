@@ -60,6 +60,11 @@ and can be revoked. Sensitive actions require a fresh TOTP. Recovery and login c
 must use shared server-side limits and generic responses to prevent guessing and account
 enumeration; proxy-derived client IPs must only be trusted from verified proxies.
 
+For P09, MFA recovery and trusted-device controls belong to the individual login account
+holder, including in family Spaces. A Space owner, parent, or guardian cannot view another
+account's recovery material or manage its trusted devices; guardian-managed child-account
+recovery is outside this scope.
+
 ### Tampering
 
 Untrusted input must be validated and encoded at the server boundary; SQL must remain

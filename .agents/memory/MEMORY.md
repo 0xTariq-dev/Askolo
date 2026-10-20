@@ -62,6 +62,7 @@
 - [Native auth validation timing](native-email-auth-validation.md) — the synthetic cleanup harness can race on fake PostgreSQL pid handoff; distinguish it from backend failures.
 - [MFA recovery throttling](mfa-recovery-rate-limits.md) — enforce recovery request and verification buckets in shared PostgreSQL state using hashed client keys only.
 - [TOTP key and session transitions](totp-key-and-session-transitions.md) — keep legacy MFA ciphertext readable during key migration, and revoke all sessions atomically when MFA is enabled.
+- [MFA recovery account ownership](mfa-recovery-account-ownership.md) — MFA recovery and trusted-device controls are private to the individual login account holder; guardians gain no cross-account access.
 - [Authentication proxy client IP](auth-proxy-client-ip.md) — the development artifact proxy removes caller-supplied XFF and reaches Go through a trusted peer; production Autoscale remains unverified.
 - [PostgreSQL test process control](pgctl-test-process-control.md) — redirect restarted server logs when invoking `pg_ctl` through Go command output capture.
 - [Development migration prefix](development-migration-prefix.md) — a successful live-Development migration applies only the activated operational prefix; check it includes new migrations.
