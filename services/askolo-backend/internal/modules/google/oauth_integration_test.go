@@ -179,6 +179,13 @@ CREATE TABLE %sprovider_credentials (
 	created_at timestamptz DEFAULT now() NOT NULL,
 	updated_at timestamptz DEFAULT now() NOT NULL
 );
+CREATE TABLE %sprovider_defaults (
+	user_id text NOT NULL,
+	service text NOT NULL,
+	connection_id text NOT NULL,
+	updated_at timestamptz DEFAULT now() NOT NULL,
+	PRIMARY KEY (user_id, service)
+);
 CREATE TABLE %sai_credit_accounts (
  user_id text PRIMARY KEY REFERENCES %susers(id) ON DELETE CASCADE,
  granted_credits integer DEFAULT 0 NOT NULL,
@@ -218,7 +225,7 @@ CREATE TABLE %sai_credit_policy_versions (
 );
 INSERT INTO %sai_credit_policy_versions(version,signup_grant_usd_micros)
 VALUES (1, 0);
-	`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix,
+	`, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix,
 		prefix, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
