@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PageTransition } from '@/components/ui/page-transition';
-import { SpaceSettingsNavigation } from '@/components/settings/space-settings-navigation';
+import { SettingsLayout } from '@/components/settings/settings-layout';
 import { SpaceGroupsPanel } from '@/components/settings/space-groups-panel';
 import { useSpaceScope } from '@/contexts/space-context';
 import {
@@ -229,7 +228,7 @@ export function SpaceMembersPage() {
   };
 
   return (
-    <PageTransition surface={false} className="mx-auto max-w-5xl space-y-7 pb-10">
+    <SettingsLayout>
       <header className="relative overflow-hidden rounded-3xl border border-border/70 bg-card/45 px-5 py-7 shadow-sm sm:px-8 sm:py-9">
         <div aria-hidden="true" className="absolute -end-10 -top-16 size-52 rounded-full border-[30px] border-primary/[0.06]" />
         <div className="relative">
@@ -254,8 +253,6 @@ export function SpaceMembersPage() {
           </div>
         </div>
       </header>
-
-      <SpaceSettingsNavigation active="members" />
 
       {selectedSpace && !selectedSpace.isPersonal && selectedSpaceId && loadedForSpaceId === selectedSpaceId && !error && (
         <SpaceGroupsPanel
@@ -536,6 +533,6 @@ export function SpaceMembersPage() {
           </CardContent>
         </Card>
       )}
-    </PageTransition>
+    </SettingsLayout>
   );
 }

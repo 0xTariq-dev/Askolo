@@ -17,8 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PageTransition } from '@/components/ui/page-transition';
-import { SpaceSettingsNavigation } from '@/components/settings/space-settings-navigation';
+import { SettingsLayout } from '@/components/settings/settings-layout';
 import { useSpaceScope } from '@/contexts/space-context';
 import {
   getV2WorkspaceSettings,
@@ -168,7 +167,7 @@ export function SpaceDetailsPage() {
   const hasSpaces = spaces.length > 0;
 
   return (
-    <PageTransition surface={false} className="mx-auto max-w-5xl space-y-7 pb-10">
+    <SettingsLayout>
       <header className="relative overflow-hidden rounded-3xl border border-border/70 bg-card/45 px-5 py-7 shadow-sm sm:px-8 sm:py-9">
         <div aria-hidden="true" className="absolute -end-12 -top-20 size-64 rounded-full border-[36px] border-primary/[0.06]" />
         <div className="relative">
@@ -204,8 +203,6 @@ export function SpaceDetailsPage() {
           </div>
         </div>
       </header>
-
-      <SpaceSettingsNavigation active="details" />
 
       {spacesError && (
         <div role="alert" className="flex items-start gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm">
@@ -360,6 +357,6 @@ export function SpaceDetailsPage() {
           </>
         ) : null
       )}
-    </PageTransition>
+    </SettingsLayout>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useLocation } from 'wouter';
+import { useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Camera,
@@ -23,7 +23,7 @@ import {
   useGetGoogleStatus,
 } from '@workspace/api-client-react';
 import { AIPrivacyCenter } from '@/components/settings/ai-privacy-center';
-import { PageTransition } from '@/components/ui/page-transition';
+import { SettingsLayout } from '@/components/settings/settings-layout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,6 +73,7 @@ function formatDeviceDate(
 export function ProfilePage() {
   const [location] = useLocation();
   const securityTab = location.endsWith('/security');
+  const privacyTab = location.endsWith('/privacy');
   const {
     user,
     isLoaded,
@@ -520,37 +521,28 @@ export function ProfilePage() {
   const gmailConnected = googleStatus?.gmailConnected ?? false;
   const googleAccounts = googleStatus?.accounts.filter((account) => account.status === 'active') ?? [];
 
+  if (privacyTab) {
+    return (
+      <SettingsLayout>
+        <header>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Privacy</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review and manage your Voice &amp; AI permissions.
+          </p>
+        </header>
+        <AIPrivacyCenter />
+      </SettingsLayout>
+    );
+  }
+
   return (
-    <PageTransition surface={false} className="mx-auto max-w-4xl space-y-6">
+    <SettingsLayout>
       <header className="mb-2">
         <h1 className="text-2xl font-display font-bold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage your account profile and security.</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          {securityTab ? 'Protect your account and manage sign-in access.' : 'Manage your profile, preferences, and connected accounts.'}
+        </p>
       </header>
-
-      <nav aria-label="Settings sections" className="flex gap-2 border-b border-border">
-        <Link href="/settings/account/profile" aria-current="page" className="min-h-11 border-b-2 border-primary px-3 py-2 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          Account
-        </Link>
-        <Link href="/settings/space/details" className="min-h-11 border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          Space
-        </Link>
-      </nav>
-      <nav aria-label="Account settings" className="flex gap-2 border-b border-border">
-        <Link
-          href="/settings/account/profile"
-          aria-current={!securityTab ? 'page' : undefined}
-          className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${!securityTab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-        >
-          Profile
-        </Link>
-        <Link
-          href="/settings/account/security"
-          aria-current={securityTab ? 'page' : undefined}
-          className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${securityTab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-        >
-          Security
-        </Link>
-      </nav>
 
       {!securityTab && <><ThemePresetSelector /><LanguageSelector /></>}
 
@@ -602,7 +594,7 @@ export function ProfilePage() {
           <CardTitle className="flex items-center gap-2 text-base">
             <User className="h-4 w-4 text-primary" /> Identity
           </CardTitle>
-          <CardDescription>Your name, photo, and login credentials.</CardDescription>
+          <CardDescription>Your name and profile photo.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {/* Avatar */}
@@ -668,49 +660,51 @@ export function ProfilePage() {
             </Button>
           )}
 
-          {/* Password */}
-          {authProvider && (
-            <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Key className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Password</span>
-            </div>
-            {passwordFormOpen ? (
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label>{authProvider === 'password' ? 'Current password' : 'Current password (optional)'}</Label>
-                  <Input
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    autoComplete="current-password"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>New password</Label>
-                  <Input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    autoComplete="new-password"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={changePassword} disabled={changingPassword || !newPassword || (authProvider === 'password' && !currentPassword)}>
-                    {changingPassword && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
-                    Change password
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setPasswordFormOpen(false)}>
-                    Cancel
-                  </Button>
-                </div>
+        </CardContent>
+      </Card>
+
+      <Card hidden={!securityTab}>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Key className="h-4 w-4 text-primary" /> Password
+          </CardTitle>
+          <CardDescription>Update the password used to sign in to your Askolo account.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {passwordFormOpen ? (
+            <div className="max-w-xl space-y-3">
+              <div className="space-y-1.5">
+                <Label>{authProvider === 'password' ? 'Current password' : 'Current password (optional)'}</Label>
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
               </div>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => setPasswordFormOpen(true)}>
-                Change password
-              </Button>
-            )}
+              <div className="space-y-1.5">
+                <Label>New password</Label>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={changePassword} disabled={changingPassword || !newPassword || (authProvider === 'password' && !currentPassword)}>
+                  {changingPassword && <Loader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />}
+                  Change password
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setPasswordFormOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
             </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setPasswordFormOpen(true)}>
+              Change password
+            </Button>
           )}
         </CardContent>
       </Card>
@@ -1078,7 +1072,7 @@ export function ProfilePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Calendar row */}
-          <div className="flex items-center justify-between py-2">
+          <div className="flex flex-col gap-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-info/10 border border-info/20 flex items-center justify-center">
                 <Calendar className="h-4 w-4 text-info" />
@@ -1100,7 +1094,7 @@ export function ProfilePage() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               <Button
                 size="sm"
                 variant={calendarConnected ? 'outline' : 'default'}
@@ -1130,7 +1124,7 @@ export function ProfilePage() {
           <div className="border-t border-border" />
 
           {/* Gmail row */}
-          <div className="flex items-center justify-between py-2">
+          <div className="flex flex-col gap-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-destructive/10 border border-destructive/20 flex items-center justify-center">
                 <Mail className="h-4 w-4 text-destructive" />
@@ -1152,7 +1146,7 @@ export function ProfilePage() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               <Button
                 size="sm"
                 variant={gmailConnected ? 'outline' : 'default'}
@@ -1257,8 +1251,6 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      <AIPrivacyCenter />
-
       {/* ── Data & Account ─────────────────────────────────────────────────── */}
       <Card className="border-destructive/30">
         <CardHeader>
@@ -1345,6 +1337,6 @@ export function ProfilePage() {
           </div>
         </CardContent>
       </Card>
-    </PageTransition>
+    </SettingsLayout>
   );
 }

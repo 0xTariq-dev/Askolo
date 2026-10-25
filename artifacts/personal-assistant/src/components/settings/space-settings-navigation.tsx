@@ -1,88 +1,90 @@
-import { Link, useLocation } from 'wouter';
-import { ArrowUpRight, CreditCard, UserRound } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
+import { hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from '@headless-tree/core';
+import { useTree } from '@headless-tree/react';
+import { useLocation } from 'wouter';
+import { Tree, TreeItem, TreeItemLabel } from '@/components/reui/tree';
 
-type SpaceSettingsNavigationProps = {
-  active: 'details' | 'members' | 'notifications';
+type SettingsItem = { name: string; children?: string[]; href?: string };
+
+const settingsItems: Record<string, SettingsItem> = {
+  settings: { name: 'Settings', children: ['account', 'space', 'credits'] },
+  account: { name: 'Account', children: ['profile', 'security', 'privacy'] },
+  profile: { name: 'Profile', href: '/settings/account/profile' },
+  security: { name: 'Security', href: '/settings/account/security' },
+  privacy: { name: 'Privacy', href: '/settings/account/privacy' },
+  space: { name: 'Space', children: ['details', 'people', 'notifications'] },
+  details: { name: 'Details', href: '/settings/space/details' },
+  people: { name: 'People', href: '/settings/space/members' },
+  notifications: { name: 'Notifications', href: '/settings/space/notifications' },
+  credits: { name: 'Credits', children: ['usage', 'billing'] },
+  usage: { name: 'Usage', href: '/settings/space/usage' },
+  billing: { name: 'Billing', href: '/settings/space/billing' },
 };
 
-const spaceTabs = [
-  { id: 'details', label: 'Details', href: '/settings/space/details' },
-  { id: 'members', label: 'People', href: '/settings/space/members' },
-  { id: 'notifications', label: 'Notifications', href: '/settings/space/notifications' },
-] as const;
+const pathToId: Record<string, string> = Object.fromEntries(
+  Object.entries(settingsItems)
+    .filter(([, item]) => item.href)
+    .map(([id, item]) => [item.href as string, id]),
+);
 
-export function SpaceSettingsNavigation({ active }: SpaceSettingsNavigationProps) {
-  const [location] = useLocation();
-  const accountSelected = location.startsWith('/settings/account/');
+export function SpaceSettingsNavigation() {
+  const [location, setLocation] = useLocation();
+  const selectedId = pathToId[location.split('?')[0]] ?? 'profile';
+  const treeData = useMemo(() => settingsItems, []);
+  const tree = useTree<SettingsItem>({
+    rootItemId: 'settings',
+    indent: 18,
+    initialState: {
+      expandedItems: ['settings', 'account', 'space', 'credits'],
+      selectedItems: [selectedId],
+    },
+    getItemName: (item) => item.getItemData().name,
+    isItemFolder: (item) => Boolean(item.getItemData().children?.length),
+    dataLoader: {
+      getItem: (itemId) => treeData[itemId],
+      getChildren: (itemId) => treeData[itemId]?.children ?? [],
+    },
+    features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
+  });
+
+  useEffect(() => {
+    tree.setSelectedItems([selectedId]);
+  }, [selectedId, tree]);
 
   return (
-    <div className="space-y-4">
-      <nav aria-label="Settings sections" className="flex flex-wrap gap-1 border-b border-border">
-        <Link
-          href="/settings/account/profile"
-          aria-current={accountSelected ? 'page' : undefined}
-          className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-            accountSelected
-              ? 'border-primary text-foreground'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Account
-        </Link>
-        <Link
-          href="/settings/space/details"
-          aria-current={!accountSelected ? 'page' : undefined}
-          className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-            !accountSelected
-              ? 'border-primary text-foreground'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Space
-        </Link>
-      </nav>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav aria-label="Space settings" className="flex flex-wrap gap-1">
-          {spaceTabs.map((tab) => (
-            <Link
-              key={tab.id}
-              href={tab.href}
-              aria-current={active === tab.id ? 'page' : undefined}
-              className={`inline-flex min-h-10 items-center rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                active === tab.id
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
+    <nav aria-label="Settings" className="settings-tree-shell rounded-2xl border border-border/70 bg-card/60 p-3">
+      <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        Preferences
+      </p>
+      <Tree
+        tree={tree}
+        indent={18}
+        className="settings-tree"
+        aria-label="Settings destinations"
+      >
+        {tree.getItems().map((item) => {
+          const id = item.getId();
+          const destination = treeData[id]?.href;
+          const active = id === selectedId;
+          return (
+            <TreeItem
+              key={id}
+              item={item}
+              className="settings-tree-item"
+              onItemClick={() => {
+                if (destination && destination !== location) setLocation(destination);
+              }}
             >
-              {tab.label}
-            </Link>
-          ))}
-        </nav>
-
-        <nav
-          aria-label="Personal wallet settings"
-          className="flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/25 p-1"
-        >
-          <span className="flex items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground">
-            <UserRound aria-hidden="true" className="size-3.5" />
-            Personal wallet
-          </span>
-          <Link
-            href="/settings/space/usage"
-            className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Usage <ArrowUpRight aria-hidden="true" className="size-3.5" />
-          </Link>
-          <Link
-            href="/settings/space/billing"
-            className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <CreditCard aria-hidden="true" className="size-3.5" />
-            Billing
-          </Link>
-        </nav>
-      </div>
-    </div>
+              <TreeItemLabel
+                className={`settings-tree-label ${active ? 'is-current' : ''}`}
+                aria-current={active ? 'page' : undefined}
+              >
+                <span className="pointer-events-none">{item.getItemName()}</span>
+              </TreeItemLabel>
+            </TreeItem>
+          );
+        })}
+      </Tree>
+    </nav>
   );
 }

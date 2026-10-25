@@ -169,6 +169,7 @@ function AuthenticatedPageRoutes() {
       <Route path="/profile"><Redirect to="/settings/account/profile" /></Route>
       <Route path="/settings/account/profile" component={ProfilePage} />
       <Route path="/settings/account/security" component={ProfilePage} />
+      <Route path="/settings/account/privacy" component={ProfilePage} />
        <Route path="/settings/space/details" component={SpaceDetailsPage} />
       <Route path="/settings/space/notifications" component={SpaceNotificationsPage} />
       <Route path="/settings/space/members" component={SpaceMembersPage} />

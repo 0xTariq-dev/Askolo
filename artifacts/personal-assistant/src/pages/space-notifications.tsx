@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AlertCircle, Bell, Check, LoaderCircle, Save, UsersRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PageTransition } from '@/components/ui/page-transition';
-import { SpaceSettingsNavigation } from '@/components/settings/space-settings-navigation';
+import { SettingsLayout } from '@/components/settings/settings-layout';
 import { useSpaceScope } from '@/contexts/space-context';
 import {
   getV2NotificationPreferences,
@@ -114,7 +113,7 @@ export function SpaceNotificationsPage() {
   };
 
   return (
-    <PageTransition surface={false} className="mx-auto max-w-5xl space-y-7 pb-10">
+    <SettingsLayout>
       <header className="relative overflow-hidden rounded-3xl border border-border/70 bg-card/45 px-5 py-7 shadow-sm sm:px-8 sm:py-9">
         <div aria-hidden="true" className="absolute -end-10 -top-16 size-52 rounded-full border-[30px] border-primary/[0.06]" />
         <div className="relative">
@@ -139,8 +138,6 @@ export function SpaceNotificationsPage() {
           </div>
         </div>
       </header>
-
-      <SpaceSettingsNavigation active="notifications" />
 
       {(spacesError || error) && (
         <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm">
@@ -214,6 +211,6 @@ export function SpaceNotificationsPage() {
       ) : !spacesError && !error && !selectedSpaceId ? (
         <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Choose a Space to manage its notification preferences.</CardContent></Card>
       ) : null}
-    </PageTransition>
+    </SettingsLayout>
   );
 }
