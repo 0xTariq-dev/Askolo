@@ -1839,6 +1839,52 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /integrations/microsoft/status:
+    get:
+      operationId: getMicrosoftStatus
+      tags: [microsoft]
+      summary: List Microsoft accounts connected to the current user
+      responses:
+        "200":
+          description: Microsoft connection status and connected accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MicrosoftConnectionStatus"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /integrations/microsoft/{connectionID}:
+    delete:
+      operationId: disconnectMicrosoftConnection
+      tags: [microsoft]
+      summary: Disconnect one Microsoft account
+      parameters:
+        - name: connectionID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Microsoft account disconnected
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Connection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /v2/workspaces/{workspaceId}/google-calendar/sync:
     post:
       operationId: syncGoogleCalendar
@@ -3542,6 +3588,42 @@ components:
             $ref: "#/components/schemas/GoogleConnectionAccount"
 
     GoogleConnectionAccount:
+      type: object
+      required: [id, status, scopes, capabilities, updatedAt]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+          enum: [active, revoked]
+        scopes:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    MicrosoftConnectionStatus:
+      type: object
+      required: [connected, accounts]
+      properties:
+        connected:
+          type: boolean
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/MicrosoftConnectionAccount"
+
+    MicrosoftConnectionAccount:
       type: object
       required: [id, status, scopes, capabilities, updatedAt]
       properties:

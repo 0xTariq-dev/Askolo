@@ -2112,6 +2112,33 @@ export const DisconnectGoogleConnectionResponse = zod.void()
 
 
 /**
+ * @summary List Microsoft accounts connected to the current user
+ */
+export const GetMicrosoftStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "accounts": zod.array(zod.object({
+  "id": zod.string(),
+  "email": zod.string().optional(),
+  "displayName": zod.string().optional(),
+  "status": zod.enum(['active', 'revoked']),
+  "scopes": zod.array(zod.string()),
+  "capabilities": zod.array(zod.string()),
+  "updatedAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Disconnect one Microsoft account
+ */
+export const DisconnectMicrosoftConnectionParams = zod.object({
+  "connectionID": zod.coerce.string()
+})
+
+export const DisconnectMicrosoftConnectionResponse = zod.void()
+
+
+/**
  * @summary Reconcile a connected Google Calendar into the selected workspace
  */
 export const SyncGoogleCalendarParams = zod.object({

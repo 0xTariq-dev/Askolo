@@ -41,6 +41,8 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 		"GOOGLE_TOKEN_ENCRYPTION_KEY":           "",
 		"GOOGLE_CLIENT_ID":                      "test-google-client-id",
 		"GOOGLE_CLIENT_SECRET":                  "test-google-client-secret",
+		"MS_CLIENT_ID":                          "test-microsoft-client-id",
+		"MS_CLIENT_SECRET":                      "test-microsoft-client-secret",
 		"AUTH_TOTP_ENCRYPTION_KEY":              "",
 		"TURNSTILE_SECRET_KEY":                  "",
 	} {
@@ -62,6 +64,10 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 	if cfg.Google.LoginClientID != "test-google-client-id" ||
 		cfg.Google.LoginClientSecret != "test-google-client-secret" {
 		t.Fatal("Google login config did not use the current generic client env names")
+	}
+	if cfg.Microsoft.ClientID != "test-microsoft-client-id" ||
+		cfg.Microsoft.ClientSecret != "test-microsoft-client-secret" {
+		t.Fatal("Microsoft integration config did not use the configured MS client env names")
 	}
 	if len(cfg.TOTPEncryptionKey) != 32 || !bytes.Equal(cfg.TOTPEncryptionKey, cfg.TOTPEncryptionKeyFallback) {
 		t.Fatal("without a dedicated TOTP key, configuration should use the session-derived key for current and legacy ciphertext")

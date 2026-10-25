@@ -89,6 +89,7 @@ import type {
   MFAStatus,
   MeetingExtractBody,
   MeetingExtractResponse,
+  MicrosoftConnectionStatus,
   MobileTokenExchangeRequest,
   MobileTokenExchangeSuccess,
   Note,
@@ -6839,6 +6840,157 @@ export const useDisconnectGoogleConnection = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDisconnectGoogleConnectionMutationOptions(options));
+    }
+
+export const getGetMicrosoftStatusUrl = () => {
+
+
+
+
+  return `/api/integrations/microsoft/status`
+}
+
+/**
+ * @summary List Microsoft accounts connected to the current user
+ */
+export const getMicrosoftStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<MicrosoftConnectionStatus> => {
+
+  return customFetch<MicrosoftConnectionStatus>(getGetMicrosoftStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMicrosoftStatusQueryKey = () => {
+    return [
+    `/api/integrations/microsoft/status`
+    ] as const;
+    }
+
+
+export const getGetMicrosoftStatusQueryOptions = <TData = Awaited<ReturnType<typeof getMicrosoftStatus>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMicrosoftStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMicrosoftStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMicrosoftStatus>>> = ({ signal }) => getMicrosoftStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMicrosoftStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMicrosoftStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getMicrosoftStatus>>>
+export type GetMicrosoftStatusQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List Microsoft accounts connected to the current user
+ */
+
+export function useGetMicrosoftStatus<TData = Awaited<ReturnType<typeof getMicrosoftStatus>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMicrosoftStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMicrosoftStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDisconnectMicrosoftConnectionUrl = (connectionID: string,) => {
+
+
+
+
+  return `/api/integrations/microsoft/${connectionID}`
+}
+
+/**
+ * @summary Disconnect one Microsoft account
+ */
+export const disconnectMicrosoftConnection = async (connectionID: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDisconnectMicrosoftConnectionUrl(connectionID),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDisconnectMicrosoftConnectionMutationKey = () => ['disconnectMicrosoftConnection'] as const;
+
+export const getDisconnectMicrosoftConnectionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectMicrosoftConnection>>, TError,DisconnectMicrosoftConnectionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectMicrosoftConnection>>, TError,DisconnectMicrosoftConnectionMutationVariables, TContext> => {
+
+const mutationKey = getDisconnectMicrosoftConnectionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectMicrosoftConnection>>, DisconnectMicrosoftConnectionMutationVariables> = (props) => {
+          const {connectionID} = props ?? {};
+
+          return  disconnectMicrosoftConnection(connectionID,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectMicrosoftConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectMicrosoftConnection>>>
+
+    export type DisconnectMicrosoftConnectionMutationError = ErrorType<ErrorEnvelope>
+    export type DisconnectMicrosoftConnectionMutationVariables = {connectionID: string}
+
+    /**
+ * @summary Disconnect one Microsoft account
+ */
+export const useDisconnectMicrosoftConnection = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectMicrosoftConnection>>, TError,DisconnectMicrosoftConnectionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectMicrosoftConnection>>,
+        TError,
+        DisconnectMicrosoftConnectionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDisconnectMicrosoftConnectionMutationOptions(options));
     }
 
 export const getSyncGoogleCalendarUrl = (workspaceId: string,) => {

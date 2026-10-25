@@ -5,6 +5,7 @@ import {
   deleteUserAccount as deleteUserAccountRequest,
   deleteUserData as deleteUserDataRequest,
   disconnectGoogleConnection as disconnectGoogleConnectionRequest,
+  disconnectMicrosoftConnection as disconnectMicrosoftConnectionRequest,
   disableMFA as disableMFARequest,
   disconnectGoogle as disconnectGoogleRequest,
   enrollMFA as enrollMFARequest,
@@ -12,6 +13,7 @@ import {
   generatePlan as generatePlanRequest,
   getCurrentAuthUser as getCurrentAuthUserRequest,
   getMFAStatus as getMFAStatusRequest,
+  getMicrosoftStatus as getMicrosoftStatusRequest,
   listTrustedDevices as listTrustedDevicesRequest,
   logoutPasswordSession as logoutPasswordSessionRequest,
   passwordLogin as passwordLoginRequest,
@@ -150,6 +152,10 @@ export const goApi = {
     disconnectGoogleRequest({ scope }, sessionRequestOptions()),
   disconnectGoogleConnection: (connectionID: string) =>
     disconnectGoogleConnectionRequest(connectionID, sessionRequestOptions()),
+  microsoftStatus: (signal?: AbortSignal) =>
+    getMicrosoftStatusRequest(sessionRequestOptions(signal)),
+  disconnectMicrosoftConnection: (connectionID: string) =>
+    disconnectMicrosoftConnectionRequest(connectionID, sessionRequestOptions()),
   deleteUserData: () => deleteUserDataRequest(sessionRequestOptions()),
   deleteUserAccount: () => deleteUserAccountRequest(sessionRequestOptions()),
   coaching: (input: CoachingInput, signal?: AbortSignal) =>

@@ -1287,6 +1287,29 @@ export interface MeetingExtractBody {
   notes: string;
 }
 
+export type MicrosoftConnectionAccountStatus = typeof MicrosoftConnectionAccountStatus[keyof typeof MicrosoftConnectionAccountStatus];
+
+
+export const MicrosoftConnectionAccountStatus = {
+  active: 'active',
+  revoked: 'revoked',
+} as const;
+
+export interface MicrosoftConnectionAccount {
+  id: string;
+  email?: string;
+  displayName?: string;
+  status: MicrosoftConnectionAccountStatus;
+  scopes: string[];
+  capabilities: string[];
+  updatedAt: string;
+}
+
+export interface MicrosoftConnectionStatus {
+  connected: boolean;
+  accounts: MicrosoftConnectionAccount[];
+}
+
 export interface GoogleCalendarSyncRequest {
   /** ISO date or date-time for the start of the range */
   from: string;

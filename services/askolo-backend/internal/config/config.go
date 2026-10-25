@@ -44,6 +44,7 @@ type Config struct {
 	TOTPEncryptionKeyFallback     []byte
 	Email                         EmailConfig
 	Google                        GoogleOAuthConfig
+	Microsoft                     MicrosoftOAuthConfig
 	GitHub                        GitHubOAuthConfig
 	AssemblyAIKey                 string
 	AssemblyAIVoiceAgentEnabled   bool
@@ -93,6 +94,12 @@ type GoogleOAuthConfig struct {
 	TokenURL            string
 	UserInfoURL         string
 	RevokeURL           string
+}
+
+type MicrosoftOAuthConfig struct {
+	ClientID           string
+	ClientSecret       string
+	TokenEncryptionKey []byte
 }
 
 type GitHubOAuthConfig struct {
@@ -332,6 +339,11 @@ func Load() (Config, error) {
 			TokenURL:            "https://oauth2.googleapis.com/token",
 			UserInfoURL:         "https://openidconnect.googleapis.com/v1/userinfo",
 			RevokeURL:           "https://oauth2.googleapis.com/revoke",
+		},
+		Microsoft: MicrosoftOAuthConfig{
+			ClientID:           strings.TrimSpace(os.Getenv("MS_CLIENT_ID")),
+			ClientSecret:       strings.TrimSpace(os.Getenv("MS_CLIENT_SECRET")),
+			TokenEncryptionKey: encryptionKey,
 		},
 		GitHub: GitHubOAuthConfig{
 			ClientID:     strings.TrimSpace(os.Getenv("GITHUB_LOGIN_CLIENT_ID")),

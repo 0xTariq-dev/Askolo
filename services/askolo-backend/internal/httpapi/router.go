@@ -16,6 +16,7 @@ import (
 	authorizationmodule "askolo/backend/internal/modules/authorization"
 	githuboauth "askolo/backend/internal/modules/github"
 	googleoauth "askolo/backend/internal/modules/google"
+	microsoftoauth "askolo/backend/internal/modules/microsoft"
 	productmodule "askolo/backend/internal/modules/product"
 	"askolo/backend/internal/platform/apierror"
 	"askolo/backend/internal/platform/auth"
@@ -350,6 +351,7 @@ func NewWithShutdown(
 	apiMux := http.NewServeMux()
 	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
 	googleRoutes := googleHandler.Routes()
+	microsoftRoutes := microsoftoauth.NewHandler(cfg, store, logger).Routes()
 	// Google login owns these public paths. Register them before the generic
 	// auth subtree so the native OAuth start and callback handlers receive the
 	// frontend's requests instead of the password-auth mux returning 404.
@@ -361,6 +363,8 @@ func NewWithShutdown(
 	apiMux.Handle("/api/auth/", authHandler.Routes())
 	apiMux.Handle("/api/auth/github", githubRoutes)
 	apiMux.Handle("/api/auth/github/", githubRoutes)
+	apiMux.Handle("/api/integrations/microsoft", microsoftRoutes)
+	apiMux.Handle("/api/integrations/microsoft/", microsoftRoutes)
 	productRoutes := productHandler.Routes()
 	apiMux.Handle(PublishedAPIPath+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

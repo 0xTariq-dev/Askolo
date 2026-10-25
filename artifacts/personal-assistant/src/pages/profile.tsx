@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import {
   useGetGoogleStatus,
+  useGetMicrosoftStatus,
 } from '@workspace/api-client-react';
 import { AIPrivacyCenter } from '@/components/settings/ai-privacy-center';
 import { SettingsLayout } from '@/components/settings/settings-layout';
@@ -91,12 +92,16 @@ export function ProfilePage() {
 
   const { data: googleStatus, refetch: refetchGoogle, isFetching: checkingGoogle } =
     useGetGoogleStatus();
+  const { data: microsoftStatus, refetch: refetchMicrosoft, isFetching: checkingMicrosoft } =
+    useGetMicrosoftStatus();
   const [googleSignInNotice, setGoogleSignInNotice] = useState<string | null>(null);
+  const [microsoftNotice, setMicrosoftNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get('google');
     const githubStatus = params.get('github');
+    const microsoftStatus = params.get('microsoft');
     if (status === 'linked') {
       setGoogleSignInNotice('Google sign-in is linked to this account.');
     } else if (status === 'provider_not_linked') {
@@ -111,9 +116,15 @@ export function ProfilePage() {
     } else if (githubStatus === 'error') {
       setGoogleSignInNotice('GitHub sign-in could not be linked. Please try again.');
     }
-    if (status || githubStatus) {
+    if (microsoftStatus === 'connected') {
+      setMicrosoftNotice('Microsoft account connected.');
+    } else if (microsoftStatus === 'error') {
+      setMicrosoftNotice('Microsoft account could not be connected. Please try again.');
+    }
+    if (status || githubStatus || microsoftStatus) {
       params.delete('google');
       params.delete('github');
+      params.delete('microsoft');
       const search = params.toString();
       window.history.replaceState(
         window.history.state,
@@ -168,6 +179,7 @@ export function ProfilePage() {
   // Action states
   const [disconnecting, setDisconnecting] = useState<'calendar' | 'gmail' | null>(null);
   const [disconnectingGoogleAccount, setDisconnectingGoogleAccount] = useState<string | null>(null);
+  const [disconnectingMicrosoftAccount, setDisconnectingMicrosoftAccount] = useState<string | null>(null);
   const [deletingData, setDeletingData] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
@@ -450,6 +462,30 @@ export function ProfilePage() {
     window.location.href = `${basePath}/api/google/gmail/connect?scope=${scope}&returnTo=/profile`;
   };
 
+  const connectMicrosoft = () => {
+    const returnTo = `${basePath}/settings/account/profile`;
+    window.location.assign(
+      `${basePath}/api/integrations/microsoft?returnTo=${encodeURIComponent(returnTo)}`,
+    );
+  };
+
+  const disconnectMicrosoftAccount = async (connectionID: string, label: string) => {
+    setDisconnectingMicrosoftAccount(connectionID);
+    try {
+      await goApi.disconnectMicrosoftConnection(connectionID);
+      await refetchMicrosoft();
+      toast({ title: `${label} disconnected` });
+    } catch (error) {
+      toast({
+        title: 'Failed to disconnect Microsoft account',
+        description: getApiErrorMessage(error, 'Please try again.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setDisconnectingMicrosoftAccount(null);
+    }
+  };
+
   const linkGoogleSignIn = () => {
     const returnTo = `${basePath}/settings/account/security?google=linked`;
     window.location.assign(
@@ -520,6 +556,7 @@ export function ProfilePage() {
   const calendarConnected = googleStatus?.calendarConnected ?? false;
   const gmailConnected = googleStatus?.gmailConnected ?? false;
   const googleAccounts = googleStatus?.accounts.filter((account) => account.status === 'active') ?? [];
+  const microsoftAccounts = microsoftStatus?.accounts.filter((account) => account.status === 'active') ?? [];
 
   if (privacyTab) {
     return (
@@ -1059,6 +1096,100 @@ export function ProfilePage() {
             <Button onClick={linkGoogleSignIn} className="min-h-11 w-full sm:w-auto">Link Google</Button>
             <Button onClick={linkGitHubSignIn} variant="outline" className="min-h-11 w-full sm:w-auto">Link GitHub</Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card hidden={securityTab} aria-labelledby="microsoft-accounts-heading">
+        <CardHeader>
+          <CardTitle id="microsoft-accounts-heading" className="flex items-center gap-2 text-base">
+            <PlugZap className="h-4 w-4 text-primary" /> Microsoft Accounts
+          </CardTitle>
+          <CardDescription>
+            Connect Microsoft accounts individually. Disconnecting one account does not affect the others.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {microsoftAccounts.length
+                ? `${microsoftAccounts.length} account${microsoftAccounts.length === 1 ? '' : 's'} connected`
+                : 'No Microsoft accounts connected yet.'}
+            </p>
+            <Button
+              size="sm"
+              variant={microsoftAccounts.length ? 'outline' : 'default'}
+              onClick={connectMicrosoft}
+            >
+              {microsoftAccounts.length ? 'Add account' : 'Connect Microsoft'}
+            </Button>
+          </div>
+
+          {microsoftNotice && (
+            <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+              {microsoftNotice}
+            </p>
+          )}
+
+          {microsoftAccounts.length > 0 && (
+            <ul className="space-y-2 border-t border-border pt-4">
+              {microsoftAccounts.map((account) => {
+                const accountLabel = account.email || account.displayName || 'Microsoft account';
+                return (
+                  <li
+                    key={account.id}
+                    className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{accountLabel}</p>
+                      {account.email && account.displayName && (
+                        <p className="truncate text-xs text-muted-foreground">{account.displayName}</p>
+                      )}
+                    </div>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full shrink-0 text-destructive border-destructive/30 hover:bg-destructive/10 sm:w-auto"
+                          disabled={disconnectingMicrosoftAccount === account.id}
+                        >
+                          {disconnectingMicrosoftAccount === account.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+                          ) : (
+                            <Unplug className="h-3.5 w-3.5 me-1.5" />
+                          )}
+                          Disconnect account
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Disconnect this Microsoft account?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {accountLabel} will stop being available to Askolo. Other connected Microsoft accounts will not be affected.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => void disconnectMicrosoftAccount(account.id, accountLabel)}
+                          >
+                            Disconnect account
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {checkingMicrosoft && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Checking Microsoft accounts…
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -139,6 +139,19 @@ func TestHealthAndRequestID(t *testing.T) {
 	}
 }
 
+func TestMicrosoftIntegrationRoutesReachMicrosoftHandler(t *testing.T) {
+	handler := New(testConfig("secret"), slog.Default(), nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/integrations/microsoft/status", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(response.Body.String(), "Microsoft accounts") {
+		t.Fatalf("Microsoft status route returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestPublishedAPIHealthAlias(t *testing.T) {
 	handler := New(testConfig("secret"), slog.Default(), nil)
 	request := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
