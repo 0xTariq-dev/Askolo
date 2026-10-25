@@ -34,6 +34,7 @@ services/askolo-backend/tmp/
 /.sass-cache
 /connect.lock
 /coverage
+/artifacts/personal-assistant/test-results/
 /libpeerconnection.log
 npm-debug.log
 yarn-error.log
