@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,8 +26,10 @@ import (
 )
 
 type attachmentIntegrationStorage struct {
-	mu      sync.Mutex
-	objects map[string]r2.Object
+	mu               sync.Mutex
+	objects          map[string]r2.Object
+	failListPrefix   string
+	failDeleteObject string
 }
 
 func newAttachmentIntegrationStorage() *attachmentIntegrationStorage {
@@ -42,6 +46,9 @@ func (s *attachmentIntegrationStorage) PutObject(_ context.Context, key, _ strin
 func (s *attachmentIntegrationStorage) ListObjects(_ context.Context, prefix string, limit int32) ([]r2.Object, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if prefix == s.failListPrefix {
+		return nil, errors.New("injected object listing failure")
+	}
 	keys := make([]string, 0)
 	for key := range s.objects {
 		if strings.HasPrefix(key, prefix) {
@@ -62,6 +69,9 @@ func (s *attachmentIntegrationStorage) ListObjects(_ context.Context, prefix str
 func (s *attachmentIntegrationStorage) Delete(_ context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if key == s.failDeleteObject {
+		return errors.New("injected object deletion failure")
+	}
 	delete(s.objects, key)
 	return nil
 }
@@ -184,6 +194,66 @@ func TestNoteAttachmentsAreOwnerScopedAndCleanedOnDeletionIntegration(t *testing
 	}
 	if !storage.hasPrefix(fmt.Sprintf("attachments/notes/%s/", otherID)) {
 		t.Fatal("user-data deletion removed another user's private objects")
+	}
+}
+
+func TestAttachmentCleanupFailuresPreserveDatabaseDataIntegration(t *testing.T) {
+	for _, target := range []struct {
+		name string
+		path func(string) string
+	}{
+		{
+			name: "note deletion",
+			path: func(noteID string) string { return "/api/notes/" + noteID },
+		},
+		{
+			name: "user data deletion",
+			path: func(string) string { return "/api/user/data" },
+		},
+	} {
+		for _, failure := range []string{"list", "delete"} {
+			t.Run(target.name+"/"+failure+" failure", func(t *testing.T) {
+				fixture := openCreditPolicyIntegrationFixture(t)
+				storage := newAttachmentIntegrationStorage()
+				const (
+					ownerID    = "attachment-cleanup-failure-owner"
+					ownerEmail = "attachment-cleanup-failure-owner@example.test"
+				)
+				ownerSession := fixture.createUserAndSession(t, ownerID, ownerEmail, true)
+				ensureAttachmentPersonalSpace(t, fixture, ownerID)
+				api := attachmentIntegrationAPI(fixture, storage)
+
+				noteID := createAttachmentNote(t, api, ownerSession, "Preserve data during cleanup failure")
+				uploadAttachment(t, api, ownerSession,
+					"/api/notes/"+noteID+"/attachments", "cleanup.txt", "preserve this Note")
+				prefix := fmt.Sprintf("attachments/notes/%s/%s/", ownerID, noteID)
+				objects, err := storage.ListObjects(fixture.ctx, prefix, 100)
+				if err != nil || len(objects) == 0 {
+					t.Fatalf("list uploaded objects before injecting failure: objects=%v error=%v", objects, err)
+				}
+
+				if failure == "list" {
+					storage.failListPrefix = prefix
+				} else {
+					storage.failDeleteObject = objects[0].Key
+				}
+
+				response := attachmentRequest(api, ownerSession, http.MethodDelete, target.path(noteID), nil, "")
+				if response.Code != http.StatusServiceUnavailable ||
+					!strings.Contains(response.Body.String(), "FILE_CLEANUP_UNAVAILABLE") {
+					t.Fatalf("cleanup failure response = %d %s, want 503 FILE_CLEANUP_UNAVAILABLE",
+						response.Code, response.Body.String())
+				}
+
+				noteIDValue, err := strconv.ParseInt(noteID, 10, 64)
+				if err != nil {
+					t.Fatalf("parse Note ID: %v", err)
+				}
+				if _, err := fixture.store.GetProduct(fixture.ctx, notes, ownerID, noteIDValue); err != nil {
+					t.Fatalf("Note was deleted despite failed private-file cleanup: %v", err)
+				}
+			})
+		}
 	}
 }
 
