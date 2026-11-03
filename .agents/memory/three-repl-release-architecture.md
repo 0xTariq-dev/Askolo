@@ -19,7 +19,7 @@ Before changing configuration, data, integrations, releases, callbacks, or infra
 - **Staging Repl:** Normally checks out immutable release-candidate tags such as `v1.1.0-rc1`. It is used for pre-production and structural verification with an isolated staging database and sandbox configuration. During an emergency hotfix, it may temporarily validate the short-lived hotfix branch before the immutable hotfix tag is created.
 - **Production Repl:** Deploys only frozen stable or hotfix tags such as `v1.1.0` or `v1.0.1-hotfix`. It is public and uses only production databases, clients, secrets, callbacks, webhooks, and API targets.
 
-Each Repl serves the full landing page and application from one environment-specific host. The root domain is not used for app routing. Never copy secrets, database connections, OAuth clients, cookie namespaces, callback URLs, webhook destinations, or external API targets between environments.
+Each Repl serves the full landing page and application from one environment-specific host. The user-approved Production migration target is `askolo.app`, with the landing page at `/` and app routes on that same domain; this is not confirmation of a live cutover. Never copy secrets, database connections, OAuth clients, cookie namespaces, callback URLs, webhook destinations, or external API targets between environments.
 
 **Why:** Separate projects prevent development and staging activity from affecting public users, while explicit environment identity prevents a Repl from silently using another environment's resources. A shell can report `REPLIT_ENVIRONMENT=production` while its `DATABASE_URL` actually matches Development; the Go migration CLI trusts its target flag, so relying on the label could direct DDL to the wrong database.
 

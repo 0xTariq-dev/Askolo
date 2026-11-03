@@ -13,7 +13,7 @@ or provider targets between environments.
 | Input | Development | Staging | Production |
 | --- | --- | --- | --- |
 | `ASKOLO_ENVIRONMENT` | `development` | `staging` | `production` |
-| `ASKOLO_CANONICAL_ORIGIN` | local/`dev.askolo.app` after DNS | **manual input** | **manual input** |
+| `ASKOLO_CANONICAL_ORIGIN` | local/`dev.askolo.app` after DNS | **manual input** | `https://askolo.app` migration target |
 | `ASKOLO_DATABASE_ID` | `development-database` | **manual input** | **manual input** |
 | `ASKOLO_COOKIE_NAMESPACE` | `askolo_dev` | unique manual value | unique manual value |
 | `ASKOLO_COMMIT_SHA` | local or current commit | promoted tag commit | promoted tag commit |
@@ -26,11 +26,60 @@ identity, origin, database identity, cookie namespace, release provenance, or
 internal token is absent. The browser build also fails closed if its
 environment-specific canonical origin is absent.
 
-The final staging and production domains are intentionally unresolved inputs.
-The root `askolo.app` domain is not an app-routing default. Once DNS is
-provisioned, development should use `dev.askolo.app`; staging and production
-must use their separately approved single-host origins. Both the landing page
-and app should be routed behind that one host in each Repl.
+The staging domain remains a separately approved input. The approved production
+migration target is `https://askolo.app`, with the landing page at `/` and
+sign-in and authenticated app routes on that same origin. This target is not
+confirmation that live DNS or Production settings have been changed.
+Development should use its own preview host or `dev.askolo.app` after DNS is
+provisioned. Do not point Development OAuth callbacks at the production domain.
+
+## Root-domain migration
+
+This is a Production cutover checklist, not a command to run from Development.
+Obtain approval to change Production settings before performing these steps.
+
+1. In the Production project's Publishing domain settings, connect or confirm
+   `askolo.app` using the DNS records supplied by Replit. Keep previous domains
+   working during verification; do not remove them before the new origin works.
+2. Set these non-secret values in the Production project only:
+
+   | Setting | Target value |
+   | --- | --- |
+   | `ASKOLO_CANONICAL_ORIGIN` | `https://askolo.app` |
+   | `VITE_CANONICAL_ORIGIN` | `https://askolo.app` |
+   | `VITE_PUBLIC_ORIGIN` | `https://askolo.app` |
+   | `VITE_APP_ORIGIN` | `https://askolo.app` |
+
+   Vite values are build-time inputs: rebuild and publish after changing them.
+   Do not change database identity, cookie namespace, credentials, or storage
+   targets as part of this domain-only migration.
+3. Register the exact Production callbacks with the matching Production
+   provider clients before testing:
+
+   - Google login: `https://askolo.app/api/auth/google/callback`
+   - Google sign-in linking: `https://askolo.app/api/auth/google/link/callback`
+   - Google integrations: `https://askolo.app/api/integrations/google/callback`
+   - Microsoft: `https://askolo.app/api/integrations/microsoft/callback`
+
+   Keep previous registered callbacks until the cutover is verified.
+   Microsoft publisher-domain verification is separate from redirect-URI
+   registration; completing one does not configure the other.
+4. Publish an approved release containing
+   `public/.well-known/microsoft-identity-association.json`. The file must be
+   publicly readable without signing in at
+   `https://askolo.app/.well-known/microsoft-identity-association.json`, with
+   HTTP 200, JSON content, and application ID
+   `3766b5bb-ce42-4733-96e7-51655a8a298b`. Confirm the response is the file,
+   not the SPA's HTML fallback, then complete Microsoft's domain check.
+5. Verify the landing page remains at `/`, legal pages remain reachable, app
+   links stay on `askolo.app`, and direct sign-in/settings routes work after
+   reload. Check OAuth callbacks, connection status, and the release health
+   checks against the approved Production target.
+
+Host-only session cookies do not transfer from a previous subdomain to the root
+domain; users may need to sign in again. Do not delete accounts or connections
+to accomplish the migration. Existing same-origin routing supports this layout;
+no landing-page replacement is required.
 
 ## Standard release
 

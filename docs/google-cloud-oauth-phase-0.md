@@ -3,14 +3,16 @@
 This checklist covers Google Cloud configuration for the Go Google-integration
 cutover. It deliberately does not request restricted Gmail mailbox scopes.
 
-## Current deployment facts
+## Approved root-domain migration target
 
-- Published deployment is active and public.
-- Production domains currently include:
-  - `https://askolo.app`
-  - `https://web.askolo.app`
-- The product OAuth host selected for this project is:
-  - `https://web.askolo.app`
+- The user-approved Production target is `https://askolo.app`, serving the
+  landing page and app routes on one origin. Live settings have not been
+  verified by this checklist.
+- The earlier `web.askolo.app` callback configuration is superseded as the
+  migration target. Keep existing registered callbacks during the transition
+  until the root-domain cutover is verified.
+- Follow the Production approval and environment separation requirements in
+  [the release runbook](three-repl-release-runbook.md#root-domain-migration).
 - Go owns Google login and Google integration OAuth.
 - Staging and production callback URIs use `ASKOLO_CANONICAL_ORIGIN`, not
   proxy-supplied request host headers.
@@ -33,7 +35,7 @@ Record these values outside source control:
 
 Stable hosts:
 
-- Production OAuth host: `web.askolo.app`
+- Production OAuth host migration target: `askolo.app`
 - Staging OAuth host: `staging.askolo.app`
 
 ## Recommended staging topology
@@ -106,7 +108,7 @@ and a different client for that environment's Google integrations.
 Authorized redirect URI:
 
 ```text
-https://web.askolo.app/api/auth/google/callback
+https://askolo.app/api/auth/google/callback
 ```
 
 ### Production integration client
@@ -114,14 +116,14 @@ https://web.askolo.app/api/auth/google/callback
 Canonical Go callback to register for the cutover:
 
 ```text
-https://web.askolo.app/api/integrations/google/callback
+https://askolo.app/api/integrations/google/callback
 ```
 
 Temporary compatibility callback to keep registered until the TypeScript
 integration is removed:
 
 ```text
-https://web.askolo.app/api/google/gmail/callback
+https://askolo.app/api/google/gmail/callback
 ```
 
 The compatibility callback is not the target architecture and should be
