@@ -489,7 +489,7 @@ func attachmentIntegrationAPI(fixture *creditPolicyIntegrationFixture, storage *
 	handler := NewHandler(config.Config{
 		AuthRateLimitHMACSecret: "test-auth-rate-limit-hmac-secret-32-bytes",
 	}, fixture.store, slog.Default(), "askolo_session")
-	handler.fileStorage = storage
+	handler.fileStorageByJurisdiction = map[string]privateFileStorage{"us": storage}
 	return handler.Routes()
 }
 

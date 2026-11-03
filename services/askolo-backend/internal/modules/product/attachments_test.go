@@ -87,20 +87,25 @@ func TestStorageForUserUsesResolvedJurisdictionAndDoesNotCrossFallback(t *testin
 	}
 }
 
-func TestProfileImageRegionKeepsLegacyAndUsesSavedJurisdiction(t *testing.T) {
-	legacy := newAttachmentIntegrationStorage()
+func TestProfileImageRegionMigratesLegacyMarkersToUS(t *testing.T) {
 	us := newAttachmentIntegrationStorage()
 	eu := newAttachmentIntegrationStorage()
 	handler := NewHandler(config.Config{}, nil, nil, "")
-	handler.fileStorage = legacy
 	handler.fileStorageByJurisdiction = map[string]privateFileStorage{"us": us, "eu": eu}
 
 	oldURLTarget, err := handler.profileImageStorageTarget("/api/user/profile-image?version=1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if oldURLTarget.jurisdiction != "legacy" || oldURLTarget.storage != legacy {
-		t.Fatalf("old profile image URL routed to %#v, want legacy Development storage", oldURLTarget)
+	if oldURLTarget.jurisdiction != "us" || oldURLTarget.storage != us {
+		t.Fatalf("old profile image URL routed to %#v, want US storage", oldURLTarget)
+	}
+	legacyMarkedTarget, err := handler.profileImageStorageTarget("/api/user/profile-image?version=1&region=legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyMarkedTarget.jurisdiction != "us" || legacyMarkedTarget.storage != us {
+		t.Fatalf("legacy-marked profile image URL routed to %#v, want US storage", legacyMarkedTarget)
 	}
 	euTarget, err := handler.profileImageStorageTarget("/api/user/profile-image?version=2&region=eu")
 	if err != nil {
@@ -117,13 +122,10 @@ func TestProfileImageRegionKeepsLegacyAndUsesSavedJurisdiction(t *testing.T) {
 func TestListFileObjectsReadsAllConfiguredJurisdictions(t *testing.T) {
 	us := newAttachmentIntegrationStorage()
 	eu := newAttachmentIntegrationStorage()
-	legacy := newAttachmentIntegrationStorage()
 	us.putTestObject("attachments/tasks/space/task/us-file")
 	eu.putTestObject("attachments/tasks/space/task/eu-file")
-	legacy.putTestObject("attachments/tasks/space/task/legacy-file")
 
 	handler := NewHandler(config.Config{}, nil, nil, "")
-	handler.fileStorage = legacy
 	handler.fileStorageByJurisdiction = map[string]privateFileStorage{"us": us, "eu": eu}
 	objects, err := handler.listFileObjects(
 		context.Background(),
@@ -133,8 +135,8 @@ func TestListFileObjectsReadsAllConfiguredJurisdictions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objects) != 3 {
-		t.Fatalf("found %d stored objects, want one from each bucket", len(objects))
+	if len(objects) != 2 {
+		t.Fatalf("found %d stored objects, want one from each configured jurisdiction", len(objects))
 	}
 }
 

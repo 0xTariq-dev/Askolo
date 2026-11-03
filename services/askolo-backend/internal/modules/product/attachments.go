@@ -41,14 +41,11 @@ type storedFileObject struct {
 }
 
 func (h *Handler) fileStorageTargets() []fileStorageTarget {
-	targets := make([]fileStorageTarget, 0, 3)
+	targets := make([]fileStorageTarget, 0, 2)
 	for _, jurisdiction := range []string{"us", "eu"} {
 		if storage := h.fileStorageByJurisdiction[jurisdiction]; storage != nil {
 			targets = append(targets, fileStorageTarget{jurisdiction: jurisdiction, storage: storage})
 		}
-	}
-	if h.fileStorage != nil {
-		targets = append(targets, fileStorageTarget{jurisdiction: "legacy", storage: h.fileStorage})
 	}
 	return targets
 }
@@ -62,13 +59,6 @@ func (h *Handler) storageForJurisdiction(jurisdiction string) (fileStorageTarget
 	case "us", "eu":
 		if storage := h.fileStorageByJurisdiction[jurisdiction]; storage != nil {
 			return fileStorageTarget{jurisdiction: jurisdiction, storage: storage}, nil
-		}
-		if jurisdiction == "us" && h.fileStorage != nil {
-			return fileStorageTarget{jurisdiction: "legacy", storage: h.fileStorage}, nil
-		}
-	case "legacy":
-		if h.fileStorage != nil {
-			return fileStorageTarget{jurisdiction: "legacy", storage: h.fileStorage}, nil
 		}
 	}
 	return fileStorageTarget{}, fmt.Errorf("file storage is not configured for the requested jurisdiction")
@@ -95,12 +85,9 @@ func (h *Handler) profileImageStorageTarget(profileImageURL string) (fileStorage
 		return fileStorageTarget{}, fmt.Errorf("profile image location is invalid")
 	}
 	jurisdiction := strings.ToLower(strings.TrimSpace(parsed.Query().Get("region")))
-	if jurisdiction == "" {
-		if h.fileStorage != nil {
-			jurisdiction = "legacy"
-		} else {
-			jurisdiction = "us"
-		}
+	if jurisdiction == "" || jurisdiction == "legacy" {
+		// Keep old URL markers readable after legacy storage is retired.
+		jurisdiction = "us"
 	}
 	return h.storageForJurisdiction(jurisdiction)
 }

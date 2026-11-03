@@ -105,7 +105,7 @@ func TestLiveJurisdictionBucketRoundTrip(t *testing.T) {
 func TestPresignPutUsesPrivateR2EndpointAndRequiresContentType(t *testing.T) {
 	client, err := New(config.R2Config{
 		AccountID:       "11111111111111111111111111111111",
-		Bucket:          "askolo-development-files",
+		Bucket:          "askolo-test-bucket",
 		AccessKeyID:     "test-access-key",
 		SecretAccessKey: "test-secret-key",
 	})
@@ -123,7 +123,7 @@ func TestPresignPutUsesPrivateR2EndpointAndRequiresContentType(t *testing.T) {
 	if request.Method != "PUT" || parsed.Host != "11111111111111111111111111111111.r2.cloudflarestorage.com" {
 		t.Fatalf("request method or host is invalid")
 	}
-	if parsed.Path != "/askolo-development-files/spaces/space-123/files/file-456" {
+	if parsed.Path != "/askolo-test-bucket/spaces/space-123/files/file-456" {
 		t.Fatalf("signed path = %q", parsed.Path)
 	}
 	if request.Headers.Get("Content-Type") != "application/pdf" {
@@ -182,7 +182,7 @@ func TestRejectsUnknownR2Jurisdiction(t *testing.T) {
 func TestPresignRejectsUnsafeKeysAndLongExpiry(t *testing.T) {
 	client, err := New(config.R2Config{
 		AccountID:       "11111111111111111111111111111111",
-		Bucket:          "askolo-development-files",
+		Bucket:          "askolo-test-bucket",
 		AccessKeyID:     "test-access-key",
 		SecretAccessKey: "test-secret-key",
 	})
@@ -202,7 +202,7 @@ func TestPresignRejectsUnsafeKeysAndLongExpiry(t *testing.T) {
 func TestPresignGetAttachmentSetsSafeDownloadDisposition(t *testing.T) {
 	client, err := New(config.R2Config{
 		AccountID:       "11111111111111111111111111111111",
-		Bucket:          "askolo-development-files",
+		Bucket:          "askolo-test-bucket",
 		AccessKeyID:     "test-access-key",
 		SecretAccessKey: "test-secret-key",
 	})

@@ -36,9 +36,6 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 		"ASKOLO_INTERNAL_TOKEN":                 "",
 		"ASKOLO_ADMIN_EMAILS":                   "",
 		"ASKOLO_R2_ACCOUNT_ID":                  "",
-		"ASKOLO_R2_BUCKET":                      "",
-		"ASKOLO_R2_ACCESS_KEY_ID":               "",
-		"ASKOLO_R2_SECRET_ACCESS_KEY":           "",
 		"ASKOLO_R2_US_BUCKET":                   "",
 		"ASKOLO_R2_EU_BUCKET":                   "",
 		"ASKOLO_R2_REGIONAL_ACCESS_KEY_ID":      "",
@@ -95,107 +92,30 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 	}
 }
 
-func TestLoadR2ConfigLegacyDevelopmentAndRegionalEnvironments(t *testing.T) {
+func TestLoadR2ConfigLoadsRegionalBuckets(t *testing.T) {
 	for key, value := range map[string]string{
 		"ASKOLO_R2_ACCOUNT_ID":                 "11111111111111111111111111111111",
-		"ASKOLO_R2_BUCKET":                     "askolo-development-files",
-		"ASKOLO_R2_ACCESS_KEY_ID":              "test-access-key",
-		"ASKOLO_R2_SECRET_ACCESS_KEY":          "test-secret-key",
-		"ASKOLO_R2_US_BUCKET":                  "",
-		"ASKOLO_R2_EU_BUCKET":                  "",
-		"ASKOLO_R2_REGIONAL_ACCESS_KEY_ID":     "",
-		"ASKOLO_R2_REGIONAL_SECRET_ACCESS_KEY": "",
+		"ASKOLO_R2_US_BUCKET":                  "askolo-production-us",
+		"ASKOLO_R2_EU_BUCKET":                  "askolo-production-eu",
+		"ASKOLO_R2_REGIONAL_ACCESS_KEY_ID":     "regional-access-key",
+		"ASKOLO_R2_REGIONAL_SECRET_ACCESS_KEY": "regional-secret-key",
 	} {
 		t.Setenv(key, value)
 	}
 
-	got, err := loadR2Config("development")
+	got, err := loadR2Config()
 	if err != nil {
-		t.Fatalf("loadR2Config(development): %v", err)
+		t.Fatalf("loadR2Config(): %v", err)
 	}
-	if got.Legacy.AccountID != "11111111111111111111111111111111" ||
-		got.Legacy.Bucket != "askolo-development-files" ||
-		got.Legacy.AccessKeyID != "test-access-key" ||
-		got.Legacy.SecretAccessKey != "test-secret-key" {
-		t.Fatal("Development R2 configuration was not loaded")
-	}
-	production, err := loadR2Config("production")
-	if err != nil {
-		t.Fatalf("legacy Development configuration must not block Production startup: %v", err)
-	}
-	if production.Legacy.Bucket != "" {
-		t.Fatal("legacy single-bucket credentials must not be used in Production")
-	}
-
-	t.Setenv("ASKOLO_R2_US_BUCKET", "askolo-production-us-files")
-	t.Setenv("ASKOLO_R2_EU_BUCKET", "askolo-production-eu-files")
-	t.Setenv("ASKOLO_R2_REGIONAL_ACCESS_KEY_ID", "regional-access-key")
-	t.Setenv("ASKOLO_R2_REGIONAL_SECRET_ACCESS_KEY", "regional-secret-key")
-	production, err = loadR2Config("production")
-	if err != nil {
-		t.Fatalf("loadR2Config(production): %v", err)
-	}
-	if production.US.Bucket != "askolo-production-us-files" ||
-		production.US.Jurisdiction != "us" ||
-		production.EU.Bucket != "askolo-production-eu-files" ||
-		production.EU.Jurisdiction != "eu" ||
-		production.US.AccessKeyID != production.EU.AccessKeyID ||
-		production.US.SecretAccessKey != production.EU.SecretAccessKey {
-		t.Fatal("Production regional R2 configuration was not loaded correctly")
-	}
-}
-
-func TestLoadR2ConfigRejectsPartialAndInvalidSettings(t *testing.T) {
-	tests := []struct {
-		name   string
-		values map[string]string
-	}{
-		{
-			name: "partial credentials",
-			values: map[string]string{
-				"ASKOLO_R2_ACCOUNT_ID":    "11111111111111111111111111111111",
-				"ASKOLO_R2_BUCKET":        "askolo-development-files",
-				"ASKOLO_R2_ACCESS_KEY_ID": "test-access-key",
-			},
-		},
-		{
-			name: "invalid account id",
-			values: map[string]string{
-				"ASKOLO_R2_ACCOUNT_ID":        "not-an-account",
-				"ASKOLO_R2_BUCKET":            "askolo-development-files",
-				"ASKOLO_R2_ACCESS_KEY_ID":     "test-access-key",
-				"ASKOLO_R2_SECRET_ACCESS_KEY": "test-secret-key",
-			},
-		},
-		{
-			name: "invalid bucket",
-			values: map[string]string{
-				"ASKOLO_R2_ACCOUNT_ID":        "11111111111111111111111111111111",
-				"ASKOLO_R2_BUCKET":            "Bad_Name",
-				"ASKOLO_R2_ACCESS_KEY_ID":     "test-access-key",
-				"ASKOLO_R2_SECRET_ACCESS_KEY": "test-secret-key",
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			for _, key := range []string{
-				"ASKOLO_R2_ACCOUNT_ID",
-				"ASKOLO_R2_BUCKET",
-				"ASKOLO_R2_ACCESS_KEY_ID",
-				"ASKOLO_R2_SECRET_ACCESS_KEY",
-				"ASKOLO_R2_US_BUCKET",
-				"ASKOLO_R2_EU_BUCKET",
-				"ASKOLO_R2_REGIONAL_ACCESS_KEY_ID",
-				"ASKOLO_R2_REGIONAL_SECRET_ACCESS_KEY",
-			} {
-				t.Setenv(key, test.values[key])
-			}
-			if _, err := loadR2Config("development"); err == nil {
-				t.Fatal("invalid R2 configuration was accepted")
-			}
-		})
+	if got.US.Bucket != "askolo-production-us" ||
+		got.US.Jurisdiction != "us" ||
+		got.EU.Bucket != "askolo-production-eu" ||
+		got.EU.Jurisdiction != "eu" ||
+		got.US.AccessKeyID != "regional-access-key" ||
+		got.US.SecretAccessKey != "regional-secret-key" ||
+		got.US.AccessKeyID != got.EU.AccessKeyID ||
+		got.US.SecretAccessKey != got.EU.SecretAccessKey {
+		t.Fatal("regional R2 configuration was not loaded correctly")
 	}
 }
 
@@ -231,9 +151,6 @@ func TestLoadR2ConfigRejectsIncompleteRegionalBucketsAndCredentials(t *testing.T
 	}
 	keys := []string{
 		"ASKOLO_R2_ACCOUNT_ID",
-		"ASKOLO_R2_BUCKET",
-		"ASKOLO_R2_ACCESS_KEY_ID",
-		"ASKOLO_R2_SECRET_ACCESS_KEY",
 		"ASKOLO_R2_US_BUCKET",
 		"ASKOLO_R2_EU_BUCKET",
 		"ASKOLO_R2_REGIONAL_ACCESS_KEY_ID",
@@ -250,7 +167,7 @@ func TestLoadR2ConfigRejectsIncompleteRegionalBucketsAndCredentials(t *testing.T
 			for _, key := range keys {
 				t.Setenv(key, values[key])
 			}
-			if _, err := loadR2Config("production"); err == nil {
+			if _, err := loadR2Config(); err == nil {
 				t.Fatal("incomplete regional R2 configuration was accepted")
 			}
 		})

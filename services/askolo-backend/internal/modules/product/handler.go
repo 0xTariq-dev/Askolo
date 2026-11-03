@@ -99,7 +99,6 @@ type Handler struct {
 	assistantPlanner           assistantPlanner
 	assistantTools             *assistantToolRegistry
 	assistantActionExecutor    AssistantActionExecutor
-	fileStorage                privateFileStorage
 	fileStorageByJurisdiction  map[string]privateFileStorage
 	storageJurisdictionForUser func(context.Context, string) (string, error)
 	sharedEmailReader          SharedEmailReader
@@ -222,14 +221,6 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 			continue
 		}
 		handler.fileStorageByJurisdiction[jurisdiction] = client
-	}
-	if cfg.R2.Legacy.Bucket != "" {
-		client, err := r2.New(cfg.R2.Legacy)
-		if err != nil {
-			handler.logger.Error("legacy R2 storage client initialization failed")
-		} else {
-			handler.fileStorage = client
-		}
 	}
 	return handler
 }
@@ -702,7 +693,7 @@ func (h *Handler) delete(spec postgres.ProductSpec) http.HandlerFunc {
 		if status != http.StatusOK || !h.authorize(r, userID, spec.Name, strconv.FormatInt(id, 10), policy.ActionResourceDelete, w) {
 			return
 		}
-		if spec.Name == "note" && h.fileStorage != nil {
+		if spec.Name == "note" && h.hasFileStorage() {
 			prefix := fmt.Sprintf("attachments/notes/%s/%d/", userID, id)
 			if err := h.deleteAttachmentPrefix(r.Context(), prefix); err != nil {
 				h.logger.Error("note attachment cleanup failed", "error", err)
