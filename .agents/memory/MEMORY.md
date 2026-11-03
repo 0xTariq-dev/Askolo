@@ -4,7 +4,7 @@
 - [Isolated OAuth preview hosts](isolated-oauth-preview-hosts.md) — verify OAuth callback and Turnstile host allowlists before real OAuth testing on a task-specific preview.
 - [Google auth feedback](google-auth-feedback.md) — distinguish signup email collisions from unlinked sign-in and keep both as concise, persistent ReUI Alerts.
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
-- [Microsoft integration OAuth](microsoft-integration-oauth.md) — Entra app setup exists; use configured `MS_CLIENT_*` secret names with the planned callback when implementing Graph OAuth.
+- [Microsoft integration OAuth](microsoft-integration-oauth.md) — preserve user-selected `MS_CLIENT_*` credentials and canonical-origin policy; inspect current routes rather than assuming implementation status.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [Lingui localization in Vite](lingui-vite-macros.md) — configure the macro transform and verify runtime browser catalog loaders; Vite’s static glob expansion is not a runtime API.
