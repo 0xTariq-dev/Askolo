@@ -60,3 +60,41 @@ func TestPresignRejectsUnsafeKeysAndLongExpiry(t *testing.T) {
 		t.Fatal("presign TTL above the maximum was accepted")
 	}
 }
+
+func TestPresignGetAttachmentSetsSafeDownloadDisposition(t *testing.T) {
+	client, err := New(config.R2Config{
+		AccountID:       "11111111111111111111111111111111",
+		Bucket:          "askolo-development-files",
+		AccessKeyID:     "test-access-key",
+		SecretAccessKey: "test-secret-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := client.PresignGetAttachment(
+		context.Background(),
+		"attachments/notes/user_1/42/file-1",
+		time.Minute,
+		"meeting notes.txt",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Query().Get("response-content-disposition"); got != `attachment; filename="meeting notes.txt"` {
+		t.Fatalf("content disposition = %q", got)
+	}
+	for _, name := range []string{"../secret.txt", "bad\\name.txt", "bad\nname.txt"} {
+		if _, err := client.PresignGetAttachment(
+			context.Background(),
+			"attachments/notes/user_1/42/file-1",
+			time.Minute,
+			name,
+		); err == nil {
+			t.Errorf("unsafe download filename %q was accepted", name)
+		}
+	}
+}

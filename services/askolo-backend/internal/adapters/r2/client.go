@@ -1,6 +1,7 @@
 package r2
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"mime"
@@ -26,6 +27,12 @@ type PresignedRequest struct {
 	URL     string
 	Method  string
 	Headers http.Header
+}
+
+type Object struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
 }
 
 func New(cfg config.R2Config) (*Client, error) {
@@ -83,12 +90,39 @@ func (c *Client) PresignGet(
 	key string,
 	expires time.Duration,
 ) (PresignedRequest, error) {
+	return c.presignGet(ctx, key, expires, "attachment")
+}
+
+func (c *Client) PresignGetInline(ctx context.Context, key string, expires time.Duration) (PresignedRequest, error) {
+	return c.presignGet(ctx, key, expires, "inline")
+}
+
+func (c *Client) PresignGetAttachment(ctx context.Context, key string, expires time.Duration, fileName string) (PresignedRequest, error) {
+	if strings.TrimSpace(fileName) == "" || fileName == "." || fileName == ".." ||
+		len(fileName) > 240 || strings.ContainsAny(fileName, "/\\\r\n\x00") {
+		return PresignedRequest{}, fmt.Errorf("invalid attachment filename")
+	}
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": fileName})
+	if disposition == "" {
+		return PresignedRequest{}, fmt.Errorf("invalid attachment filename")
+	}
+	return c.presignGet(ctx, key, expires, disposition)
+}
+
+func (c *Client) presignGet(
+	ctx context.Context,
+	key string,
+	expires time.Duration,
+	disposition string,
+) (PresignedRequest, error) {
 	if c == nil || c.presigner == nil || !validObjectKey(key) || !validPresignTTL(expires) {
 		return PresignedRequest{}, fmt.Errorf("invalid R2 download request")
 	}
 	request, err := c.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(c.bucket),
-		Key:    aws.String(key),
+		Bucket:                     aws.String(c.bucket),
+		Key:                        aws.String(key),
+		ResponseContentDisposition: aws.String(disposition),
+		ResponseCacheControl:       aws.String("private, no-store"),
 	}, func(options *s3.PresignOptions) {
 		options.Expires = expires
 	})
@@ -96,6 +130,53 @@ func (c *Client) PresignGet(
 		return PresignedRequest{}, fmt.Errorf("R2 download request could not be prepared")
 	}
 	return PresignedRequest{URL: request.URL, Method: request.Method, Headers: request.SignedHeader}, nil
+}
+
+func (c *Client) PutObject(ctx context.Context, key, contentType string, body []byte) error {
+	if c == nil || c.s3 == nil || !validObjectKey(key) ||
+		!validContentType(contentType) || len(body) == 0 {
+		return fmt.Errorf("invalid R2 upload request")
+	}
+	if _, err := c.s3.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(c.bucket),
+		Key:           aws.String(key),
+		Body:          bytes.NewReader(body),
+		ContentLength: aws.Int64(int64(len(body))),
+		ContentType:   aws.String(contentType),
+	}); err != nil {
+		return fmt.Errorf("R2 upload operation failed")
+	}
+	return nil
+}
+
+func (c *Client) ListObjects(ctx context.Context, prefix string, limit int32) ([]Object, error) {
+	if c == nil || c.s3 == nil || !validObjectKey(strings.TrimSuffix(prefix, "/")) ||
+		!strings.HasSuffix(prefix, "/") || limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("invalid R2 list request")
+	}
+	result, err := c.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(c.bucket),
+		Prefix:  aws.String(prefix),
+		MaxKeys: aws.Int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("R2 list operation failed")
+	}
+	objects := make([]Object, 0, len(result.Contents))
+	for _, item := range result.Contents {
+		if item.Key == nil || !strings.HasPrefix(*item.Key, prefix) {
+			continue
+		}
+		object := Object{Key: *item.Key}
+		if item.Size != nil {
+			object.Size = *item.Size
+		}
+		if item.LastModified != nil {
+			object.LastModified = *item.LastModified
+		}
+		objects = append(objects, object)
+	}
+	return objects, nil
 }
 
 func (c *Client) Delete(ctx context.Context, key string) error {

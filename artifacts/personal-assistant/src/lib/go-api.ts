@@ -55,9 +55,12 @@ import type {
   RecoveryEmailEnrollmentInput,
   RecoveryEmailVerificationInput,
   UserProfileUpdate,
+  ProfileUser,
+  FileAttachment as FileAttachmentSchema,
 } from '@workspace/api-client-react';
 
 const fingerprintCookieName = 'askolo_device_fingerprint';
+const artifactBasePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 function getCookie(name: string): string | null {
   if (typeof document === 'undefined') return null;
@@ -102,12 +105,78 @@ function sessionRequestOptions(signal?: AbortSignal) {
   };
 }
 
+async function uploadForm<T>(path: string, form: FormData): Promise<T> {
+  const fingerprint = getDeviceFingerprint();
+  const response = await fetch(`${artifactBasePath}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: fingerprint ? { 'X-Askolo-Device-Fingerprint': fingerprint } : {},
+    body: form,
+  });
+  if (!response.ok) throw new Error('The upload could not be completed.');
+  return response.json() as Promise<T>;
+}
+
+async function attachmentRequest<T>(path: string, method = 'GET', form?: FormData): Promise<T> {
+  const fingerprint = getDeviceFingerprint();
+  const response = await fetch(`${artifactBasePath}${path}`, {
+    method,
+    credentials: 'include',
+    headers: fingerprint ? { 'X-Askolo-Device-Fingerprint': fingerprint } : {},
+    ...(form ? { body: form } : {}),
+  });
+  if (!response.ok) throw new Error('Attachment request failed.');
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+export type FileAttachment = FileAttachmentSchema;
+
+function attachmentForm(file: File): FormData {
+  const form = new FormData();
+  form.append('file', file);
+  return form;
+}
+
+function appProfileImageURL(url: string | null): string | null {
+  if (url?.startsWith('/')) return `${artifactBasePath}${url}`;
+  return url;
+}
+
 export const goApi = {
-  currentUser: (signal?: AbortSignal) =>
-    getCurrentAuthUserRequest(sessionRequestOptions(signal)),
+  currentUser: async (signal?: AbortSignal) => {
+    const response = await getCurrentAuthUserRequest(sessionRequestOptions(signal));
+    return {
+      ...response,
+      user: response.user
+        ? { ...response.user, profileImageUrl: appProfileImageURL(response.user.profileImageUrl) }
+        : null,
+    };
+  },
   logout: () => logoutPasswordSessionRequest(sessionRequestOptions()),
-  updateProfile: (input: UserProfileUpdate) =>
-    updateUserProfileRequest(input, sessionRequestOptions()),
+  updateProfile: async (input: UserProfileUpdate) => {
+    const user = await updateUserProfileRequest(input, sessionRequestOptions());
+    return { ...user, profileImageUrl: appProfileImageURL(user.profileImageUrl) };
+  },
+  uploadProfileImage: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const user = await uploadForm<ProfileUser>('/api/user/profile-image', form);
+    return { ...user, profileImageUrl: appProfileImageURL(user.profileImageUrl) };
+  },
+  listNoteAttachments: (noteId: number) =>
+    attachmentRequest<{ attachments: FileAttachment[] }>(`/api/notes/${noteId}/attachments`),
+  uploadNoteAttachment: (noteId: number, file: File) =>
+    attachmentRequest<FileAttachment>(`/api/notes/${noteId}/attachments`, 'POST', attachmentForm(file)),
+  deleteNoteAttachment: (noteId: number, attachmentId: string) =>
+    attachmentRequest<void>(`/api/notes/${noteId}/attachments/${encodeURIComponent(attachmentId)}`, 'DELETE'),
+  listTaskAttachments: (workspaceId: string, taskId: string) =>
+    attachmentRequest<{ attachments: FileAttachment[] }>(`/api/v2/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/attachments`),
+  uploadTaskAttachment: (workspaceId: string, taskId: string, file: File) =>
+    attachmentRequest<FileAttachment>(`/api/v2/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/attachments`, 'POST', attachmentForm(file)),
+  deleteTaskAttachment: (workspaceId: string, taskId: string, attachmentId: string) =>
+    attachmentRequest<void>(`/api/v2/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`, 'DELETE'),
+  attachmentHref: (url: string) => url.startsWith('/') ? `${artifactBasePath}${url}` : url,
   setPassword: (input: PasswordSetInput) =>
     setPasswordRequest(input, sessionRequestOptions()),
   passwordLogin: (input: PasswordLoginInput) =>

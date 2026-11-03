@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
+	"askolo/backend/internal/adapters/r2"
 	"askolo/backend/internal/config"
 	"askolo/backend/internal/platform/apierror"
 	policy "askolo/backend/internal/platform/authorization"
@@ -98,6 +99,7 @@ type Handler struct {
 	assistantPlanner        assistantPlanner
 	assistantTools          *assistantToolRegistry
 	assistantActionExecutor AssistantActionExecutor
+	fileStorage             *r2.Client
 	sharedEmailReader       SharedEmailReader
 	spaceInviteMailer       SpaceInviteMailer
 	realtimeMeters          sync.Map
@@ -170,7 +172,7 @@ type voiceCreditReservation struct {
 }
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, sessionCookieName string) *Handler {
-	return newHandler(
+	handler := newHandler(
 		cfg,
 		store,
 		logger,
@@ -185,6 +187,15 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 		),
 		cfg.CanonicalOrigin,
 	)
+	if cfg.R2.AccountID != "" {
+		client, err := r2.New(cfg.R2)
+		if err != nil {
+			handler.logger.Error("R2 storage client initialization failed")
+		} else {
+			handler.fileStorage = client
+		}
+	}
+	return handler
 }
 
 func newHandler(
@@ -560,6 +571,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/ai/meeting-extract", h.meetingExtract)
 	mux.HandleFunc("POST /api/ai/transcribe-audio", h.transcribeAudio)
 	mux.HandleFunc("PATCH /api/user/profile", h.updateProfile)
+	h.mountFileRoutes(mux)
 	mux.HandleFunc("DELETE /api/user/data", h.deleteUserData)
 	mux.HandleFunc("DELETE /api/user/account", h.deleteAccount)
 	h.mountV2(mux)
@@ -653,6 +665,14 @@ func (h *Handler) delete(spec postgres.ProductSpec) http.HandlerFunc {
 		userID, status := h.sessionUserID(r)
 		if status != http.StatusOK || !h.authorize(r, userID, spec.Name, strconv.FormatInt(id, 10), policy.ActionResourceDelete, w) {
 			return
+		}
+		if spec.Name == "note" && h.fileStorage != nil {
+			prefix := fmt.Sprintf("attachments/notes/%s/%d/", userID, id)
+			if err := h.deleteAttachmentPrefix(r.Context(), prefix); err != nil {
+				h.logger.Error("note attachment cleanup failed", "error", err)
+				writeError(w, http.StatusServiceUnavailable, "FILE_CLEANUP_UNAVAILABLE", "The note could not be deleted because its files could not be cleared.")
+				return
+			}
 		}
 		err = h.store.DeleteProduct(r.Context(), spec, userID, id)
 		if errors.Is(err, postgres.ErrNotFound) {
@@ -2058,6 +2078,11 @@ func (h *Handler) deleteUserData(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "UNAUTHORIZED", "Unauthorized.")
 		return
 	}
+	if err := h.clearUserOwnedFiles(r.Context(), userID); err != nil {
+		h.logger.Error("user file cleanup failed", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "FILE_CLEANUP_UNAVAILABLE", "Your data could not be deleted because private files could not be cleared.")
+		return
+	}
 	if err := h.store.DeleteUserData(r.Context(), userID); err != nil {
 		h.storeError(w, "user data deletion failed", err)
 		return
@@ -2069,6 +2094,11 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	userID, status := h.sessionUserID(r)
 	if status != http.StatusOK {
 		writeError(w, status, "UNAUTHORIZED", "Unauthorized.")
+		return
+	}
+	if err := h.clearUserOwnedFiles(r.Context(), userID); err != nil {
+		h.logger.Error("account file cleanup failed", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "FILE_CLEANUP_UNAVAILABLE", "Your account could not be deleted because private files could not be cleared.")
 		return
 	}
 	if err := h.store.DeleteAccount(r.Context(), userID); err != nil {

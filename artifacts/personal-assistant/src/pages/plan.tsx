@@ -67,6 +67,7 @@ import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
 import { AgendaCalendar } from '@/components/agenda-calendar';
 import { GoalsPage } from '@/pages/goals';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { FileAttachments } from '@/components/file-attachments';
 
 const planSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -974,6 +975,11 @@ export function PlanPage() {
               </select>
               <p className="text-xs text-muted-foreground">{isArabic ? 'تُنشأ السلسلة الجديدة ثم تُقصَر القديمة. إذا تعذر التحديث، تُزال السلسلة الجديدة.' : 'The new series is created first; the old series is then shortened. A failed update triggers cleanup of the new series.'}</p>
             </div>}
+            {form.watch('kind') === 'task' && (editingRecord ? (
+              <FileAttachments kind="task" workspaceId={editingRecord.workspaceId} taskId={editingRecord.id} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Save the task first to add attachments.</p>
+            ))}
             <DialogFooter className="pt-3">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
               <Button type="submit" disabled={isSavingTask}>{isSavingTask ? (isArabic ? 'جارٍ الحفظ…' : 'Saving…') : (editingRecord ? (isArabic ? 'حفظ التغييرات' : 'Save changes') : (isArabic ? 'إضافة المهمة' : 'Add task'))}</Button>

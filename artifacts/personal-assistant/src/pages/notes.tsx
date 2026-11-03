@@ -49,6 +49,7 @@ import {
 } from '@/components/voice/voice-session-ui';
 import { getReviewedVoiceValue } from '@/lib/voice-flow';
 import { VoiceConsentDialog } from '@/components/voice-consent-dialog';
+import { FileAttachments } from '@/components/file-attachments';
 import { CURRENT_VOICE_CONSENT_VERSION } from '@/lib/voice-consent';
 import { getVoiceConsentErrorMessage } from '@/lib/voice-consent-errors';
 
@@ -599,6 +600,11 @@ export function NotesPage() {
               <Label htmlFor="tags">Tags (comma separated)</Label>
               <Input id="tags" {...form.register('tags')} placeholder="ideas, work, personal" />
             </div>
+            {editingNote ? (
+              <FileAttachments kind="note" noteId={Number(editingNote.id)} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Save the note first to add attachments.</p>
+            )}
             <DialogFooter>
               <Button
                 type="button"

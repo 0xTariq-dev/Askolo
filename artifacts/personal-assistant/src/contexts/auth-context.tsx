@@ -107,8 +107,14 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
             : null,
         });
       },
-      updateProfileImage: async () => {
-        throw new Error('Native profile photo editing is not available');
+      updateProfileImage: async (file) => {
+        const updated = await goApi.uploadProfileImage(file);
+        setUser({
+          ...updated,
+          preferredLocale: isLocale(updated.preferredLocale)
+            ? updated.preferredLocale
+            : null,
+        });
       },
       updatePassword: async (currentPassword, newPassword) => {
         await goApi.setPassword({ currentPassword, password: newPassword });

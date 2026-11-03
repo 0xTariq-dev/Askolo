@@ -417,6 +417,38 @@ export const UpdateUserProfileResponse = zod.object({
 })
 
 
+/**
+ * @summary Get the authenticated user's private profile image
+ */
+export const GetUserProfileImageResponse = zod.void()
+
+
+/**
+ * @summary Upload a profile image for the authenticated user
+ */
+export const UploadUserProfileImageBody = zod.object({
+  "file": zod.instanceof(Blob)
+})
+
+export const uploadUserProfileImageResponsePreferredLocaleMin = 2;
+export const uploadUserProfileImageResponsePreferredLocaleMax = 2;
+
+
+export const uploadUserProfileImageResponsePreferredLocaleRegExp = new RegExp('^[a-z]{2}$');
+
+
+export const UploadUserProfileImageResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "profileImageUrl": zod.string(),
+  "preferredLocale": zod.string().min(uploadUserProfileImageResponsePreferredLocaleMin).max(uploadUserProfileImageResponsePreferredLocaleMax).regex(uploadUserProfileImageResponsePreferredLocaleRegExp).nullable(),
+  "status": zod.string(),
+  "authProvider": zod.string()
+})
+
+
 export const DeleteUserDataResponse = zod.void()
 
 
@@ -1131,6 +1163,146 @@ export const DeleteNoteParams = zod.object({
 })
 
 export const DeleteNoteResponse = zod.void()
+
+
+/**
+ * @summary List a note's private file attachments
+ */
+export const ListNoteAttachmentsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const ListNoteAttachmentsResponse = zod.object({
+  "attachments": zod.array(zod.object({
+  "id": zod.string(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "downloadUrl": zod.string()
+}))
+})
+
+
+/**
+ * @summary Add a file to a note
+ */
+export const UploadNoteAttachmentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UploadNoteAttachmentBody = zod.object({
+  "file": zod.instanceof(Blob)
+})
+
+
+
+
+export const UploadNoteAttachmentResponse = zod.object({
+  "id": zod.string(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "downloadUrl": zod.string()
+})
+
+
+/**
+ * @summary Delete a note attachment
+ */
+export const DeleteNoteAttachmentParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "attachmentId": zod.coerce.string()
+})
+
+export const DeleteNoteAttachmentResponse = zod.void()
+
+
+/**
+ * @summary Download a note attachment
+ */
+export const DownloadNoteAttachmentParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "attachmentId": zod.coerce.string()
+})
+
+export const DownloadNoteAttachmentResponse = zod.void()
+
+
+/**
+ * @summary List files attached to a task
+ */
+export const ListTaskAttachmentsParams = zod.object({
+  "workspaceId": zod.coerce.string(),
+  "taskId": zod.coerce.string()
+})
+
+
+
+
+export const ListTaskAttachmentsResponse = zod.object({
+  "attachments": zod.array(zod.object({
+  "id": zod.string(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "downloadUrl": zod.string()
+}))
+})
+
+
+/**
+ * @summary Add a file to a task
+ */
+export const UploadTaskAttachmentParams = zod.object({
+  "workspaceId": zod.coerce.string(),
+  "taskId": zod.coerce.string()
+})
+
+export const UploadTaskAttachmentBody = zod.object({
+  "file": zod.instanceof(Blob)
+})
+
+
+
+
+export const UploadTaskAttachmentResponse = zod.object({
+  "id": zod.string(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number().int().min(1),
+  "createdAt": zod.coerce.date(),
+  "downloadUrl": zod.string()
+})
+
+
+/**
+ * @summary Delete a task attachment
+ */
+export const DeleteTaskAttachmentParams = zod.object({
+  "workspaceId": zod.coerce.string(),
+  "taskId": zod.coerce.string(),
+  "attachmentId": zod.coerce.string()
+})
+
+export const DeleteTaskAttachmentResponse = zod.void()
+
+
+/**
+ * @summary Download a task attachment
+ */
+export const DownloadTaskAttachmentParams = zod.object({
+  "workspaceId": zod.coerce.string(),
+  "taskId": zod.coerce.string(),
+  "attachmentId": zod.coerce.string()
+})
+
+export const DownloadTaskAttachmentResponse = zod.void()
 
 
 /**

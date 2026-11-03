@@ -222,6 +222,11 @@ export function ProfilePage() {
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      toast({ title: 'Choose a PNG or JPEG image smaller than 5 MB', variant: 'destructive' });
+      e.target.value = '';
+      return;
+    }
     setUploadingPhoto(true);
     try {
       if (authProvider !== 'password') {
@@ -661,7 +666,7 @@ export function ProfilePage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png"
               className="hidden"
               disabled={authProvider !== 'password'}
               onChange={handlePhotoChange}

@@ -643,6 +643,20 @@ export interface Note {
   updatedAt: string;
 }
 
+export interface FileAttachment {
+  id: string;
+  fileName: string;
+  contentType: string;
+  /** @minimum 1 */
+  sizeBytes: number;
+  createdAt: string;
+  downloadUrl: string;
+}
+
+export interface FileAttachmentList {
+  attachments: FileAttachment[];
+}
+
 export interface NoteInput {
   /** @minLength 1 */
   title: string;
@@ -1452,6 +1466,10 @@ export type LogoutBrowserSessionParams = {
 returnTo?: string;
 };
 
+export type UploadUserProfileImageBody = {
+  file: Blob | File;
+};
+
 export type DisconnectGoogleParams = {
 scope?: DisconnectGoogleScope;
 };
@@ -1482,6 +1500,14 @@ date?: string;
 export type ListEventsParams = {
 from?: string;
 to?: string;
+};
+
+export type UploadNoteAttachmentBody = {
+  file: Blob | File;
+};
+
+export type UploadTaskAttachmentBody = {
+  file: Blob | File;
 };
 
 export type ListActionItemsParams = {

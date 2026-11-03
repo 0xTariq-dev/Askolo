@@ -22,6 +22,8 @@ tags:
     description: Calendar events
   - name: notes
     description: Notes
+  - name: tasks
+    description: Tasks and their private file attachments
   - name: actionItems
     description: Action items
   - name: dashboard
@@ -491,6 +493,38 @@ paths:
         '400': { description: Invalid profile, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 
+  /user/profile-image:
+    get:
+      tags: [Auth]
+      operationId: getUserProfileImage
+      summary: Get the authenticated user's private profile image
+      responses:
+        '302': { description: Redirects to a short-lived private image URL. }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '404': { description: No uploaded profile image. }
+        '429': { description: File read rate limit reached. }
+        '503': { description: File storage or rate limiting is unavailable. }
+    post:
+      tags: [Auth]
+      operationId: uploadUserProfileImage
+      summary: Upload a profile image for the authenticated user
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200': { description: Updated user profile, content: { application/json: { schema: { $ref: '#/components/schemas/ProfileUser' } } } }
+        '400': { description: Invalid image, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '413': { description: Image exceeds the upload limit. }
+        '429': { description: Upload rate limit reached, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: File storage or rate limiting is unavailable. }
+
   /user/data:
     delete:
       tags: [Auth]
@@ -498,6 +532,7 @@ paths:
       responses:
         '204': { description: All user data deleted. }
         '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: Private files could not be cleared. }
 
   /user/account:
     delete:
@@ -506,6 +541,7 @@ paths:
       responses:
         '204': { description: Account deleted. }
         '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: Private files could not be cleared. }
 
   /google/disconnect:
     delete:
@@ -1128,6 +1164,190 @@ paths:
       responses:
         "204":
           description: Deleted
+        "503":
+          description: Private attachments could not be cleared before deleting the note.
+
+  /notes/{id}/attachments:
+    get:
+      operationId: listNoteAttachments
+      tags: [notes]
+      summary: List a note's private file attachments
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Attachments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileAttachmentList" }
+        "404": { description: Note not found. }
+    post:
+      operationId: uploadNoteAttachment
+      tags: [notes]
+      summary: Add a file to a note
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: Uploaded attachment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileAttachment" }
+        "400": { description: Invalid upload. }
+        "404": { description: Note not found. }
+        "413": { description: File exceeds the upload limit. }
+        "429": { description: Upload rate limit reached. }
+
+  /notes/{id}/attachments/{attachmentId}:
+    delete:
+      operationId: deleteNoteAttachment
+      tags: [notes]
+      summary: Delete a note attachment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Attachment deleted. }
+        "404": { description: Note or attachment not found. }
+
+  /notes/{id}/attachments/{attachmentId}/download:
+    get:
+      operationId: downloadNoteAttachment
+      tags: [notes]
+      summary: Download a note attachment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "302": { description: Redirects to a short-lived private download URL. }
+        "404": { description: Note or attachment not found. }
+
+  /v2/workspaces/{workspaceId}/tasks/{taskId}/attachments:
+    get:
+      operationId: listTaskAttachments
+      tags: [tasks]
+      summary: List files attached to a task
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Attachments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileAttachmentList" }
+        "404": { description: Workspace or task not found. }
+    post:
+      operationId: uploadTaskAttachment
+      tags: [tasks]
+      summary: Add a file to a task
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: Uploaded attachment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileAttachment" }
+        "400": { description: Invalid upload. }
+        "403": { description: Task write permission required. }
+        "404": { description: Workspace or task not found. }
+        "413": { description: File exceeds the upload limit. }
+        "429": { description: Upload rate limit reached. }
+
+  /v2/workspaces/{workspaceId}/tasks/{taskId}/attachments/{attachmentId}:
+    delete:
+      operationId: deleteTaskAttachment
+      tags: [tasks]
+      summary: Delete a task attachment
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Attachment deleted. }
+        "403": { description: Task write permission required. }
+        "404": { description: "Workspace, task, or attachment not found." }
+
+  /v2/workspaces/{workspaceId}/tasks/{taskId}/attachments/{attachmentId}/download:
+    get:
+      operationId: downloadTaskAttachment
+      tags: [tasks]
+      summary: Download a task attachment
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "302": { description: Redirects to a short-lived private download URL. }
+        "404": { description: "Workspace, task, or attachment not found." }
 
   # ─── ACTION ITEMS ─────────────────────────────────────────────────────────
   /action-items:
@@ -2845,6 +3065,23 @@ components:
         updatedAt:
           type: string
           format: date-time
+    FileAttachment:
+      type: object
+      required: [id, fileName, contentType, sizeBytes, createdAt, downloadUrl]
+      properties:
+        id: { type: string }
+        fileName: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        downloadUrl: { type: string }
+    FileAttachmentList:
+      type: object
+      required: [attachments]
+      properties:
+        attachments:
+          type: array
+          items: { $ref: "#/components/schemas/FileAttachment" }
     NoteInput:
       type: object
       required: [title, content]

@@ -1294,6 +1294,21 @@ func (s *Store) UpdateUserProfile(
 	return s.GetUser(ctx, userID)
 }
 
+func (s *Store) UpdateUserProfileImage(ctx context.Context, userID, imageURL string) (User, error) {
+	if s == nil || s.pool == nil {
+		return User{}, errors.New("database is not configured")
+	}
+	_, err := s.pool.Exec(ctx, `
+UPDATE users
+SET profile_image_url = $2, updated_at = NOW()
+WHERE id = $1
+`, userID, imageURL)
+	if err != nil {
+		return User{}, err
+	}
+	return s.GetUser(ctx, userID)
+}
+
 func optionalStringValue(value *string) (bool, *string) {
 	return value != nil, value
 }
@@ -1320,7 +1335,11 @@ func (s *Store) DeleteUserData(ctx context.Context, userID string) error {
 		`DELETE FROM voice_preferences WHERE user_id = $1`,
 		`DELETE FROM voice_output_preferences WHERE user_id = $1`,
 		`DELETE FROM ai_credit_accounts WHERE user_id = $1`,
-		`UPDATE users SET preferred_locale = NULL, updated_at = NOW() WHERE id = $1`,
+		`UPDATE users
+		 SET preferred_locale = NULL,
+		     profile_image_url = CASE WHEN profile_image_url LIKE '/api/user/profile-image%' THEN '' ELSE profile_image_url END,
+		     updated_at = NOW()
+		 WHERE id = $1`,
 	} {
 		if _, err := tx.Exec(ctx, query, userID); err != nil {
 			return err
