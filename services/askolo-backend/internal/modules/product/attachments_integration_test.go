@@ -197,6 +197,58 @@ func TestNoteAttachmentsAreOwnerScopedAndCleanedOnDeletionIntegration(t *testing
 	}
 }
 
+func TestAccountDeletionRemovesOnlyAccountOwnersPrivateFilesIntegration(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	storage := newAttachmentIntegrationStorage()
+	const (
+		ownerID    = "account-delete-files-owner"
+		otherID    = "account-delete-files-other"
+		ownerEmail = "account-delete-files-owner@example.test"
+		otherEmail = "account-delete-files-other@example.test"
+	)
+	ownerSession := fixture.createUserAndSession(t, ownerID, ownerEmail, true)
+	otherSession := fixture.createUserAndSession(t, otherID, otherEmail, true)
+	ensureAttachmentPersonalSpace(t, fixture, ownerID)
+	ensureAttachmentPersonalSpace(t, fixture, otherID)
+	api := attachmentIntegrationAPI(fixture, storage)
+
+	ownerNoteID := createAttachmentNote(t, api, ownerSession, "Account deletion cleanup")
+	uploadAttachment(t, api, ownerSession,
+		"/api/notes/"+ownerNoteID+"/attachments", "owner.txt", "owner private attachment")
+	ownerNotePrefix := fmt.Sprintf("attachments/notes/%s/%s/", ownerID, ownerNoteID)
+	ownerProfileKey := "profile-images/" + ownerID + "/avatar"
+	if _, err := fixture.store.UpdateUserProfileImage(
+		fixture.ctx, ownerID, "/api/user/profile-image?version=owner",
+	); err != nil {
+		t.Fatalf("set owner profile image URL: %v", err)
+	}
+	storage.putTestObject(ownerProfileKey)
+
+	otherNoteID := createAttachmentNote(t, api, otherSession, "Other user's private file")
+	uploadAttachment(t, api, otherSession,
+		"/api/notes/"+otherNoteID+"/attachments", "other.txt", "other private attachment")
+	otherNotePrefix := fmt.Sprintf("attachments/notes/%s/%s/", otherID, otherNoteID)
+
+	deleted := attachmentRequest(api, ownerSession, http.MethodDelete, "/api/user/account", nil, "")
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("account deletion status = %d, want %d: %s",
+			deleted.Code, http.StatusNoContent, deleted.Body.String())
+	}
+	if storage.hasPrefix(ownerNotePrefix) || storage.hasPrefix(ownerProfileKey) {
+		t.Fatalf("account deletion left owner's private files: note=%v profile=%v",
+			storage.hasPrefix(ownerNotePrefix), storage.hasPrefix(ownerProfileKey))
+	}
+	if !storage.hasPrefix(otherNotePrefix) {
+		t.Fatal("account deletion removed another user's private Note attachment")
+	}
+	if _, err := fixture.store.GetUser(fixture.ctx, ownerID); !errors.Is(err, postgres.ErrNotFound) {
+		t.Fatalf("deleted owner lookup error = %v, want not found", err)
+	}
+	if _, err := fixture.store.GetUser(fixture.ctx, otherID); err != nil {
+		t.Fatalf("another user's account was changed by deletion: %v", err)
+	}
+}
+
 func TestAttachmentCleanupFailuresPreserveDatabaseDataIntegration(t *testing.T) {
 	for _, target := range []struct {
 		name string
