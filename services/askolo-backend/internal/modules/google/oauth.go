@@ -289,20 +289,40 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 	}
 	baseURL, err := h.callbackBaseURL(r)
 	if err != nil {
+		h.logCallbackFailure(r, flow, "callback_origin")
 		writeError(w, http.StatusBadRequest, "INVALID_HOST", "This host is not configured for Google authorization.")
 		return
 	}
 	cookie, err := r.Cookie(stateCookieName)
 	if err != nil {
+		h.logCallbackFailure(r, flow, "state_cookie_missing")
 		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
 		return
 	}
 	payload, err := h.decodeState(cookie.Value)
-	if err != nil || payload.Flow != flow || payload.IssuedAt < time.Now().Add(-stateTTL).Unix() {
+	if err != nil {
+		h.logCallbackFailure(r, flow, "state_cookie_invalid")
 		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
 		return
 	}
-	if state := r.URL.Query().Get("state"); state == "" || state != payload.Nonce {
+	if payload.Flow != flow {
+		h.logCallbackFailure(r, flow, "state_flow_mismatch")
+		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
+		return
+	}
+	if payload.IssuedAt < time.Now().Add(-stateTTL).Unix() {
+		h.logCallbackFailure(r, flow, "state_expired")
+		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
+		return
+	}
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		h.logCallbackFailure(r, flow, "state_query_missing")
+		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
+		return
+	}
+	if state != payload.Nonce {
+		h.logCallbackFailure(r, flow, "state_query_mismatch")
 		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
 		return
 	}
@@ -310,7 +330,13 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 	userID, returnTo, consumed, err := h.store.ConsumeOAuthState(
 		r.Context(), hex.EncodeToString(hash[:]), flow,
 	)
-	if err != nil || !consumed {
+	if err != nil {
+		h.logCallbackFailure(r, flow, "state_store_error")
+		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
+		return
+	}
+	if !consumed {
+		h.logCallbackFailure(r, flow, "state_not_consumed")
 		writeError(w, http.StatusBadRequest, "INVALID_STATE", "Google authorization could not be verified.")
 		return
 	}
@@ -318,23 +344,25 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 		returnTo = payload.ReturnTo
 	}
 	if providerError := r.URL.Query().Get("error"); providerError != "" {
+		h.logCallbackFailure(r, flow, "provider_returned_error")
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
 	code := r.URL.Query().Get("code")
 	if code == "" {
+		h.logCallbackFailure(r, flow, "authorization_code_missing")
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
 	tokens, err := h.exchangeCode(r.Context(), flow, baseURL+callbackPath(flow), code, payload.CodeVerifier)
 	if err != nil {
-		h.logger.Warn("Google OAuth token exchange failed", "flow", flow, "error", err)
+		h.logger.Warn("Google OAuth token exchange failed", "flow", flow, "stage", "token_exchange", "request_id", r.Header.Get("X-Request-ID"), "error", err)
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
 	info, err := h.fetchUserInfo(r.Context(), tokens.AccessToken)
 	if err != nil {
-		h.logger.Warn("Google user identity lookup failed", "flow", flow, "error", err)
+		h.logger.Warn("Google user identity lookup failed", "flow", flow, "stage", "user_info", "request_id", r.Header.Get("X-Request-ID"), "error", err)
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
@@ -350,12 +378,13 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 		userID, _ = h.sessionUserID(r)
 	}
 	if userID == "" {
+		h.logCallbackFailure(r, flow, "user_id_missing")
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
 	scopes := grantedScopesFromToken(tokens.Scope, payload.RequestedScopes)
 	if len(scopes) == 0 {
-		h.logger.Warn("Google integration returned no usable scopes", "user_id", userID)
+		h.logger.Warn("Google integration returned no usable scopes", "flow", flow, "stage", "granted_scopes", "request_id", r.Header.Get("X-Request-ID"))
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
@@ -367,11 +396,20 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request, flow string) {
 		expiresAt, tokenType(tokens.TokenType), h.cfg.Google.TokenEncryptionKey,
 	)
 	if err != nil {
-		h.logger.Error("Google connection persistence failed", "user_id", userID, "error", err)
+		h.logger.Error("Google connection persistence failed", "flow", flow, "stage", "connection_persistence", "request_id", r.Header.Get("X-Request-ID"), "error", err)
 		redirectStatus(w, r, returnTo, "error")
 		return
 	}
 	redirectStatus(w, r, returnTo, "connected")
+}
+
+func (h *Handler) logCallbackFailure(r *http.Request, flow, stage string) {
+	h.logger.Warn(
+		"Google OAuth callback stopped",
+		"flow", flow,
+		"stage", stage,
+		"request_id", r.Header.Get("X-Request-ID"),
+	)
 }
 
 func (h *Handler) finishLoginUser(w http.ResponseWriter, r *http.Request, returnTo string, info userInfo, intent string) {

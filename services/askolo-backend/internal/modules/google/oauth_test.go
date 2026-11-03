@@ -1,6 +1,7 @@
 package google
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -390,6 +391,42 @@ func TestGoogleCallbackRejectsTamperedState(t *testing.T) {
 	if response.Code != http.StatusBadRequest ||
 		!strings.Contains(response.Body.String(), `"code":"INVALID_STATE"`) {
 		t.Fatalf("expected tampered callback to return generic 400, got %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestGoogleCallbackLogsSafeStageWhenStateCookieIsMissing(t *testing.T) {
+	handler := testOAuthHandler()
+	var logs bytes.Buffer
+	handler.logger = slog.New(slog.NewTextHandler(&logs, nil))
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"http://localhost/api/integrations/google/callback?state=private-state&error=access_denied",
+		nil,
+	)
+	request.Host = "localhost"
+	request.Header.Set("X-Request-ID", "oauth-test-request")
+	response := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid-state response, got %d", response.Code)
+	}
+	output := logs.String()
+	for _, expected := range []string{
+		"Google OAuth callback stopped",
+		"stage=state_cookie_missing",
+		"request_id=oauth-test-request",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("log output does not contain %q: %s", expected, output)
+		}
+	}
+	for _, sensitive := range []string{"private-state", "access_denied"} {
+		if strings.Contains(output, sensitive) {
+			t.Errorf("log output must not contain OAuth query data %q: %s", sensitive, output)
+		}
 	}
 }
 
