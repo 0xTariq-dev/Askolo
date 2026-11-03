@@ -262,6 +262,10 @@ func TestAttachmentCleanupFailuresPreserveDatabaseDataIntegration(t *testing.T) 
 			name: "user data deletion",
 			path: func(string) string { return "/api/user/data" },
 		},
+		{
+			name: "account deletion",
+			path: func(string) string { return "/api/user/account" },
+		},
 	} {
 		for _, failure := range []string{"list", "delete"} {
 			t.Run(target.name+"/"+failure+" failure", func(t *testing.T) {
@@ -303,6 +307,25 @@ func TestAttachmentCleanupFailuresPreserveDatabaseDataIntegration(t *testing.T) 
 				}
 				if _, err := fixture.store.GetProduct(fixture.ctx, notes, ownerID, noteIDValue); err != nil {
 					t.Fatalf("Note was deleted despite failed private-file cleanup: %v", err)
+				}
+				if !storage.hasPrefix(prefix) {
+					t.Fatal("private Note attachment was removed despite failed cleanup")
+				}
+				if target.name == "account deletion" {
+					if _, err := fixture.store.GetUser(fixture.ctx, ownerID); err != nil {
+						t.Fatalf("account was deleted despite failed private-file cleanup: %v", err)
+					}
+					var sessionCount int
+					if err := fixture.pool.QueryRow(
+						fixture.ctx,
+						`SELECT COUNT(*) FROM sessions WHERE sess->>'userId' = $1`,
+						ownerID,
+					).Scan(&sessionCount); err != nil {
+						t.Fatalf("count account sessions after cleanup failure: %v", err)
+					}
+					if sessionCount == 0 {
+						t.Fatal("account sessions were deleted despite failed private-file cleanup")
+					}
 				}
 			})
 		}
