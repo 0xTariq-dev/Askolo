@@ -164,6 +164,10 @@ export const goApi = {
     const user = await uploadForm<ProfileUser>('/api/user/profile-image', form);
     return { ...user, profileImageUrl: appProfileImageURL(user.profileImageUrl) };
   },
+  removeProfileImage: async () => {
+    const user = await attachmentRequest<ProfileUser>('/api/user/profile-image', 'DELETE');
+    return { ...user, profileImageUrl: appProfileImageURL(user.profileImageUrl) };
+  },
   listNoteAttachments: (noteId: number) =>
     attachmentRequest<{ attachments: FileAttachment[] }>(`/api/notes/${noteId}/attachments`),
   uploadNoteAttachment: (noteId: number, file: File) =>

@@ -524,6 +524,14 @@ paths:
         '413': { description: Image exceeds the upload limit. }
         '429': { description: Upload rate limit reached, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '503': { description: File storage or rate limiting is unavailable. }
+    delete:
+      tags: [Auth]
+      operationId: deleteUserProfileImage
+      summary: Remove the authenticated user's profile image
+      responses:
+        '200': { description: Updated user profile, content: { application/json: { schema: { $ref: '#/components/schemas/ProfileUser' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: File storage is unavailable or the profile image could not be removed. }
 
   /user/data:
     delete:

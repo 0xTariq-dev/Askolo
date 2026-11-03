@@ -34,6 +34,7 @@ type AppAuthValue = {
     preferredLocale?: Locale;
   }) => Promise<void>;
   updateProfileImage: (file: File) => Promise<void>;
+  removeProfileImage: () => Promise<void>;
   updatePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 };
 
@@ -109,6 +110,15 @@ export function NativeAuthProvider({ children }: { children: ReactNode }) {
       },
       updateProfileImage: async (file) => {
         const updated = await goApi.uploadProfileImage(file);
+        setUser({
+          ...updated,
+          preferredLocale: isLocale(updated.preferredLocale)
+            ? updated.preferredLocale
+            : null,
+        });
+      },
+      removeProfileImage: async () => {
+        const updated = await goApi.removeProfileImage();
         setUser({
           ...updated,
           preferredLocale: isLocale(updated.preferredLocale)

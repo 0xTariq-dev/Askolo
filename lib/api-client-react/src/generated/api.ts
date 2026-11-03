@@ -2633,6 +2633,80 @@ export const useUploadUserProfileImage = <TError = ErrorType<ErrorEnvelope | voi
       return useMutation(getUploadUserProfileImageMutationOptions(options));
     }
 
+export const getDeleteUserProfileImageUrl = () => {
+
+
+
+
+  return `/api/user/profile-image`
+}
+
+/**
+ * @summary Remove the authenticated user's profile image
+ */
+export const deleteUserProfileImage = async ( options?: Parameters<typeof customFetch>[1]): Promise<ProfileUser> => {
+
+  return customFetch<ProfileUser>(getDeleteUserProfileImageUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteUserProfileImageMutationKey = () => ['deleteUserProfileImage'] as const;
+
+export const getDeleteUserProfileImageMutationOptions = <TError = ErrorType<ErrorEnvelope | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserProfileImage>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteUserProfileImage>>, TError,void, TContext> => {
+
+const mutationKey = getDeleteUserProfileImageMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteUserProfileImage>>, void> = () => {
+
+
+          return  deleteUserProfileImage(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteUserProfileImageMutationResult = NonNullable<Awaited<ReturnType<typeof deleteUserProfileImage>>>
+
+    export type DeleteUserProfileImageMutationError = ErrorType<ErrorEnvelope | void>
+
+
+    /**
+ * @summary Remove the authenticated user's profile image
+ */
+export const useDeleteUserProfileImage = <TError = ErrorType<ErrorEnvelope | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserProfileImage>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteUserProfileImage>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteUserProfileImageMutationOptions(options));
+    }
+
 export const getDeleteUserDataUrl = () => {
 
 

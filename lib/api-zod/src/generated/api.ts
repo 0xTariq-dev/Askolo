@@ -449,6 +449,28 @@ export const UploadUserProfileImageResponse = zod.object({
 })
 
 
+/**
+ * @summary Remove the authenticated user's profile image
+ */
+export const deleteUserProfileImageResponsePreferredLocaleMin = 2;
+export const deleteUserProfileImageResponsePreferredLocaleMax = 2;
+
+
+export const deleteUserProfileImageResponsePreferredLocaleRegExp = new RegExp('^[a-z]{2}$');
+
+
+export const DeleteUserProfileImageResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "profileImageUrl": zod.string(),
+  "preferredLocale": zod.string().min(deleteUserProfileImageResponsePreferredLocaleMin).max(deleteUserProfileImageResponsePreferredLocaleMax).regex(deleteUserProfileImageResponsePreferredLocaleRegExp).nullable(),
+  "status": zod.string(),
+  "authProvider": zod.string()
+})
+
+
 export const DeleteUserDataResponse = zod.void()
 
 

@@ -187,6 +187,63 @@ func TestNoteAttachmentsAreOwnerScopedAndCleanedOnDeletionIntegration(t *testing
 	}
 }
 
+func TestDeleteProfileImageOnlyRemovesAuthenticatedUsersImageIntegration(t *testing.T) {
+	fixture := openCreditPolicyIntegrationFixture(t)
+	storage := newAttachmentIntegrationStorage()
+	const (
+		ownerID = "profile-image-owner"
+		otherID = "profile-image-other"
+	)
+	ownerSession := fixture.createUserAndSession(t, ownerID, "profile-image-owner@example.test", true)
+	otherSession := fixture.createUserAndSession(t, otherID, "profile-image-other@example.test", true)
+	if _, err := fixture.store.UpdateUserProfileImage(fixture.ctx, ownerID, "/api/user/profile-image?version=owner"); err != nil {
+		t.Fatalf("set owner profile image URL: %v", err)
+	}
+	if _, err := fixture.store.UpdateUserProfileImage(fixture.ctx, otherID, "/api/user/profile-image?version=other"); err != nil {
+		t.Fatalf("set other profile image URL: %v", err)
+	}
+	ownerKey := "profile-images/" + ownerID + "/avatar"
+	otherKey := "profile-images/" + otherID + "/avatar"
+	storage.putTestObject(ownerKey)
+	storage.putTestObject(otherKey)
+	api := attachmentIntegrationAPI(fixture, storage)
+
+	unauthenticated := attachmentRequest(api, "", http.MethodDelete, "/api/user/profile-image", nil, "")
+	if unauthenticated.Code != http.StatusUnauthorized || !storage.hasPrefix("profile-images/") {
+		t.Fatalf("unauthenticated delete status = %d; private profile images changed: %v",
+			unauthenticated.Code, !storage.hasPrefix("profile-images/"))
+	}
+
+	otherDeleted := attachmentRequest(api, otherSession, http.MethodDelete, "/api/user/profile-image", nil, "")
+	if otherDeleted.Code != http.StatusOK {
+		t.Fatalf("other user's delete status = %d: %s", otherDeleted.Code, otherDeleted.Body.String())
+	}
+	if !storage.hasPrefix(ownerKey) || storage.hasPrefix(otherKey) {
+		t.Fatalf("deleting other user's photo changed wrong objects: owner=%v other=%v",
+			storage.hasPrefix(ownerKey), storage.hasPrefix(otherKey))
+	}
+	var response struct {
+		ProfileImageURL string `json:"profileImageUrl"`
+	}
+	if err := json.NewDecoder(otherDeleted.Body).Decode(&response); err != nil || response.ProfileImageURL != "" {
+		t.Fatalf("delete response profile image URL = %q, decode error = %v", response.ProfileImageURL, err)
+	}
+	otherUser, err := fixture.store.GetUser(fixture.ctx, otherID)
+	if err != nil || otherUser.ProfileImageURL != "" {
+		t.Fatalf("persisted profile image URL = %q, error = %v", otherUser.ProfileImageURL, err)
+	}
+
+	ownerDeleted := attachmentRequest(api, ownerSession, http.MethodDelete, "/api/user/profile-image", nil, "")
+	if ownerDeleted.Code != http.StatusOK || storage.hasPrefix(ownerKey) {
+		t.Fatalf("owner delete status = %d, owner object remains = %v: %s",
+			ownerDeleted.Code, storage.hasPrefix(ownerKey), ownerDeleted.Body.String())
+	}
+	ownerUser, err := fixture.store.GetUser(fixture.ctx, ownerID)
+	if err != nil || ownerUser.ProfileImageURL != "" {
+		t.Fatalf("persisted owner profile image URL = %q, error = %v", ownerUser.ProfileImageURL, err)
+	}
+}
+
 func TestTaskAttachmentsFollowWorkspaceAndTaskPermissionsIntegration(t *testing.T) {
 	fixture := openCreditPolicyIntegrationFixture(t)
 	storage := newAttachmentIntegrationStorage()

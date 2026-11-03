@@ -82,6 +82,7 @@ export function ProfilePage() {
     signOut,
     updateProfile,
     updateProfileImage,
+    removeProfileImage,
     updatePassword,
   } = useAppAuth();
   const { formatDate } = useLocale();
@@ -141,6 +142,7 @@ export function ProfilePage() {
   const [savingName, setSavingName] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [removingPhoto, setRemovingPhoto] = useState(false);
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -240,6 +242,21 @@ export function ProfilePage() {
     } finally {
       setUploadingPhoto(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setRemovingPhoto(true);
+    try {
+      await removeProfileImage();
+      toast({ title: 'Photo removed' });
+    } catch (error) {
+      toast({
+        title: getApiErrorMessage(error, 'Failed to remove photo'),
+        variant: 'destructive',
+      });
+    } finally {
+      setRemovingPhoto(false);
     }
   };
 
@@ -648,7 +665,7 @@ export function ProfilePage() {
               </Avatar>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingPhoto || authProvider !== 'password'}
+                disabled={uploadingPhoto || removingPhoto || authProvider !== 'password'}
                 className="absolute -bottom-1 -end-1 h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow hover:bg-primary/90 transition-colors"
                 aria-label="Change photo"
               >
@@ -662,13 +679,27 @@ export function ProfilePage() {
             <div>
               <p className="font-medium">{displayName}</p>
               <p className="text-sm text-muted-foreground">{email}</p>
+              {user.profileImageUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-auto px-0 text-destructive hover:text-destructive"
+                  onClick={handleRemovePhoto}
+                  disabled={uploadingPhoto || removingPhoto}
+                  aria-label="Remove custom profile photo"
+                >
+                  {removingPhoto && <Loader2 className="me-1.5 h-3.5 w-3.5 animate-spin" />}
+                  Remove photo
+                </Button>
+              )}
             </div>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/jpeg,image/png"
               className="hidden"
-              disabled={authProvider !== 'password'}
+              disabled={authProvider !== 'password' || uploadingPhoto || removingPhoto}
               onChange={handlePhotoChange}
             />
           </div>

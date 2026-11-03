@@ -39,6 +39,7 @@ type attachmentView struct {
 func (h *Handler) mountFileRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/user/profile-image", h.getProfileImage)
 	mux.HandleFunc("POST /api/user/profile-image", h.uploadProfileImage)
+	mux.HandleFunc("DELETE /api/user/profile-image", h.deleteProfileImage)
 	mux.HandleFunc("GET /api/notes/{noteId}/attachments", h.noteAttachments)
 	mux.HandleFunc("POST /api/notes/{noteId}/attachments", h.noteAttachments)
 	mux.HandleFunc("GET /api/notes/{noteId}/attachments/{attachmentId}/download", h.noteAttachmentDownload)
@@ -52,6 +53,27 @@ func (h *Handler) mountFileRoutes(mux *http.ServeMux) {
 		h.v2Protect(false, h.downloadTaskAttachment))
 	mux.HandleFunc("DELETE /api/v2/workspaces/{workspaceId}/tasks/{taskId}/attachments/{attachmentId}",
 		h.v2Protect(true, h.deleteTaskAttachment))
+}
+
+func (h *Handler) deleteProfileImage(w http.ResponseWriter, r *http.Request) {
+	userID, status := h.sessionUserID(r)
+	if status != http.StatusOK {
+		writeError(w, status, "UNAUTHORIZED", "Unauthorized.")
+		return
+	}
+	if !h.attachmentStorage(w) {
+		return
+	}
+	if err := h.fileStorage.Delete(r.Context(), "profile-images/"+userID+"/avatar"); err != nil {
+		h.storeError(w, "profile image deletion failed", err)
+		return
+	}
+	updated, err := h.store.UpdateUserProfileImage(r.Context(), userID, "")
+	if err != nil {
+		h.storeError(w, "profile image update failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toProfileUserResponse(updated))
 }
 
 func (h *Handler) uploadProfileImage(w http.ResponseWriter, r *http.Request) {
