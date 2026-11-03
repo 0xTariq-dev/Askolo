@@ -28,6 +28,21 @@ func TestAttachmentFromObjectRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAttachmentFromObjectParsesDelimiterInsideIdentifier(t *testing.T) {
+	prefix := "attachments/notes/user_1/42/"
+	encodedType := base64.RawURLEncoding.EncodeToString([]byte("application/octet-stream"))
+	encodedName := base64.RawURLEncoding.EncodeToString([]byte("report.txt"))
+	key := prefix + "file--segment--" + encodedType + "--" + encodedName
+
+	got, ok := attachmentFromObject(key, 12, time.Time{}, prefix)
+	if !ok {
+		t.Fatal("expected attachment with a delimiter-containing identifier to parse")
+	}
+	if got.ID != "file--segment" || got.FileName != "report.txt" {
+		t.Fatalf("parsed attachment = %#v", got)
+	}
+}
+
 func TestSafeAttachmentNameRejectsPathTraversalAndControls(t *testing.T) {
 	for _, input := range []string{"", ".", "..", "bad\nname.txt"} {
 		if got := safeAttachmentName(input); got != "" {

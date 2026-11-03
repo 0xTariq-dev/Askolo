@@ -433,25 +433,31 @@ func attachmentFromObject(key string, size int64, modified time.Time, prefix str
 	if !strings.HasPrefix(key, prefix) {
 		return attachmentView{}, false
 	}
-	name := strings.TrimPrefix(key, prefix)
-	parts := strings.SplitN(name, "--", 3)
-	if len(parts) != 3 || parts[0] == "" {
-		return attachmentView{}, false
+	encoded := strings.TrimPrefix(key, prefix)
+	encodedContentType := base64.RawURLEncoding.EncodeToString([]byte("application/octet-stream"))
+	typeSeparator := encodedContentType + "--"
+	for delimiter := strings.Index(encoded, "--"); delimiter >= 0; {
+		attachmentID := encoded[:delimiter]
+		encodedFile := encoded[delimiter+2:]
+		if attachmentID != "" && validV2Identifier(attachmentID) && strings.HasPrefix(encodedFile, typeSeparator) {
+			fileNameBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(encodedFile, typeSeparator))
+			if err == nil {
+				fileName := string(fileNameBytes)
+				if fileName != "" && safeAttachmentName(fileName) == fileName {
+					return attachmentView{
+						ID: attachmentID, FileName: fileName, ContentType: "application/octet-stream",
+						SizeBytes: size, CreatedAt: modified.UTC(),
+					}, true
+				}
+			}
+		}
+		next := strings.Index(encoded[delimiter+1:], "--")
+		if next < 0 {
+			break
+		}
+		delimiter += next + 1
 	}
-	contentTypeBytes, typeErr := base64.RawURLEncoding.DecodeString(parts[1])
-	fileNameBytes, nameErr := base64.RawURLEncoding.DecodeString(parts[2])
-	if typeErr != nil || nameErr != nil || string(contentTypeBytes) != "application/octet-stream" ||
-		!validV2Identifier(parts[0]) {
-		return attachmentView{}, false
-	}
-	fileName := string(fileNameBytes)
-	if safeAttachmentName(fileName) != fileName {
-		return attachmentView{}, false
-	}
-	return attachmentView{
-		ID: parts[0], FileName: fileName, ContentType: string(contentTypeBytes),
-		SizeBytes: size, CreatedAt: modified.UTC(),
-	}, true
+	return attachmentView{}, false
 }
 
 func (h *Handler) noteAttachmentDownload(w http.ResponseWriter, r *http.Request) {

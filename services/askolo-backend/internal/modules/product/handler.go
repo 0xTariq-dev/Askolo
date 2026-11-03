@@ -99,11 +99,19 @@ type Handler struct {
 	assistantPlanner        assistantPlanner
 	assistantTools          *assistantToolRegistry
 	assistantActionExecutor AssistantActionExecutor
-	fileStorage             *r2.Client
+	fileStorage             privateFileStorage
 	sharedEmailReader       SharedEmailReader
 	spaceInviteMailer       SpaceInviteMailer
 	realtimeMeters          sync.Map
 	activeRealtimeSessions  sync.Map
+}
+
+type privateFileStorage interface {
+	PutObject(context.Context, string, string, []byte) error
+	ListObjects(context.Context, string, int32) ([]r2.Object, error)
+	Delete(context.Context, string) error
+	PresignGetAttachment(context.Context, string, time.Duration, string) (r2.PresignedRequest, error)
+	PresignGetInline(context.Context, string, time.Duration) (r2.PresignedRequest, error)
 }
 
 type SpaceInviteMailer func(context.Context, string, string, string) error

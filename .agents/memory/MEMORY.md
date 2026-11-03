@@ -24,6 +24,7 @@
 - [AssemblyAI safe diagnostics](assemblyai-safe-diagnostics.md) — log controlled request stages, HTTP statuses, and cleanup retries; never provider bodies, audio, transcripts, keys, or transcript IDs.
 - [AssemblyAI explicit PII policies](assemblyai-pii-policy-requirements.md) — newer accounts require an explicit full `redact_pii_policies` list or transcript submissions can fail with HTTP 400.
 - [Chat upload commits](chat-upload-commits.md) — chat-uploaded PNGs may be auto-committed into the active branch and need explicit cleanup or ignoring.
+- [Attachment key delimiters](attachment-key-delimiters.md) — attachment IDs and base64url fields can contain the `--` separator; parse candidate boundaries using the encoded field constraints.
 - [Managed backup refs](managed-backup-refs.md) — the gitsafe backup remote rejects non-main pushes, including deletion of recovery branches.
 - [Merge-safe publish cleanup](merge-safe-publish-cleanup.md) — make one canonical patch commit a shared base when preserving a merge with duplicate patch-equivalent commits.
 - [GitHub CLI Git transport](github-cli-git-transport.md) — `gh auth status` does not configure Git HTTPS; run `gh auth setup-git` before fetch/push.
