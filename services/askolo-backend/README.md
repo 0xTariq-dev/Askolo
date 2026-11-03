@@ -26,6 +26,15 @@ authenticated WebSocket contracts.
 - `DATABASE_URL` and `SESSION_SECRET` are required for OAuth and account
   operations. Without them, health checks still work but OAuth returns a safe
   configuration error.
+- Development can use the private Cloudflare R2 bucket by setting
+  `ASKOLO_R2_ACCOUNT_ID`, `ASKOLO_R2_BUCKET`,
+  `ASKOLO_R2_ACCESS_KEY_ID`, and `ASKOLO_R2_SECRET_ACCESS_KEY`. The S3 access
+  keys must be Replit Development secrets; `config.Load` rejects R2 settings
+  outside Development. The Go R2 adapter creates short-lived (at most 15
+  minutes) signed PUT/GET requests and supports object deletion. It does not
+  expose routes by itself; any future upload API must add user/workspace
+  authorization, content-type and size allowlists, rate limits, and object
+  metadata persistence before returning signed URLs.
 - Password signup and recovery require a Resend delivery configuration:
   `RESEND_API_KEY` and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
   set separately; otherwise the challenge hashes use `SESSION_SECRET`.

@@ -35,6 +35,10 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 		"ASKO_PARENT_PRODUCTION_TAG":            "",
 		"ASKOLO_INTERNAL_TOKEN":                 "",
 		"ASKOLO_ADMIN_EMAILS":                   "",
+		"ASKOLO_R2_ACCOUNT_ID":                  "",
+		"ASKOLO_R2_BUCKET":                      "",
+		"ASKOLO_R2_ACCESS_KEY_ID":               "",
+		"ASKOLO_R2_SECRET_ACCESS_KEY":           "",
 		"SESSION_SECRET":                        "session-secret-for-tests-123456789",
 		"AUTH_CHALLENGE_SECRET":                 "",
 		"AUTH_RATE_LIMIT_HMAC_SECRET":           "rate-limit-hmac-secret-for-tests-123456789",
@@ -84,6 +88,81 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 	}
 	if _, ok := cfg.TurnstileAllowedHostnames["localhost"]; !ok {
 		t.Fatal("development Turnstile hostname allowlist must include localhost")
+	}
+}
+
+func TestLoadR2ConfigDevelopmentOnlyAndComplete(t *testing.T) {
+	for key, value := range map[string]string{
+		"ASKOLO_R2_ACCOUNT_ID":        "11111111111111111111111111111111",
+		"ASKOLO_R2_BUCKET":            "askolo-development-files",
+		"ASKOLO_R2_ACCESS_KEY_ID":     "test-access-key",
+		"ASKOLO_R2_SECRET_ACCESS_KEY": "test-secret-key",
+	} {
+		t.Setenv(key, value)
+	}
+
+	got, err := loadR2Config("development")
+	if err != nil {
+		t.Fatalf("loadR2Config(development): %v", err)
+	}
+	if got.AccountID != "11111111111111111111111111111111" ||
+		got.Bucket != "askolo-development-files" ||
+		got.AccessKeyID != "test-access-key" ||
+		got.SecretAccessKey != "test-secret-key" {
+		t.Fatal("Development R2 configuration was not loaded")
+	}
+	if _, err := loadR2Config("production"); err == nil {
+		t.Fatal("production must reject Development R2 credentials")
+	}
+}
+
+func TestLoadR2ConfigRejectsPartialAndInvalidSettings(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			name: "partial credentials",
+			values: map[string]string{
+				"ASKOLO_R2_ACCOUNT_ID":    "11111111111111111111111111111111",
+				"ASKOLO_R2_BUCKET":        "askolo-development-files",
+				"ASKOLO_R2_ACCESS_KEY_ID": "test-access-key",
+			},
+		},
+		{
+			name: "invalid account id",
+			values: map[string]string{
+				"ASKOLO_R2_ACCOUNT_ID":        "not-an-account",
+				"ASKOLO_R2_BUCKET":            "askolo-development-files",
+				"ASKOLO_R2_ACCESS_KEY_ID":     "test-access-key",
+				"ASKOLO_R2_SECRET_ACCESS_KEY": "test-secret-key",
+			},
+		},
+		{
+			name: "invalid bucket",
+			values: map[string]string{
+				"ASKOLO_R2_ACCOUNT_ID":        "11111111111111111111111111111111",
+				"ASKOLO_R2_BUCKET":            "Bad_Name",
+				"ASKOLO_R2_ACCESS_KEY_ID":     "test-access-key",
+				"ASKOLO_R2_SECRET_ACCESS_KEY": "test-secret-key",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, key := range []string{
+				"ASKOLO_R2_ACCOUNT_ID",
+				"ASKOLO_R2_BUCKET",
+				"ASKOLO_R2_ACCESS_KEY_ID",
+				"ASKOLO_R2_SECRET_ACCESS_KEY",
+			} {
+				t.Setenv(key, test.values[key])
+			}
+			if _, err := loadR2Config("development"); err == nil {
+				t.Fatal("invalid R2 configuration was accepted")
+			}
+		})
 	}
 }
 

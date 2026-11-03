@@ -95,4 +95,5 @@
 - [Grant type cap defaults](credit-grant-type-cap-defaults.md) — preserve configured signup/monthly amounts and legacy admin-grant behavior when introducing per-type caps.
 - [AI usage reconciliation review](ai-usage-reconciliation.md) — compare replayed provider usage, not the now-replaced estimate; keep unmeasured non-Azure holds until expiry before release.
 - [Multi-account browser verification](multi-account-browser-verification.md) — fixture-based Profile tests prove UI behavior, not live Google OAuth or a signed-in Development session.
+- [Go module installer fallback](go-module-installer-fallback.md) — if Replit's package callback rejects Go, use the pinned Go module command from the service module.
 

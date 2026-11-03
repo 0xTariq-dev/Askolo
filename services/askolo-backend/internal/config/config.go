@@ -54,8 +54,16 @@ type Config struct {
 	AzureTTSKey                   string
 	AzureTTSRegion                string
 	AzureTTSURL                   string
+	R2                            R2Config
 	AllowedOAuthHosts             map[string]struct{}
 	AdminEmails                   map[string]struct{}
+}
+
+type R2Config struct {
+	AccountID       string
+	Bucket          string
+	AccessKeyID     string
+	SecretAccessKey string
 }
 
 type EmailConfig struct {
@@ -186,6 +194,10 @@ func Load() (Config, error) {
 	}
 	if environment == "production" && explicitEnvironment == "" {
 		return Config{}, fmt.Errorf("ASKOLO_ENVIRONMENT is required in production")
+	}
+	r2Config, err := loadR2Config(environment)
+	if err != nil {
+		return Config{}, err
 	}
 	voiceAgentIDs, err := parseAssemblyAIVoiceAgentIDs(os.Getenv("ASKOLO_ASSEMBLYAI_AGENT_IDS"))
 	if err != nil {
@@ -361,9 +373,75 @@ func Load() (Config, error) {
 		AzureTTSKey:                 strings.TrimSpace(os.Getenv("AZURE_TTS_KEY")),
 		AzureTTSRegion:              strings.TrimSpace(os.Getenv("AZURE_TTS_REGION")),
 		AzureTTSURL:                 strings.TrimSpace(os.Getenv("AZURE_TTS_URL")),
+		R2:                          r2Config,
 		AllowedOAuthHosts:           oauthHosts(environment, canonicalOrigin),
 		AdminEmails:                 adminEmails,
 	}, nil
+}
+
+func loadR2Config(environment string) (R2Config, error) {
+	config := R2Config{
+		AccountID:       strings.TrimSpace(os.Getenv("ASKOLO_R2_ACCOUNT_ID")),
+		Bucket:          strings.TrimSpace(os.Getenv("ASKOLO_R2_BUCKET")),
+		AccessKeyID:     strings.TrimSpace(os.Getenv("ASKOLO_R2_ACCESS_KEY_ID")),
+		SecretAccessKey: strings.TrimSpace(os.Getenv("ASKOLO_R2_SECRET_ACCESS_KEY")),
+	}
+	configured := config.AccountID != "" || config.Bucket != "" ||
+		config.AccessKeyID != "" || config.SecretAccessKey != ""
+	if !configured {
+		return R2Config{}, nil
+	}
+	if environment != "development" {
+		return R2Config{}, fmt.Errorf("R2 storage can only be configured in Development")
+	}
+	if len(config.AccountID) != 32 || !isHexString(config.AccountID) {
+		return R2Config{}, fmt.Errorf("ASKOLO_R2_ACCOUNT_ID must be a 32-character hexadecimal Cloudflare account ID")
+	}
+	if !validR2BucketName(config.Bucket) {
+		return R2Config{}, fmt.Errorf("ASKOLO_R2_BUCKET must be a valid R2 bucket name")
+	}
+	if !validR2Credential(config.AccessKeyID) || !validR2Credential(config.SecretAccessKey) {
+		return R2Config{}, fmt.Errorf("both R2 S3 credentials must be configured")
+	}
+	return config, nil
+}
+
+func isHexString(value string) bool {
+	for _, character := range value {
+		if (character < '0' || character > '9') &&
+			(character < 'a' || character > 'f') &&
+			(character < 'A' || character > 'F') {
+			return false
+		}
+	}
+	return value != ""
+}
+
+func validR2BucketName(value string) bool {
+	if len(value) < 3 || len(value) > 63 {
+		return false
+	}
+	for index, character := range value {
+		valid := (character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') ||
+			(character == '-' && index > 0 && index < len(value)-1)
+		if !valid {
+			return false
+		}
+	}
+	return true
+}
+
+func validR2Credential(value string) bool {
+	if value == "" || len(value) > 256 || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x21 || character > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 var supportedAssemblyAIVoices = [...]string{
