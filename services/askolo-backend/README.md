@@ -43,6 +43,8 @@ authenticated WebSocket contracts.
 - The Go R2 adapter creates short-lived (at most 15 minutes) signed PUT/GET
   requests and supports object deletion. Upload routes validate authorization,
   type and size, enforce rate limits, and use server-generated object keys.
+  The opt-in live smoke test writes, reads, lists, and deletes temporary
+  `agent-smoke-tests/` objects in both regional buckets.
 - Password signup and recovery require a Resend delivery configuration:
   `RESEND_API_KEY` and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
   set separately; otherwise the challenge hashes use `SESSION_SECRET`.

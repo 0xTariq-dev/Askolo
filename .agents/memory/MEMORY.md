@@ -97,5 +97,5 @@
 - [AI usage reconciliation review](ai-usage-reconciliation.md) — compare replayed provider usage, not the now-replaced estimate; keep unmeasured non-Azure holds until expiry before release.
 - [Multi-account browser verification](multi-account-browser-verification.md) — fixture-based Profile tests prove UI behavior, not live Google OAuth or a signed-in Development session.
 - [Go module installer fallback](go-module-installer-fallback.md) — if Replit's package callback rejects Go, use the pinned Go module command from the service module.
-- [Askolo R2 residency routing](development-only-r2-storage.md) — use separate US/EU jurisdiction buckets per environment; route to US until residency data exists.
+- [Askolo R2 residency routing](development-only-r2-storage.md) — use separate US/EU buckets, keep credentials environment-scoped, and default uploads to US until residency data exists.
 
