@@ -41,6 +41,51 @@ func TestPresignPutUsesPrivateR2EndpointAndRequiresContentType(t *testing.T) {
 	}
 }
 
+func TestJurisdictionUsesMatchingR2Endpoint(t *testing.T) {
+	for _, jurisdiction := range []string{"us", "eu"} {
+		t.Run(jurisdiction, func(t *testing.T) {
+			client, err := New(config.R2Config{
+				AccountID:       "11111111111111111111111111111111",
+				Bucket:          "askolo-production-" + jurisdiction + "-files",
+				AccessKeyID:     "test-access-key",
+				SecretAccessKey: "test-secret-key",
+				Jurisdiction:    jurisdiction,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := client.PresignGet(
+				context.Background(),
+				"spaces/space-123/files/file-456",
+				time.Minute,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(request.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantHost := "11111111111111111111111111111111." + jurisdiction + ".r2.cloudflarestorage.com"
+			if parsed.Host != wantHost {
+				t.Fatalf("host = %q, want jurisdiction endpoint %q", parsed.Host, wantHost)
+			}
+		})
+	}
+}
+
+func TestRejectsUnknownR2Jurisdiction(t *testing.T) {
+	if _, err := New(config.R2Config{
+		AccountID:       "11111111111111111111111111111111",
+		Bucket:          "askolo-production-us-files",
+		AccessKeyID:     "test-access-key",
+		SecretAccessKey: "test-secret-key",
+		Jurisdiction:    "weur",
+	}); err == nil {
+		t.Fatal("location hint was accepted as a jurisdiction")
+	}
+}
+
 func TestPresignRejectsUnsafeKeysAndLongExpiry(t *testing.T) {
 	client, err := New(config.R2Config{
 		AccountID:       "11111111111111111111111111111111",

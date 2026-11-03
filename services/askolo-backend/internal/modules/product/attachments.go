@@ -13,12 +13,15 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"askolo/backend/internal/adapters/postgres"
+	"askolo/backend/internal/adapters/r2"
 	"askolo/backend/internal/platform/id"
 )
 
@@ -26,6 +29,99 @@ const (
 	maxAttachmentBytes = 8 << 20
 	maxAttachments     = 20
 )
+
+type fileStorageTarget struct {
+	jurisdiction string
+	storage      privateFileStorage
+}
+
+type storedFileObject struct {
+	target fileStorageTarget
+	object r2.Object
+}
+
+func (h *Handler) fileStorageTargets() []fileStorageTarget {
+	targets := make([]fileStorageTarget, 0, 3)
+	for _, jurisdiction := range []string{"us", "eu"} {
+		if storage := h.fileStorageByJurisdiction[jurisdiction]; storage != nil {
+			targets = append(targets, fileStorageTarget{jurisdiction: jurisdiction, storage: storage})
+		}
+	}
+	if h.fileStorage != nil {
+		targets = append(targets, fileStorageTarget{jurisdiction: "legacy", storage: h.fileStorage})
+	}
+	return targets
+}
+
+func (h *Handler) hasFileStorage() bool {
+	return len(h.fileStorageTargets()) > 0
+}
+
+func (h *Handler) storageForJurisdiction(jurisdiction string) (fileStorageTarget, error) {
+	switch jurisdiction {
+	case "us", "eu":
+		if storage := h.fileStorageByJurisdiction[jurisdiction]; storage != nil {
+			return fileStorageTarget{jurisdiction: jurisdiction, storage: storage}, nil
+		}
+		if jurisdiction == "us" && h.fileStorage != nil {
+			return fileStorageTarget{jurisdiction: "legacy", storage: h.fileStorage}, nil
+		}
+	case "legacy":
+		if h.fileStorage != nil {
+			return fileStorageTarget{jurisdiction: "legacy", storage: h.fileStorage}, nil
+		}
+	}
+	return fileStorageTarget{}, fmt.Errorf("file storage is not configured for the requested jurisdiction")
+}
+
+func (h *Handler) storageForUser(ctx context.Context, userID string) (fileStorageTarget, error) {
+	jurisdiction := "us"
+	if h.storageJurisdictionForUser != nil {
+		resolved, err := h.storageJurisdictionForUser(ctx, userID)
+		if err != nil {
+			return fileStorageTarget{}, err
+		}
+		jurisdiction = strings.ToLower(strings.TrimSpace(resolved))
+	}
+	if jurisdiction != "us" && jurisdiction != "eu" {
+		return fileStorageTarget{}, fmt.Errorf("user storage jurisdiction is invalid")
+	}
+	return h.storageForJurisdiction(jurisdiction)
+}
+
+func (h *Handler) profileImageStorageTarget(profileImageURL string) (fileStorageTarget, error) {
+	parsed, err := url.Parse(profileImageURL)
+	if err != nil {
+		return fileStorageTarget{}, fmt.Errorf("profile image location is invalid")
+	}
+	jurisdiction := strings.ToLower(strings.TrimSpace(parsed.Query().Get("region")))
+	if jurisdiction == "" {
+		if h.fileStorage != nil {
+			jurisdiction = "legacy"
+		} else {
+			jurisdiction = "us"
+		}
+	}
+	return h.storageForJurisdiction(jurisdiction)
+}
+
+func (h *Handler) listFileObjects(ctx context.Context, prefix string, limit int32) ([]storedFileObject, error) {
+	targets := h.fileStorageTargets()
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("file storage is unavailable")
+	}
+	objects := make([]storedFileObject, 0)
+	for _, target := range targets {
+		bucketObjects, err := target.storage.ListObjects(ctx, prefix, limit)
+		if err != nil {
+			return nil, err
+		}
+		for _, object := range bucketObjects {
+			objects = append(objects, storedFileObject{target: target, object: object})
+		}
+	}
+	return objects, nil
+}
 
 type attachmentView struct {
 	ID          string    `json:"id"`
@@ -64,7 +160,17 @@ func (h *Handler) deleteProfileImage(w http.ResponseWriter, r *http.Request) {
 	if !h.attachmentStorage(w) {
 		return
 	}
-	if err := h.fileStorage.Delete(r.Context(), "profile-images/"+userID+"/avatar"); err != nil {
+	user, err := h.store.GetUser(r.Context(), userID)
+	if err != nil {
+		h.storeError(w, "profile image lookup failed", err)
+		return
+	}
+	target, err := h.profileImageStorageTarget(user.ProfileImageURL)
+	if err != nil {
+		h.storeError(w, "profile image storage lookup failed", err)
+		return
+	}
+	if err := target.storage.Delete(r.Context(), "profile-images/"+userID+"/avatar"); err != nil {
 		h.storeError(w, "profile image deletion failed", err)
 		return
 	}
@@ -149,15 +255,29 @@ func (h *Handler) uploadProfileImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := "profile-images/" + userID + "/avatar"
-	if err := h.fileStorage.PutObject(r.Context(), key, contentType, normalized.Bytes()); err != nil {
+	target, err := h.storageForUser(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "FILE_STORAGE_UNAVAILABLE", "File storage is not available for this account.")
+		return
+	}
+	if err := target.storage.PutObject(r.Context(), key, contentType, normalized.Bytes()); err != nil {
 		h.storeError(w, "profile image upload failed", err)
 		return
 	}
-	imageURL := "/api/user/profile-image?version=" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	imageURL := "/api/user/profile-image?version=" + strconv.FormatInt(time.Now().UnixNano(), 10) +
+		"&region=" + url.QueryEscape(target.jurisdiction)
 	updated, err := h.store.UpdateUserProfileImage(r.Context(), userID, imageURL)
 	if err != nil {
 		h.storeError(w, "profile image update failed", err)
 		return
+	}
+	for _, oldTarget := range h.fileStorageTargets() {
+		if oldTarget.jurisdiction == target.jurisdiction {
+			continue
+		}
+		if err := oldTarget.storage.Delete(r.Context(), key); err != nil {
+			h.logger.Warn("old profile image copy cleanup failed", "jurisdiction", oldTarget.jurisdiction)
+		}
 	}
 	writeJSON(w, http.StatusOK, toProfileUserResponse(updated))
 }
@@ -183,7 +303,12 @@ func (h *Handler) getProfileImage(w http.ResponseWriter, r *http.Request) {
 	if !h.allowAttachmentRead(w, r, userID) {
 		return
 	}
-	request, err := h.fileStorage.PresignGetInline(r.Context(), "profile-images/"+userID+"/avatar", 5*time.Minute)
+	target, err := h.profileImageStorageTarget(user.ProfileImageURL)
+	if err != nil {
+		h.storeError(w, "profile image storage lookup failed", err)
+		return
+	}
+	request, err := target.storage.PresignGetInline(r.Context(), "profile-images/"+userID+"/avatar", 5*time.Minute)
 	if err != nil {
 		h.storeError(w, "profile image download preparation failed", err)
 		return
@@ -194,7 +319,7 @@ func (h *Handler) getProfileImage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) attachmentStorage(w http.ResponseWriter) bool {
 	w.Header().Set("Cache-Control", "private, no-store")
-	if h.fileStorage != nil {
+	if h.hasFileStorage() {
 		return true
 	}
 	writeError(w, http.StatusServiceUnavailable, "FILE_STORAGE_UNAVAILABLE", "File storage is not available.")
@@ -320,35 +445,39 @@ func taskAttachmentPrefix(r *http.Request) string {
 }
 
 func (h *Handler) listAttachments(w http.ResponseWriter, r *http.Request, prefix string) {
-	objects, err := h.fileStorage.ListObjects(r.Context(), prefix, maxAttachments+1)
+	objects, err := h.listFileObjects(r.Context(), prefix, maxAttachments+1)
 	if err != nil {
 		h.storeError(w, "attachment list failed", err)
 		return
 	}
-	if len(objects) > maxAttachments {
-		objects = objects[:maxAttachments]
-	}
 	result := make([]attachmentView, 0, len(objects))
-	for _, object := range objects {
+	for _, stored := range objects {
+		object := stored.object
 		view, ok := attachmentFromObject(object.Key, object.Size, object.LastModified, prefix)
 		if ok {
 			view.DownloadURL = r.URL.Path + "/" + view.ID + "/download"
 			result = append(result, view)
 		}
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	if len(result) > maxAttachments {
+		result = result[:maxAttachments]
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"attachments": result})
 }
 
 func (h *Handler) deleteAttachmentPrefix(ctx context.Context, prefix string) error {
-	objects, err := h.fileStorage.ListObjects(ctx, prefix, 1000)
+	objects, err := h.listFileObjects(ctx, prefix, 1000)
 	if err != nil {
 		return err
 	}
 	if len(objects) == 1000 {
 		return fmt.Errorf("attachment cleanup limit exceeded")
 	}
-	for _, object := range objects {
-		if err := h.fileStorage.Delete(ctx, object.Key); err != nil {
+	for _, stored := range objects {
+		if err := stored.target.storage.Delete(ctx, stored.object.Key); err != nil {
 			return err
 		}
 	}
@@ -356,7 +485,7 @@ func (h *Handler) deleteAttachmentPrefix(ctx context.Context, prefix string) err
 }
 
 func (h *Handler) clearUserOwnedFiles(ctx context.Context, userID string) error {
-	if h.fileStorage == nil {
+	if !h.hasFileStorage() {
 		return nil
 	}
 	userNotes, err := h.store.ListProduct(ctx, notes, userID, nil)
@@ -372,7 +501,12 @@ func (h *Handler) clearUserOwnedFiles(ctx context.Context, userID string) error 
 			return err
 		}
 	}
-	return h.fileStorage.Delete(ctx, "profile-images/"+userID+"/avatar")
+	for _, target := range h.fileStorageTargets() {
+		if err := target.storage.Delete(ctx, "profile-images/"+userID+"/avatar"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) uploadAttachment(w http.ResponseWriter, r *http.Request, userID, prefix string) {
@@ -386,7 +520,7 @@ func (h *Handler) uploadAttachment(w http.ResponseWriter, r *http.Request, userI
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many file uploads. Try again later.")
 		return
 	}
-	objects, err := h.fileStorage.ListObjects(r.Context(), prefix, maxAttachments+1)
+	objects, err := h.listFileObjects(r.Context(), prefix, maxAttachments+1)
 	if err != nil {
 		h.storeError(w, "attachment capacity check failed", err)
 		return
@@ -428,7 +562,12 @@ func (h *Handler) uploadAttachment(w http.ResponseWriter, r *http.Request, userI
 		return
 	}
 	key := prefix + fileID + "--" + encodedType + "--" + encodedName
-	if err := h.fileStorage.PutObject(r.Context(), key, contentType, content); err != nil {
+	target, err := h.storageForUser(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "FILE_STORAGE_UNAVAILABLE", "File storage is not available for this account.")
+		return
+	}
+	if err := target.storage.PutObject(r.Context(), key, contentType, content); err != nil {
 		h.storeError(w, "attachment upload failed", err)
 		return
 	}
@@ -535,25 +674,26 @@ func (h *Handler) attachmentAction(w http.ResponseWriter, r *http.Request, prefi
 		writeError(w, http.StatusBadRequest, "INVALID_ATTACHMENT_ID", "A valid attachment ID is required.")
 		return
 	}
-	objects, err := h.fileStorage.ListObjects(r.Context(), prefix, maxAttachments+1)
+	objects, err := h.listFileObjects(r.Context(), prefix, maxAttachments+1)
 	if err != nil {
 		h.storeError(w, "attachment lookup failed", err)
 		return
 	}
-	for _, object := range objects {
+	for _, stored := range objects {
+		object := stored.object
 		view, ok := attachmentFromObject(object.Key, object.Size, object.LastModified, prefix)
 		if !ok || view.ID != fileID {
 			continue
 		}
 		if remove {
-			if err := h.fileStorage.Delete(r.Context(), object.Key); err != nil {
+			if err := stored.target.storage.Delete(r.Context(), object.Key); err != nil {
 				h.storeError(w, "attachment deletion failed", err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		request, err := h.fileStorage.PresignGetAttachment(r.Context(), object.Key, 5*time.Minute, view.FileName)
+		request, err := stored.target.storage.PresignGetAttachment(r.Context(), object.Key, 5*time.Minute, view.FileName)
 		if err != nil {
 			h.storeError(w, "attachment download preparation failed", err)
 			return

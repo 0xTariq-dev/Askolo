@@ -1,6 +1,7 @@
 package product
 
 import (
+	"context"
 	"encoding/base64"
 	"testing"
 	"time"
@@ -54,6 +55,86 @@ func TestSafeAttachmentNameRejectsPathTraversalAndControls(t *testing.T) {
 	}
 	if got := safeAttachmentName("report.pdf"); got != "report.pdf" {
 		t.Fatalf("safeAttachmentName returned %q", got)
+	}
+}
+
+func TestStorageForUserUsesResolvedJurisdictionAndDoesNotCrossFallback(t *testing.T) {
+	us := newAttachmentIntegrationStorage()
+	eu := newAttachmentIntegrationStorage()
+	handler := NewHandler(config.Config{}, nil, nil, "")
+	handler.fileStorageByJurisdiction = map[string]privateFileStorage{
+		"us": us,
+		"eu": eu,
+	}
+	handler.SetStorageJurisdictionResolver(func(_ context.Context, userID string) (string, error) {
+		if userID == "eu-user" {
+			return "eu", nil
+		}
+		return "us", nil
+	})
+
+	target, err := handler.storageForUser(context.Background(), "eu-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.jurisdiction != "eu" || target.storage != eu {
+		t.Fatalf("EU user was routed to %#v, want EU storage", target)
+	}
+
+	handler.fileStorageByJurisdiction = map[string]privateFileStorage{"us": us}
+	if _, err := handler.storageForUser(context.Background(), "eu-user"); err == nil {
+		t.Fatal("missing EU storage silently fell back to US")
+	}
+}
+
+func TestProfileImageRegionKeepsLegacyAndUsesSavedJurisdiction(t *testing.T) {
+	legacy := newAttachmentIntegrationStorage()
+	us := newAttachmentIntegrationStorage()
+	eu := newAttachmentIntegrationStorage()
+	handler := NewHandler(config.Config{}, nil, nil, "")
+	handler.fileStorage = legacy
+	handler.fileStorageByJurisdiction = map[string]privateFileStorage{"us": us, "eu": eu}
+
+	oldURLTarget, err := handler.profileImageStorageTarget("/api/user/profile-image?version=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldURLTarget.jurisdiction != "legacy" || oldURLTarget.storage != legacy {
+		t.Fatalf("old profile image URL routed to %#v, want legacy Development storage", oldURLTarget)
+	}
+	euTarget, err := handler.profileImageStorageTarget("/api/user/profile-image?version=2&region=eu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if euTarget.jurisdiction != "eu" || euTarget.storage != eu {
+		t.Fatalf("EU profile image URL routed to %#v, want EU storage", euTarget)
+	}
+	if _, err := handler.profileImageStorageTarget("/api/user/profile-image?region=weur"); err == nil {
+		t.Fatal("a location hint was accepted as a jurisdiction")
+	}
+}
+
+func TestListFileObjectsReadsAllConfiguredJurisdictions(t *testing.T) {
+	us := newAttachmentIntegrationStorage()
+	eu := newAttachmentIntegrationStorage()
+	legacy := newAttachmentIntegrationStorage()
+	us.putTestObject("attachments/tasks/space/task/us-file")
+	eu.putTestObject("attachments/tasks/space/task/eu-file")
+	legacy.putTestObject("attachments/tasks/space/task/legacy-file")
+
+	handler := NewHandler(config.Config{}, nil, nil, "")
+	handler.fileStorage = legacy
+	handler.fileStorageByJurisdiction = map[string]privateFileStorage{"us": us, "eu": eu}
+	objects, err := handler.listFileObjects(
+		context.Background(),
+		"attachments/tasks/space/task/",
+		maxAttachments+1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) != 3 {
+		t.Fatalf("found %d stored objects, want one from each bucket", len(objects))
 	}
 }
 

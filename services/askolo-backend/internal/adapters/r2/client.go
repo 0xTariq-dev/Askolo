@@ -40,7 +40,15 @@ func New(cfg config.R2Config) (*Client, error) {
 		cfg.AccessKeyID == "" || cfg.SecretAccessKey == "" {
 		return nil, fmt.Errorf("R2 storage configuration is incomplete")
 	}
-	endpoint := "https://" + cfg.AccountID + ".r2.cloudflarestorage.com"
+	endpointHost := cfg.AccountID + ".r2.cloudflarestorage.com"
+	switch cfg.Jurisdiction {
+	case "":
+	case "us", "eu":
+		endpointHost = cfg.AccountID + "." + cfg.Jurisdiction + ".r2.cloudflarestorage.com"
+	default:
+		return nil, fmt.Errorf("R2 storage jurisdiction is invalid")
+	}
+	endpoint := "https://" + endpointHost
 	credentials := aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
 		return aws.Credentials{
 			AccessKeyID:     cfg.AccessKeyID,

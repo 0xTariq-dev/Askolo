@@ -84,26 +84,28 @@ func simpleSpec(name, table string, fields []postgres.ProductField, defaults map
 }
 
 type Handler struct {
-	store                   *postgres.Store
-	logger                  *slog.Logger
-	sessionCookieName       string
-	canonicalOrigin         string
-	assemblyAI              assemblyAIProvider
-	speechOutput            azureSpeechProvider
-	adminEmails             map[string]struct{}
-	realtimeLimiter         *realtimeSessionLimiter
-	voiceAgentEnabled       bool
-	voiceAgentIDs           map[string]string
-	authRateLimitSecret     string
-	realtimeIdleTimeout     time.Duration
-	assistantPlanner        assistantPlanner
-	assistantTools          *assistantToolRegistry
-	assistantActionExecutor AssistantActionExecutor
-	fileStorage             privateFileStorage
-	sharedEmailReader       SharedEmailReader
-	spaceInviteMailer       SpaceInviteMailer
-	realtimeMeters          sync.Map
-	activeRealtimeSessions  sync.Map
+	store                      *postgres.Store
+	logger                     *slog.Logger
+	sessionCookieName          string
+	canonicalOrigin            string
+	assemblyAI                 assemblyAIProvider
+	speechOutput               azureSpeechProvider
+	adminEmails                map[string]struct{}
+	realtimeLimiter            *realtimeSessionLimiter
+	voiceAgentEnabled          bool
+	voiceAgentIDs              map[string]string
+	authRateLimitSecret        string
+	realtimeIdleTimeout        time.Duration
+	assistantPlanner           assistantPlanner
+	assistantTools             *assistantToolRegistry
+	assistantActionExecutor    AssistantActionExecutor
+	fileStorage                privateFileStorage
+	fileStorageByJurisdiction  map[string]privateFileStorage
+	storageJurisdictionForUser func(context.Context, string) (string, error)
+	sharedEmailReader          SharedEmailReader
+	spaceInviteMailer          SpaceInviteMailer
+	realtimeMeters             sync.Map
+	activeRealtimeSessions     sync.Map
 }
 
 type privateFileStorage interface {
@@ -112,6 +114,14 @@ type privateFileStorage interface {
 	Delete(context.Context, string) error
 	PresignGetAttachment(context.Context, string, time.Duration, string) (r2.PresignedRequest, error)
 	PresignGetInline(context.Context, string, time.Duration) (r2.PresignedRequest, error)
+}
+
+type StorageJurisdictionResolver func(context.Context, string) (string, error)
+
+func (h *Handler) SetStorageJurisdictionResolver(resolver StorageJurisdictionResolver) {
+	if h != nil {
+		h.storageJurisdictionForUser = resolver
+	}
 }
 
 type SpaceInviteMailer func(context.Context, string, string, string) error
@@ -195,10 +205,28 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger, s
 		),
 		cfg.CanonicalOrigin,
 	)
-	if cfg.R2.AccountID != "" {
-		client, err := r2.New(cfg.R2)
+	handler.fileStorageByJurisdiction = make(map[string]privateFileStorage, 2)
+	handler.storageJurisdictionForUser = func(context.Context, string) (string, error) {
+		return "us", nil
+	}
+	for jurisdiction, storageConfig := range map[string]config.R2Config{
+		"us": cfg.R2.US,
+		"eu": cfg.R2.EU,
+	} {
+		if storageConfig.Bucket == "" {
+			continue
+		}
+		client, err := r2.New(storageConfig)
 		if err != nil {
-			handler.logger.Error("R2 storage client initialization failed")
+			handler.logger.Error("regional R2 storage client initialization failed", "jurisdiction", jurisdiction)
+			continue
+		}
+		handler.fileStorageByJurisdiction[jurisdiction] = client
+	}
+	if cfg.R2.Legacy.Bucket != "" {
+		client, err := r2.New(cfg.R2.Legacy)
+		if err != nil {
+			handler.logger.Error("legacy R2 storage client initialization failed")
 		} else {
 			handler.fileStorage = client
 		}

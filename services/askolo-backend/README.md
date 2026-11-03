@@ -26,15 +26,23 @@ authenticated WebSocket contracts.
 - `DATABASE_URL` and `SESSION_SECRET` are required for OAuth and account
   operations. Without them, health checks still work but OAuth returns a safe
   configuration error.
-- Development can use the private Cloudflare R2 bucket by setting
-  `ASKOLO_R2_ACCOUNT_ID`, `ASKOLO_R2_BUCKET`,
-  `ASKOLO_R2_ACCESS_KEY_ID`, and `ASKOLO_R2_SECRET_ACCESS_KEY`. The S3 access
-  keys must be Replit Development secrets; `config.Load` rejects R2 settings
-  outside Development. The Go R2 adapter creates short-lived (at most 15
-  minutes) signed PUT/GET requests and supports object deletion. It does not
-  expose routes by itself; any future upload API must add user/workspace
-  authorization, content-type and size allowlists, rate limits, and object
-  metadata persistence before returning signed URLs.
+- Private R2 storage supports separate US- and EU-jurisdiction buckets in
+  Development and Production. Set `ASKOLO_R2_ACCOUNT_ID`,
+  `ASKOLO_R2_US_BUCKET`, `ASKOLO_R2_EU_BUCKET`,
+  `ASKOLO_R2_REGIONAL_ACCESS_KEY_ID`, and
+  `ASKOLO_R2_REGIONAL_SECRET_ACCESS_KEY` in each environment. The regional
+  access-key ID and secret must be Replit Secrets scoped to that environment,
+  with access to both jurisdiction buckets there. The adapter uses the
+  matching jurisdiction-specific S3 endpoint; do not use location hints for
+  jurisdictional storage.
+- Development's existing single-bucket configuration remains available as a
+  legacy store so old profile photos and attachments stay readable. New
+  uploads use the configured US bucket until a trusted user-residency resolver
+  is connected; EU users must not be routed from request headers or query
+  parameters.
+- The Go R2 adapter creates short-lived (at most 15 minutes) signed PUT/GET
+  requests and supports object deletion. Upload routes validate authorization,
+  type and size, enforce rate limits, and use server-generated object keys.
 - Password signup and recovery require a Resend delivery configuration:
   `RESEND_API_KEY` and `AUTH_EMAIL_FROM`. `AUTH_CHALLENGE_SECRET` may be
   set separately; otherwise the challenge hashes use `SESSION_SECRET`.

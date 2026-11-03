@@ -54,7 +54,7 @@ type Config struct {
 	AzureTTSKey                   string
 	AzureTTSRegion                string
 	AzureTTSURL                   string
-	R2                            R2Config
+	R2                            R2StorageConfig
 	AllowedOAuthHosts             map[string]struct{}
 	AdminEmails                   map[string]struct{}
 }
@@ -64,6 +64,13 @@ type R2Config struct {
 	Bucket          string
 	AccessKeyID     string
 	SecretAccessKey string
+	Jurisdiction    string
+}
+
+type R2StorageConfig struct {
+	Legacy R2Config
+	US     R2Config
+	EU     R2Config
 }
 
 type EmailConfig struct {
@@ -379,31 +386,71 @@ func Load() (Config, error) {
 	}, nil
 }
 
-func loadR2Config(environment string) (R2Config, error) {
-	config := R2Config{
-		AccountID:       strings.TrimSpace(os.Getenv("ASKOLO_R2_ACCOUNT_ID")),
+func loadR2Config(environment string) (R2StorageConfig, error) {
+	accountID := strings.TrimSpace(os.Getenv("ASKOLO_R2_ACCOUNT_ID"))
+	result := R2StorageConfig{}
+
+	legacy := R2Config{
+		AccountID:       accountID,
 		Bucket:          strings.TrimSpace(os.Getenv("ASKOLO_R2_BUCKET")),
 		AccessKeyID:     strings.TrimSpace(os.Getenv("ASKOLO_R2_ACCESS_KEY_ID")),
 		SecretAccessKey: strings.TrimSpace(os.Getenv("ASKOLO_R2_SECRET_ACCESS_KEY")),
 	}
-	configured := config.AccountID != "" || config.Bucket != "" ||
-		config.AccessKeyID != "" || config.SecretAccessKey != ""
-	if !configured {
-		return R2Config{}, nil
+	legacyConfigured := legacy.Bucket != "" || legacy.AccessKeyID != "" || legacy.SecretAccessKey != ""
+	if legacyConfigured && environment == "development" {
+		if err := validateR2Config(legacy, "ASKOLO_R2_BUCKET"); err != nil {
+			return R2StorageConfig{}, err
+		}
+		result.Legacy = legacy
+	} else if legacyConfigured {
+		slog.Warn("ignoring legacy single-bucket R2 configuration outside Development")
 	}
-	if environment != "development" {
-		return R2Config{}, fmt.Errorf("R2 storage can only be configured in Development")
+
+	usBucket := strings.TrimSpace(os.Getenv("ASKOLO_R2_US_BUCKET"))
+	euBucket := strings.TrimSpace(os.Getenv("ASKOLO_R2_EU_BUCKET"))
+	accessKeyID := strings.TrimSpace(os.Getenv("ASKOLO_R2_REGIONAL_ACCESS_KEY_ID"))
+	secretAccessKey := strings.TrimSpace(os.Getenv("ASKOLO_R2_REGIONAL_SECRET_ACCESS_KEY"))
+	regionalConfigured := usBucket != "" || euBucket != "" ||
+		accessKeyID != "" || secretAccessKey != ""
+	if !regionalConfigured {
+		return result, nil
 	}
+
+	if len(accountID) != 32 || !isHexString(accountID) {
+		return R2StorageConfig{}, fmt.Errorf("ASKOLO_R2_ACCOUNT_ID must be a 32-character hexadecimal Cloudflare account ID")
+	}
+	if !validR2BucketName(usBucket) || !validR2BucketName(euBucket) {
+		return R2StorageConfig{}, fmt.Errorf("ASKOLO_R2_US_BUCKET and ASKOLO_R2_EU_BUCKET must be valid R2 bucket names")
+	}
+	if usBucket == euBucket {
+		return R2StorageConfig{}, fmt.Errorf("ASKOLO_R2_US_BUCKET and ASKOLO_R2_EU_BUCKET must be different buckets")
+	}
+	if !validR2Credential(accessKeyID) || !validR2Credential(secretAccessKey) {
+		return R2StorageConfig{}, fmt.Errorf("both regional R2 S3 credentials must be configured")
+	}
+
+	result.US = R2Config{
+		AccountID: accountID, Bucket: usBucket, AccessKeyID: accessKeyID,
+		SecretAccessKey: secretAccessKey, Jurisdiction: "us",
+	}
+	result.EU = R2Config{
+		AccountID: accountID, Bucket: euBucket, AccessKeyID: accessKeyID,
+		SecretAccessKey: secretAccessKey, Jurisdiction: "eu",
+	}
+	return result, nil
+}
+
+func validateR2Config(config R2Config, bucketEnv string) error {
 	if len(config.AccountID) != 32 || !isHexString(config.AccountID) {
-		return R2Config{}, fmt.Errorf("ASKOLO_R2_ACCOUNT_ID must be a 32-character hexadecimal Cloudflare account ID")
+		return fmt.Errorf("ASKOLO_R2_ACCOUNT_ID must be a 32-character hexadecimal Cloudflare account ID")
 	}
 	if !validR2BucketName(config.Bucket) {
-		return R2Config{}, fmt.Errorf("ASKOLO_R2_BUCKET must be a valid R2 bucket name")
+		return fmt.Errorf("%s must be a valid R2 bucket name", bucketEnv)
 	}
 	if !validR2Credential(config.AccessKeyID) || !validR2Credential(config.SecretAccessKey) {
-		return R2Config{}, fmt.Errorf("both R2 S3 credentials must be configured")
+		return fmt.Errorf("both R2 S3 credentials must be configured")
 	}
-	return config, nil
+	return nil
 }
 
 func isHexString(value string) bool {
