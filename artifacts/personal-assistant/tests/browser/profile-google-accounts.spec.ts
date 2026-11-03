@@ -89,6 +89,11 @@ async function installSignedInFixtures(page: Page) {
       return;
     }
 
+    if (method === 'GET' && path.endsWith('/api/integrations/microsoft/status')) {
+      await route.fulfill(jsonResponse({ accounts: [], connected: false }));
+      return;
+    }
+
     if (method === 'GET' && path.endsWith('/api/auth/mfa/status')) {
       await route.fulfill(jsonResponse({ enabled: false }));
       return;

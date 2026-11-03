@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -882,6 +883,134 @@ func TestGoogleConnectionsKeepMultipleAccountsAndCredentialsIsolated(t *testing.
 	remaining, err := fixture.store.GetGoogleCredentials(ctx, userID, secondID, encryptionKey)
 	if err != nil || remaining.AccessToken != "mail-access-token" {
 		t.Fatalf("second Google account after first revoke = %+v, err %v", remaining, err)
+	}
+}
+
+type googleAccountProviderCall struct {
+	method        string
+	path          string
+	authorization string
+}
+
+type googleAccountProviderTransport struct {
+	calls []googleAccountProviderCall
+}
+
+func (transport *googleAccountProviderTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	transport.calls = append(transport.calls, googleAccountProviderCall{
+		method:        request.Method,
+		path:          request.URL.Path,
+		authorization: request.Header.Get("Authorization"),
+	})
+	if request.Method != http.MethodPost || request.URL.Host != "gmail.googleapis.com" ||
+		request.URL.Path != "/gmail/v1/users/me/messages/send" {
+		return nil, fmt.Errorf("unexpected Google provider request: %s %s", request.Method, request.URL)
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"mock-sent-message","threadId":"mock-thread"}`)),
+		Request:    request,
+	}, nil
+}
+
+func TestGoogleActionAfterSiblingAccountRevocationUsesOnlySurvivor(t *testing.T) {
+	fixture := newGoogleOAuthFixture(t)
+	ctx := context.Background()
+	userID := "google-revocation-isolation-user"
+	encryptionKey := []byte("12345678901234567890123456789012")
+
+	revokedCalendarID, err := fixture.store.UpsertGoogleConnection(
+		ctx, userID, "calendar@example.test", "google-revoked-calendar-subject", "Calendar", "",
+		[]string{scopeCalendar}, []string{"calendar"},
+		"revoked-calendar-access-token", "revoked-calendar-refresh-token",
+		time.Now().Add(time.Hour), "Bearer", encryptionKey,
+	)
+	if err != nil {
+		t.Fatalf("create Calendar identity: %v", err)
+	}
+	survivingGmailID, err := fixture.store.UpsertGoogleConnection(
+		ctx, userID, "mail@example.test", "google-surviving-mail-subject", "Mail", "",
+		[]string{scopeGmailSend}, []string{"gmail.send"},
+		"surviving-mail-access-token", "surviving-mail-refresh-token",
+		time.Now().Add(time.Hour), "Bearer", encryptionKey,
+	)
+	if err != nil {
+		t.Fatalf("create Gmail identity: %v", err)
+	}
+	if revokedCalendarID == survivingGmailID {
+		t.Fatal("different Google identities reused the same connection")
+	}
+
+	handler := testGoogleOAuthIntegrationHandler(fixture, "", "", slog.Default())
+	handler.cfg.Google.TokenEncryptionKey = encryptionKey
+	provider := &googleAccountProviderTransport{}
+	handler.client = &http.Client{Transport: provider}
+
+	if err := fixture.store.RevokeGoogleConnection(ctx, userID, revokedCalendarID); err != nil {
+		t.Fatalf("revoke Calendar identity: %v", err)
+	}
+
+	connectionID, email, err := handler.ResolveAssistantActionTarget(ctx, userID, "send_gmail")
+	if err != nil {
+		t.Fatalf("resolve surviving Gmail action target: %v", err)
+	}
+	if connectionID != survivingGmailID || email != "mail@example.test" {
+		t.Fatalf("resolved Gmail target = %q (%q), want surviving identity %q",
+			connectionID, email, survivingGmailID)
+	}
+
+	gmailIntent, err := json.Marshal(assistantGoogleIntent{
+		Tool:         "send_gmail",
+		To:           "recipient@example.test",
+		Subject:      "Account isolation check",
+		Body:         "Deterministic provider-call test.",
+		ConnectionID: connectionID,
+	})
+	if err != nil {
+		t.Fatalf("encode Gmail action: %v", err)
+	}
+	result, executed, err := handler.ExecuteAssistantAction(
+		ctx, userID, "google-revocation-gmail-run", "send_gmail", gmailIntent,
+	)
+	if err != nil || !executed {
+		t.Fatalf("surviving Gmail action executed=%t err=%v", executed, err)
+	}
+	var safeResult map[string]string
+	if err := json.Unmarshal(result, &safeResult); err != nil {
+		t.Fatalf("decode Gmail action result: %v", err)
+	}
+	if safeResult["resourceId"] != "mock-sent-message" {
+		t.Fatalf("Gmail action result = %s, want mock-sent-message", result)
+	}
+
+	calendarIntent, err := json.Marshal(assistantGoogleIntent{
+		Tool:         "create_calendar_event",
+		Title:        "Must not reach revoked Google identity",
+		Start:        time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+		End:          time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339),
+		ConnectionID: revokedCalendarID,
+		CalendarID:   "primary",
+	})
+	if err != nil {
+		t.Fatalf("encode Calendar action: %v", err)
+	}
+	_, executed, err = handler.ExecuteAssistantAction(
+		ctx, userID, "google-revocation-calendar-run", "create_calendar_event", calendarIntent,
+	)
+	var operation operationError
+	if executed || !errors.As(err, &operation) ||
+		operation.code != "CONNECTION_DISCONNECTED" || operation.status != http.StatusConflict {
+		t.Fatalf("revoked Calendar action executed=%t error=%v; want safe CONNECTION_DISCONNECTED conflict", executed, err)
+	}
+
+	if len(provider.calls) != 1 {
+		t.Fatalf("Google provider calls = %+v; want exactly one successful surviving-account request", provider.calls)
+	}
+	call := provider.calls[0]
+	if call.method != http.MethodPost || call.path != "/gmail/v1/users/me/messages/send" ||
+		call.authorization != "Bearer surviving-mail-access-token" {
+		t.Fatalf("provider call = %+v; want Gmail send using only the surviving identity", call)
 	}
 }
 
