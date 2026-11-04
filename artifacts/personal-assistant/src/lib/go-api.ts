@@ -60,7 +60,7 @@ import type {
 } from '@workspace/api-client-react';
 
 const fingerprintCookieName = 'askolo_device_fingerprint';
-const artifactBasePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+const artifactBasePath = (import.meta.env?.BASE_URL ?? '/').replace(/\/$/, '');
 
 function getCookie(name: string): string | null {
   if (typeof document === 'undefined') return null;
