@@ -31,7 +31,7 @@ import { BalanceIndicator } from '@/components/credits/balance-indicator';
 import { useGoogleConnectionCheck } from '@/hooks/use-google-connection-check';
 import { useCreditBalance } from '@/hooks/use-credit-balance';
 import { useIsMobile } from '@/hooks/use-mobile';
-import logoUrl from '/icons/logo.svg';
+import logoUrl from '/icons/logo-display.png';
 import { isAppProductionHost, toPublicUrl } from '@/lib/site-domains';
 import { useAppAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';

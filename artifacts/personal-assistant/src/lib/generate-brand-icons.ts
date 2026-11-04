@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +14,30 @@ interface ThemeTokens {
 const directory = dirname(fileURLToPath(import.meta.url));
 const publicDirectory = resolve(directory, '../../public');
 const sourceImage = resolve(publicDirectory, 'icons/logo-hd.png');
+const displayLogoPath = resolve(publicDirectory, 'icons/logo-display.png');
+execFileSync(
+  'magick',
+  [
+    sourceImage,
+    '-resize',
+    '512x512',
+    '-strip',
+    '-define',
+    'png:compression-level=9',
+    displayLogoPath,
+  ],
+  { stdio: 'inherit' },
+);
+const logoData = (await readFile(displayLogoPath)).toString('base64');
+const embeddedLogoSvg = (title: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">\n` +
+  `  <title>${title}</title>\n` +
+  `  <image x="0" y="0" width="512" height="512" href="data:image/png;base64,${logoData}" />\n` +
+  `</svg>\n`;
+await Promise.all([
+  writeFile(resolve(publicDirectory, 'icons/logo.svg'), embeddedLogoSvg('Askolo')),
+  writeFile(resolve(publicDirectory, 'icons/fav.svg'), embeddedLogoSvg('Askolo favicon')),
+]);
 const tokens = JSON.parse(
   await readFile(resolve(directory, 'askolo-design-tokens.json'), 'utf8'),
 ) as ThemeTokens;

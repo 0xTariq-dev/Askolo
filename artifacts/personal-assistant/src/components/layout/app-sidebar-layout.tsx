@@ -12,7 +12,7 @@ import {
   UserCircle,
 } from 'lucide-react';
 import { IconPalette, IconStack2, IconWallet } from '@tabler/icons-react';
-import logoUrl from '/icons/logo.svg';
+import logoUrl from '/icons/logo-display.png';
 import { AssistantProvider } from '@/contexts/assistant-context';
 import { ConfirmDialogProvider, useConfirmDialog } from '@/contexts/confirm-dialog-context';
 import { KeyboardShortcutProvider } from '@/contexts/keyboard-shortcut-context';

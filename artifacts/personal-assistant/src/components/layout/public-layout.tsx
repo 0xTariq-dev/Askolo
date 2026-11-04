@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { Moon, Puzzle, Sparkles, Sun } from 'lucide-react';
 import { ExpandedTabsNav } from '@/components/layout/expanded-tabs-nav';
 import { SiteOriginLink } from '@/components/layout/site-origin-link';
-import logoUrl from '/icons/logo.svg';
+import logoUrl from '/icons/logo-display.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
 import { useLocale } from '@/contexts/locale-context';

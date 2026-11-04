@@ -30,7 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import logoUrl from '/icons/logo.svg';
+import logoUrl from '/icons/logo-display.png';
 import { useLocale } from '@/contexts/locale-context';
 
 const PRIORITY_ORDER = ['urgent', 'follow-up', 'fyi', 'archive'] as const;
