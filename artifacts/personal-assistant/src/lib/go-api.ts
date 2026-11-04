@@ -58,41 +58,12 @@ import type {
   ProfileUser,
   FileAttachment as FileAttachmentSchema,
 } from '@workspace/api-client-react';
+import { getDeviceFingerprint } from './device-fingerprint';
 
-const fingerprintCookieName = 'askolo_device_fingerprint';
 const artifactBasePath = (import.meta.env?.BASE_URL ?? '/').replace(/\/$/, '');
 
-function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null;
-  const prefix = `${name}=`;
-  const cookie = document.cookie
-    .split('; ')
-    .find((value) => value.startsWith(prefix));
-  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
-}
-
-function createDeviceFingerprint(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-/**
- * Keep the browser identifier in the browser only. It is deliberately sent
- * through the request header and cookie, never in an API body or a log.
- */
-function getDeviceFingerprint(): string | null {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return null;
-  const existing = getCookie(fingerprintCookieName);
-  if (existing) return existing;
-
-  const fingerprint = createDeviceFingerprint();
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `${fingerprintCookieName}=${encodeURIComponent(fingerprint)}; Max-Age=31536000; Path=/; SameSite=Lax${secure}`;
-  return fingerprint;
-}
-
 export function ensureDeviceFingerprint(): void {
+  // Keep the identifier browser-side; send it only in request headers, not API bodies or logs.
   getDeviceFingerprint();
 }
 

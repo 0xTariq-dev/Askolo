@@ -47,7 +47,7 @@ const (
 	mfaRecoveryEmailPurpose                      = "mfa_email_recovery"
 	trustedDeviceTTL                             = 30 * 24 * time.Hour
 	trustedDeviceCookieBaseName                  = "askolo.trusted_device"
-	deviceFingerprintCookieName                  = "askolo_device_fingerprint"
+	deviceFingerprintCookieName                  = "askolo_device_fingerprint_v2"
 	mfaSecurityWindow                            = 15 * time.Minute
 	mfaFailureAlertThreshold                     = 20
 	mfaReplayAlertThreshold                      = 5

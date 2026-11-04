@@ -626,7 +626,7 @@ func TestGoogleCallbackRecognizesOnlyValidRememberedBrowsers(t *testing.T) {
 			response := serveGoogleLoginCallback(handler, payload, stateCookie,
 				url.Values{"code": {"google-trusted-device-code"}},
 				&http.Cookie{Name: "askolo.trusted_device", Value: credential},
-				&http.Cookie{Name: "askolo_device_fingerprint", Value: test.requestFingerprint},
+				&http.Cookie{Name: "askolo_device_fingerprint_v2", Value: test.requestFingerprint},
 			)
 			assertSafeGoogleRedirect(t, response, test.wantRedirect)
 			session := googleSessionCookie(t, response)

@@ -49,6 +49,16 @@ export function PrivacyPage() {
               at rest. Access to Google services is handled through OAuth tokens that are refreshed and stored securely by Askolo
               using your own Google Cloud OAuth app.
             </p>
+            <p>
+              If you choose to trust a browser during multi-factor sign-in, Askolo stores a random browser identifier in a
+              cookie for up to 30 days, matching the trusted-device authorization window so the browser identifier is not
+              kept longer than the trust it helps recognize. The identifier is not an authentication credential;
+              trusted-device access also requires a separate credential that expires after 30 days. The browser
+              identifier is not renewed during routine use, and replacing or deleting it cannot extend trusted-device
+              access. It may be rotated when it expires,
+              which can require multi-factor sign-in again. Askolo stores keyed hashes of the trusted-device values rather
+              than the raw values.
+            </p>
           </section>
 
           <section>

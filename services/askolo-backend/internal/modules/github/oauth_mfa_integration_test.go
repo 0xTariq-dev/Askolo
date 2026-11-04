@@ -226,7 +226,7 @@ func TestGitHubLoginRequiresMFAForEnabledAccount(t *testing.T) {
 			request.Host = "localhost"
 			request.AddCookie(&http.Cookie{Name: stateCookieName, Value: encodedState})
 			request.AddCookie(&http.Cookie{Name: "askolo.trusted_device", Value: credential})
-			request.AddCookie(&http.Cookie{Name: "askolo_device_fingerprint", Value: test.requestFingerprint})
+			request.AddCookie(&http.Cookie{Name: "askolo_device_fingerprint_v2", Value: test.requestFingerprint})
 			response := httptest.NewRecorder()
 			handler.Routes().ServeHTTP(response, request)
 

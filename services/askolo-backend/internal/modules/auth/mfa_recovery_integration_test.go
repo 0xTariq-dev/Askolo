@@ -73,10 +73,22 @@ func seedRecoveryCodes(t *testing.T, fixture *emailAuthFixture, userID string, h
 func TestDeviceFingerprintCookieMatchesBrowserClient(t *testing.T) {
 	const fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	request.AddCookie(&http.Cookie{Name: "askolo_device_fingerprint", Value: fingerprint})
+	request.AddCookie(&http.Cookie{Name: "askolo_device_fingerprint_v2", Value: fingerprint})
 
 	if got := deviceFingerprint(request); got != fingerprint {
 		t.Fatalf("device fingerprint from browser cookie = %q, want %q", got, fingerprint)
+	}
+}
+
+func TestDeviceFingerprintDoesNotAcceptLegacyCookieName(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.AddCookie(&http.Cookie{
+		Name:  "askolo_device_fingerprint",
+		Value: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	})
+
+	if got := deviceFingerprint(request); got != "" {
+		t.Fatalf("legacy fingerprint cookie was accepted as %q, want empty", got)
 	}
 }
 
@@ -381,6 +393,9 @@ func TestTrustedDeviceStoreIntegration(t *testing.T) {
 	matched, err := fixture.store.MatchTrustedDevice(ctx, userID, "hashed-credential-a", "hashed-fingerprint-a")
 	if err != nil || matched.ID != active.ID {
 		t.Fatalf("active hashed device did not match: id=%q err=%v", matched.ID, err)
+	}
+	if !matched.ExpiresAt.Equal(active.ExpiresAt) {
+		t.Fatalf("trusted-device use extended expiry from %s to %s", active.ExpiresAt, matched.ExpiresAt)
 	}
 	if _, err := fixture.store.MatchTrustedDevice(ctx, userID, "hashed-credential-expired", "hashed-fingerprint-expired"); !errors.Is(err, postgres.ErrTrustedDeviceNotFound) {
 		t.Fatalf("expired device matched: %v", err)
