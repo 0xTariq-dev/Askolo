@@ -362,6 +362,9 @@ func NewWithMFAObserverAndShutdown(
 	githubRoutes := githuboauth.NewHandler(cfg, store, logger).Routes()
 	googleRoutes := googleHandler.Routes()
 	microsoftRoutes := microsoftoauth.NewHandler(cfg, store, logger).Routes()
+	// Microsoft sign-in routes must be more specific than the generic auth mux.
+	apiMux.Handle("/api/auth/microsoft", microsoftRoutes)
+	apiMux.Handle("/api/auth/microsoft/", microsoftRoutes)
 	// Google login owns these public paths. Register them before the generic
 	// auth subtree so the native OAuth start and callback handlers receive the
 	// frontend's requests instead of the password-auth mux returning 404.

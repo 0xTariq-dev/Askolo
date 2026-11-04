@@ -566,6 +566,7 @@ func validProviderAgentID(value string) bool {
 
 func turnstileAllowedHostnames(environment string) map[string]struct{} {
 	hosts := map[string]struct{}{
+		"askolo.app": {},
 		"dev.askolo.app":     {},
 		"web.askolo.app":     {},
 		"staging.askolo.app": {},

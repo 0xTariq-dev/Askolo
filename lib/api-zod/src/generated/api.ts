@@ -73,6 +73,54 @@ export const HandleBrowserLoginCallbackResponse = zod.void()
 
 
 /**
+ * @summary Start Microsoft sign-in
+ */
+export const BeginMicrosoftSignInQueryParams = zod.object({
+  "returnTo": zod.coerce.string().optional()
+})
+
+export const BeginMicrosoftSignInResponse = zod.void()
+
+
+/**
+ * @summary Complete Microsoft sign-in
+ */
+export const CompleteMicrosoftSignInQueryParams = zod.object({
+  "code": zod.coerce.string().optional(),
+  "state": zod.coerce.string().optional(),
+  "error": zod.coerce.string().optional()
+})
+
+export const CompleteMicrosoftSignInResponse = zod.void()
+
+
+/**
+ * @summary Start linking a Microsoft sign-in identity
+ */
+export const BeginMicrosoftIdentityLinkQueryParams = zod.object({
+  "returnTo": zod.coerce.string().optional()
+})
+
+export const BeginMicrosoftIdentityLinkHeader = zod.object({
+  "Authorization": zod.string().optional().describe('Opaque session token — `Bearer <sid>`.')
+})
+
+export const BeginMicrosoftIdentityLinkResponse = zod.void()
+
+
+/**
+ * @summary Complete linking a Microsoft sign-in identity
+ */
+export const CompleteMicrosoftIdentityLinkQueryParams = zod.object({
+  "code": zod.coerce.string().optional(),
+  "state": zod.coerce.string().optional(),
+  "error": zod.coerce.string().optional()
+})
+
+export const CompleteMicrosoftIdentityLinkResponse = zod.void()
+
+
+/**
  * @summary Clear the authenticated session
  */
 export const LogoutPasswordSessionHeader = zod.object({

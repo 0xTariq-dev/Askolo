@@ -113,21 +113,14 @@ https://askolo.app/api/auth/google/callback
 
 ### Production integration client
 
-Canonical Go callback to register for the cutover:
+Register this canonical Go callback:
 
 ```text
 https://askolo.app/api/integrations/google/callback
 ```
 
-Temporary compatibility callback to keep registered until the TypeScript
-integration is removed:
-
-```text
-https://askolo.app/api/google/gmail/callback
-```
-
-The compatibility callback is not the target architecture and should be
-removed from the OAuth client after the Go cutover is verified.
+The legacy TypeScript callback has been removed. Do not register
+`/api/google/gmail/callback`; remove it from existing OAuth client allowlists.
 
 ### Staging login client
 
@@ -141,13 +134,6 @@ https://staging.askolo.app/api/auth/google/callback
 
 ```text
 https://staging.askolo.app/api/integrations/google/callback
-```
-
-If the old TypeScript integration is exercised in staging during migration,
-also register:
-
-```text
-https://staging.askolo.app/api/google/gmail/callback
 ```
 
 Register each URI exactly. Do not use wildcard paths, unstable `*.replit.dev`

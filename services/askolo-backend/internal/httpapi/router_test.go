@@ -158,6 +158,18 @@ func TestMicrosoftIntegrationRoutesReachMicrosoftHandler(t *testing.T) {
 	}
 }
 
+func TestRemovedGoogleIntegrationCallbackReturnsNotFound(t *testing.T) {
+	handler := New(testConfig("secret"), slog.Default(), nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/google/gmail/callback", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("legacy Google callback returned %d, want 404", response.Code)
+	}
+}
+
 func TestPublishedAPIHealthAlias(t *testing.T) {
 	handler := New(testConfig("secret"), slog.Default(), nil)
 	request := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
@@ -283,6 +295,54 @@ func TestGoogleAuthRoutesPrecedeGenericAuthRoutes(t *testing.T) {
 		{
 			name:       "integration remains native",
 			path:       "/api/integrations/google",
+			statusCode: http.StatusServiceUnavailable,
+			body:       `"code":"UNAUTHORIZED"`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.Host = "localhost"
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != test.statusCode {
+				t.Fatalf("expected status %d, got %d with body %q", test.statusCode, response.Code, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), test.body) {
+				t.Fatalf("expected body to contain %q, got %q", test.body, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestMicrosoftAuthRoutesPrecedeGenericAuthRoutes(t *testing.T) {
+	cfg := testConfig("secret")
+	cfg.SessionSecret = "test-session-secret"
+	cfg.AllowedOAuthHosts = map[string]struct{}{"localhost": {}}
+	handler := New(cfg, slog.Default(), nil)
+
+	for _, test := range []struct {
+		name       string
+		path       string
+		statusCode int
+		body       string
+	}{
+		{
+			name:       "signin start",
+			path:       "/api/auth/microsoft?returnTo=%2Fdashboard",
+			statusCode: http.StatusServiceUnavailable,
+			body:       `"code":"MICROSOFT_AUTH_NOT_CONFIGURED"`,
+		},
+		{
+			name:       "callback without state",
+			path:       "/api/auth/microsoft/callback?state=missing",
+			statusCode: http.StatusBadRequest,
+			body:       `"code":"INVALID_STATE"`,
+		},
+		{
+			name:       "link requires a session",
+			path:       "/api/auth/microsoft/link",
 			statusCode: http.StatusServiceUnavailable,
 			body:       `"code":"UNAUTHORIZED"`,
 		},

@@ -48,6 +48,57 @@ func TestOAuthStateIsSignedAndRejectsTampering(t *testing.T) {
 	}
 }
 
+func TestMicrosoftAuthStateIsSignedAndRejectsTampering(t *testing.T) {
+	handler := testHandler()
+	original := microsoftAuthState{
+		Nonce: "state-nonce", CodeVerifier: "pkce-verifier", ReturnTo: "/dashboard",
+		Flow: microsoftLoginFlow, Intent: "signin", IssuedAt: time.Now().Unix(),
+	}
+	encoded, err := handler.encodeMicrosoftAuthState(original)
+	if err != nil {
+		t.Fatalf("encode Microsoft auth state: %v", err)
+	}
+	decoded, err := handler.decodeMicrosoftAuthState(encoded)
+	if err != nil {
+		t.Fatalf("decode Microsoft auth state: %v", err)
+	}
+	if decoded != original {
+		t.Fatalf("state = %#v, want %#v", decoded, original)
+	}
+	if _, err := handler.decodeMicrosoftAuthState(encoded + "tampered"); err == nil {
+		t.Fatal("tampered Microsoft auth state was accepted")
+	}
+}
+
+func TestMicrosoftAuthReturnToRejectsExternalTargets(t *testing.T) {
+	for _, test := range []struct {
+		value    string
+		expected string
+	}{
+		{value: "/dashboard?tab=home", expected: "/dashboard?tab=home"},
+		{value: "https://attacker.example/", expected: "/sign-in"},
+		{value: "//attacker.example/", expected: "/sign-in"},
+		{value: `/\attacker.example`, expected: "/sign-in"},
+		{value: "", expected: "/sign-in"},
+	} {
+		if got := safeMicrosoftAuthReturnTo(test.value, "/sign-in"); got != test.expected {
+			t.Errorf("safeMicrosoftAuthReturnTo(%q) = %q, want %q", test.value, got, test.expected)
+		}
+	}
+}
+
+func TestMicrosoftAuthRateLimiterCapsAttemptsPerClient(t *testing.T) {
+	limiter := newAuthRateLimiter()
+	for attempt := 0; attempt < microsoftAuthRateLimit; attempt++ {
+		if !limiter.allow("client-hash") {
+			t.Fatalf("attempt %d was unexpectedly blocked", attempt+1)
+		}
+	}
+	if limiter.allow("client-hash") {
+		t.Fatal("attempt beyond the rate limit was accepted")
+	}
+}
+
 func TestCallbackBaseURLUsesCanonicalOriginAndAllowlistedHosts(t *testing.T) {
 	handler := testHandler()
 	handler.cfg.CanonicalOrigin = "https://app.example.test"

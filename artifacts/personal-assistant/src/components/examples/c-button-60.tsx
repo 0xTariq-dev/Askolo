@@ -8,10 +8,12 @@ export function CButton60SocialAuthButtons({
   intent,
   onGoogleClick,
   onGithubClick,
+  onMicrosoftClick,
 }: {
   intent: 'signin' | 'signup';
   onGoogleClick: () => void;
   onGithubClick: () => void;
+  onMicrosoftClick: () => void;
 }) {
   const action = intent === 'signup' ? 'Sign up' : 'Login';
 
@@ -51,6 +53,24 @@ export function CButton60SocialAuthButtons({
           size={16}
         />
       </Button>
+      {intent === 'signin' && (
+        <Button
+          type="button"
+          aria-label="Sign in with Microsoft"
+          className="min-h-11 min-w-11 shrink-0"
+          size="icon"
+          variant="outline"
+          onClick={onMicrosoftClick}
+          data-testid="button-microsoft-login"
+        >
+          <span aria-hidden="true" className="grid grid-cols-2 gap-0.5">
+            <span className="size-1.5 bg-[#f25022]" />
+            <span className="size-1.5 bg-[#7fba00]" />
+            <span className="size-1.5 bg-[#00a4ef]" />
+            <span className="size-1.5 bg-[#ffb900]" />
+          </span>
+        </Button>
+      )}
     </div>
   );
 }

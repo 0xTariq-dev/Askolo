@@ -270,6 +270,18 @@ func TestOAuthFlowsUseDistinctClientsAndCallbacks(t *testing.T) {
 	}
 }
 
+func TestLegacyGoogleIntegrationCallbackIsNoLongerRegistered(t *testing.T) {
+	handler := testOAuthHandler()
+	request := httptest.NewRequest(http.MethodGet, "/api/google/gmail/callback", nil)
+	response := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("legacy callback returned %d, want 404", response.Code)
+	}
+}
+
 func TestSafeReturnToRejectsExternalRedirects(t *testing.T) {
 	if got := safeReturnTo("https://evil.example"); got != "/dashboard" {
 		t.Fatalf("expected external redirect to be rejected, got %q", got)

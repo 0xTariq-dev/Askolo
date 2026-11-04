@@ -142,6 +142,23 @@ must be an HTTPS origin and its host must be registered with Google. Callback
 failures clear the state cookie and redirect only to the validated same-origin
 `returnTo` path.
 
+### Microsoft sign-in
+
+The Microsoft app registration uses the configured `MS_CLIENT_ID` and
+`MS_CLIENT_SECRET` for both sign-in and account linking. Register these Web
+redirect URIs on that app:
+
+```text
+https://<canonical-host>/api/auth/microsoft/callback
+https://<canonical-host>/api/auth/microsoft/link/callback
+https://<canonical-host>/api/integrations/microsoft/callback
+```
+
+Microsoft sign-in creates a session only for an identity already linked to an
+Askolo account. Microsoft Graph email fields are not treated as verified signup
+addresses; new users should create an account with a verified email and link
+Microsoft from Profile security settings.
+
 ### Staging Google OAuth verification
 
 Use a disposable Google OAuth web client for staging. Register exactly this

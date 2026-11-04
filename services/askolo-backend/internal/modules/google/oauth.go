@@ -111,11 +111,9 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /api/integrations/google/callback", h.finishIntegration)
 	mux.HandleFunc("GET /api/integrations/google/status", h.status)
 	mux.HandleFunc("GET /api/integrations/google/accounts", h.status)
-	// Legacy frontend contract. These aliases remain Go-owned; they do not
-	// forward to the removed TypeScript service.
+	// Legacy frontend aliases still used for status, consent start, and revoke.
 	mux.HandleFunc("GET /api/google/status", h.status)
 	mux.HandleFunc("GET /api/google/gmail/connect", h.startIntegration)
-	mux.HandleFunc("GET /api/google/gmail/callback", h.finishIntegration)
 	mux.HandleFunc("DELETE /api/google/disconnect", h.revokeAll)
 	mux.HandleFunc("DELETE /api/integrations/google/{connectionID}", h.disconnect)
 	mux.HandleFunc("DELETE /api/integrations/google/{connectionID}/services/{service}", h.disconnectService)

@@ -179,10 +179,11 @@ func TestLoadR2ConfigRejectsIncompleteRegionalBucketsAndCredentials(t *testing.T
 func TestTurnstileAllowedHostnamesAreExactAndEnvironmentScoped(t *testing.T) {
 	t.Setenv("REPLIT_DEV_DOMAIN", "")
 	production := turnstileAllowedHostnames("production")
-	if len(production) != 4 {
-		t.Fatalf("production hostname allowlist has %d entries, want exactly four", len(production))
+	if len(production) != 5 {
+		t.Fatalf("production hostname allowlist has %d entries, want exactly five", len(production))
 	}
 	for _, hostname := range []string{
+		"askolo.app",
 		"dev.askolo.app",
 		"web.askolo.app",
 		"staging.askolo.app",
@@ -199,8 +200,8 @@ func TestTurnstileAllowedHostnamesAreExactAndEnvironmentScoped(t *testing.T) {
 	}
 
 	development := turnstileAllowedHostnames("development")
-	if len(development) != 6 {
-		t.Fatalf("development hostname allowlist has %d entries, want exactly six", len(development))
+	if len(development) != 7 {
+		t.Fatalf("development hostname allowlist has %d entries, want exactly seven", len(development))
 	}
 	for _, hostname := range []string{"localhost", "127.0.0.1"} {
 		if _, ok := development[hostname]; !ok {

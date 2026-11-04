@@ -95,7 +95,7 @@ export function ProfilePage() {
     useGetGoogleStatus();
   const { data: microsoftStatus, refetch: refetchMicrosoft, isFetching: checkingMicrosoft } =
     useGetMicrosoftStatus();
-  const [googleSignInNotice, setGoogleSignInNotice] = useState<string | null>(null);
+  const [providerSignInNotice, setProviderSignInNotice] = useState<string | null>(null);
   const [microsoftNotice, setMicrosoftNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -103,29 +103,38 @@ export function ProfilePage() {
     const status = params.get('google');
     const githubStatus = params.get('github');
     const microsoftStatus = params.get('microsoft');
+    const microsoftAuthStatus = params.get('microsoft_auth');
     if (status === 'linked') {
-      setGoogleSignInNotice('Google sign-in is linked to this account.');
+      setProviderSignInNotice('Google sign-in is linked to this account.');
     } else if (status === 'provider_not_linked') {
-      setGoogleSignInNotice('That Google account is already linked to a different Askolo account.');
+      setProviderSignInNotice('That Google account is already linked to a different Askolo account.');
     } else if (status === 'error') {
-      setGoogleSignInNotice('Google sign-in could not be linked. Please try again.');
+      setProviderSignInNotice('Google sign-in could not be linked. Please try again.');
     }
     if (githubStatus === 'linked') {
-      setGoogleSignInNotice('GitHub sign-in is linked to this account.');
+      setProviderSignInNotice('GitHub sign-in is linked to this account.');
     } else if (githubStatus === 'provider_not_linked') {
-      setGoogleSignInNotice('That GitHub account is already linked to a different Askolo account.');
+      setProviderSignInNotice('That GitHub account is already linked to a different Askolo account.');
     } else if (githubStatus === 'error') {
-      setGoogleSignInNotice('GitHub sign-in could not be linked. Please try again.');
+      setProviderSignInNotice('GitHub sign-in could not be linked. Please try again.');
+    }
+    if (microsoftAuthStatus === 'linked') {
+      setProviderSignInNotice('Microsoft sign-in is linked to this account.');
+    } else if (microsoftAuthStatus === 'provider_not_linked') {
+      setProviderSignInNotice('That Microsoft account is already linked to a different Askolo account.');
+    } else if (microsoftAuthStatus === 'error') {
+      setProviderSignInNotice('Microsoft sign-in could not be linked. Please try again.');
     }
     if (microsoftStatus === 'connected') {
       setMicrosoftNotice('Microsoft account connected.');
     } else if (microsoftStatus === 'error') {
       setMicrosoftNotice('Microsoft account could not be connected. Please try again.');
     }
-    if (status || githubStatus || microsoftStatus) {
+    if (status || githubStatus || microsoftStatus || microsoftAuthStatus) {
       params.delete('google');
       params.delete('github');
       params.delete('microsoft');
+      params.delete('microsoft_auth');
       const search = params.toString();
       window.history.replaceState(
         window.history.state,
@@ -519,6 +528,13 @@ export function ProfilePage() {
     const returnTo = `${basePath}/settings/account/security?github=linked`;
     window.location.assign(
       `${basePath}/api/auth/github/link?returnTo=${encodeURIComponent(returnTo)}`,
+    );
+  };
+
+  const linkMicrosoftSignIn = () => {
+    const returnTo = `${basePath}/settings/account/security?microsoft_auth=linked`;
+    window.location.assign(
+      `${basePath}/api/auth/microsoft/link?returnTo=${encodeURIComponent(returnTo)}`,
     );
   };
 
@@ -1119,18 +1135,19 @@ export function ProfilePage() {
         <CardHeader>
           <CardTitle className="text-base">Connected sign-in accounts</CardTitle>
           <CardDescription>
-            Link Google or GitHub as additional ways to sign in. Linking requires an active Askolo session; provider email addresses do not need to match.
+            Link Google, GitHub, or Microsoft as additional ways to sign in. Linking requires an active Askolo session; provider email addresses do not need to match.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {googleSignInNotice && (
+          {providerSignInNotice && (
             <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
-              {googleSignInNotice}
+              {providerSignInNotice}
             </p>
           )}
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <Button onClick={linkGoogleSignIn} className="min-h-11 w-full sm:w-auto">Link Google</Button>
             <Button onClick={linkGitHubSignIn} variant="outline" className="min-h-11 w-full sm:w-auto">Link GitHub</Button>
+            <Button onClick={linkMicrosoftSignIn} variant="outline" className="min-h-11 w-full sm:w-auto">Link Microsoft</Button>
           </div>
         </CardContent>
       </Card>

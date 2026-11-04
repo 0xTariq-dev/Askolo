@@ -101,6 +101,92 @@ paths:
         '302':
           description: Redirect on success or failure.
 
+  /auth/microsoft:
+    get:
+      tags: [Auth]
+      operationId: beginMicrosoftSignIn
+      summary: Start Microsoft sign-in
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302': { description: Redirect to Microsoft authorization. }
+        '429': { description: Sign-in attempt limit reached. }
+        '503': { description: Microsoft sign-in is unavailable or not configured. }
+
+  /auth/microsoft/callback:
+    get:
+      tags: [Auth]
+      operationId: completeMicrosoftSignIn
+      summary: Complete Microsoft sign-in
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302': { description: Redirect to the app after authentication. }
+        '400': { description: Authorization state is invalid. }
+
+  /auth/microsoft/link:
+    get:
+      tags: [Auth]
+      operationId: beginMicrosoftIdentityLink
+      summary: Start linking a Microsoft sign-in identity
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302': { description: Redirect to Microsoft authorization. }
+        '401': { description: An authenticated session is required. }
+        '403': { description: The session must complete MFA before linking. }
+        '429': { description: Sign-in attempt limit reached. }
+        '503': { description: Microsoft sign-in is unavailable or not configured. }
+
+  /auth/microsoft/link/callback:
+    get:
+      tags: [Auth]
+      operationId: completeMicrosoftIdentityLink
+      summary: Complete linking a Microsoft sign-in identity
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302': { description: Redirect to the app after linking. }
+        '400': { description: Authorization state is invalid. }
+
   /auth/logout:
     post:
       tags: [Auth]

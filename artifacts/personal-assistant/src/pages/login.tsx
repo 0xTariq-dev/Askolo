@@ -93,14 +93,19 @@ export function LoginPage() {
     : window.location.pathname.endsWith('/sign-up')
       ? 'signup'
       : 'signin';
-  const beginProviderLogin = (provider: 'google' | 'github', intent: 'signin' | 'signup' = 'signin') => {
+  const beginProviderLogin = (provider: 'google' | 'github' | 'microsoft', intent: 'signin' | 'signup' = 'signin') => {
     ensureDeviceFingerprint();
     const returnParams = new URLSearchParams(window.location.search);
     returnParams.delete('google');
+    returnParams.delete('microsoft_auth');
     const returnSearch = returnParams.toString();
     const returnTo = `${basePath}/dashboard${returnSearch ? `?${returnSearch}` : ''}`;
+    const authParams = new URLSearchParams({ returnTo });
+    if (provider !== 'microsoft') {
+      authParams.set('intent', intent);
+    }
     window.location.assign(
-      `${basePath}/api/auth/${provider}?intent=${intent}&returnTo=${encodeURIComponent(returnTo)}`,
+      `${basePath}/api/auth/${provider}?${authParams.toString()}`,
     );
   };
   const [mode, setMode] = useState<PasswordMode>(initialMode);
@@ -117,6 +122,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [providerAlert] = useState(() => {
     const googleStatus = new URLSearchParams(window.location.search).get('google');
+    const microsoftStatus = new URLSearchParams(window.location.search).get('microsoft_auth');
     if (googleStatus === 'account_exists') {
       return {
         title: 'An account already exists',
@@ -131,12 +137,24 @@ export function LoginPage() {
         variant: 'info' as const,
       };
     }
+    if (microsoftStatus === 'provider_not_linked') {
+      return {
+        title: 'Microsoft sign-in isn’t linked yet',
+        description: 'Sign in with your existing method, then link Microsoft in Profile security settings.',
+        variant: 'info' as const,
+      };
+    }
     return null;
   });
   const [notice, setNotice] = useState<string | null>(() => {
-    const googleStatus = new URLSearchParams(window.location.search).get('google');
+    const params = new URLSearchParams(window.location.search);
+    const googleStatus = params.get('google');
+    const microsoftStatus = params.get('microsoft_auth');
     if (googleStatus === 'error') {
       return 'Google sign-in could not be completed. Try again or sign in with your email and password.';
+    }
+    if (microsoftStatus === 'error') {
+      return 'Microsoft sign-in could not be completed. Try again or sign in with your email and password.';
     }
     return null;
   });
@@ -181,8 +199,9 @@ export function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (!params.has('google')) return;
+    if (!params.has('google') && !params.has('microsoft_auth')) return;
     params.delete('google');
+    params.delete('microsoft_auth');
     const search = params.toString();
     window.history.replaceState(
       window.history.state,
@@ -648,6 +667,7 @@ export function LoginPage() {
               intent={providerIntent}
               onGoogleClick={() => beginProviderLogin('google', providerIntent)}
               onGithubClick={() => beginProviderLogin('github', providerIntent)}
+              onMicrosoftClick={() => beginProviderLogin('microsoft')}
             />
             <div className="flex flex-col items-center gap-1">
               <Button type="button" variant="link" onClick={() => changeMode(mode === 'signin' ? 'signup' : 'signin')}>

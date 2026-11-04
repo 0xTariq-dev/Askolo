@@ -5,6 +5,7 @@
 - [Google auth feedback](google-auth-feedback.md) — distinguish signup email collisions from unlinked sign-in and keep both as concise, persistent ReUI Alerts.
 - [Google OAuth canonical origin](google-oauth-canonical-origin.md) — derive staged and production callback URIs from `ASKOLO_CANONICAL_ORIGIN`, not proxy headers.
 - [Microsoft integration OAuth](microsoft-integration-oauth.md) — preserve user-selected `MS_CLIENT_*` credentials and canonical-origin policy; inspect current routes rather than assuming implementation status.
+- [Microsoft auth email trust](microsoft-auth-email-trust.md) — don't auto-provision Microsoft users from Graph email fields; link identities to an existing verified Askolo account.
 - [Reusable voice input](voice-input-architecture.md) — keep live recognition, recorded fallback, limits, cancellation, and transcript review in one reusable hook.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — normalize generated Zod 4 helpers and conflicting barrel exports before type-checking against Zod 3.
 - [Lingui localization in Vite](lingui-vite-macros.md) — configure the macro transform and verify runtime browser catalog loaders; Vite’s static glob expansion is not a runtime API.

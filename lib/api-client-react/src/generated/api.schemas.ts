@@ -1462,6 +1462,26 @@ state?: string;
 iss?: string;
 };
 
+export type BeginMicrosoftSignInParams = {
+returnTo?: string;
+};
+
+export type CompleteMicrosoftSignInParams = {
+code?: string;
+state?: string;
+error?: string;
+};
+
+export type BeginMicrosoftIdentityLinkParams = {
+returnTo?: string;
+};
+
+export type CompleteMicrosoftIdentityLinkParams = {
+code?: string;
+state?: string;
+error?: string;
+};
+
 export type LogoutBrowserSessionParams = {
 returnTo?: string;
 };

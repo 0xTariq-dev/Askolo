@@ -35,7 +35,11 @@ import type {
   AudioTranscriptionResponse,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
+  BeginMicrosoftIdentityLinkParams,
+  BeginMicrosoftSignInParams,
   CoachingInput,
+  CompleteMicrosoftIdentityLinkParams,
+  CompleteMicrosoftSignInParams,
   DailyPlan,
   DailyPlanInput,
   DailyPlanUpdate,
@@ -459,6 +463,342 @@ export function useHandleBrowserLoginCallback<TData = Awaited<ReturnType<typeof 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getHandleBrowserLoginCallbackQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getBeginMicrosoftSignInUrl = (params?: BeginMicrosoftSignInParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/auth/microsoft?${stringifiedParams}` : `/api/auth/microsoft`
+}
+
+/**
+ * @summary Start Microsoft sign-in
+ */
+export const beginMicrosoftSignIn = async (params?: BeginMicrosoftSignInParams, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getBeginMicrosoftSignInUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getBeginMicrosoftSignInQueryKey = (params?: BeginMicrosoftSignInParams,) => {
+    return [
+    `/api/auth/microsoft`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getBeginMicrosoftSignInQueryOptions = <TData = Awaited<ReturnType<typeof beginMicrosoftSignIn>>, TError = ErrorType<void>>(params?: BeginMicrosoftSignInParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof beginMicrosoftSignIn>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getBeginMicrosoftSignInQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof beginMicrosoftSignIn>>> = ({ signal }) => beginMicrosoftSignIn(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof beginMicrosoftSignIn>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type BeginMicrosoftSignInQueryResult = NonNullable<Awaited<ReturnType<typeof beginMicrosoftSignIn>>>
+export type BeginMicrosoftSignInQueryError = ErrorType<void>
+
+
+/**
+ * @summary Start Microsoft sign-in
+ */
+
+export function useBeginMicrosoftSignIn<TData = Awaited<ReturnType<typeof beginMicrosoftSignIn>>, TError = ErrorType<void>>(
+ params?: BeginMicrosoftSignInParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof beginMicrosoftSignIn>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getBeginMicrosoftSignInQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCompleteMicrosoftSignInUrl = (params?: CompleteMicrosoftSignInParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/auth/microsoft/callback?${stringifiedParams}` : `/api/auth/microsoft/callback`
+}
+
+/**
+ * @summary Complete Microsoft sign-in
+ */
+export const completeMicrosoftSignIn = async (params?: CompleteMicrosoftSignInParams, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getCompleteMicrosoftSignInUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCompleteMicrosoftSignInQueryKey = (params?: CompleteMicrosoftSignInParams,) => {
+    return [
+    `/api/auth/microsoft/callback`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCompleteMicrosoftSignInQueryOptions = <TData = Awaited<ReturnType<typeof completeMicrosoftSignIn>>, TError = ErrorType<void>>(params?: CompleteMicrosoftSignInParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof completeMicrosoftSignIn>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCompleteMicrosoftSignInQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof completeMicrosoftSignIn>>> = ({ signal }) => completeMicrosoftSignIn(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof completeMicrosoftSignIn>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type CompleteMicrosoftSignInQueryResult = NonNullable<Awaited<ReturnType<typeof completeMicrosoftSignIn>>>
+export type CompleteMicrosoftSignInQueryError = ErrorType<void>
+
+
+/**
+ * @summary Complete Microsoft sign-in
+ */
+
+export function useCompleteMicrosoftSignIn<TData = Awaited<ReturnType<typeof completeMicrosoftSignIn>>, TError = ErrorType<void>>(
+ params?: CompleteMicrosoftSignInParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof completeMicrosoftSignIn>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getCompleteMicrosoftSignInQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getBeginMicrosoftIdentityLinkUrl = (params?: BeginMicrosoftIdentityLinkParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/auth/microsoft/link?${stringifiedParams}` : `/api/auth/microsoft/link`
+}
+
+/**
+ * @summary Start linking a Microsoft sign-in identity
+ */
+export const beginMicrosoftIdentityLink = async (params?: BeginMicrosoftIdentityLinkParams, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getBeginMicrosoftIdentityLinkUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getBeginMicrosoftIdentityLinkQueryKey = (params?: BeginMicrosoftIdentityLinkParams,) => {
+    return [
+    `/api/auth/microsoft/link`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getBeginMicrosoftIdentityLinkQueryOptions = <TData = Awaited<ReturnType<typeof beginMicrosoftIdentityLink>>, TError = ErrorType<void>>(params?: BeginMicrosoftIdentityLinkParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof beginMicrosoftIdentityLink>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getBeginMicrosoftIdentityLinkQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof beginMicrosoftIdentityLink>>> = ({ signal }) => beginMicrosoftIdentityLink(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof beginMicrosoftIdentityLink>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type BeginMicrosoftIdentityLinkQueryResult = NonNullable<Awaited<ReturnType<typeof beginMicrosoftIdentityLink>>>
+export type BeginMicrosoftIdentityLinkQueryError = ErrorType<void>
+
+
+/**
+ * @summary Start linking a Microsoft sign-in identity
+ */
+
+export function useBeginMicrosoftIdentityLink<TData = Awaited<ReturnType<typeof beginMicrosoftIdentityLink>>, TError = ErrorType<void>>(
+ params?: BeginMicrosoftIdentityLinkParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof beginMicrosoftIdentityLink>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getBeginMicrosoftIdentityLinkQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCompleteMicrosoftIdentityLinkUrl = (params?: CompleteMicrosoftIdentityLinkParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/auth/microsoft/link/callback?${stringifiedParams}` : `/api/auth/microsoft/link/callback`
+}
+
+/**
+ * @summary Complete linking a Microsoft sign-in identity
+ */
+export const completeMicrosoftIdentityLink = async (params?: CompleteMicrosoftIdentityLinkParams, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getCompleteMicrosoftIdentityLinkUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCompleteMicrosoftIdentityLinkQueryKey = (params?: CompleteMicrosoftIdentityLinkParams,) => {
+    return [
+    `/api/auth/microsoft/link/callback`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCompleteMicrosoftIdentityLinkQueryOptions = <TData = Awaited<ReturnType<typeof completeMicrosoftIdentityLink>>, TError = ErrorType<void>>(params?: CompleteMicrosoftIdentityLinkParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof completeMicrosoftIdentityLink>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCompleteMicrosoftIdentityLinkQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof completeMicrosoftIdentityLink>>> = ({ signal }) => completeMicrosoftIdentityLink(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof completeMicrosoftIdentityLink>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type CompleteMicrosoftIdentityLinkQueryResult = NonNullable<Awaited<ReturnType<typeof completeMicrosoftIdentityLink>>>
+export type CompleteMicrosoftIdentityLinkQueryError = ErrorType<void>
+
+
+/**
+ * @summary Complete linking a Microsoft sign-in identity
+ */
+
+export function useCompleteMicrosoftIdentityLink<TData = Awaited<ReturnType<typeof completeMicrosoftIdentityLink>>, TError = ErrorType<void>>(
+ params?: CompleteMicrosoftIdentityLinkParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof completeMicrosoftIdentityLink>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getCompleteMicrosoftIdentityLinkQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

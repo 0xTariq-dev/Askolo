@@ -41,6 +41,7 @@ type Handler struct {
 	client        *http.Client
 	tokenEndpoint string
 	graphEndpoint string
+	authLimiter   *authRateLimiter
 }
 
 type statePayload struct {
@@ -72,6 +73,7 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger) *
 	}
 	return &Handler{
 		cfg: cfg, store: store, logger: logger,
+		authLimiter: newAuthRateLimiter(),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -84,6 +86,10 @@ func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger) *
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/auth/microsoft", h.startAuthLogin)
+	mux.HandleFunc("GET /api/auth/microsoft/callback", h.finishAuthLogin)
+	mux.HandleFunc("GET /api/auth/microsoft/link", h.startAuthLink)
+	mux.HandleFunc("GET /api/auth/microsoft/link/callback", h.finishAuthLink)
 	mux.HandleFunc("GET /api/integrations/microsoft", h.start)
 	mux.HandleFunc("GET /api/integrations/microsoft/callback", h.callback)
 	mux.HandleFunc("GET /api/integrations/microsoft/status", h.status)
@@ -505,7 +511,11 @@ func redirectStatus(w http.ResponseWriter, r *http.Request, returnTo, status str
 		target = &url.URL{Path: "/profile"}
 	}
 	query := target.Query()
-	query.Set("microsoft", status)
+	statusParameter := "microsoft"
+	if strings.HasPrefix(r.URL.Path, "/api/auth/microsoft") {
+		statusParameter = "microsoft_auth"
+	}
+	query.Set(statusParameter, status)
 	target.RawQuery = query.Encode()
 	http.Redirect(w, r, target.String(), http.StatusFound)
 }
