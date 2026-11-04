@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Run the database-backed native email auth and cleanup readiness checks
-# against a disposable PostgreSQL instance. The test suites use a
-# capture-only sender, so this validation never contacts a real email
+# Run the database-backed native email auth, MFA aggregation, and cleanup
+# readiness checks against a disposable PostgreSQL instance. The test suites
+# use a capture-only sender, so this validation never contacts a real email
 # provider.
 
 die() {
@@ -132,9 +132,12 @@ env "${test_environment[@]}" \
   go test ./internal/modules/auth -run '^TestNativeEmailAuth' -count=1 -v
 
 env "${test_environment[@]}" \
+  go test ./internal/modules/auth -run '^TestMFAEventSummaryAggregates(ConcurrentTraffic|RecoverySupportTraffic)$' -count=1 -v
+
+env "${test_environment[@]}" \
   go test ./internal/app -run '^TestEmailChallengeCleanupReadinessRecoversAfterDatabase' -count=1 -v
 
 env "${test_environment[@]}" \
   go test ./internal/migrations -count=1 -v
 
-echo "Native auth, cleanup readiness, and migration release validation passed"
+echo "Native auth, MFA aggregation, cleanup readiness, and migration release validation passed"

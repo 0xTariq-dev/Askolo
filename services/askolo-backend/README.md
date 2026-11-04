@@ -225,16 +225,24 @@ with `CASCADE` during cleanup. It does not need `SUPERUSER`, `CREATEDB`,
 other schema. Regular `go test ./...` skips these tests when
 `ASKOLO_TEST_DATABASE_URL` is not set.
 
-Release validation runs the native auth checks and the cleanup readiness
-failure/recovery check automatically through
+The disposable-database release validation runs the native auth tests, both
+MFA event aggregation integration tests (concurrent traffic and recovery
+support traffic), the cleanup readiness failure/recovery check, and migration
+integration tests through
 `scripts/run-native-email-auth-validation.sh`. With no environment override,
 that script creates a temporary local PostgreSQL cluster and a dedicated
-non-superuser test role with exactly that database contract, runs both checks
-once with `-count=1`, and stops and removes the cluster on success or failure.
-The test's temporary schema is also dropped by the test cleanup. A release
-environment may provide `ASKOLO_TEST_DATABASE_URL` instead, but it must point
-to a disposable database using a role with the same minimum contract. The
-validation never uses `DATABASE_URL`, sends email, or contacts Resend.
+non-superuser test role with exactly that database contract, runs each test
+group once with `-count=1`, and stops and removes the cluster on success or
+failure. Each integration test's temporary schema is dropped by test cleanup.
+A release environment may provide `ASKOLO_TEST_DATABASE_URL` instead, but it
+must point to a disposable database using a role with the same minimum
+contract. The validation never uses `DATABASE_URL`, sends email, or contacts
+Resend.
+
+The configured `publish-paths` validation invokes this script, so its CI check
+provisions and tears down the disposable PostgreSQL cluster automatically.
+Running `go test ./...` locally without `ASKOLO_TEST_DATABASE_URL` continues
+to skip the database-backed integration tests.
 
 ### Native email delivery operations
 
