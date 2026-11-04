@@ -12,9 +12,44 @@ go_started="$fixture_root/go-started"
 go_args_log="$fixture_root/go-args.log"
 validation_pid=""
 postgres_pid=""
+real_validation_pid=""
+real_go_pid=""
+real_test_pid=""
+real_postgres_pid=""
+real_pg_data=""
+real_tmpdir=""
 
 cleanup() {
   local exit_code=$?
+
+  if [[ -n "$real_test_pid" ]] && kill -0 "$real_test_pid" 2>/dev/null; then
+    kill -TERM "$real_test_pid" 2>/dev/null || true
+  fi
+
+  if [[ -n "$real_validation_pid" ]] && kill -0 "$real_validation_pid" 2>/dev/null; then
+    if [[ -n "$real_go_pid" ]] && kill -0 "$real_go_pid" 2>/dev/null; then
+      kill -TERM "$real_go_pid" 2>/dev/null || true
+    fi
+    wait "$real_validation_pid" 2>/dev/null || true
+    real_validation_pid=""
+  fi
+
+  if [[ -n "$real_pg_data" && -f "$real_pg_data/postmaster.pid" ]]; then
+    pg_ctl_path="$(command -v pg_ctl || true)"
+    if [[ -n "$pg_ctl_path" ]]; then
+      "$pg_ctl_path" -D "$real_pg_data" -m fast -w stop >/dev/null 2>&1 || true
+    fi
+  fi
+  if [[ -n "$real_tmpdir" ]]; then
+    pg_ctl_path="$(command -v pg_ctl || true)"
+    if [[ -n "$pg_ctl_path" ]]; then
+      for candidate in "$real_tmpdir"/askolo-native-email-auth.*/data; do
+        if [[ -f "$candidate/postmaster.pid" ]]; then
+          "$pg_ctl_path" -D "$candidate" -m fast -w stop >/dev/null 2>&1 || true
+        fi
+      done
+    fi
+  fi
 
   if [[ -n "$validation_pid" ]] && kill -0 "$validation_pid" 2>/dev/null; then
     kill -KILL "$validation_pid" 2>/dev/null || true
@@ -278,8 +313,146 @@ run_early_exit_case() {
   assert_clean early-go-test-exit
 }
 
+run_real_postgres_interruption_case() {
+  local real_bin="$fixture_root/real-bin"
+  local real_go
+  local real_log="$fixture_root/real-postgres-interruption.log"
+  local real_test_tmpdir="$fixture_root/real-tmp"
+  local test_status=""
+  local test_started=false
+  local process_args=""
+  local process_state=""
+  local pg_ctl_path
+
+  mkdir -p -- "$real_bin" "$real_test_tmpdir"
+  real_tmpdir="$real_test_tmpdir"
+  real_go="$(command -v go || true)"
+  [[ -n "$real_go" ]] || fail "go is required for the real PostgreSQL interruption check"
+  pg_ctl_path="$(command -v pg_ctl || true)"
+  [[ -n "$pg_ctl_path" ]] || fail "pg_ctl is required for the real PostgreSQL interruption check"
+
+  cat >"$real_bin/go" <<'STUB'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == test && "${2:-}" == ./internal/modules/auth ]]; then
+  printf '%s\n' "$$" >"$REAL_GO_PID_FILE"
+fi
+exec "$REAL_GO" "$@"
+STUB
+  chmod +x "$real_bin/go"
+
+  env \
+    -u DATABASE_URL \
+    -u ASKOLO_TEST_DATABASE_URL \
+    -u ASKOLO_TEST_DATABASE_PGDATA \
+    -u ASKOLO_TEST_DATABASE_PGCTL \
+    -u ASKOLO_TEST_DATABASE_PG_START_OPTIONS \
+    "PATH=$real_bin:$PATH" \
+    "TMPDIR=$real_test_tmpdir" \
+    "REAL_GO=$real_go" \
+    "REAL_GO_PID_FILE=$fixture_root/real-go.pid" \
+    bash "$validation_script" >"$real_log" 2>&1 &
+  real_validation_pid=$!
+
+  for _ in {1..6000}; do
+    if [[ -s "$fixture_root/real-go.pid" ]]; then
+      real_go_pid="$(cat -- "$fixture_root/real-go.pid")"
+      break
+    fi
+    if ! kill -0 "$real_validation_pid" 2>/dev/null; then
+      cat -- "$real_log" >&2
+      fail "real PostgreSQL validation exited before starting the Go auth test"
+    fi
+    sleep 0.05
+  done
+  [[ "$real_go_pid" =~ ^[0-9]+$ ]] ||
+    fail "timed out waiting for the real Go auth test to start"
+
+  for _ in {1..6000}; do
+    for candidate in "$real_test_tmpdir"/askolo-native-email-auth.*/data; do
+      if [[ -s "$candidate/postmaster.pid" ]]; then
+        real_pg_data="$candidate"
+        real_postgres_pid="$(head -n 1 -- "$candidate/postmaster.pid")"
+        break
+      fi
+    done
+    [[ -n "$real_pg_data" ]] && break
+    if ! kill -0 "$real_validation_pid" 2>/dev/null; then
+      cat -- "$real_log" >&2
+      fail "real PostgreSQL validation exited before creating its disposable cluster"
+    fi
+    sleep 0.05
+  done
+  [[ -n "$real_pg_data" && "$real_postgres_pid" =~ ^[0-9]+$ ]] ||
+    fail "timed out waiting for the real PostgreSQL postmaster"
+  kill -0 "$real_postgres_pid" 2>/dev/null ||
+    fail "disposable PostgreSQL postmaster is not running before interruption"
+  "$pg_ctl_path" -D "$real_pg_data" status >/dev/null ||
+    fail "pg_ctl did not confirm the real disposable PostgreSQL instance is running"
+
+  echo "Waiting for the real native email auth Go test to execute"
+  for _ in {1..6000}; do
+    if grep -Eq '^=== RUN[[:space:]]+TestNativeEmailAuth' "$real_log"; then
+      real_test_pid="$(ps -eo pid=,ppid=,args= |
+        awk -v parent="$real_go_pid" '$2 == parent && index($0, "auth.test") > 0 { print $1; exit }')"
+      if [[ "$real_test_pid" =~ ^[0-9]+$ ]] && kill -0 "$real_test_pid" 2>/dev/null; then
+        test_started=true
+        break
+      fi
+    fi
+    if ! kill -0 "$real_validation_pid" 2>/dev/null; then
+      cat -- "$real_log" >&2
+      fail "real native email auth Go test finished before it could be interrupted"
+    fi
+    sleep 0.05
+  done
+  [[ "$test_started" == true ]] || {
+    cat -- "$real_log" >&2
+    fail "timed out waiting for the real native email auth Go test process"
+  }
+
+  echo "Interrupting the running real native email auth Go test (pid $real_test_pid)"
+  kill -TERM "$real_test_pid"
+  set +e
+  wait "$real_validation_pid"
+  test_status=$?
+  set -e
+  real_validation_pid=""
+
+  [[ "$test_status" -ne 0 ]] ||
+    fail "interrupted real PostgreSQL validation unexpectedly succeeded"
+
+  for _ in {1..200}; do
+    process_args="$(ps -p "$real_postgres_pid" -o args= 2>/dev/null || true)"
+    process_state="$(ps -p "$real_postgres_pid" -o stat= 2>/dev/null || true)"
+    if [[ -z "$process_args" || "$process_args" != *"$real_pg_data"* || "$process_state" == Z* ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ -n "$process_args" && "$process_args" == *"$real_pg_data"* && "$process_state" != Z* ]]; then
+    fail "interrupted validation left the real PostgreSQL postmaster running (pid $real_postgres_pid)"
+  fi
+
+  for temporary_root in "$real_test_tmpdir"/askolo-native-email-auth.*; do
+    [[ ! -e "$temporary_root" ]] ||
+      fail "interrupted validation left real PostgreSQL temporary data at $temporary_root"
+  done
+
+  real_go_pid=""
+  real_test_pid=""
+  real_postgres_pid=""
+  real_pg_data=""
+  real_tmpdir=""
+  echo "Real PostgreSQL interruption cleanup check passed"
+}
+
 run_success_case
 run_interruption_case
 run_early_exit_case
 
 echo "Native email auth interruption cleanup regression check passed"
+
+if [[ "${ASKOLO_TEST_REAL_POSTGRES_INTERRUPTION:-}" == "yes" ]]; then
+  run_real_postgres_interruption_case
+fi
