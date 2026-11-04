@@ -92,6 +92,7 @@
 - [Space-centric product scope](workspace-first-product-scope.md) — use Spaces and Home in product UI; support family and professional Spaces, with explicit Agent scope.
 - [Retired Actions and Chores routes](retired-actions-chores.md) — remove routes and aliases outright; never redirect them or delete stored records.
 - [Askolo mark colors](askolo-mark-colors.md) — avoid flat tints; preserve the glass highlights and depth when recoloring the mark.
+- [SVG raster embedding](svg-raster-embedding.md) — externally linked raster images inside SVGs can disappear in image contexts; use direct PNGs in UI and embed data when SVG must be standalone.
 - [Home Gmail incremental sync](home-gmail-incremental-sync.md) — seed only the 30 days before account linking; use a purpose-derived HMAC key for minimal thread state and rebaseline after key rotation.
 - [Space notification preferences](space-notification-preferences.md) — membership notices are for owners/admins; task and reminder channels follow saved preferences, with reminder delivery inactive until approved.
 - [Space profile scope](space-profile-scope.md) — Space image upload and serving are explicitly excluded from the approved settings scope.
