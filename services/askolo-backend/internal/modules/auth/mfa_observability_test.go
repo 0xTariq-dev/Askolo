@@ -333,6 +333,114 @@ func TestMFAEventSummaryAggregatesConcurrentTraffic(t *testing.T) {
 	}
 }
 
+func TestMFAEventSummaryStaysFastWithHistoricalSecurityEvents(t *testing.T) {
+	fixture := newEmailAuthFixture(t)
+	ctx := context.Background()
+	const historicalEventCount = 500_000
+	const latencyBudget = 500 * time.Millisecond
+	now := time.Now().UTC()
+	since := now.Add(-15 * time.Minute)
+
+	_, err := fixture.pool.Exec(ctx, `
+INSERT INTO auth_security_events
+  (id, user_id, event_type, request_id, metadata, created_at)
+SELECT
+  'historical-security-event-' || n,
+  'historical-user-' || (n % 25000),
+  CASE n % 10
+    WHEN 0 THEN 'mfa_challenge_failed'
+    WHEN 1 THEN 'mfa_replay_rejected'
+    WHEN 2 THEN 'mfa_challenge_locked'
+    WHEN 3 THEN 'mfa_decryption_failed'
+    WHEN 4 THEN 'login_failed'
+    WHEN 5 THEN 'password_reset_requested'
+    WHEN 6 THEN 'login_failed'
+    WHEN 7 THEN 'password_reset_requested'
+    WHEN 8 THEN 'login_failed'
+    ELSE 'password_reset_requested'
+  END,
+  'historical-request-' || n,
+  '{"source":"historical-scale-check"}'::jsonb,
+  $1::timestamptz - interval '16 minutes' - ((n % 94608000) * interval '1 second')
+FROM generate_series(1, $2::integer) AS n
+`, now, historicalEventCount)
+	if err != nil {
+		t.Fatalf("insert historical auth security events: %v", err)
+	}
+
+	// Keep recent events separate from historical rows so the expected rolling
+	// summary is exact while the planner still sees a large, realistic history.
+	for _, event := range []struct {
+		id        string
+		userID    string
+		eventType string
+	}{
+		{id: "current-mfa-failure-1", userID: "current-user-1", eventType: "mfa_challenge_failed"},
+		{id: "current-mfa-failure-2", userID: "current-user-2", eventType: "mfa_recovery_code_failed"},
+		{id: "current-mfa-replay", userID: "current-user-1", eventType: "mfa_replay_rejected"},
+	} {
+		if _, err := fixture.pool.Exec(ctx, `
+INSERT INTO auth_security_events
+  (id, user_id, event_type, request_id, metadata, created_at)
+VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+`, event.id, event.userID, event.eventType, "current-request-"+event.id,
+			`{"marker":"private-current-event-metadata"}`, now); err != nil {
+			t.Fatalf("insert recent MFA event: %v", err)
+		}
+	}
+	if _, err := fixture.pool.Exec(ctx, `ANALYZE auth_security_events`); err != nil {
+		t.Fatalf("analyze historical auth security events: %v", err)
+	}
+
+	var plan string
+	err = fixture.pool.QueryRow(ctx, `
+EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+SELECT COUNT(*)
+FROM auth_security_events
+WHERE created_at >= $1
+  AND event_type IN (
+    'mfa_challenge_failed',
+    'mfa_recovery_code_failed',
+    'mfa_enrollment_failed',
+    'mfa_disable_failed',
+    'recovery_code_regeneration_failed',
+    'mfa_replay_rejected',
+    'mfa_challenge_locked',
+    'mfa_decryption_failed',
+    'mfa_recovery_support_challenge_sent',
+    'mfa_recovery_support_verification_failed',
+    'mfa_recovery_support_rate_limited',
+    'mfa_recovery_support_session_revocation_failed'
+  )
+`, since).Scan(&plan)
+	if err != nil {
+		t.Fatalf("explain rolling MFA event filter: %v", err)
+	}
+	if !strings.Contains(plan, "auth_security_events_type_created_idx") {
+		t.Fatal("rolling MFA event filter did not use the event-type/time index")
+	}
+
+	// Warm the connection and query path before measuring steady-state reads.
+	if _, err := fixture.store.MFAEventSummary(ctx, since); err != nil {
+		t.Fatalf("warm rolling MFA event summary: %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		started := time.Now()
+		summary, err := fixture.store.MFAEventSummary(ctx, since)
+		elapsed := time.Since(started)
+		if err != nil {
+			t.Fatalf("read rolling MFA event summary: %v", err)
+		}
+		if elapsed > latencyBudget {
+			t.Fatalf("rolling MFA summary took %s with %d historical events; budget is %s",
+				elapsed.Round(time.Millisecond), historicalEventCount, latencyBudget)
+		}
+		if summary.FailureEvents != 2 || summary.ReplayEvents != 1 || summary.AffectedUsers != 2 {
+			t.Fatalf("rolling MFA summary counts = %+v, want two failures, one replay, and two users", summary)
+		}
+	}
+}
+
 func TestMFAEventSummaryAggregatesRecoverySupportTraffic(t *testing.T) {
 	fixture := newEmailAuthFixture(t)
 	ctx := context.Background()

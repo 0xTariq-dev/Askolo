@@ -260,6 +260,10 @@ CREATE TABLE %sauth_security_events (
 	metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
 	created_at timestamptz DEFAULT now() NOT NULL
 );
+CREATE INDEX auth_security_events_user_created_idx
+ON %sauth_security_events (user_id, created_at);
+CREATE INDEX auth_security_events_type_created_idx
+ON %sauth_security_events (event_type, created_at);
 CREATE TABLE %sauth_totp (
 	user_id text PRIMARY KEY,
 	secret_encrypted text NOT NULL,
@@ -323,7 +327,7 @@ CREATE TABLE %sai_credit_policy_versions (
 INSERT INTO %sai_credit_policy_versions(version,signup_grant_usd_micros)
 VALUES (1, 0);
 `, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix,
-		prefix, prefix, prefix, prefix, prefix, prefix, prefix)
+		prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix, prefix)
 }
 
 func testAuthHandler(fixture *emailAuthFixture, sender EmailSender, logger *slog.Logger) http.Handler {

@@ -255,7 +255,7 @@ run_success_case() {
     fail "successful validation returned status $status"
   grep -Fq -- "./internal/modules/auth" "$go_args_log" ||
     fail "successful validation did not run native email auth checks"
-  grep -Fq -- '^TestMFAEventSummaryAggregates(ConcurrentTraffic|RecoverySupportTraffic)$' "$go_args_log" ||
+  grep -Fq -- '^TestMFAEventSummary(Aggregates(ConcurrentTraffic|RecoverySupportTraffic)|StaysFastWithHistoricalSecurityEvents)$' "$go_args_log" ||
     fail "successful validation did not run MFA event aggregation checks"
   grep -Fq -- "./internal/app" "$go_args_log" ||
     fail "successful validation did not run cleanup readiness checks"

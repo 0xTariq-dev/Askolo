@@ -132,7 +132,7 @@ env "${test_environment[@]}" \
   go test ./internal/modules/auth -run '^TestNativeEmailAuth' -count=1 -v
 
 env "${test_environment[@]}" \
-  go test ./internal/modules/auth -run '^TestMFAEventSummaryAggregates(ConcurrentTraffic|RecoverySupportTraffic)$' -count=1 -v
+  go test ./internal/modules/auth -run '^TestMFAEventSummary(Aggregates(ConcurrentTraffic|RecoverySupportTraffic)|StaysFastWithHistoricalSecurityEvents)$' -count=1 -v
 
 env "${test_environment[@]}" \
   go test ./internal/app -run '^TestEmailChallengeCleanupReadinessRecoversAfterDatabase' -count=1 -v
