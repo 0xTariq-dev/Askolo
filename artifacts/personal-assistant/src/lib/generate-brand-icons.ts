@@ -13,7 +13,7 @@ interface ThemeTokens {
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const publicDirectory = resolve(directory, '../../public');
-const sourceImage = resolve(publicDirectory, 'logo.png');
+const sourceImage = resolve(publicDirectory, 'icons/logo-hd.png');
 const tokens = JSON.parse(
   await readFile(resolve(directory, 'askolo-design-tokens.json'), 'utf8'),
 ) as ThemeTokens;
@@ -62,10 +62,10 @@ for (const themeId of themeIds) {
     if (!primary) throw new Error(`Missing ${mode} primary color for "${themeId}".`);
 
     for (const [kind, size] of [
-      ['favicon', 64],
-      ['apple-touch-icon', 180],
+      ['fav', 64],
+      ['touch', 180],
     ] as const) {
-      const output = resolve(publicDirectory, `${kind}-${themeId}-${mode}.png`);
+      const output = resolve(publicDirectory, 'icons', `${kind}-${themeId}-${mode}.png`);
       execFileSync(
         'magick',
         [

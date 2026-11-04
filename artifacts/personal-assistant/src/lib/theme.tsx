@@ -248,13 +248,12 @@ function applyTheme(value: ResolvedThemePreferences) {
         })();
   root.style.setProperty('--askolo-brand-logo-filter', logoFilter);
   const iconSuffix = `${value.accountThemeId}-${value.mode}`;
-  root.querySelector<HTMLLinkElement>('link[rel="icon"]')?.setAttribute(
-    'href',
-    `/favicon-${iconSuffix}.png`,
-  );
+  const faviconLink = root.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  faviconLink?.setAttribute('href', `/icons/fav-${iconSuffix}.png`);
+  faviconLink?.setAttribute('type', 'image/png');
   root.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')?.setAttribute(
     'href',
-    `/apple-touch-icon-${iconSuffix}.png`,
+    `/icons/touch-${iconSuffix}.png`,
   );
   const appearance = THEME_PRESETS[value.accountThemeId].appearance;
   root.dataset.askoloStyle = appearance.style;

@@ -20,7 +20,7 @@ import { AskoloTunnelConcept } from '@/components/hero-animation/AskoloTunnelCon
 import { useAskoloTheme } from '@/lib/theme';
 import { PublicLayout } from '@/components/layout/public-layout';
 import { BrandSloganReveal } from '@/components/landing/brand-slogan';
-import logoUrl from '/logo.png';
+import logoUrl from '/icons/logo.svg';
 import { toAppUrl } from '@/lib/site-domains';
 import { setPageMetadata } from '@/lib/seo';
 

@@ -26,11 +26,11 @@ const css = [
 
 await writeFile(new URL('../theme-token-fallbacks.css', import.meta.url), css);
 await writeFile(
-  new URL('../../public/askolo-theme-token-fallbacks.css', import.meta.url),
+  new URL('../../public/styles/askolo-theme-token-fallbacks.css', import.meta.url),
   css,
 );
 await writeFile(
-  new URL('../../public/askolo-fonts.css', import.meta.url),
+  new URL('../../public/styles/askolo-fonts.css', import.meta.url),
   await readFile(new URL('./askolo-fonts.css', import.meta.url), 'utf8'),
 );
 

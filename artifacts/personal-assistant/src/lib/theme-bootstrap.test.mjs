@@ -4,11 +4,11 @@ import test from 'node:test';
 import { Window } from 'happy-dom';
 
 const themeBootstrap = await readFile(
-  new URL('../../public/theme-mode-bootstrap.js', import.meta.url),
+  new URL('../../public/scripts/theme-mode-bootstrap.js', import.meta.url),
   'utf8',
 );
 const localeBootstrap = await readFile(
-  new URL('../../public/locale-bootstrap.js', import.meta.url),
+  new URL('../../public/scripts/locale-bootstrap.js', import.meta.url),
   'utf8',
 );
 const localeRegistry = JSON.parse(

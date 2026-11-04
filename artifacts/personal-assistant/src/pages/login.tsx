@@ -33,7 +33,7 @@ import { TurnstileWidget } from '@/components/auth/turnstile-widget';
 import { turnstileActionForMode, type TurnstileAction } from '@/lib/auth-turnstile';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
-import logoUrl from '/logo.png';
+import logoUrl from '/icons/logo.svg';
 
 type PasswordMode =
   | 'signin'
