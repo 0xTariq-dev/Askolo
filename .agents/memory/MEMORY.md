@@ -99,4 +99,5 @@
 - [Multi-account browser verification](multi-account-browser-verification.md) — fixture-based Profile tests prove UI behavior, not live Google OAuth or a signed-in Development session.
 - [Go module installer fallback](go-module-installer-fallback.md) — if Replit's package callback rejects Go, use the pinned Go module command from the service module.
 - [Askolo R2 residency routing](development-only-r2-storage.md) — use separate US/EU buckets, keep credentials environment-scoped, and default uploads to US until residency data exists.
+- [Cross-tab locale authority](cross-tab-locale-authority.md) — a fresh same-account storage update must outrank stale account data during provider remounts.
 

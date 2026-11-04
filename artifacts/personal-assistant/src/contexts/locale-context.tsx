@@ -43,6 +43,7 @@ type LocaleContextValue = {
 };
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
+const latestLocaleByScope = new Map<string, Locale>();
 
 function applyDocumentLocale(locale: Locale) {
   const root = document.documentElement;
@@ -96,21 +97,33 @@ function translatePlural(
 type LocaleProviderProps = {
   children: ReactNode;
   initialLocale?: Locale | null;
+  localeScope?: string;
   persistAccountLocale?: (locale: Locale) => Promise<void>;
 };
 
 export function LocaleProvider({
   children,
   initialLocale,
+  localeScope,
   persistAccountLocale,
 }: LocaleProviderProps) {
+  const storageScope = localeScope ?? '';
   const persistenceQueue = useRef<Promise<void>>(Promise.resolve());
   const catalogPromises = useRef<Partial<Record<Locale, Promise<MessageCatalog>>>>({});
   const localeChangeSequence = useRef(0);
+  const [storedLocaleAtMount] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
   const [catalogReadyLocale, setCatalogReadyLocale] = useState<Locale | null>(null);
   const [catalogLoadFailed, setCatalogLoadFailed] = useState(false);
   const [locale, setLocaleState] = useState<Locale>(() => {
-    const selectedLocale = isLocale(initialLocale) ? initialLocale : getStoredLocale();
+    const syncedLocale = latestLocaleByScope.get(storageScope);
+    const selectedLocale = syncedLocale ?? (isLocale(initialLocale) ? initialLocale : getStoredLocale());
     applyDocumentLocale(selectedLocale);
     return selectedLocale;
   });
@@ -179,17 +192,20 @@ export function LocaleProvider({
     } catch {
       console.warn('Askolo could not save the language preference.');
     }
+    latestLocaleByScope.set(storageScope, nextLocale);
     setLocaleState(nextLocale);
     await queueAccountLocale(nextLocale);
-  }, [getCatalog, i18n, locale, queueAccountLocale]);
+  }, [getCatalog, i18n, locale, queueAccountLocale, storageScope]);
 
   useEffect(() => {
     try {
+      const storedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+      if (storedLocale !== storedLocaleAtMount || storedLocale === locale) return;
       window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     } catch {
       console.warn('Askolo could not save the language preference.');
     }
-  }, [locale]);
+  }, [locale, storedLocaleAtMount]);
 
   useEffect(() => {
     if (!persistAccountLocale || isLocale(initialLocale)) return;
@@ -203,12 +219,13 @@ export function LocaleProvider({
       if (event.key !== LOCALE_STORAGE_KEY) return;
       localeChangeSequence.current += 1;
       const nextLocale = isLocale(event.newValue) ? event.newValue : DEFAULT_LOCALE;
+      latestLocaleByScope.set(storageScope, nextLocale);
       applyDocumentLocale(nextLocale);
       setLocaleState(nextLocale);
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
-  }, []);
+  }, [storageScope]);
 
   const value = useMemo<LocaleContextValue>(() => ({
     locale,

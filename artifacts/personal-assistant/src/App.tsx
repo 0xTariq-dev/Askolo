@@ -211,6 +211,7 @@ function AccountLocaleProvider({ children }: { children: ReactNode }) {
   return (
     <LocaleProvider
       initialLocale={user?.preferredLocale}
+      localeScope={user?.id}
       persistAccountLocale={persistAccountLocale}
     >
       {children}

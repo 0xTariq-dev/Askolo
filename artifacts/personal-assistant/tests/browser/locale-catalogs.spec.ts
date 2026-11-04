@@ -208,3 +208,60 @@ test('loads Arabic after selection and formats dashboard numbers with Arabic-Ind
   await page.getByRole('tab', { name: /المهام/ }).click();
   await expect(page.getByText(/٠\s*\/\s*٠\s*مكتملة/)).toBeVisible();
 });
+
+test('syncs language, direction, translations, and formatting across tabs without duplicate account writes', async ({ page }) => {
+  const secondTab = await page.context().newPage();
+  let firstTabProfileWrites = 0;
+  let secondTabProfileWrites = 0;
+  await page.context().addInitScript(() => {
+    window.localStorage.setItem('askolo-locale', 'en');
+  });
+  page.on('request', (request) => {
+    if (request.method() === 'PATCH' && new URL(request.url()).pathname.endsWith('/api/user/profile')) {
+      firstTabProfileWrites += 1;
+    }
+  });
+  secondTab.on('request', (request) => {
+    if (request.method() === 'PATCH' && new URL(request.url()).pathname.endsWith('/api/user/profile')) {
+      secondTabProfileWrites += 1;
+    }
+  });
+  await Promise.all([
+    installSignedInFixtures(page),
+    installSignedInFixtures(secondTab),
+  ]);
+
+  try {
+    await Promise.all([
+      page.goto(`${basePath}settings/account/profile`),
+      secondTab.goto(`${basePath}settings/account/profile`),
+    ]);
+    await expect(page.getByTestId('select-app-language')).toBeVisible();
+    await expect(secondTab.getByTestId('select-app-language')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(secondTab.locator('html')).toHaveAttribute('lang', 'en');
+
+    await page.getByTestId('select-app-language').click();
+    await page.getByRole('option', { name: 'العربية' }).click();
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(secondTab.locator('html')).toHaveAttribute('lang', 'ar');
+    await expect(secondTab.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(secondTab.getByTestId('select-app-language')).toContainText('العربية');
+    await expect(secondTab.getByText(/اختر اللغة واتجاه القراءة/)).toBeVisible();
+
+    await secondTab.locator('a[href$="/agenda"]').first().click();
+    await expect(secondTab.getByRole('heading', { name: 'الأجندة' })).toBeVisible();
+    await secondTab.getByRole('tab', { name: /المهام/ }).click();
+    await expect(secondTab.getByText(/٠\s*\/\s*٠\s*مكتملة/)).toBeVisible();
+    await expect(
+      secondTab.locator('section[aria-label="اختيار يوم المهام"] h2'),
+    ).toContainText(/[٠-٩]/);
+
+    await expect.poll(() => firstTabProfileWrites).toBe(1);
+    expect(secondTabProfileWrites).toBe(0);
+  } finally {
+    await secondTab.close();
+  }
+});
