@@ -13,6 +13,7 @@
     "i18n:extract": "lingui extract",
     "test:a11y:keyboard": "node --test src/lib/keyboard-shortcuts.test.mjs",
     "test:e2e:profile-google": "playwright test --config=playwright.config.ts",
+    "test:e2e:locale": "playwright test --config=playwright.config.ts tests/browser/locale-catalogs.spec.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
