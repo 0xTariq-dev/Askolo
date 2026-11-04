@@ -227,7 +227,7 @@ func Load() (Config, error) {
 			environment,
 		)
 	}
-	if err := validateAssemblyAIVoiceAgentConfiguration(environment, voiceAgentEnabled, voiceAgentIDs); err != nil {
+	if err := validateAssemblyAIVoiceAgentConfiguration(voiceAgentEnabled, voiceAgentIDs); err != nil {
 		return Config{}, err
 	}
 	encryptionKey, err := loadEncryptionKey(os.Getenv("GOOGLE_TOKEN_ENCRYPTION_KEY"))
@@ -514,16 +514,13 @@ func normalizeAssemblyAIVoiceAgentEnabled(environment string, enabled bool, ids 
 	return enabled, false
 }
 
-func validateAssemblyAIVoiceAgentConfiguration(environment string, enabled bool, ids map[string]string) error {
+func validateAssemblyAIVoiceAgentConfiguration(enabled bool, ids map[string]string) error {
 	if !enabled {
 		return nil
 	}
-	if environment != "development" {
-		return fmt.Errorf("AssemblyAI Live Mode can only be enabled in Development")
-	}
 	for _, voice := range supportedAssemblyAIVoices {
 		if strings.TrimSpace(ids[voice]) == "" {
-			return fmt.Errorf("AssemblyAI Live Mode requires all nine stored voice agents in Development")
+			return fmt.Errorf("AssemblyAI Live Mode requires all nine stored voice agents to be configured")
 		}
 	}
 	return nil

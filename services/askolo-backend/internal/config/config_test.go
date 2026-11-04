@@ -281,7 +281,7 @@ func TestParseAssemblyAIVoiceAgentIDsRequiresSupportedVoiceKeysAndSafeIDs(t *tes
 	}
 }
 
-func TestValidateAssemblyAIVoiceAgentConfigurationRequiresDevelopmentAndAllVoices(t *testing.T) {
+func TestValidateAssemblyAIVoiceAgentConfigurationRequiresAllVoices(t *testing.T) {
 	complete := make(map[string]string, len(supportedAssemblyAIVoices))
 	for _, voice := range supportedAssemblyAIVoices {
 		complete[voice] = "agent-" + voice
@@ -304,16 +304,105 @@ func TestValidateAssemblyAIVoiceAgentConfigurationRequiresDevelopmentAndAllVoice
 		t.Fatal("explicitly disabled Live Mode should remain disabled")
 	}
 
-	if err := validateAssemblyAIVoiceAgentConfiguration("production", false, nil); err != nil {
+	if err := validateAssemblyAIVoiceAgentConfiguration(false, nil); err != nil {
 		t.Fatalf("disabled Live Mode should not require agent IDs: %v", err)
 	}
-	if err := validateAssemblyAIVoiceAgentConfiguration("production", true, complete); err == nil {
-		t.Fatal("Live Mode was allowed outside Development")
+	if err := validateAssemblyAIVoiceAgentConfiguration(true, complete); err != nil {
+		t.Fatalf("complete agent configuration should allow Live Mode in Production: %v", err)
 	}
-	if err := validateAssemblyAIVoiceAgentConfiguration("development", true, map[string]string{"michael": "agent-michael"}); err == nil {
-		t.Fatal("Live Mode was allowed with an incomplete set of stored agents")
+	if err := validateAssemblyAIVoiceAgentConfiguration(true, map[string]string{"michael": "agent-michael"}); err == nil ||
+		!strings.Contains(err.Error(), "all nine stored voice agents") {
+		t.Fatalf("incomplete agent configuration error = %v, want a clear all-nine-agents error", err)
 	}
-	if err := validateAssemblyAIVoiceAgentConfiguration("development", true, complete); err != nil {
+	if err := validateAssemblyAIVoiceAgentConfiguration(true, complete); err != nil {
 		t.Fatalf("complete Development configuration was rejected: %v", err)
+	}
+}
+
+func TestLoadProductionLiveModeConfiguration(t *testing.T) {
+	const completeAgentIDs = `{"michael":"agent-michael","mary":"agent-mary","paul":"agent-paul","vera":"agent-vera","giovanni":"agent-giovanni","lola":"agent-lola","juergen":"agent-juergen","rafael":"agent-rafael","estelle":"agent-estelle"}`
+
+	t.Run("enabled with all nine agents", func(t *testing.T) {
+		setProductionLiveModeConfig(t, "true", completeAgentIDs)
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() with complete Production Live Mode configuration: %v", err)
+		}
+		if !cfg.AssemblyAIVoiceAgentEnabled {
+			t.Fatal("Production Live Mode was not enabled")
+		}
+		if len(cfg.AssemblyAIVoiceAgentIDs) != len(supportedAssemblyAIVoices) {
+			t.Fatalf("configured voice-agent count = %d, want %d", len(cfg.AssemblyAIVoiceAgentIDs), len(supportedAssemblyAIVoices))
+		}
+	})
+
+	t.Run("disabled without agents", func(t *testing.T) {
+		setProductionLiveModeConfig(t, "false", "")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() with disabled Production Live Mode and no agents: %v", err)
+		}
+		if cfg.AssemblyAIVoiceAgentEnabled {
+			t.Fatal("Production Live Mode should remain disabled")
+		}
+		if len(cfg.AssemblyAIVoiceAgentIDs) != 0 {
+			t.Fatalf("voice-agent IDs = %d, want none", len(cfg.AssemblyAIVoiceAgentIDs))
+		}
+	})
+
+	t.Run("unset flag defaults off without agents", func(t *testing.T) {
+		setProductionLiveModeConfig(t, "", "")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() with unset Production Live Mode and no agents: %v", err)
+		}
+		if cfg.AssemblyAIVoiceAgentEnabled {
+			t.Fatal("Production Live Mode should default to disabled")
+		}
+	})
+
+	t.Run("enabled without all agents fails clearly", func(t *testing.T) {
+		setProductionLiveModeConfig(t, "true", `{"michael":"agent-michael"}`)
+
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "all nine stored voice agents") {
+			t.Fatalf("Load() error = %v, want a clear all-nine-agents configuration error", err)
+		}
+	})
+}
+
+func setProductionLiveModeConfig(t *testing.T, enabled, agentIDs string) {
+	t.Helper()
+	for key, value := range map[string]string{
+		"ASKOLO_ENVIRONMENT":                    "production",
+		"ASKOLO_ASSEMBLYAI_VOICE_AGENT_ENABLED": enabled,
+		"ASKOLO_ASSEMBLYAI_AGENT_IDS":           agentIDs,
+		"ASKOLO_CANONICAL_ORIGIN":               "https://production.example",
+		"ASKOLO_COOKIE_NAMESPACE":               "askolo_test",
+		"ASKOLO_DATABASE_ID":                    "test-production-database",
+		"ASKOLO_RELEASE_MODE":                   "normal",
+		"ASKOLO_COMMIT_SHA":                     "test-commit",
+		"ASKOLO_RELEASE_TAG":                    "test-release",
+		"ASKO_PARENT_PRODUCTION_TAG":            "",
+		"ASKOLO_INTERNAL_TOKEN":                 "test-internal-token",
+		"ASKOLO_ADMIN_EMAILS":                   "",
+		"ASKOLO_R2_ACCOUNT_ID":                  "",
+		"ASKOLO_R2_US_BUCKET":                   "",
+		"ASKOLO_R2_EU_BUCKET":                   "",
+		"ASKOLO_R2_REGIONAL_ACCESS_KEY_ID":      "",
+		"ASKOLO_R2_REGIONAL_SECRET_ACCESS_KEY":  "",
+		"SESSION_SECRET":                        "test-session-secret-for-config-tests",
+		"AUTH_CHALLENGE_SECRET":                 "test-challenge-secret",
+		"AUTH_RATE_LIMIT_HMAC_SECRET":           "test-rate-limit-hmac-secret-at-least-32",
+		"GOOGLE_TOKEN_ENCRYPTION_KEY":           "",
+		"AUTH_TOTP_ENCRYPTION_KEY":              "",
+		"TURNSTILE_SECRET_KEY":                  "test-turnstile-secret",
+		"DD_API_KEY":                            "",
+		"DD_SITE":                               "",
+		"DATABASE_URL":                          "",
+	} {
+		t.Setenv(key, value)
 	}
 }
