@@ -574,6 +574,9 @@ func turnstileAllowedHostnames(environment string) map[string]struct{} {
 	if environment == "development" {
 		hosts["localhost"] = struct{}{}
 		hosts["127.0.0.1"] = struct{}{}
+		if devDomain := strings.TrimSpace(os.Getenv("REPLIT_DEV_DOMAIN")); devDomain != "" {
+			hosts[devDomain] = struct{}{}
+		}
 	}
 	return hosts
 }

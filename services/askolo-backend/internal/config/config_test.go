@@ -177,6 +177,7 @@ func TestLoadR2ConfigRejectsIncompleteRegionalBucketsAndCredentials(t *testing.T
 }
 
 func TestTurnstileAllowedHostnamesAreExactAndEnvironmentScoped(t *testing.T) {
+	t.Setenv("REPLIT_DEV_DOMAIN", "")
 	production := turnstileAllowedHostnames("production")
 	if len(production) != 4 {
 		t.Fatalf("production hostname allowlist has %d entries, want exactly four", len(production))
@@ -205,6 +206,17 @@ func TestTurnstileAllowedHostnamesAreExactAndEnvironmentScoped(t *testing.T) {
 		if _, ok := development[hostname]; !ok {
 			t.Fatalf("development hostname allowlist is missing %q", hostname)
 		}
+	}
+
+	const previewHostname = "preview-example.replit.dev"
+	t.Setenv("REPLIT_DEV_DOMAIN", previewHostname)
+	development = turnstileAllowedHostnames("development")
+	if _, ok := development[previewHostname]; !ok {
+		t.Fatalf("development hostname allowlist is missing active Replit hostname %q", previewHostname)
+	}
+	production = turnstileAllowedHostnames("production")
+	if _, ok := production[previewHostname]; ok {
+		t.Fatalf("production hostname allowlist unexpectedly contains active Replit hostname %q", previewHostname)
 	}
 }
 
