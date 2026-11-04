@@ -15,6 +15,14 @@ signal:
     msg: "MFA verification failure spike recovered"
     operation: mfa_security_spike
     alertField: recovery
+  metric:
+    name: askolo.mfa.security.alert_active
+    activeValue: 1
+    recoveryValue: 0
+    groupBy:
+      - environment
+      - operation
+      - alert_reasons
   window: 15m
   deduplicateBy:
     - environment
@@ -28,10 +36,24 @@ signal:
 routes:
   - id: askolo-auth-oncall
     owner: askolo-auth-oncall
-    destination: configured-on-call
+    ticketDestination: datadog-monitor-alert
+    pageDestination: "@oncall-askolo-team"
+
+monitor:
+  provider: datadog
+  type: metric alert
+  groupBy:
+    - environment
+    - operation
+    - alert_reasons
+  priorityBySeverity:
+    warning: 3
+    high: 2
+    critical: 1
 
 rules:
   - id: mfa-recovery-request-spike
+    monitorId: 23530001
     description: Recovery-support review volume is unusually high.
     match:
       msg: "MFA verification failure spike"
@@ -45,10 +67,12 @@ rules:
       window: 15m
     severity: warning
     action: ticket
+    priority: 3
     route: askolo-auth-oncall
     response: Review aggregate recovery-support volume and verify that no rate-limit or infrastructure reason is active.
 
   - id: mfa-recovery-verification-failures
+    monitorId: 23530002
     description: Recovery-support verification failures are elevated.
     match:
       msg: "MFA verification failure spike"
@@ -62,10 +86,12 @@ rules:
       window: 15m
     severity: warning
     action: ticket
+    priority: 3
     route: askolo-auth-oncall
     response: Inspect the aggregate failure count and correlate it with recovery-support guardrails before changing limits.
 
   - id: mfa-recovery-rate-limit-spike
+    monitorId: 23530003
     description: Recovery-support rate limits are being triggered unusually often.
     match:
       msg: "MFA verification failure spike"
@@ -79,10 +105,12 @@ rules:
       window: 15m
     severity: high
     action: page
+    priority: 2
     route: askolo-auth-oncall
     response: Correlate request and verification guardrails with the aggregate alert before changing limits.
 
   - id: mfa-recovery-session-revocation-failure
+    monitorId: 23530004
     description: A recovery-support session could not be revoked.
     match:
       msg: "MFA verification failure spike"
@@ -96,5 +124,6 @@ rules:
       window: 15m
     severity: critical
     action: page
+    priority: 1
     route: askolo-auth-oncall
     response: Pause manual MFA recovery approvals, verify database and session-store health, and retry only after revocation succeeds.

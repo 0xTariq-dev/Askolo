@@ -406,18 +406,21 @@ func boolAttr(values map[string]slog.Value, key string) (bool, bool) {
 
 func buildLogItem(event alertEvent) *datadogV2.HTTPLogItem {
 	attributes := map[string]interface{}{
-		"environment":                                  event.environment,
-		"operation":                                    alertOperation,
-		"alert_reasons":                                event.reasonSet,
-		"failure_events":                               event.counts["failure_events"],
-		"replay_events":                                event.counts["replay_events"],
-		"lockout_events":                               event.counts["lockout_events"],
-		"decryption_failure_events":                    event.counts["decryption_failure_events"],
-		"recovery_support_requests":                    event.counts["recovery_support_requests"],
-		"recovery_support_verification_failures":       event.counts["recovery_support_verification_failures"],
-		"recovery_support_rate_limited":                event.counts["recovery_support_rate_limited"],
+		"environment":                            event.environment,
+		"operation":                              alertOperation,
+		"alert_reasons":                          event.reasonSet,
+		"alert":                                  event.alert,
+		"recovery":                               event.recovery,
+		"window_minutes":                         event.window,
+		"failure_events":                         event.counts["failure_events"],
+		"replay_events":                          event.counts["replay_events"],
+		"lockout_events":                         event.counts["lockout_events"],
+		"decryption_failure_events":              event.counts["decryption_failure_events"],
+		"recovery_support_requests":              event.counts["recovery_support_requests"],
+		"recovery_support_verification_failures": event.counts["recovery_support_verification_failures"],
+		"recovery_support_rate_limited":          event.counts["recovery_support_rate_limited"],
 		"recovery_support_session_revocation_failures": event.counts["recovery_support_session_revocation_failures"],
-		"affected_users":                               event.counts["affected_users"],
+		"affected_users": event.counts["affected_users"],
 	}
 	return &datadogV2.HTTPLogItem{
 		Message:              event.message,

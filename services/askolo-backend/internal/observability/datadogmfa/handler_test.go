@@ -102,9 +102,12 @@ func TestLogForwardingOnlyIncludesAllowlistedMFAFields(t *testing.T) {
 		}
 	}
 	allowed := map[string]struct{}{
-		"environment":   {},
-		"operation":     {},
-		"alert_reasons": {},
+		"environment":    {},
+		"operation":      {},
+		"alert_reasons":  {},
+		"alert":          {},
+		"recovery":       {},
+		"window_minutes": {},
 	}
 	for _, field := range aggregateCountFields {
 		allowed[field] = struct{}{}
@@ -121,8 +124,31 @@ func TestLogForwardingOnlyIncludesAllowlistedMFAFields(t *testing.T) {
 	}
 	if properties["environment"] != "development" ||
 		properties["operation"] != alertOperation ||
-		properties["alert_reasons"] != "failure_events" {
+		properties["alert_reasons"] != "failure_events" ||
+		properties["alert"] != true ||
+		properties["recovery"] != false ||
+		properties["window_minutes"] != int64(15) {
 		t.Fatalf("Datadog labels = %+v, want fixed development MFA labels", properties)
+	}
+}
+
+func TestLogForwardingIncludesExplicitRecoveryState(t *testing.T) {
+	item := buildLogItem(alertEvent{
+		message:     recoveryMessage,
+		environment: "production",
+		reasonSet:   "recovery_support_rate_limited",
+		window:      15,
+		recovery:    true,
+	})
+	properties := item.AdditionalProperties
+	if properties["alert"] != false || properties["recovery"] != true ||
+		properties["window_minutes"] != int64(15) {
+		t.Fatalf("recovery log state = %+v, want alert=false recovery=true window_minutes=15", properties)
+	}
+	for _, forbidden := range []string{"user_id", "request_id", "email", "code", "secret"} {
+		if _, exists := properties[forbidden]; exists {
+			t.Fatalf("Datadog recovery log includes forbidden field %q", forbidden)
+		}
 	}
 }
 

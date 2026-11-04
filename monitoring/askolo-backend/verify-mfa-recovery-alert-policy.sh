@@ -5,7 +5,7 @@ set -euo pipefail
 # Keep failure output limited to the path and reason; never print the policy.
 
 policy_path="${1:-monitoring/askolo-backend/mfa-recovery-alerts.yaml}"
-expected_sha256="731b0076dd9d3bc5af08302bea388b252e7cd0bbcb931615dcfa044c5c781859"
+expected_sha256="9e9b9ba2f227ea1bea134ef079ff778b15f5258c550106d8d96112e7d366783b"
 
 if [[ ! -f "$policy_path" ]]; then
   echo "MFA alert-policy validation failed: $policy_path is missing" >&2

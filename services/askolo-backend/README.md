@@ -331,11 +331,11 @@ added. Multi-reason tag values join the fixed reason labels with `-`.
 
 The current operational On-Call setup is Production-only. Create one Datadog
 metric monitor, group by all three tags, and route it to the `askolo-team`
-Datadog On-Call handle:
+Datadog On-Call handle for the existing non-recovery MFA signals:
 
 | Environment | Alert filter |
 | --- | --- |
-| `production` | `min(last_1m):max:askolo.mfa.security.alert_active{environment:production} by {environment,operation,alert_reasons} > 0` |
+| `production` | `min(last_1m):max:askolo.mfa.security.alert_active{environment:production,!alert_reasons:*recovery_support_*} by {environment,operation,alert_reasons} > 0` |
 
 Grouping by environment, operation, and reason set lets Datadog collapse
 repeated probes and multiple backend instances into one incident per
@@ -388,11 +388,27 @@ thresholds are:
 
 The production alert policy is checked into
 [`monitoring/askolo-backend/mfa-recovery-alerts.yaml`](../../monitoring/askolo-backend/mfa-recovery-alerts.yaml).
-It routes recovery-support request and verification-failure spikes as warning
-tickets, rate-limit spikes as high-severity pages, and any session-revocation
-failure as a critical page to `askolo-auth-oncall`. All rules use the same
-15-minute window and recover only from the explicit recovery event described
-above.
+Its Datadog monitors use the active-state gauge, grouped by environment,
+operation, and fixed alert-reason set. The backend already applies the
+15-minute event thresholds before setting the gauge to `1`; the matching
+explicit recovery sets it to `0`.
+
+Recovery-support request and verification-failure rules are priority-3 Datadog
+monitor alerts without an On-Call mention (ticket action). Rate-limit alerts
+are priority-2 pages and session-revocation failures are priority-1 pages to
+`@oncall-askolo-team`. The existing generic MFA monitor excludes
+`recovery_support_*` reason sets to prevent duplicate pages. The policy's
+`askolo-auth-oncall` route maps page actions to that existing Datadog On-Call
+handle; ticket actions remain visible as Datadog monitor alerts.
+
+Production recovery monitors:
+
+| Rule | Datadog monitor | Priority | Action |
+| --- | --- | --- | --- |
+| Recovery-support request spike | `23530001` | P3 | Datadog alert, no page |
+| Recovery-support verification failures | `23530002` | P3 | Datadog alert, no page |
+| Recovery-support rate-limit spike | `23530003` | P2 | Page `@oncall-askolo-team` |
+| Session-revocation failure | `23530004` | P1 | Page `@oncall-askolo-team` |
 
 For a recovery alert, first inspect the aggregate counts and
 `alertReasons` in `GET /readyz` from the authorized operational path. A

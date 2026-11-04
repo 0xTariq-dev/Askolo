@@ -63,6 +63,7 @@
 - [Publish path smoke isolation](publish-path-smoke-isolation.md) — release smoke checks must choose their own ports and never stop the managed preview API.
 - [Native auth validation timing](native-email-auth-validation.md) — the synthetic cleanup harness can race on fake PostgreSQL pid handoff; distinguish it from backend failures.
 - [MFA recovery throttling](mfa-recovery-rate-limits.md) — enforce recovery request and verification buckets in shared PostgreSQL state using hashed client keys only.
+- [MFA alert policy deployment](mfa-alert-policy-deployment.md) — verify live Datadog routing and severity; a checked-in policy hash does not prove production loaded it.
 - [TOTP key and session transitions](totp-key-and-session-transitions.md) — keep legacy MFA ciphertext readable during key migration, and revoke all sessions atomically when MFA is enabled.
 - [MFA recovery account ownership](mfa-recovery-account-ownership.md) — MFA recovery and trusted-device controls are private to the individual login account holder; guardians gain no cross-account access.
 - [Authentication proxy client IP](auth-proxy-client-ip.md) — the development artifact proxy removes caller-supplied XFF and reaches Go through a trusted peer; production Autoscale remains unverified.
