@@ -55,8 +55,14 @@ type Config struct {
 	AzureTTSRegion                string
 	AzureTTSURL                   string
 	R2                            R2StorageConfig
+	Datadog                       DatadogConfig
 	AllowedOAuthHosts             map[string]struct{}
 	AdminEmails                   map[string]struct{}
+}
+
+type DatadogConfig struct {
+	APIKey string
+	Site   string
 }
 
 type R2Config struct {
@@ -301,6 +307,10 @@ func Load() (Config, error) {
 	if adminErr != nil {
 		return Config{}, adminErr
 	}
+	datadogConfig, err := loadDatadogConfig()
+	if err != nil {
+		return Config{}, err
+	}
 	if environment != "development" {
 		for name, value := range map[string]string{
 			"ASKOLO_DATABASE_ID": databaseIdentity, "ASKOLO_INTERNAL_TOKEN": internalAuthToken,
@@ -380,9 +390,36 @@ func Load() (Config, error) {
 		AzureTTSRegion:              strings.TrimSpace(os.Getenv("AZURE_TTS_REGION")),
 		AzureTTSURL:                 strings.TrimSpace(os.Getenv("AZURE_TTS_URL")),
 		R2:                          r2Config,
+		Datadog:                     datadogConfig,
 		AllowedOAuthHosts:           oauthHosts(environment, canonicalOrigin),
 		AdminEmails:                 adminEmails,
 	}, nil
+}
+
+func loadDatadogConfig() (DatadogConfig, error) {
+	apiKey := os.Getenv("DD_API_KEY")
+	site := strings.TrimSpace(os.Getenv("DD_SITE"))
+	if apiKey != strings.TrimSpace(apiKey) || strings.ContainsAny(apiKey, "\r\n\t ") {
+		return DatadogConfig{}, fmt.Errorf("DD_API_KEY must not contain whitespace")
+	}
+	if site != "" && !supportedDatadogSite(site) {
+		return DatadogConfig{}, fmt.Errorf("DD_SITE must be a supported Datadog site domain")
+	}
+	if apiKey != "" && site == "" {
+		return DatadogConfig{}, fmt.Errorf("DD_SITE is required when DD_API_KEY is configured")
+	}
+	return DatadogConfig{APIKey: apiKey, Site: site}, nil
+}
+
+func supportedDatadogSite(site string) bool {
+	switch site {
+	case "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com",
+		"ap1.datadoghq.com", "ap2.datadoghq.com", "uk1.datadoghq.com",
+		"datadoghq.eu", "ddog-gov.com", "us2.ddog-gov.com":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadR2Config() (R2StorageConfig, error) {

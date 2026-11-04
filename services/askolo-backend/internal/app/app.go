@@ -13,6 +13,8 @@ import (
 	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
 	"askolo/backend/internal/httpapi"
+	authmodule "askolo/backend/internal/modules/auth"
+	"askolo/backend/internal/platform/httpx"
 )
 
 const (
@@ -39,13 +41,34 @@ type App struct {
 	runHomeEmailSummarySync   func(context.Context)
 }
 
-func New(cfg config.Config, logger *slog.Logger, store *postgres.Store) *App {
+type Observability struct {
+	MFAObserver         authmodule.MFASecurityObserver
+	HTTPRequestObserver httpx.RequestObserver
+}
+
+func New(cfg config.Config, logger *slog.Logger, store *postgres.Store, observability ...Observability) *App {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	cleanupState := &emailChallengeCleanupState{}
-	handler, shutdownRealtimeSessions, runHomeEmailSummarySync := httpapi.NewWithShutdown(cfg, logger, store, cleanupState.readiness)
+	var handler http.Handler
+	var shutdownRealtimeSessions func(context.Context) error
+	var runHomeEmailSummarySync func(context.Context)
+	var observers Observability
+	if len(observability) > 0 {
+		observers = observability[0]
+	}
+	if observers.MFAObserver != nil {
+		handler, shutdownRealtimeSessions, runHomeEmailSummarySync = httpapi.NewWithMFAObserverAndShutdown(
+			cfg, logger, store, observers.MFAObserver, cleanupState.readiness,
+		)
+	} else {
+		handler, shutdownRealtimeSessions, runHomeEmailSummarySync = httpapi.NewWithShutdown(
+			cfg, logger, store, cleanupState.readiness,
+		)
+	}
+	handler = httpx.ObserveRequests(observers.HTTPRequestObserver, handler)
 	return &App{
 		logger:                    logger,
 		store:                     store,

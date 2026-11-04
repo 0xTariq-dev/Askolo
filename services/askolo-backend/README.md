@@ -263,6 +263,44 @@ contain only the categorized outcome and whether the challenge can be retried;
 they never include recipient addresses, codes, message bodies, or raw provider
 errors. Latency is capped at 30 seconds in telemetry.
 
+### Datadog application metrics
+
+When `DD_API_KEY` is configured, the backend submits bounded metrics directly
+through Datadog's official Go API client. A Datadog Agent is not required for
+this metric intake. The sender batches measurements every 30 seconds, applies a
+short request timeout, and does not send raw URLs, query strings, request
+bodies, user identifiers, email addresses, or host names.
+
+The HTTP metrics are:
+
+- `askolo.http.server.duration_ms` — request latency distribution, grouped only
+  by environment, service, fixed route group, allowlisted method, and status
+  class.
+- `askolo.http.server.request_count_30s` — exact request count per 30-second
+  flush interval with the same bounded dimensions.
+
+The fixed route groups are `health`, `api_v2`, `api`, `root`, and `web`. Go
+runtime gauges are `askolo.go.goroutines`, `askolo.go.heap_alloc_bytes`, and
+`askolo.go.gc_pause_ms_total`. PostgreSQL pool gauges include
+`askolo.db.pool.total_connections`, `acquired_connections`, `idle_connections`,
+`max_connections`, `acquire_count_total`, and `acquire_duration_ms_total`.
+Runtime and pool measurements are emitted every 30 seconds even when the
+application receives no requests.
+
+Example Datadog queries:
+
+```text
+p95:askolo.http.server.duration_ms{environment:production,service:askolo-backend} by {route_group}
+sum:askolo.http.server.request_count_30s{environment:production,service:askolo-backend} by {route_group}
+max:askolo.db.pool.acquired_connections{environment:production,service:askolo-backend}
+max:askolo.go.heap_alloc_bytes{environment:production,service:askolo-backend}
+```
+
+This is metric intake, not distributed APM tracing. `dd-trace-go` normally
+reports traces through a Datadog Agent; this integration does not install or
+run an Agent. Use Datadog's supported OTLP intake or a managed Agent separately
+if trace waterfalls are needed.
+
 ### MFA failure-spike signal
 
 `GET /readyz` includes an `mfaSecurity` object built from the most recent
@@ -272,23 +310,42 @@ it never includes user IDs, request IDs, codes, encrypted secrets, or event
 metadata. MFA decryption failures are recorded with only a fixed operation
 label (`mfa_confirmation` or `mfa_challenge`).
 
-The backend sends this signal to the deployment's structured-log alert
-destination. Operators should alert on `mfaSecurity.alert == true`, or on the
-structured `MFA verification failure spike` warning. The stable
-`operation="mfa_security_spike"` label identifies this alert family, and
-`environment` is the only routing dimension. Configure one log-alert rule for
-each environment:
+The backend keeps its original structured JSON output on stdout and forwards
+only the allowlisted MFA alert and recovery events plus an active-state gauge
+to Datadog. It does not forward general application logs. Configure `DD_API_KEY`
+as a Replit Secret and `DD_SITE` as the account's Datadog site suffix in each
+environment where telemetry is needed. Supported site suffixes include `datadoghq.com`,
+`us3.datadoghq.com`, `us5.datadoghq.com`, `datadoghq.eu`,
+`ap1.datadoghq.com`, and `ap2.datadoghq.com`. Without `DD_API_KEY`, alerts
+remain in stdout and the backend logs a safe startup warning.
+
+The stable `operation="mfa_security_spike"` label identifies this alert family.
+The only custom log attributes forwarded are the environment, operation, fixed
+`alert_reasons`, and aggregate counts. The message is one of two fixed alert or
+recovery strings; Datadog assigns the ingestion timestamp.
+The Datadog gauge is `askolo.mfa.security.alert_active`; its tags are
+`environment`, `operation`, and `alert_reasons`. It emits `1` while a reason set
+is active (with a bounded heartbeat) and `0` on recovery or when the reason set
+changes. No host, user, request, email, code, secret, or raw event metadata is
+added. Multi-reason tag values join the fixed reason labels with `-`.
+
+The current operational On-Call setup is Production-only. Create one Datadog
+metric monitor, group by all three tags, and route it to the `askolo-team`
+Datadog On-Call handle:
 
 | Environment | Alert filter |
 | --- | --- |
-| `development` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="development"` |
-| `staging` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="staging"` |
-| `production` | `msg="MFA verification failure spike" AND operation="mfa_security_spike" AND alert=true AND environment="production"` |
+| `production` | `min(last_1m):max:askolo.mfa.security.alert_active{environment:production} by {environment,operation,alert_reasons} > 0` |
 
-Route all environment rules to the team's configured on-call destination. The
-aggregate fields in the event are the counts below; the destination must not
-forward or group on any user, request, code, email, secret, or raw event
-metadata.
+Grouping by environment, operation, and reason set lets Datadog collapse
+repeated probes and multiple backend instances into one incident per
+environment/reason set. The `min(last_1m)` time aggregation lets an explicit
+recovery zero return the monitor to OK even while earlier active points remain
+in the window. A renewed alert for the same reason set can take up to one minute
+to re-arm after recovery. Set missing-data behavior to `default`, which keeps
+the last known state so loss of telemetry cannot masquerade as recovery.
+The current `askolo-team` policy targets its responder directly; an On-Call
+schedule is not required for this route.
 
 The default thresholds are:
 
@@ -297,24 +354,20 @@ The default thresholds are:
 - 5 or more challenge lockouts in 15 minutes; or
 - 3 or more MFA decryption failures in 15 minutes.
 
-The signal logs at most once per threshold-reason set per 15 minutes per
-backend process. The on-call destination should deduplicate by
-`environment` plus `operation` plus the active `alert_reasons` set. This
-prevents multiple backend instances and readiness probes from opening
-duplicate incidents while still allowing a new threshold reason to update the
-incident. Counts are aggregated across users, so an individual code, secret,
+The stdout alert log is emitted at most once per threshold-reason set per 15
+minutes per backend process. The active metric heartbeat is bounded to one
+sample per 30 seconds per process when readiness is evaluated while an alert is
+active. Counts are aggregated across users, so an individual code, secret,
 email address, and request is never an alert dimension. A missing or
 unavailable signal is reported as `status: "unavailable"` and does not make a
-cold-start readiness check fail.
+cold-start readiness check fail or falsely recover an incident.
 
 When a later readiness evaluation finds no active threshold, the backend emits
-one `MFA verification failure spike recovered` event with
-`operation="mfa_security_spike"`, `recovery=true`, `alert=false`, the
-environment, and aggregate counts. Use that event as the explicit recovery
-condition for all policy rules. Recovery is emitted only after the signal is
-available again; a database or signal outage does not falsely close an active
-incident. If the destination cannot consume explicit recovery events, resolve
-after one complete 15-minute evaluation window with no matching alert event.
+one `MFA verification failure spike recovered` log with the previous fixed
+reason set and aggregate counts, and submits the matching zero gauge. Datadog's
+metric monitor uses that state transition for automatic recovery. Recovery is
+emitted only after the signal is available again; a database or signal outage
+does not falsely close an active incident.
 
 MFA recovery support is included in the same bounded signal. The readiness
 payload reports aggregate `recoverySupportRequests`,

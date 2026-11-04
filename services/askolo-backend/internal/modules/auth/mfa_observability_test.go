@@ -105,7 +105,7 @@ func TestMFARecoveryLogIsBoundedAndEmittedOnce(t *testing.T) {
 	handler.logMFAAlert(alert)
 	recovered := alert
 	recovered.Alert = false
-	recovered.AlertReasons = nil
+	recovered.AlertReasons = []string{"failure_events"}
 	recovered.FailureEvents = 0
 	recovered.AffectedUsers = 0
 	if !handler.resetMFAAlert() {
@@ -120,8 +120,42 @@ func TestMFARecoveryLogIsBoundedAndEmittedOnce(t *testing.T) {
 	}
 	recoveryLog := strings.Split(logs.String(), "\n")[1]
 	if strings.Contains(recoveryLog, "user_id") || strings.Contains(recoveryLog, "request_id") ||
-		strings.Contains(recoveryLog, "alert_reasons") {
+		!strings.Contains(recoveryLog, `"alert_reasons":"failure_events"`) {
 		t.Fatalf("recovery log exposed an individual or alert-only field: %q", recoveryLog)
+	}
+}
+
+func TestMFAAlertReasonChangeEmitsRecoveryForPreviousGroup(t *testing.T) {
+	var logs bytes.Buffer
+	handler := NewHandler(
+		config.Config{Environment: "staging"},
+		nil,
+		slog.New(slog.NewJSONHandler(&logs, nil)),
+	)
+	first := MFASecurityReadiness{
+		Environment:   "staging",
+		WindowMinutes: 15,
+		FailureEvents: 20,
+		Alert:         true,
+		AlertReasons:  []string{"failure_events"},
+	}
+	handler.logMFAAlert(first)
+
+	second := first
+	second.ReplayEvents = 5
+	second.AlertReasons = []string{"failure_events", "replay_events"}
+	handler.logMFAAlert(second)
+
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("log entries = %d, want initial alert, previous-group recovery, and new alert: %q", len(lines), logs.String())
+	}
+	if !strings.Contains(lines[1], `"recovery":true`) ||
+		!strings.Contains(lines[1], `"alert_reasons":"failure_events"`) {
+		t.Fatalf("reason-set change did not recover the old group: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], `"alert_reasons":"failure_events,replay_events"`) {
+		t.Fatalf("new alert did not contain its fixed reason set: %s", lines[2])
 	}
 }
 

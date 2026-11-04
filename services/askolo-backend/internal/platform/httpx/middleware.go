@@ -19,6 +19,10 @@ type responseWriter struct {
 	status int
 }
 
+type RequestObserver interface {
+	ObserveHTTPRequest(method, path string, status int, duration time.Duration)
+}
+
 func (w *responseWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
@@ -77,6 +81,24 @@ func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 			)
 		}()
 
+		next.ServeHTTP(writer, r)
+	})
+}
+
+func ObserveRequests(observer RequestObserver, next http.Handler) http.Handler {
+	if observer == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writer := &responseWriter{ResponseWriter: w}
+		startedAt := time.Now()
+		defer func() {
+			status := writer.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			observer.ObserveHTTPRequest(r.Method, r.URL.Path, status, time.Since(startedAt))
+		}()
 		next.ServeHTTP(writer, r)
 	})
 }

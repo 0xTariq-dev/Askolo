@@ -50,6 +50,8 @@ func TestLoadRequiresAndReadsTurnstileSecret(t *testing.T) {
 		"MS_CLIENT_SECRET":                      "test-microsoft-client-secret",
 		"AUTH_TOTP_ENCRYPTION_KEY":              "",
 		"TURNSTILE_SECRET_KEY":                  "",
+		"DD_API_KEY":                            "",
+		"DD_SITE":                               "",
 	} {
 		t.Setenv(key, value)
 	}

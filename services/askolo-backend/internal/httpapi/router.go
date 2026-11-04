@@ -182,9 +182,19 @@ func NewWithShutdown(
 	store *postgres.Store,
 	cleanupReadinessProviders ...EmailChallengeCleanupReadinessProvider,
 ) (http.Handler, func(context.Context) error, func(context.Context)) {
+	return NewWithMFAObserverAndShutdown(cfg, logger, store, nil, cleanupReadinessProviders...)
+}
+
+func NewWithMFAObserverAndShutdown(
+	cfg config.Config,
+	logger *slog.Logger,
+	store *postgres.Store,
+	mfaObserver authmodule.MFASecurityObserver,
+	cleanupReadinessProviders ...EmailChallengeCleanupReadinessProvider,
+) (http.Handler, func(context.Context) error, func(context.Context)) {
 	mux := http.NewServeMux()
 	internalAuth := auth.NewInternalMiddleware(cfg.InternalAuthToken)
-	authHandler := authmodule.NewHandler(cfg, store, logger)
+	authHandler := authmodule.NewHandlerWithMFAObserver(cfg, store, logger, mfaObserver)
 	migrationReadinessObserver := &migrationReadinessObserver{}
 	cleanupReadiness := func() EmailChallengeCleanupReadiness {
 		return EmailChallengeCleanupReadiness{

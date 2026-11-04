@@ -142,9 +142,18 @@ not automated here:
    origin. The callback is `<canonical-origin>/api/auth/google/callback`.
 5. Provision separate databases, object storage paths, internal tokens,
    provider credentials, webhook destinations, and external API targets.
-6. Configure branch protection so `main` is the only persistent source branch,
+6. Configure Datadog `DD_API_KEY` as a secret and the matching non-secret
+   `DD_SITE` value in each environment that needs telemetry. The current
+   operational On-Call monitor is Production-only; the editor preview remains
+   tagged as Development. Never copy a key into source control or release notes.
+7. Route the Production MFA monitor to the existing `askolo-team` Datadog
+   On-Call handle. Its current escalation policy targets a responder directly,
+   so a schedule is optional. The backend submits privacy-safe HTTP latency,
+   request-volume, Go runtime, and PostgreSQL pool metrics through the official
+   Datadog Go API client; a Datadog Agent is not required for those metrics.
+8. Configure branch protection so `main` is the only persistent source branch,
    tags are immutable, and release approvals are recorded.
-7. Restrict staging with a server-enforced tester allowlist that does not block
+9. Restrict staging with a server-enforced tester allowlist that does not block
    Google callbacks or provider webhooks. Mark staging/development as
    `noindex, nofollow`.
 
@@ -159,6 +168,10 @@ not automated here:
 - native auth email readiness distinguishes missing/invalid Resend or challenge
   settings from unknown, transient, and persistent provider delivery failures;
   aggregate counts and latency contain no user data
+- the Production MFA alert monitor is grouped by environment, operation, and
+  fixed reason set and routes through `askolo-team`
+- the MFA recovery event submits a zero gauge and resolves the matching monitor
+  group without manual intervention
 - non-production hosts are not indexable and staging tester access is enforced
 - root-domain app routing is not assumed
 - missing required configuration fails closed before serving traffic

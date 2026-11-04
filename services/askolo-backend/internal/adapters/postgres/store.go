@@ -58,6 +58,15 @@ type Store struct {
 	rateLimitCleanupAt time.Time
 }
 
+type PoolStats struct {
+	TotalConnections    int32
+	AcquiredConnections int32
+	IdleConnections     int32
+	MaxConnections      int32
+	AcquireCount        int64
+	AcquireDuration     time.Duration
+}
+
 type SessionMFAState struct {
 	UserID    string
 	Required  bool
@@ -215,6 +224,21 @@ func (s *Store) Ping(ctx context.Context) error {
 		return errors.New("database is not configured")
 	}
 	return s.pool.Ping(ctx)
+}
+
+func (s *Store) PoolStats() PoolStats {
+	if s == nil || s.pool == nil {
+		return PoolStats{}
+	}
+	stats := s.pool.Stat()
+	return PoolStats{
+		TotalConnections:    stats.TotalConns(),
+		AcquiredConnections: stats.AcquiredConns(),
+		IdleConnections:     stats.IdleConns(),
+		MaxConnections:      stats.MaxConns(),
+		AcquireCount:        stats.AcquireCount(),
+		AcquireDuration:     stats.AcquireDuration(),
+	}
 }
 
 func (s *Store) InsertOAuthState(ctx context.Context, nonceHash, flow, userID, returnTo string, expiresAt time.Time) error {

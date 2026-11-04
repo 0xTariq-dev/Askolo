@@ -67,6 +67,7 @@ type Handler struct {
 	limiter           *rateLimiter
 	emailSender       EmailSender
 	emailMonitor      *EmailDeliveryMonitor
+	mfaObserver       MFASecurityObserver
 	turnstileClient   *http.Client
 	turnstileEndpoint string
 	turnstileVerifier func(context.Context, string) (turnstileSiteverifyResponse, error)
@@ -89,6 +90,17 @@ type rateEntry struct {
 
 func NewHandler(cfg config.Config, store *postgres.Store, logger *slog.Logger) *Handler {
 	return NewHandlerWithEmailSenderAndMonitor(cfg, store, logger, NewResendEmailSender(cfg), NewEmailDeliveryMonitor())
+}
+
+func NewHandlerWithMFAObserver(
+	cfg config.Config,
+	store *postgres.Store,
+	logger *slog.Logger,
+	observer MFASecurityObserver,
+) *Handler {
+	handler := NewHandler(cfg, store, logger)
+	handler.mfaObserver = observer
+	return handler
 }
 
 func NewHandlerWithEmailSender(
@@ -154,6 +166,10 @@ type MFASecurityReadiness struct {
 	AlertReasons                             []string `json:"alertReasons,omitempty"`
 }
 
+type MFASecurityObserver interface {
+	ObserveMFASecurity(context.Context, MFASecurityReadiness)
+}
+
 func (h *Handler) EmailDeliveryReadiness() EmailDeliveryReadiness {
 	resendStatus := h.cfg.Email.ResendConfigurationStatus()
 	challengeStatus := h.cfg.Email.ChallengeConfigurationStatus()
@@ -215,9 +231,13 @@ func (h *Handler) MFASecurityReadiness(ctx context.Context) MFASecurityReadiness
 	if signal.Alert {
 		h.logMFAAlert(signal)
 	} else {
-		if h.resetMFAAlert() {
+		if previousKey, recovered := h.resetMFAAlertState(); recovered {
+			signal.AlertReasons = strings.Split(previousKey, ",")
 			h.logMFARecovery(signal)
 		}
+	}
+	if h.mfaObserver != nil {
+		h.mfaObserver.ObserveMFASecurity(ctx, signal)
 	}
 	return signal
 }
@@ -255,6 +275,8 @@ func (h *Handler) logMFAAlert(signal MFASecurityReadiness) {
 	key := strings.Join(signal.AlertReasons, ",")
 	now := time.Now()
 	h.mfaAlertMu.Lock()
+	previousKey := h.mfaAlertKey
+	wasActive := h.mfaAlertActive
 	shouldLog := key != h.mfaAlertKey || now.Sub(h.mfaAlertAt) >= mfaSecurityWindow
 	if shouldLog {
 		h.mfaAlertKey = key
@@ -265,8 +287,15 @@ func (h *Handler) logMFAAlert(signal MFASecurityReadiness) {
 	if !shouldLog {
 		return
 	}
+	if wasActive && previousKey != "" && previousKey != key {
+		recovered := signal
+		recovered.Alert = false
+		recovered.AlertReasons = strings.Split(previousKey, ",")
+		h.logMFARecovery(recovered)
+	}
 	h.logger.Warn("MFA verification failure spike",
 		"alert", true,
+		"recovery", false,
 		"operation", mfaAlertOperation,
 		"environment", signal.Environment,
 		"window_minutes", signal.WindowMinutes,
@@ -299,17 +328,24 @@ func (h *Handler) logMFARecovery(signal MFASecurityReadiness) {
 		"recovery_support_rate_limited", signal.RecoverySupportRateLimited,
 		"recovery_support_session_revocation_failures", signal.RecoverySupportSessionRevocationFailures,
 		"affected_users", signal.AffectedUsers,
+		"alert_reasons", strings.Join(signal.AlertReasons, ","),
 	)
 }
 
 func (h *Handler) resetMFAAlert() bool {
+	_, wasActive := h.resetMFAAlertState()
+	return wasActive
+}
+
+func (h *Handler) resetMFAAlertState() (string, bool) {
 	h.mfaAlertMu.Lock()
+	previousKey := h.mfaAlertKey
 	wasActive := h.mfaAlertActive
 	h.mfaAlertKey = ""
 	h.mfaAlertAt = time.Time{}
 	h.mfaAlertActive = false
 	h.mfaAlertMu.Unlock()
-	return wasActive
+	return previousKey, wasActive
 }
 
 func (h *Handler) Routes() http.Handler {

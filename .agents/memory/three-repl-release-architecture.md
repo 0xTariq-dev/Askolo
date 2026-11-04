@@ -13,6 +13,12 @@ Askolo's intended release topology uses one central GitHub repository and three 
 
 **How to apply:** Treat the supplied host as Production until a separately configured Staging Repl and canonical HTTPS origin are confirmed. Preserve the production hold and use the current Development workspace for non-production checks.
 
+**Current operational scope (2026-11-04):** The user clarified that Production is the only live operational environment; no Staging environment is in use. The editor preview remains a separate Development context.
+
+**Why:** The user explicitly narrowed alerting and on-call verification to Production, while the active workspace still runs as Development.
+
+**How to apply:** Configure operational monitors for Production only unless the user changes scope. Keep editor-preview testing isolated and do not treat its environment as Production.
+
 Before changing configuration, data, integrations, releases, callbacks, or infrastructure, determine which Repl is active and apply that environment's guardrails:
 
 - **Development Repl:** Automatically follows merged `main` changes. It is used for active feature development, manual verification, and agent task execution. It uses sandbox databases, development integration clients, and test credentials. The current Repl is development.
