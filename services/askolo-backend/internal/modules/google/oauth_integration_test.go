@@ -3,6 +3,7 @@ package google
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -38,6 +39,8 @@ type controlledGoogleProvider struct {
 	tokenBody       string
 	userInfoPayload userInfo
 }
+
+const trustedDeviceTestHMACSecret = "integration-google-trusted-device-hmac-secret"
 
 func newGoogleOAuthFixture(t *testing.T) *googleOAuthIntegrationFixture {
 	t.Helper()
@@ -248,10 +251,11 @@ func googleOAuthDatabaseURL(t *testing.T, databaseURL, schema string) string {
 
 func testGoogleOAuthIntegrationHandler(fixture *googleOAuthIntegrationFixture, tokenURL, userInfoURL string, logger *slog.Logger) *Handler {
 	handler := NewHandler(config.Config{
-		Environment:       "test",
-		SessionSecret:     "integration-google-oauth-session-secret",
-		SessionCookieName: "askolo_sid",
-		AllowedOAuthHosts: map[string]struct{}{"localhost": {}},
+		Environment:             "test",
+		SessionSecret:           "integration-google-oauth-session-secret",
+		SessionCookieName:       "askolo_sid",
+		AuthRateLimitHMACSecret: trustedDeviceTestHMACSecret,
+		AllowedOAuthHosts:       map[string]struct{}{"localhost": {}},
 		Google: config.GoogleOAuthConfig{
 			LoginClientID:     "login-client",
 			LoginClientSecret: "login-secret",
@@ -320,7 +324,7 @@ func loginCallbackState(t *testing.T, fixture *googleOAuthIntegrationFixture, ha
 	return payload, &http.Cookie{Name: stateCookieName, Value: encoded}
 }
 
-func serveGoogleLoginCallback(handler *Handler, payload statePayload, cookie *http.Cookie, query url.Values) *httptest.ResponseRecorder {
+func serveGoogleLoginCallback(handler *Handler, payload statePayload, cookie *http.Cookie, query url.Values, browserCookies ...*http.Cookie) *httptest.ResponseRecorder {
 	query.Set("state", payload.Nonce)
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -329,9 +333,18 @@ func serveGoogleLoginCallback(handler *Handler, payload statePayload, cookie *ht
 	)
 	request.Host = "localhost"
 	request.AddCookie(cookie)
+	for _, browserCookie := range browserCookies {
+		request.AddCookie(browserCookie)
+	}
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
 	return response
+}
+
+func trustedDeviceTestHash(userID, kind, value string) string {
+	mac := hmac.New(sha256.New, []byte(trustedDeviceTestHMACSecret))
+	_, _ = mac.Write([]byte("askolo:trusted-device:v1:" + userID + "\x00" + kind + "\x00" + value))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func assertSafeGoogleRedirect(t *testing.T, response *httptest.ResponseRecorder, status string) {
@@ -521,6 +534,112 @@ func TestGoogleCallbackRequiresMFAForEnabledAccount(t *testing.T) {
 		t.Fatalf("Google callback session MFA state = %+v, want required and unverified", state)
 	}
 	assertGoogleCallbackDoesNotLeak(t, response, &logs, "google-mfa-code", "opaque-test-ciphertext")
+}
+
+func TestGoogleCallbackRecognizesOnlyValidRememberedBrowsers(t *testing.T) {
+	tests := []struct {
+		name                 string
+		expired              bool
+		revoked              bool
+		requestFingerprint   string
+		wantRedirect         string
+		wantMFARequired      bool
+		wantMFAAuthenticated bool
+	}{
+		{
+			name:                 "valid remembered browser",
+			requestFingerprint:   strings.Repeat("1", 64),
+			wantRedirect:         "success",
+			wantMFAAuthenticated: true,
+		},
+		{
+			name:               "expired remembered browser",
+			expired:            true,
+			requestFingerprint: strings.Repeat("1", 64),
+			wantRedirect:       "mfa_required",
+			wantMFARequired:    true,
+		},
+		{
+			name:               "revoked remembered browser",
+			revoked:            true,
+			requestFingerprint: strings.Repeat("1", 64),
+			wantRedirect:       "mfa_required",
+			wantMFARequired:    true,
+		},
+		{
+			name:               "fingerprint mismatch",
+			requestFingerprint: strings.Repeat("2", 64),
+			wantRedirect:       "mfa_required",
+			wantMFARequired:    true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newGoogleOAuthFixture(t)
+			info := userInfo{
+				Subject:       "google-trusted-device-subject",
+				Email:         "trusted-device-google@example.com",
+				EmailVerified: true,
+			}
+			provider, _ := newControlledGoogleProvider(t, http.StatusOK, info)
+			defer provider.Close()
+			handler := testGoogleOAuthIntegrationHandler(fixture, provider.URL+"/token", provider.URL+"/userinfo", slog.Default())
+			if _, err := fixture.pool.Exec(context.Background(), `
+				INSERT INTO users (id, email, status, email_verified_at, account_created_via)
+				VALUES ('google-trusted-device-user', $1, 'active', NOW(), 'google')
+			`, info.Email); err != nil {
+				t.Fatalf("seed MFA user: %v", err)
+			}
+			if _, err := fixture.pool.Exec(context.Background(), `
+				INSERT INTO provider_accounts
+					(id, user_id, provider, external_subject, email, display_name, login_enabled, email_verified, linked_at)
+				VALUES ('google-trusted-device-account', 'google-trusted-device-user', 'google', $2, $1,
+					'Trusted Device User', TRUE, TRUE, NOW())
+			`, info.Email, info.Subject); err != nil {
+				t.Fatalf("seed MFA provider identity: %v", err)
+			}
+			if _, err := fixture.pool.Exec(context.Background(), `
+				INSERT INTO auth_totp (user_id, secret_encrypted, enabled_at)
+				VALUES ('google-trusted-device-user', 'opaque-test-ciphertext', NOW())
+			`); err != nil {
+				t.Fatalf("enable MFA: %v", err)
+			}
+
+			const userID = "google-trusted-device-user"
+			const credential = "google-trusted-browser-credential"
+			enrolledFingerprint := strings.Repeat("1", 64)
+			_, err := fixture.pool.Exec(context.Background(), `
+				INSERT INTO auth_trusted_devices
+					(id, user_id, credential_hash, fingerprint_hash, expires_at, revoked_at)
+				VALUES ($1, $2, $3, $4,
+					CASE WHEN $5 THEN NOW() - INTERVAL '1 minute' ELSE NOW() + INTERVAL '1 hour' END,
+					CASE WHEN $6 THEN NOW() END)
+			`, "google-trusted-"+strings.ReplaceAll(test.name, " ", "-"), userID,
+				trustedDeviceTestHash(userID, "credential", credential),
+				trustedDeviceTestHash(userID, "fingerprint", enrolledFingerprint),
+				test.expired, test.revoked)
+			if err != nil {
+				t.Fatalf("seed trusted browser: %v", err)
+			}
+
+			payload, stateCookie := loginCallbackState(t, fixture, handler, "")
+			response := serveGoogleLoginCallback(handler, payload, stateCookie,
+				url.Values{"code": {"google-trusted-device-code"}},
+				&http.Cookie{Name: "askolo.trusted_device", Value: credential},
+				&http.Cookie{Name: "askolo_device_fingerprint", Value: test.requestFingerprint},
+			)
+			assertSafeGoogleRedirect(t, response, test.wantRedirect)
+			session := googleSessionCookie(t, response)
+			state, err := fixture.store.SessionMFAState(context.Background(), session.Value)
+			if err != nil {
+				t.Fatalf("read callback MFA state: %v", err)
+			}
+			if state.UserID != userID || state.Required != test.wantMFARequired || state.Verified != test.wantMFAAuthenticated {
+				t.Fatalf("Google callback MFA state = %+v, want required=%t verified=%t",
+					state, test.wantMFARequired, test.wantMFAAuthenticated)
+			}
+		})
+	}
 }
 
 func TestGoogleCallbackSignupExistingEmailRequiresExplicitSignIn(t *testing.T) {

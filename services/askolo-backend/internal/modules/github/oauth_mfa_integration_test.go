@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -19,6 +20,14 @@ import (
 	"askolo/backend/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const githubTrustedDeviceTestHMACSecret = "integration-github-trusted-device-hmac-secret"
+
+func githubTrustedDeviceTestHash(userID, kind, value string) string {
+	mac := hmac.New(sha256.New, []byte(githubTrustedDeviceTestHMACSecret))
+	_, _ = mac.Write([]byte("askolo:trusted-device:v1:" + userID + "\x00" + kind + "\x00" + value))
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 func TestGitHubLoginRequiresMFAForEnabledAccount(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
@@ -131,9 +140,10 @@ func TestGitHubLoginRequiresMFAForEnabledAccount(t *testing.T) {
 	}))
 	defer provider.Close()
 	handler := NewHandler(config.Config{
-		SessionSecret:     "github-mfa-integration-session-secret",
-		SessionCookieName: "askolo_sid",
-		AllowedOAuthHosts: map[string]struct{}{"localhost": {}},
+		SessionSecret:           "github-mfa-integration-session-secret",
+		SessionCookieName:       "askolo_sid",
+		AuthRateLimitHMACSecret: githubTrustedDeviceTestHMACSecret,
+		AllowedOAuthHosts:       map[string]struct{}{"localhost": {}},
 		GitHub: config.GitHubOAuthConfig{
 			ClientID:     "github-client",
 			ClientSecret: "github-secret",
@@ -143,46 +153,104 @@ func TestGitHubLoginRequiresMFAForEnabledAccount(t *testing.T) {
 			EmailsURL:    provider.URL + "/emails",
 		},
 	}, store, slog.Default())
-	payload := statePayload{
-		Nonce: "github-mfa-nonce", ReturnTo: "/dashboard",
-		Flow: "login", Intent: "signin", IssuedAt: time.Now().Unix(),
+	tests := []struct {
+		name               string
+		expired            bool
+		revoked            bool
+		requestFingerprint string
+		wantRedirect       string
+		wantRequired       bool
+		wantVerified       bool
+	}{
+		{
+			name:               "valid remembered browser",
+			requestFingerprint: strings.Repeat("1", 64),
+			wantRedirect:       "success",
+			wantVerified:       true,
+		},
+		{
+			name:               "expired remembered browser",
+			expired:            true,
+			requestFingerprint: strings.Repeat("1", 64),
+			wantRedirect:       "mfa_required",
+			wantRequired:       true,
+		},
+		{
+			name:               "revoked remembered browser",
+			revoked:            true,
+			requestFingerprint: strings.Repeat("1", 64),
+			wantRedirect:       "mfa_required",
+			wantRequired:       true,
+		},
+		{
+			name:               "fingerprint mismatch",
+			requestFingerprint: strings.Repeat("2", 64),
+			wantRedirect:       "mfa_required",
+			wantRequired:       true,
+		},
 	}
-	encodedState, err := handler.encodeState(payload)
-	if err != nil {
-		t.Fatalf("encode GitHub state: %v", err)
-	}
-	nonceHash := sha256.Sum256([]byte(payload.Nonce))
-	if err := store.InsertOAuthState(
-		ctx, hex.EncodeToString(nonceHash[:]), "github_login", "", payload.ReturnTo, time.Now().Add(stateTTL),
-	); err != nil {
-		t.Fatalf("insert GitHub OAuth state: %v", err)
-	}
-	request := httptest.NewRequest(http.MethodGet,
-		"http://localhost/api/auth/github/callback?state="+payload.Nonce+"&code=github-mfa-code", nil)
-	request.Host = "localhost"
-	request.AddCookie(&http.Cookie{Name: stateCookieName, Value: encodedState})
-	response := httptest.NewRecorder()
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const userID = "github-mfa-user"
+			credential := fmt.Sprintf("github-trusted-browser-credential-%d", index)
+			enrolledFingerprint := strings.Repeat("1", 64)
+			if _, err := adminPool.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.auth_trusted_devices
+					(id, user_id, credential_hash, fingerprint_hash, expires_at, revoked_at)
+				VALUES ($1, $2, $3, $4,
+					CASE WHEN $5 THEN NOW() - INTERVAL '1 minute' ELSE NOW() + INTERVAL '1 hour' END,
+					CASE WHEN $6 THEN NOW() END)
+			`, quotedSchema), fmt.Sprintf("github-trusted-device-%d", index), userID,
+				githubTrustedDeviceTestHash(userID, "credential", credential),
+				githubTrustedDeviceTestHash(userID, "fingerprint", enrolledFingerprint),
+				test.expired, test.revoked); err != nil {
+				t.Fatalf("seed trusted browser: %v", err)
+			}
 
-	handler.Routes().ServeHTTP(response, request)
+			payload := statePayload{
+				Nonce: fmt.Sprintf("github-mfa-nonce-%d", index), ReturnTo: "/dashboard",
+				Flow: "login", Intent: "signin", IssuedAt: time.Now().Unix(),
+			}
+			encodedState, err := handler.encodeState(payload)
+			if err != nil {
+				t.Fatalf("encode GitHub state: %v", err)
+			}
+			nonceHash := sha256.Sum256([]byte(payload.Nonce))
+			if err := store.InsertOAuthState(
+				ctx, hex.EncodeToString(nonceHash[:]), "github_login", "", payload.ReturnTo, time.Now().Add(stateTTL),
+			); err != nil {
+				t.Fatalf("insert GitHub OAuth state: %v", err)
+			}
+			request := httptest.NewRequest(http.MethodGet,
+				"http://localhost/api/auth/github/callback?state="+payload.Nonce+"&code=github-mfa-code", nil)
+			request.Host = "localhost"
+			request.AddCookie(&http.Cookie{Name: stateCookieName, Value: encodedState})
+			request.AddCookie(&http.Cookie{Name: "askolo.trusted_device", Value: credential})
+			request.AddCookie(&http.Cookie{Name: "askolo_device_fingerprint", Value: test.requestFingerprint})
+			response := httptest.NewRecorder()
+			handler.Routes().ServeHTTP(response, request)
 
-	if response.Code != http.StatusFound || response.Header().Get("Location") != "/dashboard?github=mfa_required" {
-		t.Fatalf("GitHub login response = %d %q, want MFA-required redirect", response.Code, response.Header().Get("Location"))
-	}
-	var sessionCookie *http.Cookie
-	for _, cookie := range response.Result().Cookies() {
-		if cookie.Name == "askolo_sid" && cookie.Value != "" {
-			sessionCookie = cookie
-			break
-		}
-	}
-	if sessionCookie == nil || sessionCookie.Value == "" {
-		t.Fatal("GitHub MFA login did not issue a pending session cookie")
-	}
-	state, err := store.SessionMFAState(ctx, sessionCookie.Value)
-	if err != nil {
-		t.Fatalf("read pending MFA session: %v", err)
-	}
-	if state.UserID != "github-mfa-user" || !state.Required || state.Verified {
-		t.Fatalf("GitHub login session MFA state = %+v, want required and unverified", state)
+			if response.Code != http.StatusFound || response.Header().Get("Location") != "/dashboard?github="+test.wantRedirect {
+				t.Fatalf("GitHub login response = %d %q, want %s redirect", response.Code, response.Header().Get("Location"), test.wantRedirect)
+			}
+			var sessionCookie *http.Cookie
+			for _, cookie := range response.Result().Cookies() {
+				if cookie.Name == "askolo_sid" && cookie.Value != "" {
+					sessionCookie = cookie
+					break
+				}
+			}
+			if sessionCookie == nil || sessionCookie.Value == "" {
+				t.Fatal("GitHub MFA login did not issue a session cookie")
+			}
+			state, err := store.SessionMFAState(ctx, sessionCookie.Value)
+			if err != nil {
+				t.Fatalf("read callback MFA state: %v", err)
+			}
+			if state.UserID != userID || state.Required != test.wantRequired || state.Verified != test.wantVerified {
+				t.Fatalf("GitHub callback MFA state = %+v, want required=%t verified=%t",
+					state, test.wantRequired, test.wantVerified)
+			}
+		})
 	}
 }
