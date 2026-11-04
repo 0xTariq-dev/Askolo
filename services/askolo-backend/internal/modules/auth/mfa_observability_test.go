@@ -81,8 +81,26 @@ func TestMFAAlertLogIsDeduplicatedWithoutUserIdentifiers(t *testing.T) {
 	if strings.Contains(logs.String(), "user_id") || strings.Contains(logs.String(), "request_id") {
 		t.Fatalf("alert log exposed an individual identifier: %q", logs.String())
 	}
-	if !strings.Contains(logs.String(), "operation=mfa_security_spike") {
-		t.Fatalf("alert log did not expose the stable operation label: %q", logs.String())
+	for _, field := range []string{
+		"operation=mfa_security_spike",
+		"environment=staging",
+		"alert_reasons=failure_events",
+	} {
+		if !strings.Contains(logs.String(), field) {
+			t.Fatalf("alert log missing stable routing field %q: %q", field, logs.String())
+		}
+	}
+	for _, privateValue := range []string{
+		"private-user-id",
+		"private-request-id",
+		"private-code",
+		"private-email@example.invalid",
+		"private-secret",
+		"private-raw-event-metadata",
+	} {
+		if strings.Contains(logs.String(), privateValue) {
+			t.Fatalf("alert log exposed private event data %q: %q", privateValue, logs.String())
+		}
 	}
 }
 
@@ -122,6 +140,18 @@ func TestMFARecoveryLogIsBoundedAndEmittedOnce(t *testing.T) {
 	if strings.Contains(recoveryLog, "user_id") || strings.Contains(recoveryLog, "request_id") ||
 		!strings.Contains(recoveryLog, `"alert_reasons":"failure_events"`) {
 		t.Fatalf("recovery log exposed an individual or alert-only field: %q", recoveryLog)
+	}
+	for _, privateValue := range []string{
+		"private-user-id",
+		"private-request-id",
+		"private-code",
+		"private-email@example.invalid",
+		"private-secret",
+		"private-raw-event-metadata",
+	} {
+		if strings.Contains(recoveryLog, privateValue) {
+			t.Fatalf("recovery log exposed private event data %q: %q", privateValue, recoveryLog)
+		}
 	}
 }
 

@@ -3,16 +3,22 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"askolo/backend/internal/adapters/postgres"
 	"askolo/backend/internal/config"
+	"askolo/backend/internal/testdb"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestMigrationReadinessProbeCoalescesAndCachesChecks(t *testing.T) {
@@ -331,6 +337,219 @@ func TestReadinessReportsMissingDependencies(t *testing.T) {
 		!strings.Contains(body, `"emailDeliveryConfigured":false`) ||
 		!strings.Contains(body, `"emailChallengeCleanup":{"status":"unknown"`) {
 		t.Fatalf("expected dependency readiness signals, got %q", body)
+	}
+}
+
+func TestReadinessMFAAlertAndRecoveryPayloadsAreAggregateOnly(t *testing.T) {
+	baseURL := strings.TrimSpace(os.Getenv("ASKOLO_TEST_DATABASE_URL"))
+	if baseURL == "" {
+		t.Skip("set ASKOLO_TEST_DATABASE_URL to run MFA readiness router tests")
+	}
+	testdb.RequireDisposable(t, baseURL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	adminPool, err := pgxpool.New(ctx, baseURL)
+	if err != nil {
+		t.Fatalf("open integration database: %v", err)
+	}
+	if err := adminPool.Ping(ctx); err != nil {
+		adminPool.Close()
+		t.Fatalf("ping integration database: %v", err)
+	}
+
+	schema := fmt.Sprintf("askolo_mfa_readiness_%d", time.Now().UnixNano())
+	quotedSchema := `"` + schema + `"`
+	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+quotedSchema); err != nil {
+		adminPool.Close()
+		t.Fatalf("create MFA readiness schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = adminPool.Exec(context.Background(), `DROP SCHEMA `+quotedSchema+` CASCADE`)
+		adminPool.Close()
+	})
+	if _, err := adminPool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE %s.auth_security_events (
+	id text PRIMARY KEY,
+	user_id text,
+	event_type text NOT NULL,
+	request_id text,
+	metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+	created_at timestamptz DEFAULT now() NOT NULL
+)
+`, quotedSchema)); err != nil {
+		t.Fatalf("create MFA readiness events table: %v", err)
+	}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		t.Fatalf("parse integration database URL: %v", err)
+	}
+	query := parsedURL.Query()
+	query.Set("options", "-c search_path="+schema)
+	parsedURL.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
+	store, err := postgres.New(ctx, parsedURL.String())
+	if err != nil {
+		t.Fatalf("open MFA readiness store: %v", err)
+	}
+	t.Cleanup(store.Close)
+
+	const (
+		privateUserID = "private-user-id-sentinel"
+		privateReqID  = "private-request-id-sentinel"
+		privateCode   = "private-code-sentinel"
+		privateEmail  = "private-email-sentinel@example.invalid"
+		privateSecret = "private-secret-sentinel"
+		privateMeta   = "private-raw-event-metadata-sentinel"
+	)
+	metadata := fmt.Sprintf(
+		`{"email":%q,"code":%q,"secret":%q,"rawEventMetadata":%q}`,
+		privateEmail,
+		privateCode,
+		privateSecret,
+		privateMeta,
+	)
+	eventCounts := []struct {
+		eventType string
+		count     int
+	}{
+		{"mfa_challenge_failed", 20},
+		{"mfa_replay_rejected", 5},
+		{"mfa_challenge_locked", 5},
+		{"mfa_decryption_failed", 3},
+		{"mfa_recovery_support_challenge_sent", 20},
+		{"mfa_recovery_support_verification_failed", 5},
+		{"mfa_recovery_support_rate_limited", 5},
+		{"mfa_recovery_support_session_revocation_failed", 1},
+	}
+	for _, eventCount := range eventCounts {
+		for index := range eventCount.count {
+			userID := fmt.Sprintf("%s-%d", privateUserID, index%4)
+			id := fmt.Sprintf("%s-%s-%d", privateMeta, eventCount.eventType, index)
+			if _, err := adminPool.Exec(ctx, fmt.Sprintf(`
+INSERT INTO %s.auth_security_events (id, user_id, event_type, request_id, metadata)
+VALUES ($1, $2, $3, $4, $5::jsonb)
+`, quotedSchema), id, userID, eventCount.eventType, privateReqID, metadata); err != nil {
+				t.Fatalf("insert MFA threshold event: %v", err)
+			}
+		}
+	}
+
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := New(testConfig("internal-secret"), logger, store)
+
+	readiness := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("readiness status = %d, want 503 with isolated schema; body=%s", response.Code, response.Body.String())
+		}
+		return response
+	}
+
+	alertResponse := readiness()
+	alertBody := alertResponse.Body.String()
+	for _, field := range []string{
+		`"status":"available"`,
+		`"environment":"test"`,
+		`"windowMinutes":15`,
+		`"failureEvents":20`,
+		`"replayEvents":5`,
+		`"lockoutEvents":5`,
+		`"decryptionFailureEvents":3`,
+		`"recoverySupportRequests":20`,
+		`"recoverySupportVerificationFailures":5`,
+		`"recoverySupportRateLimited":5`,
+		`"recoverySupportSessionRevocationFailures":1`,
+		`"affectedUsers":4`,
+		`"alert":true`,
+		`"alertReasons":["failure_events","replay_events","lockout_events","decryption_failure_events","recovery_support_request_spike","recovery_support_verification_failures","recovery_support_rate_limited","recovery_support_session_revocation_failures"]`,
+	} {
+		if !strings.Contains(alertBody, field) {
+			t.Fatalf("readiness response missing %q: %s", field, alertBody)
+		}
+	}
+	assertMFAPrivacySentinelsAbsent(t, alertBody, privateUserID, privateReqID, privateCode, privateEmail, privateSecret, privateMeta)
+	assertMFAPrivacyFieldsAbsent(t, alertBody)
+
+	if _, err := adminPool.Exec(ctx, `DELETE FROM `+quotedSchema+`.auth_security_events`); err != nil {
+		t.Fatalf("clear threshold MFA events: %v", err)
+	}
+	recoveryResponse := readiness()
+	recoveryBody := recoveryResponse.Body.String()
+	for _, field := range []string{
+		`"status":"available"`,
+		`"environment":"test"`,
+		`"failureEvents":0`,
+		`"recoverySupportRequests":0`,
+		`"affectedUsers":0`,
+		`"alert":false`,
+		`"alertReasons":["failure_events","replay_events","lockout_events","decryption_failure_events","recovery_support_request_spike","recovery_support_verification_failures","recovery_support_rate_limited","recovery_support_session_revocation_failures"]`,
+	} {
+		if !strings.Contains(recoveryBody, field) {
+			t.Fatalf("recovered readiness response missing %q: %s", field, recoveryBody)
+		}
+	}
+	assertMFAPrivacySentinelsAbsent(t, recoveryBody, privateUserID, privateReqID, privateCode, privateEmail, privateSecret, privateMeta)
+	assertMFAPrivacyFieldsAbsent(t, recoveryBody)
+
+	logOutput := logs.String()
+	var mfaLogs []string
+	for _, line := range strings.Split(strings.TrimSpace(logOutput), "\n") {
+		if strings.Contains(line, `"msg":"MFA verification failure spike"`) ||
+			strings.Contains(line, `"msg":"MFA verification failure spike recovered"`) {
+			mfaLogs = append(mfaLogs, line)
+		}
+	}
+	alertCount := strings.Count(strings.Join(mfaLogs, "\n"), `"msg":"MFA verification failure spike"`)
+	recoveryCount := strings.Count(strings.Join(mfaLogs, "\n"), `"msg":"MFA verification failure spike recovered"`)
+	if alertCount != 1 || recoveryCount != 1 {
+		t.Fatalf("MFA alert/recovery log counts = %d/%d, want 1/1: %s", alertCount, recoveryCount, logOutput)
+	}
+	mfaLogOutput := strings.Join(mfaLogs, "\n")
+	for _, field := range []string{
+		`"operation":"mfa_security_spike"`,
+		`"environment":"test"`,
+		`"alert_reasons":"failure_events,replay_events,lockout_events,decryption_failure_events,recovery_support_request_spike,recovery_support_verification_failures,recovery_support_rate_limited,recovery_support_session_revocation_failures"`,
+	} {
+		if !strings.Contains(mfaLogOutput, field) {
+			t.Fatalf("MFA alert log missing stable routing field %q: %s", field, mfaLogOutput)
+		}
+	}
+	if !strings.Contains(mfaLogOutput, `"recovery":true`) {
+		t.Fatalf("MFA recovery log missing recovery state: %s", mfaLogOutput)
+	}
+	assertMFAPrivacySentinelsAbsent(t, mfaLogOutput, privateUserID, privateReqID, privateCode, privateEmail, privateSecret, privateMeta)
+	assertMFAPrivacyFieldsAbsent(t, mfaLogOutput)
+}
+
+func assertMFAPrivacySentinelsAbsent(t *testing.T, serialized string, sentinels ...string) {
+	t.Helper()
+	for _, sentinel := range sentinels {
+		if strings.Contains(serialized, sentinel) {
+			t.Fatalf("serialized MFA payload exposed private event data %q: %s", sentinel, serialized)
+		}
+	}
+}
+
+func assertMFAPrivacyFieldsAbsent(t *testing.T, serialized string) {
+	t.Helper()
+	for _, field := range []string{
+		`"user_id"`,
+		`"userId"`,
+		`"request_id"`,
+		`"requestId"`,
+		`"code"`,
+		`"email"`,
+		`"secret"`,
+		`"metadata"`,
+		`"rawEventMetadata"`,
+	} {
+		if strings.Contains(serialized, field) {
+			t.Fatalf("serialized MFA payload exposed private field %s: %s", field, serialized)
+		}
 	}
 }
 
