@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { useAskoloTheme } from '@/lib/theme';
@@ -10,6 +11,52 @@ import logoUrl from '/icons/logo-display.png';
 import { toAppUrl } from '@/lib/site-domains';
 import { provenanceLabel } from '@/lib/runtime-environment';
 import { useLocale } from '@/contexts/locale-context';
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => { ready: Promise<void> };
+};
+
+function revealThemeChange(button: HTMLButtonElement, update: () => void) {
+  const transitionDocument = document as ViewTransitionDocument;
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (!transitionDocument.startViewTransition || prefersReducedMotion) {
+    update();
+    return;
+  }
+
+  const bounds = button.getBoundingClientRect();
+  const x = bounds.left + bounds.width / 2;
+  const y = bounds.top + bounds.height / 2;
+  const radius = Math.hypot(
+    Math.max(x, window.innerWidth - x),
+    Math.max(y, window.innerHeight - y),
+  );
+
+  const transition = transitionDocument.startViewTransition(() => {
+    flushSync(update);
+  });
+
+  void transition.ready
+    .then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${x}px ${y}px)`,
+            `circle(${radius}px at ${x}px ${y}px)`,
+          ],
+        },
+        {
+          duration: 520,
+          easing: 'ease-in-out',
+          pseudoElement: '::view-transition-new(root)',
+        } as KeyframeAnimationOptions & { pseudoElement: string },
+      );
+    })
+    .catch(() => {
+      // The theme update has already committed; an interrupted reveal is safe to ignore.
+    });
+}
 
 export function PublicLayout({
   children,
@@ -73,7 +120,10 @@ export function PublicLayout({
               aria-label={t(mode === 'dark' ? 'common.switchToLight' : 'common.switchToDark')}
               aria-pressed={mode === 'dark'}
               title={t(mode === 'dark' ? 'common.switchToLight' : 'common.switchToDark')}
-              onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
+              onClick={(event) => {
+                const nextMode = mode === 'dark' ? 'light' : 'dark';
+                revealThemeChange(event.currentTarget, () => setMode(nextMode));
+              }}
             >
               <span aria-hidden="true" className="relative size-4">
                 <Sun
