@@ -1,4 +1,9 @@
-import type { ButtonHTMLAttributes, CSSProperties, HTMLAttributes, MouseEvent as ReactMouseEvent } from "react"
+import type {
+  ButtonHTMLAttributes,
+  CSSProperties,
+  HTMLAttributes,
+  MouseEvent as ReactMouseEvent,
+} from "react"
 import { createContext, Fragment, useContext } from "react"
 import type { ItemInstance } from "@headless-tree/core"
 import { Slot } from "radix-ui"

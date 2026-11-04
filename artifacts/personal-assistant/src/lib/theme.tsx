@@ -238,14 +238,11 @@ function applyTheme(value: ResolvedThemePreferences) {
   root.dataset.askoloMode = value.mode;
   root.dataset.askoloSurfaceStyle = value.surfaceStyles[value.mode];
   const logoPrimary = readHexColor(source.themePresets[value.accountThemeId][value.mode], 'primary');
-  const logoFilter =
-    value.accountThemeId === 'neutral'
-      ? 'grayscale(1)'
-      : (() => {
-          const logoHue = Number(hexToHslChannels(logoPrimary).split(' ')[0]);
-          const logoHueRotation = ((logoHue - 189 + 540) % 360) - 180;
-          return `hue-rotate(${logoHueRotation}deg)`;
-        })();
+  const logoHue = Number(hexToHslChannels(logoPrimary).split(' ')[0]);
+  const logoHueRotation = ((logoHue - 189 + 540) % 360) - 180;
+  const logoFilter = `hue-rotate(${logoHueRotation}deg)${
+    value.accountThemeId === 'neutral' ? ' saturate(1.12)' : ''
+  }`;
   root.style.setProperty('--askolo-brand-logo-filter', logoFilter);
   const iconSuffix = `${value.accountThemeId}-${value.mode}`;
   const faviconLink = root.querySelector<HTMLLinkElement>('link[rel="icon"]');

@@ -8,7 +8,7 @@
 @plugin '@tailwindcss/typography';
 
 .askolo-brand-logo {
-  filter: var(--askolo-brand-logo-filter, grayscale(1));
+  filter: var(--askolo-brand-logo-filter, hue-rotate(13deg) saturate(1.12));
 }
 
 ::view-transition-old(root),
@@ -101,39 +101,49 @@
 }
 
 :root[data-askolo-theme="neutral"] .askolo-slogan-accent {
-  color: #555;
-  background-image: linear-gradient(145deg, #292929 8%, #777 52%, #3a3a3a 94%);
+  color: hsl(var(--primary));
+  background-image: linear-gradient(
+    145deg,
+    hsl(var(--primary)) 8%,
+    color-mix(in srgb, hsl(var(--primary)) 76%, hsl(var(--ring)) 24%) 52%,
+    hsl(var(--sidebar-primary)) 94%
+  );
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 :root[data-askolo-theme="neutral"].dark .askolo-slogan-accent {
-  color: #d8d8d8;
-  background-image: linear-gradient(145deg, #f0f0f0 8%, #aaa 52%, #e2e2e2 94%);
+  color: hsl(var(--sidebar-primary));
+  background-image: linear-gradient(
+    145deg,
+    hsl(var(--sidebar-primary)) 8%,
+    color-mix(in srgb, hsl(var(--sidebar-primary)) 68%, hsl(var(--foreground)) 32%) 52%,
+    color-mix(in srgb, hsl(var(--ring)) 25%, hsl(var(--foreground)) 75%) 94%
+  );
 }
 
 :root[data-askolo-theme="neutral"] .askolo-brand-header {
-  background-color: color-mix(in srgb, hsl(var(--background)) 88%, #777 12%);
-  border-color: color-mix(in srgb, hsl(var(--foreground)) 19%, hsl(var(--border)));
+  background-color: color-mix(in srgb, hsl(var(--background)) 90%, hsl(var(--primary)) 10%);
+  border-color: color-mix(in srgb, hsl(var(--primary)) 26%, hsl(var(--border)));
   box-shadow:
-    0 1px 0 hsl(var(--foreground) / 0.11),
+    0 1px 0 hsl(var(--primary) / 0.12),
     0 10px 28px hsl(0 0% 0% / 0.09),
     inset 0 1px 0 hsl(0 0% 100% / 0.2);
 }
 
 :root[data-askolo-theme="neutral"] .askolo-graphite-surface {
-  background-color: color-mix(in srgb, hsl(var(--card)) 90%, hsl(var(--foreground)) 10%);
-  border-color: color-mix(in srgb, hsl(var(--foreground)) 17%, hsl(var(--border)));
+  background-color: color-mix(in srgb, hsl(var(--card)) 90%, hsl(var(--primary)) 10%);
+  border-color: color-mix(in srgb, hsl(var(--primary)) 23%, hsl(var(--border)));
   box-shadow:
     inset 0 1px 0 hsl(0 0% 100% / 0.17),
     0 2px 7px hsl(0 0% 0% / 0.055);
 }
 
 :root[data-askolo-theme="neutral"] .askolo-graphite-inset {
-  color: hsl(var(--foreground));
-  background-color: color-mix(in srgb, hsl(var(--background)) 88%, hsl(var(--foreground)) 12%);
-  border-color: color-mix(in srgb, hsl(var(--foreground)) 21%, hsl(var(--border)));
+  color: hsl(var(--primary));
+  background-color: color-mix(in srgb, hsl(var(--background)) 90%, hsl(var(--primary)) 10%);
+  border-color: color-mix(in srgb, hsl(var(--primary)) 28%, hsl(var(--border)));
   box-shadow:
     inset 0 1px 2px hsl(0 0% 0% / 0.07),
     0 1px 0 hsl(0 0% 100% / 0.16);
@@ -141,28 +151,37 @@
 
 :root[data-askolo-theme="neutral"] .askolo-graphite-inset svg,
 :root[data-askolo-theme="neutral"] .askolo-graphite-inset span {
-  color: hsl(var(--foreground));
+  color: hsl(var(--primary));
 }
 
 :root[data-askolo-theme="neutral"].dark .askolo-brand-header {
-  background-color: color-mix(in srgb, hsl(var(--background)) 92%, #aaa 8%);
+  background-color: color-mix(in srgb, hsl(var(--background)) 90%, hsl(var(--sidebar-primary)) 10%);
+  border-color: color-mix(in srgb, hsl(var(--sidebar-primary)) 24%, hsl(var(--border)));
   box-shadow:
     inset 0 1px 0 hsl(0 0% 100% / 0.13),
     0 12px 30px hsl(0 0% 0% / 0.22);
 }
 
 :root[data-askolo-theme="neutral"].dark .askolo-graphite-surface {
-  background-color: color-mix(in srgb, hsl(var(--card)) 90%, #aaa 10%);
+  background-color: color-mix(in srgb, hsl(var(--card)) 91%, hsl(var(--sidebar-primary)) 9%);
+  border-color: color-mix(in srgb, hsl(var(--sidebar-primary)) 20%, hsl(var(--border)));
   box-shadow:
     inset 0 1px 0 hsl(0 0% 100% / 0.12),
     0 3px 9px hsl(0 0% 0% / 0.2);
 }
 
 :root[data-askolo-theme="neutral"].dark .askolo-graphite-inset {
-  background-color: color-mix(in srgb, hsl(var(--background)) 88%, #aaa 12%);
+  color: hsl(var(--sidebar-primary));
+  background-color: color-mix(in srgb, hsl(var(--background)) 84%, hsl(var(--sidebar-primary)) 16%);
+  border-color: color-mix(in srgb, hsl(var(--sidebar-primary)) 25%, hsl(var(--border)));
   box-shadow:
     inset 0 1px 3px hsl(0 0% 0% / 0.24),
     0 1px 0 hsl(0 0% 100% / 0.08);
+}
+
+:root[data-askolo-theme="neutral"].dark .askolo-graphite-inset svg,
+:root[data-askolo-theme="neutral"].dark .askolo-graphite-inset span {
+  color: hsl(var(--sidebar-primary));
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -232,7 +251,7 @@
   --color-space-family: hsl(var(--space-family));
   --color-space-family-foreground: hsl(var(--space-family-foreground));
 
-  --font-sans: 'Outfit Variable', sans-serif;
+  --font-sans: 'Outfit Variable', Cairo, sans-serif;
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
   --font-display: var(--app-font-display);
@@ -249,8 +268,8 @@
 
 :root {
   /* Typography, spacing, and radius values mirror askolo-design-tokens.json. */
-  --app-font-sans: 'Cairo', sans-serif;
-  --app-font-display: 'Cairo', sans-serif;
+  --app-font-sans: 'Outfit Variable', Cairo, sans-serif;
+  --app-font-display: 'Outfit Variable', Cairo, sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
   --radius: 0.625rem;

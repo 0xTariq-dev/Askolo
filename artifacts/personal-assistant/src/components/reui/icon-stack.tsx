@@ -78,7 +78,7 @@ function IconStackLayer({
         data-slot="icon-stack-layer"
         d="M42.2545 2.0456C43.2707 2.5643 43.9155 3.7979 43.9155 5.543V43.6337C43.9155 46.7665 41.827 50.3616 39.2549 51.6722L7.9554 67.6235C6.813 68.2052 5.7687 68.2331 4.9628 67.8196C3.9465 67.301 3.3018 66.0673 3.3018 64.3222V26.2318C3.3018 23.0991 5.3903 19.5036 7.9624 18.193L39.2619 2.2421C40.4043 1.6604 41.4486 1.6321 42.2545 2.0456Z"
         stroke="currentColor"
-        strokeOpacity={active ? "0.3" : "0.2"}
+        strokeOpacity={active ? "0.35" : "0.25"}
         strokeWidth="0.5"
         strokeLinecap="round"
         strokeLinejoin="round"
